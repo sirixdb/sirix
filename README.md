@@ -38,12 +38,34 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 &lt;/a&gt;
 </code></pre>
 
-Further use cases, development news and other stuff related to Sirix: http://sirixdb.tumblr.com
+## Features in a nutshell
+- Transactional, versioned, typed user-defined index-structures, which are automatically updated once a transaction commits.
+- Through XPath-axis extensions we support the navigation not only in space but also in time (future::, past::, first::, last::...). Furthermore we provide several temporal XQuery functions due to our integral versioning approach.
+- An in memory path summary, which is persisted during a transaction commit and always kept up-to-date.
+- Configurable versioning at the database level (full, incremental, differential and a new sliding snapshot algorithm which balances reads and writes without introducing write-peaks, which are usually generated during intermediate full dumps, which are usually written to).
+- Log-structured sequential writes and random reads due to transactional copy-on-write (COW) semantics. This offers nice benefits as for instance no locking for concurrent reading-transactions and it takes full advantage of flash disks while avoiding their weaknesses.
+- Complete isolation of currently N read-transactions and a single write-transaction per resource.
+- The page-structure is heavily inspired by ZFS and therefore also forms a tree. We'll implement a similar merkle-tree and store hashes of each page in parent-pointers for integrity checks.
+- Support of XQuery and XQuery Update due to a slightly modified version of brackit(.org).
+- Moves are additionally supported.
+- Automatic path-rewriting of descendant-axis to child-axis if appropriate.
+- Import of differences between two XML-documents, that is after the first version of an XML-document is imported an algorithm tries to update the Sirix resource with a minimum of operations to change the first version into the new version.
+- A fast ID-based diff-algorithm which is able to determine differences between any two versions of a resource stored in Sirix optionally taking hashes of a node into account.
+- The number of children of a node, the number of descendants, a hash as well as an ORDPATH / DeweyID label which is compressed on disk to efficiently determine document order as well as to support other nice properties of hierarchical node labels is optionally stored with each node. Currently the number of children is always stored and the number of descendants is stored if hashing is enabled.
+- Flexible backend.
+- Optional encryption and/or compression of each page on disk.
 
-<a href="http://twitter.com/home/?status=Thanks @https%3A%2F%2Ftwitter.com%2Fsirixdb for making Sirix: https%3A%2F%2Fgithub.com%2Fsirixdb%2Fsirix"><img src="https://s3.amazonaws.com/github-thank-you-button/thank-you-button.png" alt="Say Thanks" /></a>
+Currently we are refactoring a RESTful-API and we'll explore how to efficiently distribute Sirix. Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward.
+
+Besides, the architecture for versioning data is not restricted to tree-structures by all means as demonstrated in the Ph.D. Thesis of Sebastian Graf (Sirix originated a few years ago as a fork of Treetank going back to its roots and focusing on the versioning of tree-structured data): http://nbn-resolving.de/urn:nbn:de:bsz:352-272505
+
+Storing files natively is also on our agenda. Furthermore a key management schema similar to the one described in Sebastian's Thesis has to be implemented. 
+
+## First steps
+Please have a look into our sirix-example project how to use Sirix. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
 
 ## Developers
-First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
+Developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON) are always welcome. The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
 
 ## Introduction
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
@@ -123,15 +145,7 @@ Examples:
 &lt;/dependency&gt;
 </code></pre>
 
-JAX-RX interface (RESTful API):
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-jax-rx&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Brackit(.org) interface (use Brackit to query data -- in the future should be preferable to Saxon (as we will include index rewriting rules... and it supports many build-in XQuery functions as well as the XQuery Update Facility), however as of now it is our very first (unstable) version):
+Brackit binding:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
@@ -140,51 +154,9 @@ Brackit(.org) interface (use Brackit to query data -- in the future should be pr
 </pre></code>
 
 
-Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
-
-## Technical details and Features
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
-
-The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction without any locking. Supporting N-write transactions is in the works as well as the current work on indexes to support a Brackit binding which in turn supports XQuery and the XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks (sequential writes and random reads). We support several well known versioning strategies (incremental, differential, full).
-
-The main features in a nutshell are:
-* import of differences between a resource stored in Sirix and a new version thereof in the form of an XML-document, another Sirix resource or in the future a JSON-document
-(for instance we imported two versions of an AST, a small set of sorted Wikipedia articles by revision-timestamps and a predefined time interval
-which is used to decide when to store a new revision)
-* an ID-based diff-algorithm which detects differences between two revisions/versions of a single resource in Sirix (for instance used by
-interactive visualizations thereof)
-* several well known versioning strategies which might adapt themselves in the future according to different workloads 
-=> thus any revision can simply be serialized, queried...
-* supports indexes (whereas we are currently working on more sophisticated typed, user defined or "learned" CoW B+-indexes -- also needs to be integrated into the Brackit-binding)
-* supports XQuery (through Brackit(.org))
-* supports the XQuery Update Facility (through Brackit(.org))
-* supports temporal axis as for instance all-time::, past::, past-or-self::, future::, future-or-self::, first::, last::, next::, previous:: as well as extended functions, as for instance doc(xs:string, xs:int) to specify a revision to restore with the second argument.
-* Path rewrite optimizations for the descendant::- and descendant-or-self:: axis to support the Brackit-binding
-* a GUI incorporates several views which are
-visualizing either a single revision or the differences between two or
-more revisions of a resource (an XML-document imported into the native format in Sirix)
-* (naturally) implements a form of MVCC and thus readers are never blocked
-* single write-transaction in parallel to N read-transactions on the
-same resource 
-* in-memory- or on-disk-storage
-* the page-size isn't padded until a predefined size is reached. Instead only necessary bytes are written.
-
-## Donations
-If you ever think this software does anything good and is of use to you, you might consider donating something to this wonderful "This Star Won't Go Out" Foundation at http://tswgo.org.
-
-## Future
-A bunch of work includes the current index-structures:
-
-- We are currently refactoring our work on index-structures. Instead of providing text-value/attribute-value and an element index, we will shortly provide an infrastructure which allows the specification of path-restricted indexes, restricted on specific atomic values/QNames and so on. Furthermore the index-structures will be typed indexes. Once these additions have been added, we will work hard on the integration in Brackit and build a sophisticated set of rewriting-rules.
-- Besides, we will probably change the index-structures based on a threshold value to switch between an AVLTree (for instance which is much better suited for updates in comparison to B+-trees and derivates) or a special version of a CoW-B+-tree, which trades a possibly small reading bottleneck for faster updates (path-copying will be much cheaper).
-
-Furthermore we would like to research how to implement sharding.
-
-If anyone is interested to cooperate or contribute, further topics are:
-
-- providing multiple write-transactions as well as a simple recovery-mechanism as well as checkpointing
-- providing encryption bound to specific subtrees/revisions/user groups
 
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
