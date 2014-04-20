@@ -46,7 +46,7 @@ public class FunUtil {
 	public static int getInt(Sequence[] params, int pos, String parameterName,
 			int defaultValue, int[] allowedValues, boolean required)
 			throws QueryException {
-		if (params[pos] == null) {
+		if (pos >= params.length || params[pos] == null) {
 			if (required) {
 				throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
 						"Invalid integer parameter %s. Expected %s", parameterName,
@@ -76,7 +76,7 @@ public class FunUtil {
 	public static boolean getBoolean(Sequence[] params, int pos,
 			String parameterName, boolean defaultValue, boolean required)
 			throws QueryException {
-		if (params[pos] == null) {
+		if (pos >= params.length || params[pos] == null) {
 			if (required) {
 				throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
 						"Invalid empty boolean parameter %s.", parameterName);
@@ -91,7 +91,7 @@ public class FunUtil {
 	public static String getString(Sequence[] params, int pos,
 			String parameterName, String defaultValue, String[] allowedValues,
 			boolean required) throws QueryException {
-		if (params[pos] == null) {
+		if (pos >= params.length || params[pos] == null) {
 			if (required) {
 				throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
 						"Invalid parameter %s. Expected %s", parameterName,

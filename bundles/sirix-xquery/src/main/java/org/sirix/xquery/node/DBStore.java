@@ -50,23 +50,6 @@ public final class DBStore implements Store, AutoCloseable {
 	/** Storage for databases: Sirix data in home directory. */
 	private static final File LOCATION = new File(USER_HOME, "sirix-data");
 
-	/** Determines if collections have to be updating or not. */
-	public enum Updating {
-		/**
-		 * Yes, collections generated with this BDStore instance should be
-		 * updatable.
-		 */
-		YES,
-
-		/**
-		 * No, collections generated with this BDStore instance should be updatable.
-		 */
-		NO;
-	}
-
-	/** {@link Updating} value constant. */
-	private Updating mUpdating;
-
 	/** {@link Set} of databases. */
 	private final Set<Database> mDatabases;
 
@@ -85,24 +68,11 @@ public final class DBStore implements Store, AutoCloseable {
 	 * Builder setting up the store.
 	 */
 	public static class Builder {
-		/** Determines if the databases created by the store should be updatable. */
-		private boolean mIsUpdatable;
-
 		/** Storage type. */
 		private StorageType mStorageType = StorageType.FILE;
 
 		/** The location to store created collections/databases. */
 		private File mLocation = LOCATION;
-
-		/**
-		 * Determines if collections should be updatable.
-		 * 
-		 * @return this builder instance
-		 */
-		public Builder isUpdatable() {
-			mIsUpdatable = true;
-			return this;
-		}
 
 		/**
 		 * Set the storage type (default: file backend).
@@ -146,7 +116,6 @@ public final class DBStore implements Store, AutoCloseable {
 	 */
 	private DBStore(final Builder builder) {
 		mDatabases = new HashSet<>();
-		mUpdating = builder.mIsUpdatable ? Updating.YES : Updating.NO;
 		mStorageType = builder.mStorageType;
 		mLocation = builder.mLocation;
 	}
@@ -164,7 +133,7 @@ public final class DBStore implements Store, AutoCloseable {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
-				return new DBCollection(name, database, mUpdating);
+				return new DBCollection(name, database);
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -183,7 +152,7 @@ public final class DBStore implements Store, AutoCloseable {
 
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			return new DBCollection(name, database, mUpdating);
+			return new DBCollection(name, database);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -215,8 +184,7 @@ public final class DBStore implements Store, AutoCloseable {
 					.getSession(new SessionConfiguration.Builder(resName).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-			final DBCollection collection = new DBCollection(collName, database,
-					mUpdating);
+			final DBCollection collection = new DBCollection(collName, database);
 			parser
 					.parse(new SubtreeBuilder(
 							collection,
@@ -264,7 +232,7 @@ public final class DBStore implements Store, AutoCloseable {
 												.build());
 								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 								final DBCollection collection = new DBCollection(collName,
-										database, mUpdating);
+										database);
 								nextParser.parse(new SubtreeBuilder(
 										collection,
 										wtx,
@@ -283,7 +251,7 @@ public final class DBStore implements Store, AutoCloseable {
 				}
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
-				return new DBCollection(collName, database, mUpdating);
+				return new DBCollection(collName, database);
 			} catch (final SirixException | InterruptedException e) {
 				throw new DocumentException(e.getCause());
 			}

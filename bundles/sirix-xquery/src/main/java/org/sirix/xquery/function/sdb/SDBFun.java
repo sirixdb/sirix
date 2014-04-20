@@ -3,12 +3,13 @@ package org.sirix.xquery.function.sdb;
 import static org.sirix.xquery.function.sdb.datamining.GetChildCount.GET_CHILD_COUNT;
 import static org.sirix.xquery.function.sdb.datamining.GetDescendantCount.GET_DESCENDANT_COUNT;
 import static org.sirix.xquery.function.sdb.datamining.GetHash.HASH;
-import static org.sirix.xquery.function.sdb.index.FindCASIndex.FIND_CAS_INDEX;
-import static org.sirix.xquery.function.sdb.index.FindNameIndex.FIND_NAME_INDEX;
-import static org.sirix.xquery.function.sdb.index.FindPathIndex.FIND_PATH_INDEX;
+import static org.sirix.xquery.function.sdb.index.SortByDocOrder.SORT;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static org.sirix.xquery.function.sdb.index.find.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.sdb.index.find.FindNameIndex.FIND_NAME_INDEX;
+import static org.sirix.xquery.function.sdb.index.find.FindPathIndex.FIND_PATH_INDEX;
 import static org.sirix.xquery.function.sdb.io.Doc.DOC;
 import static org.sirix.xquery.function.sdb.io.Load.LOAD;
 import static org.sirix.xquery.function.sdb.io.Store.STORE;
@@ -29,12 +30,13 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.datamining.GetChildCount;
 import org.sirix.xquery.function.sdb.datamining.GetDescendantCount;
 import org.sirix.xquery.function.sdb.datamining.GetHash;
-import org.sirix.xquery.function.sdb.index.FindCASIndex;
-import org.sirix.xquery.function.sdb.index.FindNameIndex;
-import org.sirix.xquery.function.sdb.index.FindPathIndex;
+import org.sirix.xquery.function.sdb.index.SortByDocOrder;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
 import org.sirix.xquery.function.sdb.index.create.CreateNameIndex;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
+import org.sirix.xquery.function.sdb.index.find.FindCASIndex;
+import org.sirix.xquery.function.sdb.index.find.FindNameIndex;
+import org.sirix.xquery.function.sdb.index.find.FindPathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.sdb.index.scan.ScanNameIndex;
@@ -77,6 +79,13 @@ public final class SDBFun {
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
+		// sort by document order
+		Functions.predefine(new SortByDocOrder(SORT, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
+		
+		// get number of descendants
+		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+		
 		// get number of descendants
 		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
 				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
@@ -106,6 +115,10 @@ public final class SDBFun {
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
 						AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INT,
 						Cardinality.ZeroOrOne))));
+		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
+				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
+						AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INT,
+						Cardinality.ZeroOrOne), new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
 		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
 						AtomicType.STR, Cardinality.One))));

@@ -1,15 +1,17 @@
-package org.sirix.xquery.function.sdb.index;
+package org.sirix.xquery.function.sdb.index.find;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
-import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.Type;
 import org.sirix.access.IndexController;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.IndexDef;
@@ -20,25 +22,25 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for finding a path index. If successful, this function returns the
- * path-index number. Otherwise it returns -1.
+ * Function for finding a name index. If successful, this function returns the
+ * name-index number. Otherwise it returns -1.
  * 
  * Supported signatures are:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:find-path-index($doc as xs:node, $path as xs:string) as xs:int</code>
+ * <code>sdb:find-name-index($doc as xs:node, $name as xs:QName) as xs:int</code>
  * </li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public final class FindPathIndex extends AbstractFunction {
+public final class FindNameIndex extends AbstractFunction {
 
 	/** CAS index function name. */
-	public final static QNm FIND_PATH_INDEX = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "find-path-index");
+	public final static QNm FIND_NAME_INDEX = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "find-name-index");
 
 	/**
 	 * Constructor.
@@ -48,7 +50,7 @@ public final class FindPathIndex extends AbstractFunction {
 	 * @param signature
 	 *          the signature of the function
 	 */
-	public FindPathIndex(QNm name, Signature signature) {
+	public FindNameIndex(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
@@ -65,9 +67,9 @@ public final class FindPathIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(
-				path);
+		final QNm qnm = (QNm) Cast.cast(sctx, (Atomic) args[1], Type.QNM, false);
+		final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(
+				qnm);
 
 		if (indexDef.isPresent())
 			return new Int32(indexDef.get().getID());
