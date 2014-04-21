@@ -1,5 +1,7 @@
 package org.sirix.page;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
@@ -13,8 +15,6 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Fixed;
-
-import com.google.common.base.Optional;
 
 /**
  * Page utilities.
@@ -61,7 +61,7 @@ public final class PageUtils {
 		// Create new record page.
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-				Optional.<PageReference> absent(), pageWriteTrx);
+				Optional.<PageReference> empty(), pageWriteTrx);
 		ndp.setDirty(true);
 		reference.setKeyValuePageKey(0);
 		reference.setLogKey(new IndirectPageLogKey(pageKind, index,
@@ -70,7 +70,7 @@ public final class PageUtils {
 		// Create a {@link DocumentRootNode}.
 		final Optional<SirixDeweyID> id = pageWriteTrx.getSession()
 				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
-				.newRootID()) : Optional.<SirixDeweyID> absent();
+				.newRootID()) : Optional.<SirixDeweyID> empty();
 		final NodeDelegate nodeDel = new NodeDelegate(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),

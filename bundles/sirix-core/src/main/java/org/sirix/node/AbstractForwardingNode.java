@@ -1,12 +1,13 @@
 package org.sirix.node;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 /**

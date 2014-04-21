@@ -32,9 +32,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
@@ -75,8 +80,12 @@ public final class DatabaseImpl implements Database {
 	private final AtomicLong mResourceID = new AtomicLong();
 
 	/** Central repository of all running sessions. */
-	private final ConcurrentMap<File, SessionImpl> mSessions;
-
+	private final ConcurrentMap<File, Set<Session>> mSessions;
+	
+	private final ConcurrentMap<File, Semaphore> mReadSemaphores;
+	
+	private final ConcurrentMap<File, Semaphore> mWriteSemaphores;
+	
 	/** Central repository of all resource-ID/ResourceConfiguration tuples. */
 	private final BiMap<Long, String> mResources;
 
@@ -96,6 +105,8 @@ public final class DatabaseImpl implements Database {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
 		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
+		mReadSemaphores = new ConcurrentHashMap<>();
+		mWriteSemaphores = new ConcurrentHashMap<>();
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -216,38 +227,50 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 
 	@Override
-	public synchronized Session getSession(final SessionConfiguration pSessionConf)
+	public synchronized Session getSession(final SessionConfiguration sessionConf)
 			throws SirixException {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
-				pSessionConf.getResource());
-		SessionImpl returnVal = mSessions.get(resourceFile);
-
-		if (returnVal == null) {
-			if (!resourceFile.exists()) {
-				throw new SirixUsageException(
-						"Resource could not be opened (since it was not created?) at location",
-						resourceFile.toString());
+				sessionConf.getResource());
+		Set<Session> sessions = mSessions.get(resourceFile);		
+		if (sessions == null) {
+			sessions = Collections.newSetFromMap(new ConcurrentHashMap<>());
+		} else {
+			final Optional<Session> optionalSession = sessions.stream().filter(new SessionPredicate(sessionConf)).findFirst();
+	
+			if (optionalSession.isPresent()) {
+				return optionalSession.get();
 			}
-			final ResourceConfiguration config = ResourceConfiguration
-					.deserialize(resourceFile);
-
-			// Resource of session must be associated to this database
-			assert config.mPath.getParentFile().getParentFile()
-					.equals(mDBConfig.getFile());
-			returnVal = new SessionImpl(this, config, pSessionConf);
-			mSessions.put(resourceFile, returnVal);
 		}
+			
+		if (!resourceFile.exists()) {
+			throw new SirixUsageException(
+					"Resource could not be opened (since it was not created?) at location",
+					resourceFile.toString());
+		}
+		final ResourceConfiguration resourceConfig = ResourceConfiguration
+				.deserialize(resourceFile);
 
-		return returnVal;
+		// Resource of session must be associated to this database
+		assert resourceConfig.mPath.getParentFile().getParentFile().equals(mDBConfig.getFile());
+		if (!mReadSemaphores.containsKey(resourceFile))
+			mReadSemaphores.put(resourceFile, new Semaphore(512));
+		if (!mWriteSemaphores.containsKey(resourceFile))
+			mWriteSemaphores.put(resourceFile, new Semaphore(1));
+		final Session session = new SessionImpl(this, resourceConfig, sessionConf);
+		sessions.add(session);
+		mSessions.put(resourceFile, sessions);
+		return session;
 	}
 
 	@Override
 	public synchronized void close() throws SirixException {
 		// Close all sessions.
-		for (final Session session : mSessions.values()) {
-			if (!session.isClosed()) {
-				session.close();
+		for (final Set<Session> sessions : mSessions.values()) {
+			for (final Session session : sessions) {
+				if (!session.isClosed()) {
+					session.close();
+				}
 			}
 		}
 
@@ -282,9 +305,11 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized Database commitAll() throws SirixException {
 		// Commit all sessions.
-		for (final Session session : mSessions.values()) {
-			if (!session.isClosed()) {
-				session.commitAll();
+		for (final Set<Session> sessions : mSessions.values()) {
+			for (final Session session : sessions) {
+				if (!session.isClosed()) {
+					session.commitAll();
+				}
 			}
 		}
 		return this;
@@ -294,12 +319,23 @@ public final class DatabaseImpl implements Database {
 	 * Closing a resource. This callback is necessary due to centralized handling
 	 * of all sessions within a database.
 	 * 
-	 * @param file
+	 * @param resourceFile
 	 *          {@link File} to be closed
+	 * @param sessionConfig
+	 *          the session configuration
 	 * @return {@code true} if close successful, {@code false} otherwise
 	 */
-	protected boolean removeSession(final File file) {
-		return mSessions.remove(file) == null ? false : true;
+	protected boolean removeSession(final File resourceFile, final SessionConfiguration sessionConfig) {
+		final Set<Session> sessions = mSessions.get(resourceFile);		
+		if (sessions == null || sessions.isEmpty() || sessions.size() == 1) {
+			return mSessions.remove(resourceFile) == null ? false : true;
+		}
+		
+		final Optional<Session> optionalSession = sessions.stream().filter(new SessionPredicate(sessionConfig)).findFirst();
+		if (optionalSession.isPresent()) {
+			return mSessions.get(resourceFile).remove(optionalSession.get());
+		}
+		return false;
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -332,4 +368,26 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 	// END general methods //////////////////////////////////////
 	// //////////////////////////////////////////////////////////
+	
+	private static class SessionPredicate implements Predicate<Session> {
+		
+		private final SessionConfiguration mSessionConf;
+
+		private SessionPredicate(final SessionConfiguration sessionConf) {
+			mSessionConf = sessionConf;
+		}
+	
+		@Override
+		public boolean test(final Session session) {
+			return session.getSessionConfiguration().equals(mSessionConf);
+		}
+	}
+
+	Semaphore getReadSemaphore(File resourceFile) {
+		return mReadSemaphores.get(resourceFile);
+	}
+	
+	Semaphore getWriteSemaphore(File resourceFile) {
+		return mWriteSemaphores.get(resourceFile);
+	}
 }

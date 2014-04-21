@@ -29,6 +29,8 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
+
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -39,7 +41,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 /**
  * Null node (NullObject pattern).

@@ -75,12 +75,6 @@ public final class SessionConfiguration {
 	// END STATIC STANDARD FIELDS
 
 	// MEMBERS FOR FLEXIBLE FIELDS
-	/** Numbers of allowed {@link NodeWriteTrx} instances. */
-	public final int mWtxAllowed;
-
-	/** Numbers of allowed {@link NodeReadTrx} instances. */
-	public final int mRtxAllowed;
-
 	/** Number of node modifications until an automatic commit occurs. */
 	public final int mCommitThreshold;
 
@@ -104,8 +98,6 @@ public final class SessionConfiguration {
 	 *          {@link Builder} reference
 	 */
 	private SessionConfiguration(final SessionConfiguration.Builder builder) {
-		mWtxAllowed = builder.mWtxAllowed;
-		mRtxAllowed = builder.mRtxAllowed;
 		mCommitThreshold = builder.mCommitThreshold;
 		mUser = builder.mUser;
 		mResource = builder.mResource;
@@ -114,7 +106,7 @@ public final class SessionConfiguration {
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mWtxAllowed, mRtxAllowed, mCommitThreshold, mUser,
+		return Objects.hashCode(mUser,
 				mResource);
 	}
 
@@ -122,10 +114,7 @@ public final class SessionConfiguration {
 	public final boolean equals(final @Nullable Object obj) {
 		if (obj instanceof SessionConfiguration) {
 			final SessionConfiguration other = (SessionConfiguration) obj;
-			return mWtxAllowed == other.mWtxAllowed
-					&& mRtxAllowed == other.mRtxAllowed
-					&& mCommitThreshold == other.mCommitThreshold
-					&& Objects.equal(mUser, other.mUser)
+			return Objects.equal(mUser, other.mUser)
 					&& Objects.equal(mResource, other.mResource);
 		}
 		return false;
@@ -134,7 +123,6 @@ public final class SessionConfiguration {
 	@Override
 	public String toString() {
 		return Objects.toStringHelper(this).add("Resource", mResource)
-				.add("RtxAllowed", mRtxAllowed).add("WtxAllowed", mWtxAllowed)
 				.add("Commit threshold", mCommitThreshold).add("User", mUser)
 				.toString();
 	}
@@ -163,7 +151,7 @@ public final class SessionConfiguration {
 	 * @param resource
 	 *          the name of the resource
 	 * @throws NullPointerException
-	 *           if {@code resource} or {@code config} is {@code null}
+	 *           if {@code resource} is {@code null}
 	 * @return {@link Builder} instance
 	 */
 	public static Builder newBuilder(final String resource) {
@@ -208,32 +196,32 @@ public final class SessionConfiguration {
 			mResource = checkNotNull(resource);
 		}
 
-		/**
-		 * Determines how many concurrent write transactions are allowed (only 1
-		 * (default) allowed).
-		 * 
-		 * @param wtxAllowed
-		 *          new value for field
-		 * @return reference to the builder object
-		 */
-		public Builder writeTrxAllowed(@Nonnegative final int wtxAllowed) {
-			checkArgument(wtxAllowed < 1, "Value must be > 0!");
-			mWtxAllowed = wtxAllowed;
-			return this;
-		}
-
-		/**
-		 * Determines how many concurrent reading transactions are allowed.
-		 * 
-		 * @param rtxAllowed
-		 *          how many concurrent reading transactions are allowed
-		 * @return reference to the builder object
-		 */
-		public Builder readTrxAllowed(final @Nonnegative int rtxAllowed) {
-			checkArgument(rtxAllowed < 1, "Value must be > 0!");
-			mRtxAllowed = rtxAllowed;
-			return this;
-		}
+//		/**
+//		 * Determines how many concurrent write transactions are allowed (only 1
+//		 * (default) allowed).
+//		 * 
+//		 * @param wtxAllowed
+//		 *          new value for field
+//		 * @return reference to the builder object
+//		 */
+//		public Builder writeTrxAllowed(@Nonnegative final int wtxAllowed) {
+//			checkArgument(wtxAllowed < 1, "Value must be > 0!");
+//			mWtxAllowed = wtxAllowed;
+//			return this;
+//		}
+//
+//		/**
+//		 * Determines how many concurrent reading transactions are allowed.
+//		 * 
+//		 * @param rtxAllowed
+//		 *          how many concurrent reading transactions are allowed
+//		 * @return reference to the builder object
+//		 */
+//		public Builder readTrxAllowed(final @Nonnegative int rtxAllowed) {
+//			checkArgument(rtxAllowed < 1, "Value must be > 0!");
+//			mRtxAllowed = rtxAllowed;
+//			return this;
+//		}
 
 		/**
 		 * Commit threshold.

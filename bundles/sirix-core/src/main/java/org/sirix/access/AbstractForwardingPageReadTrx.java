@@ -1,5 +1,7 @@
 package org.sirix.access;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -22,7 +24,6 @@ import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 /**

@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -54,7 +55,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.base.Optional;
 
 /**
  * Path summary reader organizing the path classes of a resource.
@@ -370,7 +370,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 					.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
 			newNode = node;
 		} catch (final SirixIOException e) {
-			newNode = Optional.absent();
+			newNode = Optional.empty();
 		}
 
 		if (newNode.isPresent()) {
@@ -1009,25 +1009,25 @@ public final class PathSummaryReader implements NodeReadTrx {
 	@Override
 	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
 		assertNotClosed();
-		return Optional.<SirixDeweyID> absent();
+		return Optional.<SirixDeweyID> empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
 		assertNotClosed();
-		return Optional.<SirixDeweyID> absent();
+		return Optional.<SirixDeweyID> empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getParentDeweyID() {
 		assertNotClosed();
-		return Optional.<SirixDeweyID> absent();
+		return Optional.<SirixDeweyID> empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getFirstChildDeweyID() {
 		assertNotClosed();
-		return Optional.<SirixDeweyID> absent();
+		return Optional.<SirixDeweyID> empty();
 	}
 
 	@Override

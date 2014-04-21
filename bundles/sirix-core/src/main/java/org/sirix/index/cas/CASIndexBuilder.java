@@ -2,6 +2,7 @@ package org.sirix.index.cas;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
@@ -34,8 +35,12 @@ import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Optional;
-
+/**
+ * Builds a content-and-structure (CAS) index.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
 final class CASIndexBuilder extends AbstractVisitor {
 
 	private static final LogWrapper LOGGER = new LogWrapper(

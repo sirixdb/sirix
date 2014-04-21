@@ -1,5 +1,7 @@
 package org.sirix.access;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -14,8 +16,6 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
-
-import com.google.common.base.Optional;
 
 /**
  * Forwards all methods to the delegate.

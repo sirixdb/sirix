@@ -5,6 +5,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnegative;
@@ -57,6 +60,8 @@ public final class DBCollection extends
 
 	/** Unique ID. */
 	private final int mID;
+	
+	private static final ConcurrentMap<SessionConfiguration, Long> mUncommitedWtxPerResource = new ConcurrentHashMap<>();
 
 	/**
 	 * Constructor.
@@ -232,20 +237,7 @@ public final class DBCollection extends
 
 	@Override
 	public Stream<DBNode> getDocuments() throws DocumentException {
-		final String[] resources = mDatabase.listResources();
-		final List<DBNode> documents = new ArrayList<>(resources.length);
-		for (final String resource : resources) {
-			try {
-				final Session session = mDatabase.getSession(SessionConfiguration
-						.newBuilder(resource).build());
-				final NodeReadTrx rtx = session.beginNodeReadTrx();
-				documents.add(new DBNode(rtx, this));
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
-			}
-		}
-		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents
-				.size()]));
+		return getDocuments(false);
 	}
 
 	@Override
@@ -262,15 +254,31 @@ public final class DBCollection extends
 	public DBNode getDocument(final int revision, final String name,
 			final boolean updatable) throws DocumentException {
 		try {
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(name).build());
+			final SessionConfiguration sessionConfig = SessionConfiguration
+					.newBuilder(name).build();
+			final Session session = mDatabase.getSession(sessionConfig);
 			final int version = revision == -1 ? session
 					.getMostRecentRevisionNumber() : revision;
-			final NodeReadTrx rtx = updatable ? session
-					.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
-			if (updatable	&& version < session.getMostRecentRevisionNumber()) {
-				((NodeWriteTrx) rtx).revertTo(version);
+					
+			final NodeReadTrx rtx;
+			if (updatable) {
+				if (session.getAvailableNodeWriteTrx() == 0) {
+					final Optional<NodeWriteTrx> optionalWriteTrx;
+					optionalWriteTrx = session.getNodeWriteTrx(mUncommitedWtxPerResource.get(sessionConfig));
+					
+					// Must exist.
+					rtx = optionalWriteTrx.get();					
+				}
+				else
+					rtx = session.beginNodeWriteTrx();
+				mUncommitedWtxPerResource.put(sessionConfig, rtx.getTransactionID());
+				
+				if (version < session.getMostRecentRevisionNumber())
+					((NodeWriteTrx) rtx).revertTo(version);
+			} else {
+				rtx = session.beginNodeReadTrx(version);
 			}
+				
 			return new DBNode(rtx, this);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -278,7 +286,7 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public AbstractTemporalNode<DBNode> getDocument(final int revision, final boolean updatable)
+	public DBNode getDocument(final int revision, final boolean updatable)
 			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
@@ -300,7 +308,7 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public Stream<? extends AbstractTemporalNode<DBNode>> getDocuments(
+	public Stream<DBNode> getDocuments(
 			final boolean updatable) throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		final List<DBNode> documents = new ArrayList<>(resources.length);
@@ -319,7 +327,7 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public AbstractTemporalNode<DBNode> getDocument(boolean updatabale)
+	public DBNode getDocument(boolean updatabale)
 			throws DocumentException {
 		return getDocument(-1, updatabale);
 	}

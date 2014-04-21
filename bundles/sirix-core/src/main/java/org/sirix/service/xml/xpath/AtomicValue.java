@@ -29,6 +29,8 @@ package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -43,8 +45,6 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
-
-import com.google.common.base.Optional;
 
 /**
  * <h1>AtomicValue</h1>

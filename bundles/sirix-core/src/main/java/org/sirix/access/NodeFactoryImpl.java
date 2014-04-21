@@ -3,6 +3,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.zip.Deflater;
 
 import javax.annotation.Nonnegative;
@@ -33,7 +34,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
 
 /**
@@ -84,7 +84,7 @@ final class NodeFactoryImpl implements NodeFactory {
 		final NodeDelegate nodeDel = new NodeDelegate(
 				((PathSummaryPage) mPageWriteTrx.getActualRevisionRootPage()
 						.getPathSummaryPageReference().getPage()).getMaxNodeKey(0) + 1,
-				parentKey, 0, revision, Optional.<SirixDeweyID> absent());
+				parentKey, 0, revision, Optional.<SirixDeweyID> empty());
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
@@ -93,7 +93,7 @@ final class NodeFactoryImpl implements NodeFactory {
 
 		return (PathNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new PathNode(nodeDel, structDel, nameDel, kind, 1, level),
-				PageKind.PATHSUMMARYPAGE, 0, Optional.<UnorderedKeyValuePage> absent());
+				PageKind.PATHSUMMARYPAGE, 0, Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -125,7 +125,7 @@ final class NodeFactoryImpl implements NodeFactory {
 				nodeDel.getNodeKey(),
 				new ElementNode(structDel, nameDel, new ArrayList<Long>(), HashBiMap
 						.<Long, Long> create(), new ArrayList<Long>(), name),
-				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -147,7 +147,7 @@ final class NodeFactoryImpl implements NodeFactory {
 				0);
 		return (TextNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new TextNode(valDel, structDel), PageKind.RECORDPAGE, -1,
-				Optional.<UnorderedKeyValuePage> absent());
+				Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -173,7 +173,7 @@ final class NodeFactoryImpl implements NodeFactory {
 
 		return (AttributeNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new AttributeNode(nodeDel, nameDel, valDel, name), PageKind.RECORDPAGE,
-				-1, Optional.<UnorderedKeyValuePage> absent());
+				-1, Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -196,7 +196,7 @@ final class NodeFactoryImpl implements NodeFactory {
 
 		return (NamespaceNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new NamespaceNode(nodeDel, nameDel, name), PageKind.RECORDPAGE, -1,
-				Optional.<UnorderedKeyValuePage> absent());
+				Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -226,7 +226,7 @@ final class NodeFactoryImpl implements NodeFactory {
 
 		return (PINode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new PINode(
 				structDel, nameDel, valDel, mPageWriteTrx), PageKind.RECORDPAGE, -1,
-				Optional.<UnorderedKeyValuePage> absent());
+				Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	@Override
@@ -248,6 +248,6 @@ final class NodeFactoryImpl implements NodeFactory {
 				0);
 		return (CommentNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new CommentNode(valDel, structDel), PageKind.RECORDPAGE, -1,
-				Optional.<UnorderedKeyValuePage> absent());
+				Optional.<UnorderedKeyValuePage> empty());
 	}
 }

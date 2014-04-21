@@ -27,9 +27,9 @@
 
 package org.sirix.api;
 
-import org.sirix.node.interfaces.Node;
+import java.util.Optional;
 
-import com.google.common.base.Optional;
+import org.sirix.node.interfaces.Node;
 
 /**
  * <h1>ItemList</h1>

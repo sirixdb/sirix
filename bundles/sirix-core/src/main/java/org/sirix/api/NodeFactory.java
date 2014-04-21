@@ -1,5 +1,7 @@
 package org.sirix.api;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
@@ -15,8 +17,6 @@ import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
-
-import com.google.common.base.Optional;
 
 /**
  * Node factory for creating nodes.

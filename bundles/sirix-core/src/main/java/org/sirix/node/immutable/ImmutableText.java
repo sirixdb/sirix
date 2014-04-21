@@ -2,6 +2,8 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
+
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -12,8 +14,6 @@ import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-
-import com.google.common.base.Optional;
 
 /**
  * Immutable text node wrapper.

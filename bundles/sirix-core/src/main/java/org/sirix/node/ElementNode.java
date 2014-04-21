@@ -29,6 +29,7 @@ package org.sirix.node;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -45,7 +46,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.collect.BiMap;
 
 /**
@@ -147,7 +147,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 				.generateHashForString(name.getPrefix()) : -1;
 		final int localNameIndex = NamePageHash.generateHashForString(name
 				.getLocalName());
-		return Optional.fromNullable(mAttributes
+		return Optional.ofNullable(mAttributes
 				.get((long) (prefixIndex + localNameIndex)));
 	}
 
@@ -159,7 +159,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 * @return optional name key
 	 */
 	public Optional<Long> getAttributeNameKey(final @Nonnegative long key) {
-		return Optional.fromNullable(mAttributes.inverse().get(key));
+		return Optional.ofNullable(mAttributes.inverse().get(key));
 	}
 
 	/**

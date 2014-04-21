@@ -3,6 +3,7 @@ package org.sirix.node.interfaces;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -10,7 +11,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.SirixDeweyID;
 
-import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 

@@ -2,6 +2,7 @@ package org.sirix.index.cas;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
@@ -27,8 +28,6 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
-
-import com.google.common.base.Optional;
 
 public final class CASIndexListener implements ChangeListener {
 

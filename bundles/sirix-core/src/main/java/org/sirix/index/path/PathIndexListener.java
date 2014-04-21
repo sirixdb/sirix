@@ -2,6 +2,7 @@ package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
@@ -21,8 +22,6 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
-
-import com.google.common.base.Optional;
 
 final class PathIndexListener implements ChangeListener {
 

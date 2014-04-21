@@ -81,7 +81,7 @@ public final class SirixTranslator extends TopDownTranslator {
 	 * path exists at all).
 	 */
 	public static final int CHILD_THRESHOLD = Cfg.asInt(
-			"org.sirix.xquery.optimize.child.threshold", 50);
+			"org.sirix.xquery.optimize.child.threshold", 1);
 
 	/**
 	 * Constructor.

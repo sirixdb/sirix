@@ -13,6 +13,7 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.Tuple;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.sequence.SortedNodeSequence;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Item;
@@ -26,6 +27,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
+import org.sirix.api.NodeWriteTrx;
 
 import com.google.common.base.Optional;
 
@@ -202,13 +204,14 @@ public final class XQueryUsage {
 	 * Load a document and query it (temporal enhancements).
 	 */
 	private static void loadDocumentAndQueryTemporal() throws QueryException,
-			IOException {
+			IOException, SirixException {
 		// Prepare sample document.
 		final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 
 		// Initialize query context and store.
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
+			final CompileChain compileChain = new SirixCompileChain(store);
 
 			final File doc1 = generateSampleDoc(tmpDir, "sample1");
 			doc1.deleteOnExit();
@@ -220,17 +223,20 @@ public final class XQueryUsage {
 			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
 					docUri.toString());
 			System.out.println(xq1);
-			new XQuery(new SirixCompileChain(store), xq1).evaluate(ctx);
+			new XQuery(compileChain, xq1).evaluate(ctx);
 
-			// Reuse store and query loaded document.
+			// Reuse store and insert into loaded document with a subsequent explicit commit.
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
-			System.out.println("Query loaded document:");
+			System.out.println("Insert into loaded document:");
 			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
 			System.out.println(xq2);
-			final XQuery q = new XQuery(new SirixCompileChain(store), xq2);
-			q.serialize(ctx2, System.out);
-			store.commitAll();
+			final XQuery q1 = new XQuery(compileChain, xq2);
+			q1.execute(ctx2);
+			System.out.println("Commit changes:");
+			final String xq3 = "sdb:commit(sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)))";
+			final XQuery q2 = new XQuery(compileChain, xq3);
+			q2.execute(ctx2);
 			System.out.println();
 		}
 

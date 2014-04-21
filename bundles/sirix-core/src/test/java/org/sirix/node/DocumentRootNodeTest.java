@@ -34,6 +34,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Optional;
 
 import org.junit.After;
 import org.junit.Before;
@@ -45,8 +46,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
-
-import com.google.common.base.Optional;
 
 /**
  * Document root node test.
