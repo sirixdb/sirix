@@ -34,6 +34,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Optional;
 
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -45,8 +46,6 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-
-import com.google.common.base.Optional;
 
 /**
  * Namespace node test.

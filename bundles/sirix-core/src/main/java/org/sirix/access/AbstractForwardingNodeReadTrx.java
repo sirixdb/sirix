@@ -1,6 +1,7 @@
 package org.sirix.access;
 
 import java.util.List;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -20,7 +21,6 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 /**

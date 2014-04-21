@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -80,7 +81,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.settings.Versioning;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -237,46 +237,46 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// =======================================================
 		mPageLog = doesExist ? Optional.of(new TransactionLogPageCache(
 				session.mResourceConfig.mPath, revision, "page", this)) : Optional
-				.<TransactionLogPageCache> absent();
+				.<TransactionLogPageCache> empty();
 		mNodeLog = doesExist ? Optional
 				.of(new TransactionLogCache<UnorderedKeyValuePage>(
 						session.mResourceConfig.mPath, revision, "node", this)) : Optional
-				.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+				.<TransactionLogCache<UnorderedKeyValuePage>> empty();
 		if (mBuildPathSummary) {
 			mPathSummaryLog = doesExist ? Optional
 					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
 							session.mResourceConfig.mPath, revision, "pathSummary", this))
-					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		} else {
 			mPathSummaryLog = Optional
-					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		}
 		if (mIndexController.containsIndex(IndexType.PATH)) {
 			mPathLog = doesExist ? Optional
 					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
 							session.mResourceConfig.mPath, revision, "path", this))
-					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		} else {
 			mPathLog = Optional
-					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
 			mCASLog = doesExist ? Optional
 					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
 							session.mResourceConfig.mPath, revision, "cas", this)) : Optional
-					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		} else {
 			mCASLog = Optional
-					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
 			mNameLog = doesExist ? Optional
 					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
 							session.mResourceConfig.mPath, revision, "name", this))
-					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		} else {
 			mNameLog = Optional
-					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> empty();
 		}
 
 		// In memory caches from data directory.
@@ -424,7 +424,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		assertNotClosed();
 
 		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			return Optional.<Record> absent();
+			return Optional.<Record> empty();
 		}
 
 		final long recordPageKey = pageKey(nodeKey);
@@ -455,7 +455,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-			return Optional.<Record> absent();
+			return Optional.<Record> empty();
 		}
 
 		final Record retVal = cont.getComplete().getValue(nodeKey);
@@ -471,9 +471,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 */
 	final Optional<Record> checkItemIfDeleted(final @Nullable Record toCheck) {
 		if (toCheck instanceof DeletedNode) {
-			return Optional.absent();
+			return Optional.empty();
 		} else {
-			return Optional.fromNullable(toCheck);
+			return Optional.ofNullable(toCheck);
 		}
 	}
 
@@ -665,7 +665,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			final List<S> pages = (List<S>) this.<K, V, S> getSnapshotPages(
 					checkNotNull(recordPageKey), index, checkNotNull(pageKind),
-					Optional.<PageReference> absent());
+					Optional.<PageReference> empty());
 			if (pages.size() == 0) {
 				return RecordPageContainer.<S> emptyInstance();
 			}

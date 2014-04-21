@@ -18,10 +18,10 @@ import javax.annotation.Nullable;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
-import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -126,7 +126,7 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> lookup(final String name) throws DocumentException {
+	public TemporalCollection<?> lookup(final String name) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		if (Databases.existsDatabase(dbConf)) {
@@ -142,7 +142,7 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String name) throws DocumentException {
+	public TemporalCollection<?> create(final String name) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		try {
@@ -159,12 +159,12 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String collName, final SubtreeParser parser)
+	public TemporalCollection<?> create(final String collName, final SubtreeParser parser)
 			throws DocumentException {
 		return create(collName, Optional.<String> absent(), parser);
 	}
 
-	public Collection<?> create(final String collName,
+	public TemporalCollection<?> create(final String collName,
 			final Optional<String> optResName, final SubtreeParser parser)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
@@ -201,7 +201,7 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String collName,
+	public TemporalCollection<?> create(final String collName,
 			final @Nullable Stream<SubtreeParser> parsers) throws DocumentException {
 		if (parsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(

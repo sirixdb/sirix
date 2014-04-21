@@ -33,10 +33,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -77,7 +78,6 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 /**
  * <h1>Session</h1>
@@ -102,10 +102,10 @@ public final class SessionImpl implements Session {
 	private AtomicReference<UberPage> mLastCommittedUberPage;
 
 	/** Remember all running node transactions (both read and write). */
-	private final Map<Long, NodeReadTrx> mNodeTrxMap;
+	private final ConcurrentMap<Long, NodeReadTrx> mNodeTrxMap;
 
 	/** Remember all running page transactions (both read and write). */
-	private final Map<Long, PageReadTrx> mPageTrxMap;
+	private final ConcurrentMap<Long, PageReadTrx> mPageTrxMap;
 
 	/** Lock for blocking the commit. */
 	final Lock mCommitLock;
@@ -117,10 +117,10 @@ public final class SessionImpl implements Session {
 	final SessionConfiguration mSessionConfig;
 
 	/** Remember the write seperately because of the concurrent writes. */
-	private final Map<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
+	private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
 
 	/** Storing all return futures from the sync process. */
-	private final Map<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
+	private final ConcurrentMap<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
 
 	/** abstract factory for all interaction to the storage. */
 	private final Storage mFac;
@@ -132,10 +132,10 @@ public final class SessionImpl implements Session {
 	private final AtomicLong mPageTrxIDCounter;
 
 	/** {@link IndexController}s used for this session. */
-	private final Map<Integer, IndexController> mRtxIndexControllers;
+	private final ConcurrentMap<Integer, IndexController> mRtxIndexControllers;
 
 	/** {@link IndexController}s used for this session. */
-	private final Map<Integer, IndexController> mWtxIndexControllers;
+	private final ConcurrentMap<Integer, IndexController> mWtxIndexControllers;
 
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
@@ -164,8 +164,8 @@ public final class SessionImpl implements Session {
 	 *           if Sirix encounters an exception
 	 */
 	SessionImpl(final DatabaseImpl database,
-			@Nonnull final ResourceConfiguration resourceConf,
-			@Nonnull final SessionConfiguration sessionConf) throws SirixException {
+			final @Nonnull ResourceConfiguration resourceConf,
+			final @Nonnull SessionConfiguration sessionConf) throws SirixException {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
 		mSessionConfig = checkNotNull(sessionConf);
@@ -173,16 +173,20 @@ public final class SessionImpl implements Session {
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
-		mRtxIndexControllers = new HashMap<>();
-		mWtxIndexControllers = new HashMap<>();
+		mRtxIndexControllers = new ConcurrentHashMap<>();
+		mWtxIndexControllers = new ConcurrentHashMap<>();
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
 		mCommitLock = new ReentrantLock(false);
 
+		final File resourceFile = new File(new File(database.getDatabaseConfig().getFile(),
+				DatabaseConfiguration.Paths.DATA.getFile().getName()),
+				sessionConf.getResource());
+		
 		// Init session members.
-		mWriteSemaphore = new Semaphore(sessionConf.mWtxAllowed);
-		mReadSemaphore = new Semaphore(sessionConf.mRtxAllowed);
+		mWriteSemaphore = database.getWriteSemaphore(resourceFile);
+		mReadSemaphore = database.getReadSemaphore(resourceFile);
 
 		mFac = StorageType.getStorage(mResourceConfig);
 		if (mFac.exists()) {
@@ -226,8 +230,8 @@ public final class SessionImpl implements Session {
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
 						mLastCommittedUberPage.get(), revisionKey, mFac.getReader(),
-						Optional.<PageWriteTrxImpl> absent(),
-						Optional.<IndexController> absent()));
+						Optional.<PageWriteTrxImpl> empty(),
+						Optional.<IndexController> empty()));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -356,7 +360,7 @@ public final class SessionImpl implements Session {
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
 
-			mDatabase.removeSession(mResourceConfig.mPath);
+			mDatabase.removeSession(mResourceConfig.mPath, mSessionConfig);
 
 			mFac.close();
 			mClosed = true;
@@ -522,15 +526,15 @@ public final class SessionImpl implements Session {
 	/**
 	 * Wait until synchronization is finished.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          transaction ID for which to wait (all others)
 	 * @throws SirixThreadedException
 	 *           if an exception occurs
 	 */
 	protected synchronized void waitForFinishedSync(
-			final @Nonnegative long pTransactionID) throws SirixThreadedException {
+			final @Nonnegative long transactionID) throws SirixThreadedException {
 		final Map<Long, Collection<Future<Void>>> completeVals = mSyncTransactionsReturns
-				.remove(pTransactionID);
+				.remove(transactionID);
 		if (completeVals != null) {
 			for (final Collection<Future<Void>> singleVals : completeVals.values()) {
 				for (final Future<Void> returnVal : singleVals) {
@@ -613,8 +617,8 @@ public final class SessionImpl implements Session {
 
 		return PathSummaryReader.getInstance(
 				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac
-						.getReader(), Optional.<PageWriteTrxImpl> absent(), Optional
-						.<IndexController> absent()), this);
+						.getReader(), Optional.<PageWriteTrxImpl> empty(), Optional
+						.<IndexController> empty()), this);
 	}
 
 	@Override
@@ -631,8 +635,8 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(
 			final @Nonnegative int revision) throws SirixException {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.getReader(), Optional.<PageWriteTrxImpl> absent(),
-				Optional.<IndexController> absent());
+				mFac.getReader(), Optional.<PageWriteTrxImpl> empty(),
+				Optional.<IndexController> empty());
 	}
 
 	@Override
@@ -693,5 +697,25 @@ public final class SessionImpl implements Session {
 			mWtxIndexControllers.put(revision, controller);
 		}
 		return controller;
+	}
+
+	@Override
+	public synchronized SessionConfiguration getSessionConfiguration() {
+		return mSessionConfig;
+	}
+
+	@Override
+	public Optional<NodeReadTrx> getNodeReadTrx(final long ID) {
+		return Optional.of(mNodeTrxMap.get(ID));
+	}
+
+	@Override
+	public synchronized Optional<NodeWriteTrx> getNodeWriteTrx(final long ID) {
+		final Optional<NodeReadTrx> rtx = getNodeReadTrx(ID);
+		
+		if (rtx.isPresent() && rtx.get() instanceof NodeWriteTrx) {
+			return Optional.of((NodeWriteTrx) rtx.get()); 
+		}
+		return Optional.empty();
 	}
 }

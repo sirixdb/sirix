@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nonnegative;
@@ -81,8 +82,6 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.Versioning;
 import org.sirix.utils.NamePageHash;
-
-import com.google.common.base.Optional;
 
 /**
  * <h1>PageWriteTrx</h1>
@@ -342,7 +341,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (node.isPresent()) {
 			final Record nodeToDel = node.get();
 			final Node delNode = new DeletedNode(new NodeDelegate(
-					nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID> absent()));
+					nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID> empty()));
 			cont.getModified().setEntry(delNode.getNodeKey(), delNode);
 			cont.getComplete().setEntry(delNode.getNodeKey(), delNode);
 		} else {
@@ -794,7 +793,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 					index, pageKind);
 			if (reference.getKey() == Constants.NULL_ID) {
 				cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
-						recordPageKey, pageKind, Optional.<PageReference> absent(),
+						recordPageKey, pageKind, Optional.<PageReference> empty(),
 						mPageRtx));
 			} else {
 				cont = dereferenceRecordPageForModification(recordPageKey, index,

@@ -27,12 +27,14 @@
 
 package org.sirix.api;
 
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.IndexController;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
@@ -62,6 +64,8 @@ public interface Session extends AutoCloseable {
 	 * @return {@link Database} this session is bound to
 	 */
 	Database getDatabase();
+	
+	SessionConfiguration getSessionConfiguration();
 
 	/**
 	 * Begin a new {@link PageReadTrx}.
@@ -163,7 +167,7 @@ public interface Session extends AutoCloseable {
 			final TimeUnit timeUnit, final int maxTime) throws SirixException;
 
 	/**
-	 * Commit all running {@link NodeWriteTrx}s.
+	 * Commit all running {@link NodeWriteTrx}s (currently at most one).
 	 * 
 	 * @return this session reference
 	 * @throws SirixException
@@ -265,4 +269,8 @@ public interface Session extends AutoCloseable {
 	 * @return the {@link IndexController} instance
 	 */
 	IndexController getWtxIndexController(int revision);
+
+	Optional<NodeReadTrx> getNodeReadTrx(long ID);
+	
+	Optional<NodeWriteTrx> getNodeWriteTrx(long ID);
 }

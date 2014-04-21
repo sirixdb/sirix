@@ -34,6 +34,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Optional;
 
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -47,8 +48,6 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.utils.NamePageHash;
-
-import com.google.common.base.Optional;
 
 /**
  * Attribute node test.

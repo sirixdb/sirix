@@ -32,6 +32,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 
@@ -40,8 +41,6 @@ import org.sirix.cache.RecordPageContainer;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
-
-import com.google.common.base.Optional;
 
 /**
  * Different versioning algorithms.

@@ -2,6 +2,7 @@ package org.sirix.page.interfaces;
 
 import java.util.Collection;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -11,8 +12,6 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-
-import com.google.common.base.Optional;
 
 /**
  * Key/Value page.

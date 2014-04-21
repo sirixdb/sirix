@@ -29,10 +29,9 @@ package org.sirix.service.xml.xpath;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.sirix.api.ItemList;
-
-import com.google.common.base.Optional;
 
 /**
  * <h1>ItemList</h1>
@@ -66,22 +65,22 @@ public final class ItemListImpl implements ItemList<AtomicValue> {
 	}
 
 	@Override
-	public int addItem(final AtomicValue pItem) {
+	public int addItem(final AtomicValue item) {
 		final int key = mList.size();
-		pItem.setNodeKey(key);
+		item.setNodeKey(key);
 		// TODO: +2 is necessary, because key -1 is the NULL_NODE
 		final int itemKey = (key + 2) * (-1);
-		pItem.setNodeKey(itemKey);
+		item.setNodeKey(itemKey);
 
-		mList.add(pItem);
+		mList.add(item);
 		return itemKey;
 	}
 
 	@Override
-	public Optional<AtomicValue> getItem(final long mKey) {
-		assert mKey <= Integer.MAX_VALUE;
+	public Optional<AtomicValue> getItem(final long key) {
+		assert key <= Integer.MAX_VALUE;
 
-		int index = (int) mKey; // cast to integer, because the list only
+		int index = (int) key; // cast to integer, because the list only
 														// accepts
 		// int
 
@@ -95,7 +94,7 @@ public final class ItemListImpl implements ItemList<AtomicValue> {
 		if (index >= 0 && index < mList.size()) {
 			return Optional.of(mList.get(index));
 		} else {
-			return Optional.absent();
+			return Optional.empty();
 		}
 	}
 

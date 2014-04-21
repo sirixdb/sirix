@@ -1,5 +1,7 @@
 package org.sirix.node.interfaces.immutable;
 
+import java.util.Optional;
+
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -8,8 +10,6 @@ import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-
-import com.google.common.base.Optional;
 
 /**
  * An immutable node.
@@ -57,7 +57,6 @@ public interface ImmutableNode extends Record {
 	/**
 	 * Getting the persistent stored hash.
 	 * 
-	 * @return the hash of this node
 	 */
 	long getHash();
 

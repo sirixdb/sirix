@@ -35,6 +35,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Optional;
 
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -49,7 +50,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.utils.NamePageHash;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
 
 /**

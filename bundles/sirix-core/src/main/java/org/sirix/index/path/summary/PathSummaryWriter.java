@@ -3,6 +3,7 @@ package org.sirix.index.path.summary;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -41,8 +42,6 @@ import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
-
-import com.google.common.base.Optional;
 
 /**
  * Path summary writer organizing the path classes of a resource.
@@ -186,7 +185,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			retVal = mPathSummaryReader.getNodeKey();
 			final PathNode pathNode = (PathNode) mPageWriteTrx
 					.prepareEntryForModification(retVal, PageKind.PATHSUMMARYPAGE, 0,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			pathNode.incrementReferenceCount();
 		} else {
 			assert nodeKey == mPathSummaryReader.getNodeKey();
@@ -265,7 +264,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final StructNode strucNode = (StructNode) newNode;
 			final StructNode parent = (StructNode) mPageWriteTrx
 					.prepareEntryForModification(newNode.getParentKey(), pageKind, 0,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			parent.incrementChildCount();
 			if (insertPos == InsertPos.ASFIRSTCHILD) {
 				parent.setFirstChildKey(newNode.getNodeKey());
@@ -274,13 +273,13 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			if (strucNode.hasRightSibling()) {
 				final StructNode rightSiblingNode = (StructNode) mPageWriteTrx
 						.prepareEntryForModification(strucNode.getRightSiblingKey(),
-								pageKind, 0, Optional.<UnorderedKeyValuePage> absent());
+								pageKind, 0, Optional.<UnorderedKeyValuePage> empty());
 				rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
 			}
 			if (strucNode.hasLeftSibling()) {
 				final StructNode leftSiblingNode = (StructNode) mPageWriteTrx
 						.prepareEntryForModification(strucNode.getLeftSiblingKey(),
-								pageKind, 0, Optional.<UnorderedKeyValuePage> absent());
+								pageKind, 0, Optional.<UnorderedKeyValuePage> empty());
 				leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
 			}
 		}
@@ -334,7 +333,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 					final PathNode pathNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 									PageKind.PATHSUMMARYPAGE, 0,
-									Optional.<UnorderedKeyValuePage> absent());
+									Optional.<UnorderedKeyValuePage> empty());
 					pathNode.setPrefixKey(prefixKey);
 					pathNode.setLocalNameKey(localNameKey);
 					pathNode.setURIKey(uriKey);
@@ -486,7 +485,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final PathNode currNode = (PathNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 							PageKind.PATHSUMMARYPAGE, 0,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			currNode.setReferenceCount(currNode.getReferences()
 					+ cloned.getReferences());
 			currNode.setLocalNameKey(localNameKey);
@@ -516,7 +515,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 					final PathNode currNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 									PageKind.PATHSUMMARYPAGE, 0,
-									Optional.<UnorderedKeyValuePage> absent());
+									Optional.<UnorderedKeyValuePage> empty());
 					currNode.setReferenceCount(currNode.getReferences()
 							+ cloned.getReferences());
 				}
@@ -529,7 +528,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				final PathNode currNode = (PathNode) mPageWriteTrx
 						.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 								PageKind.PATHSUMMARYPAGE, 0,
-								Optional.<UnorderedKeyValuePage> absent());
+								Optional.<UnorderedKeyValuePage> empty());
 				currNode.setReferenceCount(cloned.getReferences());
 			}
 			mPathSummaryReader.moveTo(newPathNodeKey);
@@ -614,7 +613,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			throws SirixException {
 		final NameNode currNode = (NameNode) mPageWriteTrx
 				.prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1,
-						Optional.<UnorderedKeyValuePage> absent());
+						Optional.<UnorderedKeyValuePage> empty());
 		currNode.setPathNodeKey(mPathSummaryReader.getNodeKey());
 	}
 
@@ -635,7 +634,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 						mPathSummaryReader.getName());
 				mPageWriteTrx.removeEntry(mPathSummaryReader.getNodeKey(),
 						PageKind.PATHSUMMARYPAGE, 0,
-						Optional.<UnorderedKeyValuePage> absent());
+						Optional.<UnorderedKeyValuePage> empty());
 			}
 		}
 
@@ -644,7 +643,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final StructNode leftSibling = (StructNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getLeftSiblingKey(),
 							PageKind.PATHSUMMARYPAGE, 0,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			leftSibling.setRightSiblingKey(mPathSummaryReader.getRightSiblingKey());
 		}
 
@@ -653,14 +652,14 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final StructNode rightSibling = (StructNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getRightSiblingKey(),
 							PageKind.PATHSUMMARYPAGE, 0,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			rightSibling.setLeftSiblingKey(mPathSummaryReader.getLeftSiblingKey());
 		}
 
 		// Adapt parent. If node has no left sibling it is a first child.
 		StructNode parent = (StructNode) mPageWriteTrx.prepareEntryForModification(
 				mPathSummaryReader.getParentKey(), PageKind.PATHSUMMARYPAGE, 0,
-				Optional.<UnorderedKeyValuePage> absent());
+				Optional.<UnorderedKeyValuePage> empty());
 		if (!mPathSummaryReader.hasLeftSibling()) {
 			parent.setFirstChildKey(mPathSummaryReader.getRightSiblingKey());
 		}
@@ -671,7 +670,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		mPathSummaryReader.removeQNameMapping(mPathSummaryReader.getPathNode(),
 				mPathSummaryReader.getName());
 		mPageWriteTrx.removeEntry(mPathSummaryReader.getNodeKey(),
-				PageKind.PATHSUMMARYPAGE, 0, Optional.<UnorderedKeyValuePage> absent());
+				PageKind.PATHSUMMARYPAGE, 0, Optional.<UnorderedKeyValuePage> empty());
 	}
 
 	/**
@@ -700,7 +699,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final NameNode node = (NameNode) mPageWriteTrx
 					.prepareEntryForModification(mNodeRtx.getNodeKey(),
 							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> absent());
+							Optional.<UnorderedKeyValuePage> empty());
 			node.setPathNodeKey(mPathSummaryReader.getNodeKey());
 		} else {
 			throw new IllegalStateException();
@@ -725,7 +724,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				final PathNode pathNode = (PathNode) mPageWriteTrx
 						.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 								PageKind.PATHSUMMARYPAGE, 0,
-								Optional.<UnorderedKeyValuePage> absent());
+								Optional.<UnorderedKeyValuePage> empty());
 				pathNode.decrementReferenceCount();
 			}
 		}
@@ -755,7 +754,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 					final PathNode pathNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
 									PageKind.PATHSUMMARYPAGE, 0,
-									Optional.<UnorderedKeyValuePage> absent());
+									Optional.<UnorderedKeyValuePage> empty());
 					pathNode.decrementReferenceCount();
 				}
 			}

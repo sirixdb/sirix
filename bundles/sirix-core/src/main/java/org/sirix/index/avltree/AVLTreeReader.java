@@ -6,6 +6,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 
@@ -31,7 +32,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.AbstractIterator;
 
 /**
@@ -193,14 +193,14 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	public Optional<V> get(final K key, final SearchMode mode) {
 		moveToDocumentRoot();
 		if (!((DocumentRootNode) getNode()).hasFirstChild()) {
-			return Optional.absent();
+			return Optional.empty();
 		}
 		moveToFirstChild();
 		AVLNode<K, V> node = getAVLNode();
 		while (true) {
 			final int c = mode.compare(key, node.getKey());
 			if (c == 0) {
-				return Optional.fromNullable(node.getValue());
+				return Optional.ofNullable(node.getValue());
 			}
 			final boolean moved = c < 0 ? moveToFirstChild().hasMoved()
 					: moveToLastChild().hasMoved();
@@ -210,7 +210,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 				break;
 			}
 		}
-		return Optional.absent();
+		return Optional.empty();
 	}
 
 	/**
@@ -465,7 +465,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 					.getRecord(nodeKey, mPageKind, mIndex);
 			newNode = node;
 		} catch (final SirixIOException e) {
-			newNode = Optional.absent();
+			newNode = Optional.empty();
 		}
 
 		if (newNode.isPresent()) {

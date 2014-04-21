@@ -28,6 +28,7 @@
 package org.sirix.api;
 
 import java.util.List;
+import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -50,8 +51,6 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
-
-import com.google.common.base.Optional;
 
 /**
  * <h1>NodeReadTrx</h1>

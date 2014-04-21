@@ -2,6 +2,8 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
+
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.DocumentRootNode;
@@ -10,8 +12,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.settings.Fixed;
-
-import com.google.common.base.Optional;
 
 /**
  * Immutable document root node wrapper.

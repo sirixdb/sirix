@@ -11,6 +11,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Optional;
 
 import org.sirix.Holder;
 import org.sirix.TestHelper;
@@ -26,11 +27,6 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
-
-import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Test class for all classes implementing the {@link Page} interface.
@@ -110,7 +106,7 @@ public class PageTest {
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
 				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
-				Optional.<PageReference> absent(), mPageReadTrx);
+				Optional.<PageReference> empty(), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);

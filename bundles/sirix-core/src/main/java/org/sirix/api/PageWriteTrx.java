@@ -1,5 +1,7 @@
 package org.sirix.api;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -18,8 +20,6 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-
-import com.google.common.base.Optional;
 
 /**
  * Interface for writing pages.

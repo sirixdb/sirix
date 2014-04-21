@@ -40,6 +40,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -67,7 +68,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 
@@ -424,7 +424,7 @@ public enum Kind implements NodePersistenter {
 				final @Nonnegative long recordID, final Optional<SirixDeweyID> deweyID,
 				final PageReadTrx pageReadTrx) {
 			final NodeDelegate delegate = new NodeDelegate(recordID, 0, 0, 0,
-					Optional.<SirixDeweyID> absent());
+					Optional.<SirixDeweyID> empty());
 			return new DeletedNode(delegate);
 		}
 
@@ -437,7 +437,7 @@ public enum Kind implements NodePersistenter {
 		public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
 				Optional<SirixDeweyID> previousDeweyID, PageReadTrx pageReadTrx)
 				throws IOException {
-			return Optional.absent();
+			return Optional.empty();
 		}
 
 		@Override
@@ -983,7 +983,7 @@ public enum Kind implements NodePersistenter {
 				return Optional.of(new SirixDeweyID(deweyIDBytes));
 			}
 		} else {
-			return Optional.absent();
+			return Optional.empty();
 		}
 	}
 
@@ -1030,7 +1030,7 @@ public enum Kind implements NodePersistenter {
 		final long hash = source.readLong();
 		final long revision = getVarLong(source);
 		return new NodeDelegate(nodeKey, parentKey, hash, revision,
-				Optional.<SirixDeweyID> absent());
+				Optional.<SirixDeweyID> empty());
 	}
 
 	/**

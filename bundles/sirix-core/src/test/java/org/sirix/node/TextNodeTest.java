@@ -34,6 +34,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Optional;
 
 import org.junit.After;
 import org.junit.Before;
@@ -47,8 +48,6 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-
-import com.google.common.base.Optional;
 
 /**
  * Text node test.

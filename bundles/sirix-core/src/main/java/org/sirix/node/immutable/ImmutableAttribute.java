@@ -2,6 +2,8 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Optional;
+
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -15,8 +17,6 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.settings.Constants;
-
-import com.google.common.base.Optional;
 
 /**
  * Immutable attribute node wrapper.

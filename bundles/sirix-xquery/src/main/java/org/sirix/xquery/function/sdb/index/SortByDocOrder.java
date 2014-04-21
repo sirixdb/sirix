@@ -16,10 +16,9 @@ import org.sirix.xquery.function.sdb.SDBFun;
 
 /**
  * <p>
- * Function for sorting a sequence. If successful, this function returns the
- * path-index number. Otherwise it returns -1.
+ * Function for sorting a sequence. This function returns the given sequence in sorted order regarding the document order.
  * 
- * Supported signatures are:
+ * The signature is:
  * </p>
  * <ul>
  * <li>

@@ -26,6 +26,8 @@
  */
 package org.sirix.node.delegates;
 
+import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
@@ -38,7 +40,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are

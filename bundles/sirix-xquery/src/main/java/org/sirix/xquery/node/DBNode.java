@@ -3,6 +3,7 @@ package org.sirix.xquery.node;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collections;
+import java.util.Optional;
 
 import javax.annotation.Nullable;
 
@@ -51,7 +52,6 @@ import org.sirix.xquery.stream.TemporalSirixStream;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 /**
  * A node which is used to provide all XDM functionality as well as temporal

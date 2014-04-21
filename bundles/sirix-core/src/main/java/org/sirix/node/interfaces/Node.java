@@ -27,11 +27,11 @@
 
 package org.sirix.node.interfaces;
 
+import java.util.Optional;
+
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-
-import com.google.common.base.Optional;
 
 /**
  * <h1>Node</h1>
