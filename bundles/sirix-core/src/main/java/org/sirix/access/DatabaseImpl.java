@@ -82,8 +82,10 @@ public final class DatabaseImpl implements Database {
 	/** Central repository of all running sessions. */
 	private final ConcurrentMap<File, Set<Session>> mSessions;
 	
+	/** Read semaphores shared for each resource. */
 	private final ConcurrentMap<File, Semaphore> mReadSemaphores;
 	
+	/** Write semaphores shared for each resource. */
 	private final ConcurrentMap<File, Semaphore> mWriteSemaphores;
 	
 	/** Central repository of all resource-ID/ResourceConfiguration tuples. */

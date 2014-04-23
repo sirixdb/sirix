@@ -192,6 +192,7 @@ public final class DBStore implements Store, AutoCloseable {
 							Insert.ASFIRSTCHILD,
 							Collections
 									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+			
 			wtx.commit();
 			wtx.close();
 			return collection;
