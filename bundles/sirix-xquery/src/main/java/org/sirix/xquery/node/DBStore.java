@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -33,8 +34,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.service.xml.shredder.Insert;
-
-import com.google.common.base.Optional;
 
 /**
  * Database storage.
@@ -161,7 +160,7 @@ public final class DBStore implements Store, AutoCloseable {
 	@Override
 	public TemporalCollection<?> create(final String collName, final SubtreeParser parser)
 			throws DocumentException {
-		return create(collName, Optional.<String> absent(), parser);
+		return create(collName, Optional.<String> empty(), parser);
 	}
 
 	public TemporalCollection<?> create(final String collName,

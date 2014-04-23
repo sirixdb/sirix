@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
+import java.util.Optional;
 
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
@@ -30,8 +31,6 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBStore;
-
-import com.google.common.base.Optional;
 
 /**
  * <p>
