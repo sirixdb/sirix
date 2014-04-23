@@ -54,6 +54,9 @@ public final class DBCollection extends
 
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
+	
+	/** Open write transaction per resource. */
+	private static final ConcurrentMap<SessionConfiguration, Long> OPEN_WTX_PER_RESOURCE = new ConcurrentHashMap<>();
 
 	/** {@link Sirix} database. */
 	private final Database mDatabase;
@@ -61,7 +64,6 @@ public final class DBCollection extends
 	/** Unique ID. */
 	private final int mID;
 	
-	private static final ConcurrentMap<SessionConfiguration, Long> mUncommitedWtxPerResource = new ConcurrentHashMap<>();
 
 	/**
 	 * Constructor.
@@ -256,33 +258,38 @@ public final class DBCollection extends
 		try {
 			final SessionConfiguration sessionConfig = SessionConfiguration
 					.newBuilder(name).build();
-			final Session session = mDatabase.getSession(sessionConfig);
-			final int version = revision == -1 ? session
-					.getMostRecentRevisionNumber() : revision;
-					
-			final NodeReadTrx rtx;
-			if (updatable) {
-				if (session.getAvailableNodeWriteTrx() == 0) {
-					final Optional<NodeWriteTrx> optionalWriteTrx;
-					optionalWriteTrx = session.getNodeWriteTrx(mUncommitedWtxPerResource.get(sessionConfig));
-					
-					// Must exist.
-					rtx = optionalWriteTrx.get();					
-				}
-				else
-					rtx = session.beginNodeWriteTrx();
-				mUncommitedWtxPerResource.put(sessionConfig, rtx.getTransactionID());
-				
-				if (version < session.getMostRecentRevisionNumber())
-					((NodeWriteTrx) rtx).revertTo(version);
-			} else {
-				rtx = session.beginNodeReadTrx(version);
-			}
-				
-			return new DBNode(rtx, this);
+			return getDocumentInternal(sessionConfig, revision, updatable);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
+	}
+
+	private DBNode getDocumentInternal(final SessionConfiguration sessionConfig, final int revision, final boolean updatable) throws SirixException {
+		final Session session = mDatabase.getSession(sessionConfig);
+		final int version = revision == -1 ? session
+				.getMostRecentRevisionNumber() : revision;
+				
+		final NodeReadTrx rtx;
+		if (updatable) {
+			if (session.getAvailableNodeWriteTrx() == 0) {
+				final Optional<NodeWriteTrx> optionalWriteTrx;
+				optionalWriteTrx = session.getNodeWriteTrx(OPEN_WTX_PER_RESOURCE.get(sessionConfig));
+				
+				// Must exist.
+				rtx = optionalWriteTrx.get();					
+			}
+			else
+				rtx = session.beginNodeWriteTrx();
+			
+			OPEN_WTX_PER_RESOURCE.put(sessionConfig, rtx.getTransactionID());
+			
+			if (version < session.getMostRecentRevisionNumber())
+				((NodeWriteTrx) rtx).revertTo(version);
+		} else {
+			rtx = session.beginNodeReadTrx(version);
+		}
+			
+		return new DBNode(rtx, this);
 	}
 
 	@Override
@@ -293,15 +300,10 @@ public final class DBCollection extends
 			throw new DocumentException("More than one document stored in database/collection!");
 		}
 		try {
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(resources[0]).build());
-			final int version = revision == -1 ? session
-					.getMostRecentRevisionNumber() : revision;
-			final NodeReadTrx rtx = updatable ? session.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
-			if (updatable	&& version < session.getMostRecentRevisionNumber()) {
-				((NodeWriteTrx) rtx).revertTo(version);
-			}
-			return new DBNode(rtx, this);
+			final SessionConfiguration sessionConfig = SessionConfiguration
+					.newBuilder(resources[0]).build();
+			
+			return getDocumentInternal(sessionConfig, revision, updatable);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
