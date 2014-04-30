@@ -69,7 +69,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * 
  * <p>
  * <ol>
- * <li>Only a single thread accesses each INodeReadTransaction instance.</li>
+ * <li>Only a single thread accesses each NodeReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
