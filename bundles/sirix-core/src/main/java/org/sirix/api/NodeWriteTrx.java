@@ -44,6 +44,8 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.shredder.XMLShredder;
 
+import com.google.common.annotations.Beta;
+
 /**
  * <h1>NodeWriteTrx</h1>
  * 
@@ -76,36 +78,35 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * 
  * <pre>
  * // Without auto commit.
- * final NodeWriteTrx wtx = session.beginNodeWriteTrx();
- * wtx.insertElementAsFirstChild(&quot;foo&quot;);
- * wtx.commit();
- * wtx.close();
+ * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+ *   wtx.insertElementAsFirstChild(&quot;foo&quot;);
+ *   wtx.commit();
+ * }
  * 
  * // With auto commit after every 10th modification.
- * final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
- * 		TimeUnit.MINUTES, 0);
- * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * // 9 other modifications.
- * // Auto commit.
- * wtx.close();
+ * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
+ * 		TimeUnit.MINUTES, 0)) {
+ *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
+ *   // 9 other modifications.
+ *   // Auto commit.
+ * }
  * 
  * // With auto commit after every minute.
- * final NodeWriteTrx wtx = session.beginNodeWriteTrx(0,
- * 		TimeUnit.MINUTES, 1);
- * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * ...
- * // Then abort.
- * wtx.abort();
- * wtx.close();
+ * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(0,
+ * 		TimeUnit.MINUTES, 1)) {
+ *   wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
+ *   ...
+ *   // Then rollback (transaction is also rolled back if this method wouldn't be called during the auto close.
+ *   wtx.rollback();
+ * }
  * 
  * // With auto commit after every 10th modification and every second.
- * final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
- * 		TimeUnit.SECONDS, 1);
- * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * ...
- * // Then abort.
- * wtx.abort();
- * wtx.close();
+ * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
+ * 		TimeUnit.SECONDS, 1)) {
+ *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
+ *   ...
+ *   // Implicit rollback during implicit wtx.close()-call.
+ * }
  * </pre>
  * 
  * </p>
@@ -673,5 +674,6 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @return the {@link PageWriteTrx} instance
 	 */
+	@Beta
 	PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
 }
