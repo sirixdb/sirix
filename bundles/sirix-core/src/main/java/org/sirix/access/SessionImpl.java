@@ -271,10 +271,10 @@ public final class SessionImpl implements Session {
 		checkNotNull(timeUnit);
 
 		// Make sure not to exceed available number of write transactions.
-		if (mWriteSemaphore.availablePermits() == 0) {
-			throw new IllegalStateException(
-					"There already is a running exclusive write transaction.");
-		}
+//		if (mWriteSemaphore.availablePermits() == 0) {
+//			throw new IllegalStateException(
+//					"There already is a running exclusive write transaction.");
+//		}
 		try {
 			mWriteSemaphore.acquire();
 		} catch (final InterruptedException e) {

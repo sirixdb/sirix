@@ -26,6 +26,7 @@ import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
@@ -611,458 +612,628 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	@Override
 	public DBNode append(Kind kind, QNm name, Atomic value)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				if (wtx.hasFirstChild()) {
-					wtx.moveToLastChild();
-					switch (kind) {
-					case DOCUMENT:
-						break;
-					case ELEMENT:
-						wtx.insertElementAsRightSibling(name);
-						break;
-					case ATTRIBUTE:
-						wtx.insertAttribute(name, value.asStr().stringValue());
-						break;
-					case NAMESPACE:
-						wtx.insertNamespace(name);
-						break;
-					case TEXT:
-						wtx.insertTextAsRightSibling(value.asStr().stringValue());
-						break;
-					case COMMENT:
-						wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-						break;
-					case PROCESSING_INSTRUCTION:
-						wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-								name.getLocalName());
-						break;
-					}
-				} else {
-					switch (kind) {
-					case DOCUMENT:
-						break;
-					case ELEMENT:
-						wtx.insertElementAsFirstChild(name);
-						break;
-					case ATTRIBUTE:
-						wtx.insertAttribute(name, value.asStr().stringValue());
-						break;
-					case NAMESPACE:
-						wtx.insertNamespace(name);
-						break;
-					case TEXT:
-						wtx.insertTextAsFirstChild(value.asStr().stringValue());
-						break;
-					case COMMENT:
-						wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-						break;
-					case PROCESSING_INSTRUCTION:
-						wtx.insertPIAsFirstChild(value.asStr().stringValue(),
-								name.getLocalName());
-						break;
-					}
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
+				return append(wtx, kind, name, value);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = append(wtx, kind, name, value);
+					wtx.commit();
+					return node;
 				}
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e);
 		}
-		return null;
+	}
+
+	private DBNode append(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
+			throws SirixException {
+		if (wtx.hasFirstChild()) {
+			wtx.moveToLastChild();
+			switch (kind) {
+			case DOCUMENT:
+				break;
+			case ELEMENT:
+				wtx.insertElementAsRightSibling(name);
+				break;
+			case ATTRIBUTE:
+				wtx.insertAttribute(name, value.asStr().stringValue());
+				break;
+			case NAMESPACE:
+				wtx.insertNamespace(name);
+				break;
+			case TEXT:
+				wtx.insertTextAsRightSibling(value.asStr().stringValue());
+				break;
+			case COMMENT:
+				wtx.insertCommentAsRightSibling(value.asStr().stringValue());
+				break;
+			case PROCESSING_INSTRUCTION:
+				wtx.insertPIAsRightSibling(value.asStr().stringValue(),
+						name.getLocalName());
+				break;
+			}
+		} else {
+			switch (kind) {
+			case DOCUMENT:
+				break;
+			case ELEMENT:
+				wtx.insertElementAsFirstChild(name);
+				break;
+			case ATTRIBUTE:
+				wtx.insertAttribute(name, value.asStr().stringValue());
+				break;
+			case NAMESPACE:
+				wtx.insertNamespace(name);
+				break;
+			case TEXT:
+				wtx.insertTextAsFirstChild(value.asStr().stringValue());
+				break;
+			case COMMENT:
+				wtx.insertCommentAsFirstChild(value.asStr().stringValue());
+				break;
+			case PROCESSING_INSTRUCTION:
+				wtx.insertPIAsFirstChild(value.asStr().stringValue(),
+						name.getLocalName());
+				break;
+			}
+		}
+
+		return new DBNode(mRtx, mCollection);
 	}
 
 	@Override
-	public DBNode append(final Node<?> child)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				SubtreeBuilder builder = null;
-				if (mRtx.hasFirstChild()) {
-					mRtx.moveToLastChild();
-
-					builder = new SubtreeBuilder(
-							mCollection,
-							(NodeWriteTrx) mRtx,
-							Insert.ASRIGHTSIBLING,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				} else {
-					builder = new SubtreeBuilder(
-							mCollection,
-							(NodeWriteTrx) mRtx,
-							Insert.ASFIRSTCHILD,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+	public DBNode append(final Node<?> child) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return append(mRtx, child);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = append(wtx, child);
+					wtx.commit();
+					return node;
 				}
-				child.parse(builder);
-				mRtx.moveTo(builder.getStartNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		return null;
+	}
+
+	private DBNode append(NodeReadTrx rtx, Node<?> child) throws SirixException,
+			DocumentException {
+		SubtreeBuilder builder = null;
+		if (rtx.hasFirstChild()) {
+			rtx.moveToLastChild();
+
+			builder = new SubtreeBuilder(
+					mCollection,
+					(NodeWriteTrx) rtx,
+					Insert.ASRIGHTSIBLING,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		} else {
+			builder = new SubtreeBuilder(
+					mCollection,
+					(NodeWriteTrx) rtx,
+					Insert.ASFIRSTCHILD,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		}
+		child.parse(builder);
+		rtx.moveTo(builder.getStartNodeKey());
+		return new DBNode(rtx, mCollection);
 	}
 
 	@Override
-	public DBNode append(final SubtreeParser parser)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				if (mRtx.hasFirstChild()) {
-					mRtx.moveToLastChild();
+	public DBNode append(final SubtreeParser parser) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return append(mRtx, parser);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = append(wtx, parser);
+					wtx.commit();
+					return node;
 				}
-
-				parser
-						.parse(new SubtreeBuilder(
-								mCollection,
-								(NodeWriteTrx) mRtx,
-								Insert.ASRIGHTSIBLING,
-								Collections
-										.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
 			}
-			moveRtx();
-			mRtx.moveToFirstChild();
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		return null;
+	}
+
+	private DBNode append(NodeReadTrx rtx, SubtreeParser parser)
+			throws DocumentException, SirixException {
+		if (rtx.hasFirstChild()) {
+			rtx.moveToLastChild();
+		}
+
+		parser
+				.parse(new SubtreeBuilder(
+						mCollection,
+						(NodeWriteTrx) rtx,
+						Insert.ASRIGHTSIBLING,
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+
+		moveRtx();
+		rtx.moveToFirstChild();
+		return new DBNode(rtx, mCollection);
 	}
 
 	@Override
 	public DBNode prepend(final Kind kind, final QNm name, final Atomic value)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				switch (kind) {
-				case DOCUMENT:
-					break;
-				case ELEMENT:
-					wtx.insertElementAsFirstChild(name);
-					break;
-				case ATTRIBUTE:
-					wtx.insertAttribute(name, value.asStr().stringValue());
-					break;
-				case NAMESPACE:
-					wtx.insertNamespace(name);
-					break;
-				case TEXT:
-					wtx.insertTextAsFirstChild(value.asStr().stringValue());
-					break;
-				case COMMENT:
-					wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-					break;
-				case PROCESSING_INSTRUCTION:
-					wtx.insertPIAsFirstChild(value.asStr().stringValue(),
-							name.getLocalName());
-					break;
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return prepend((NodeWriteTrx) mRtx, kind, name, value);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = prepend(wtx, kind, name, value);
+					wtx.commit();
+					return node;
 				}
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		return null;
+	}
+
+	private DBNode prepend(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
+			throws DocumentException, SirixException {
+		switch (kind) {
+		case DOCUMENT:
+			break;
+		case ELEMENT:
+			wtx.insertElementAsFirstChild(name);
+			break;
+		case ATTRIBUTE:
+			wtx.insertAttribute(name, value.asStr().stringValue());
+			break;
+		case NAMESPACE:
+			wtx.insertNamespace(name);
+			break;
+		case TEXT:
+			wtx.insertTextAsFirstChild(value.asStr().stringValue());
+			break;
+		case COMMENT:
+			wtx.insertCommentAsFirstChild(value.asStr().stringValue());
+			break;
+		case PROCESSING_INSTRUCTION:
+			wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
+			break;
+		}
+
+		return new DBNode(wtx, mCollection);
 	}
 
 	@Override
-	public DBNode prepend(final Node<?> child)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				SubtreeBuilder builder = null;
-				if (mRtx.hasFirstChild()) {
-					mRtx.moveToFirstChild();
-
-					builder = new SubtreeBuilder(
-							mCollection,
-							(NodeWriteTrx) mRtx,
-							Insert.ASLEFTSIBLING,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				} else {
-					builder = new SubtreeBuilder(
-							mCollection,
-							(NodeWriteTrx) mRtx,
-							Insert.ASFIRSTCHILD,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+	public DBNode prepend(final Node<?> child) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return prepend((NodeWriteTrx) mRtx, child);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = prepend(wtx, child);
+					wtx.commit();
+					return node;
 				}
-				child.parse(builder);
-				mRtx.moveTo(builder.getStartNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode prepend(NodeWriteTrx wtx, Node<?> child)
+			throws SirixException, DocumentException {
+		SubtreeBuilder builder = null;
+		if (wtx.hasFirstChild()) {
+			wtx.moveToFirstChild();
+
+			builder = new SubtreeBuilder(
+					mCollection,
+					wtx,
+					Insert.ASLEFTSIBLING,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		} else {
+			builder = new SubtreeBuilder(
+					mCollection,
+					wtx,
+					Insert.ASFIRSTCHILD,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		}
+		child.parse(builder);
+		wtx.moveTo(builder.getStartNodeKey());
+		return new DBNode(wtx, mCollection);
 	}
 
 	@Override
-	public DBNode prepend(final SubtreeParser parser)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				parser
-						.parse(new SubtreeBuilder(
-								mCollection,
-								(NodeWriteTrx) mRtx,
-								Insert.ASFIRSTCHILD,
-								Collections
-										.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
+	public DBNode prepend(final SubtreeParser parser) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return prepend((NodeWriteTrx) mRtx, parser);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = prepend(wtx, parser);
+					wtx.commit();
+					return node;
+				}
 			}
-			moveRtx();
-			mRtx.moveToFirstChild();
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode prepend(NodeWriteTrx wtx, SubtreeParser parser)
+			throws DocumentException, SirixException {
+		parser
+				.parse(new SubtreeBuilder(
+						mCollection,
+						wtx,
+						Insert.ASFIRSTCHILD,
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+		moveRtx();
+		wtx.moveToFirstChild();
+		return new DBNode(wtx, mCollection);
 	}
 
 	@Override
 	public DBNode insertBefore(final Kind kind, final QNm name, final Atomic value)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				switch (kind) {
-				case DOCUMENT:
-					break;
-				case ELEMENT:
-					wtx.insertElementAsLeftSibling(name);
-					break;
-				case ATTRIBUTE:
-					wtx.insertAttribute(name, value.asStr().stringValue());
-					break;
-				case NAMESPACE:
-					wtx.insertNamespace(name);
-					break;
-				case TEXT:
-					wtx.insertTextAsLeftSibling(value.asStr().stringValue());
-					break;
-				case COMMENT:
-					wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
-					break;
-				case PROCESSING_INSTRUCTION:
-					wtx.insertPIAsLeftSibling(value.asStr().stringValue(),
-							name.getLocalName());
-					break;
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertBefore((NodeWriteTrx) mRtx, kind, name, value);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = insertBefore(wtx, kind, name, value);
+					wtx.commit();
+					return node;
 				}
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertBefore(NodeWriteTrx wtx, Kind kind, QNm name,
+			Atomic value) throws SirixException {
+		switch (kind) {
+		case DOCUMENT:
+			break;
+		case ELEMENT:
+			wtx.insertElementAsLeftSibling(name);
+			break;
+		case ATTRIBUTE:
+			wtx.insertAttribute(name, value.asStr().stringValue());
+			break;
+		case NAMESPACE:
+			wtx.insertNamespace(name);
+			break;
+		case TEXT:
+			wtx.insertTextAsLeftSibling(value.asStr().stringValue());
+			break;
+		case COMMENT:
+			wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
+			break;
+		case PROCESSING_INSTRUCTION:
+			wtx.insertPIAsLeftSibling(value.asStr().stringValue(),
+					name.getLocalName());
+			break;
+		}
+
+		return new DBNode(mRtx, mCollection);
 	}
 
 	@Override
-	public DBNode insertBefore(final Node<?> node)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				final SubtreeBuilder builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASLEFTSIBLING,
-						Collections
-								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				node.parse(builder);
-				mRtx.moveTo(builder.getStartNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
+	public DBNode insertBefore(final Node<?> node) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertBefore((NodeWriteTrx) mRtx, node);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode dbNode = insertBefore(wtx, node);
+					wtx.commit();
+					return dbNode;
+				}
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertBefore(NodeWriteTrx wtx, Node<?> node)
+			throws DocumentException {
+		try {
+			final SubtreeBuilder builder = new SubtreeBuilder(
+					mCollection,
+					wtx,
+					Insert.ASLEFTSIBLING,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+			node.parse(builder);
+			mRtx.moveTo(builder.getStartNodeKey());
+		} catch (final SirixException e) {
+			throw new DocumentException(e);
+		}
+
+		return new DBNode(mRtx, mCollection);
 	}
 
 	@Override
 	public DBNode insertBefore(final SubtreeParser parser)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				final SubtreeBuilder builder = new SubtreeBuilder(
-						mCollection,
-						(NodeWriteTrx) mRtx,
-						Insert.ASLEFTSIBLING,
-						Collections
-								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				parser.parse(builder);
-				return new DBNode(mRtx.moveTo(builder.getStartNodeKey()).get(),
-						mCollection);
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertBefore((NodeWriteTrx) mRtx, parser);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode dbNode = insertBefore(wtx, parser);
+					wtx.commit();
+					return dbNode;
+				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertBefore(NodeWriteTrx wtx, SubtreeParser parser)
+			throws SirixException, DocumentException {
+		final SubtreeBuilder builder = new SubtreeBuilder(
+				mCollection,
+				wtx,
+				Insert.ASLEFTSIBLING,
+				Collections
+						.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		parser.parse(builder);
+		return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(), mCollection);
 	}
 
 	@Override
 	public DBNode insertAfter(final Kind kind, final QNm name, final Atomic value)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				switch (kind) {
-				case DOCUMENT:
-					break;
-				case ELEMENT:
-					wtx.insertElementAsRightSibling(name);
-					break;
-				case ATTRIBUTE:
-					wtx.insertAttribute(name, value.asStr().stringValue());
-					break;
-				case NAMESPACE:
-					wtx.insertNamespace(name);
-					break;
-				case TEXT:
-					wtx.insertTextAsRightSibling(value.asStr().stringValue());
-					break;
-				case COMMENT:
-					wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-					break;
-				case PROCESSING_INSTRUCTION:
-					wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-							name.getLocalName());
-					break;
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertAfter((NodeWriteTrx) mRtx, kind, name, value);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode dbNode = insertAfter(wtx, kind, name, value);
+					wtx.commit();
+					return dbNode;
 				}
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertAfter(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
+			throws SirixException {
+		switch (kind) {
+		case DOCUMENT:
+			break;
+		case ELEMENT:
+			wtx.insertElementAsRightSibling(name);
+			break;
+		case ATTRIBUTE:
+			wtx.insertAttribute(name, value.asStr().stringValue());
+			break;
+		case NAMESPACE:
+			wtx.insertNamespace(name);
+			break;
+		case TEXT:
+			wtx.insertTextAsRightSibling(value.asStr().stringValue());
+			break;
+		case COMMENT:
+			wtx.insertCommentAsRightSibling(value.asStr().stringValue());
+			break;
+		case PROCESSING_INSTRUCTION:
+			wtx.insertPIAsRightSibling(value.asStr().stringValue(),
+					name.getLocalName());
+			break;
+		}
+
+		return new DBNode(mRtx, mCollection);
 	}
 
 	@Override
-	public DBNode insertAfter(final Node<?> node)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			try {
-				final SubtreeBuilder builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASRIGHTSIBLING,
-						Collections
-								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				node.parse(builder);
-				mRtx.moveTo(builder.getStartNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
+	public DBNode insertAfter(final Node<?> node) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertAfter((NodeWriteTrx) mRtx, node);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode dbNode = insertAfter(wtx, node);
+					wtx.commit();
+					return dbNode;
+				}
 			}
-
-			return new DBNode(mRtx, mCollection);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertAfter(NodeWriteTrx wtx, Node<?> node)
+			throws SirixException, DocumentException {
+		final SubtreeBuilder builder = new SubtreeBuilder(
+				mCollection,
+				wtx,
+				Insert.ASRIGHTSIBLING,
+				Collections
+						.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		node.parse(builder);
+		mRtx.moveTo(builder.getStartNodeKey());
+
+		return new DBNode(mRtx, mCollection);
 	}
 
 	@Override
 	public DBNode insertAfter(final SubtreeParser parser)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				final SubtreeBuilder builder = new SubtreeBuilder(
-						mCollection,
-						(NodeWriteTrx) mRtx,
-						Insert.ASRIGHTSIBLING,
-						Collections
-								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
-				parser.parse(builder);
-				return new DBNode(mRtx.moveTo(builder.getStartNodeKey()).get(),
-						mCollection);
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return insertAfter((NodeWriteTrx) mRtx, parser);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = insertAfter(wtx, parser);
+					wtx.commit();
+					return node;
+				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode insertAfter(NodeWriteTrx wtx, SubtreeParser parser)
+			throws SirixException, DocumentException {
+		final SubtreeBuilder builder = new SubtreeBuilder(
+				mCollection,
+				wtx,
+				Insert.ASRIGHTSIBLING,
+				Collections
+						.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+		parser.parse(builder);
+		return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(), mCollection);
 	}
 
 	@Override
-	public DBNode setAttribute(final Node<?> attribute)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			if (wtx.isElement()) {
-				try {
-					final String value = attribute.getValue().asStr().stringValue();
-					final QNm name = attribute.getName();
-					wtx.insertAttribute(name, value);
-					return new DBNode(mRtx, mCollection);
-				} catch (final SirixException e) {
-					throw new DocumentException(e.getCause());
+	public DBNode setAttribute(final Node<?> attribute) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return setAttribute((NodeWriteTrx) mRtx, attribute);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = setAttribute(wtx, attribute);
+					wtx.commit();
+					return node;
 				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode setAttribute(NodeWriteTrx wtx, Node<?> attribute)
+			throws DocumentException, SirixException {
+		if (wtx.isElement()) {
+			final String value = attribute.getValue().asStr().stringValue();
+			final QNm name = attribute.getName();
+			wtx.insertAttribute(name, value);
+			return new DBNode(mRtx, mCollection);
+		}
+		throw new DocumentException("No element node selected!");
 	}
 
 	@Override
 	public DBNode setAttribute(final QNm name, final Atomic value)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			if (wtx.isElement()) {
-				try {
-					wtx.insertAttribute(name, value.asStr().stringValue());
-					return new DBNode(mRtx, mCollection);
-				} catch (final SirixException e) {
-					throw new DocumentException(e.getCause());
+			throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return setAttribute((NodeWriteTrx) mRtx, name, value);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = setAttribute(wtx, name, value);
+					wtx.commit();
+					return node;
 				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode setAttribute(NodeWriteTrx wtx, QNm name, Atomic value)
+			throws SirixException, DocumentException {
+		if (wtx.isElement()) {
+			wtx.insertAttribute(name, value.asStr().stringValue());
+			return new DBNode(mRtx, mCollection);
+		}
+		throw new DocumentException("No element node selected!");
 	}
 
 	@Override
 	public boolean deleteAttribute(final QNm name)
 			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			if (wtx.isElement()) {
-				if (wtx.moveToAttributeByName(name).hasMoved()) {
-					try {
-						wtx.remove();
-						return true;
-					} catch (final SirixException e) {
-						throw new DocumentException(e.getCause());
-					}
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return deleteAttribute((NodeWriteTrx) mRtx, name);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final boolean removed = deleteAttribute(wtx, name);
+					wtx.commit();
+					return removed;
 				}
-				throw new DocumentException("No attribute with name " + name
-						+ " exists!");
 			}
-			throw new DocumentException("No element node selected!");
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private boolean deleteAttribute(NodeWriteTrx wtx, QNm name)
+			throws DocumentException {
+		if (wtx.isElement()) {
+			if (wtx.moveToAttributeByName(name).hasMoved()) {
+				try {
+					wtx.remove();
+					return true;
+				} catch (final SirixException e) {
+					throw new DocumentException(e.getCause());
+				}
+			}
+			throw new DocumentException("No attribute with name " + name + " exists!");
+		}
+		throw new DocumentException("No element node selected!");
 	}
 
 	@Override
@@ -1082,83 +1253,112 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode replaceWith(final Node<?> node)
-			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			if (node instanceof DBNode) {
-				final DBNode other = (DBNode) node;
-				try {
-					final NodeReadTrx rtx = other.getTrx();
-					rtx.moveTo(other.getNodeKey());
-					wtx.replaceNode(rtx);
-				} catch (final SirixException e) {
-					throw new DocumentException(e.getCause());
-				}
-				return new DBNode(mRtx, mCollection);
+	public DBNode replaceWith(final Node<?> node) throws DocumentException {
+		try {
+			if (mIsWtx) {
+				moveRtx();
+				return replaceWith((NodeWriteTrx) mRtx, node);
 			} else {
-				final SubtreeBuilder builder = createBuilder();
-				node.parse(builder);
-				try {
-					return replace(builder.getStartNodeKey());
-				} catch (final SirixException e) {
-					throw new DocumentException(e.getCause());
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode dbNode = replaceWith(wtx, node);
+					wtx.commit();
+					return dbNode;
 				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode replaceWith(NodeWriteTrx wtx, Node<?> node)
+			throws DocumentException {
+		if (node instanceof DBNode) {
+			final DBNode other = (DBNode) node;
+			try {
+				final NodeReadTrx rtx = other.getTrx();
+				rtx.moveTo(other.getNodeKey());
+				wtx.replaceNode(rtx);
+			} catch (final SirixException e) {
+				throw new DocumentException(e.getCause());
+			}
+			return new DBNode(wtx, mCollection);
+		} else {
+			final SubtreeBuilder builder = createBuilder(wtx);
+			node.parse(builder);
+			try {
+				return replace(builder.getStartNodeKey(), wtx);
+			} catch (final SirixException e) {
+				throw new DocumentException(e.getCause());
+			}
+		}
 	}
 
 	@Override
 	public DBNode replaceWith(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			try {
-				final SubtreeBuilder builder = createBuilder();
-				parser.parse(builder);
-				return replace(builder.getStartNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e);
+		moveRtx();
+		try {
+			if (mIsWtx) {
+				return replaceWith((NodeWriteTrx) mRtx, parser);
+			} else {
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = replaceWith(wtx, parser);
+					wtx.commit();
+					return node;
+				}
 			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
+	}
+
+	private DBNode replaceWith(NodeWriteTrx wtx, SubtreeParser parser)
+			throws DocumentException, SirixException {
+		final SubtreeBuilder builder = createBuilder(wtx);
+		parser.parse(builder);
+		return replace(builder.getStartNodeKey(), wtx);
 	}
 
 	@Override
 	public DBNode replaceWith(final Kind kind, final @Nullable QNm name,
 			final @Nullable Atomic value) throws OperationNotSupportedException,
 			DocumentException {
-		if (mIsWtx) {
-			moveRtx();
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
-			if (wtx.hasLeftSibling()) {
-				wtx.moveToLeftSibling();
+		moveRtx();
+		try {
+			if (mIsWtx) {
+				return replaceWith((NodeWriteTrx) mRtx, kind, name, value);
 			} else {
-				wtx.moveToParent();
+				final Session session = mRtx.getSession();
+				try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+					wtx.moveTo(mNodeKey);
+					final DBNode node = replaceWith(wtx, kind, name, value);
+					wtx.commit();
+					return node;
+				}
 			}
-			final DBNode node = insertAfter(kind, name, value);
-			try {
-				return replace(node.getNodeKey());
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
-			}
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
 		}
-		throw new OperationNotSupportedException("Collection has to be updatable!");
 	}
 
-	/**
-	 * Replace a node.
-	 * 
-	 * @param nodeKey
-	 *          nodeKey of the root of the new inserted subtree
-	 * @return subtree root of replaced subtree (the new inserted subtree root)
-	 * @throws SirixException
-	 *           if anything went wrong
-	 */
-	private DBNode replace(final long nodeKey) throws SirixException {
-		final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
+	private DBNode replaceWith(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
+			throws DocumentException, SirixException {
+		if (wtx.hasLeftSibling()) {
+			wtx.moveToLeftSibling();
+		} else {
+			wtx.moveToParent();
+		}
+
+		final DBNode node = insertAfter(wtx, kind, name, value);
+		return replace(node.getNodeKey(), wtx);
+	}
+
+	private DBNode replace(final long nodeKey, final NodeWriteTrx wtx)
+			throws SirixException {
 		// Move to original node.
 		wtx.moveTo(nodeKey).get().moveToRightSibling();
 		// Remove original node.
@@ -1169,15 +1369,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		return new DBNode(mRtx, mCollection);
 	}
 
-	/**
-	 * Create a {@link SubtreeBuilder} instance.
-	 * 
-	 * @return {@link SubtreeBuilder} instance
-	 * @throws DocumentException
-	 *           if the {@link SubtreeBuilder} couldn't be instantiated
-	 */
-	private SubtreeBuilder createBuilder() throws DocumentException {
-		final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
+	private SubtreeBuilder createBuilder(final NodeWriteTrx wtx)
+			throws DocumentException {
 		SubtreeBuilder builder = null;
 		try {
 			if (wtx.hasLeftSibling()) {

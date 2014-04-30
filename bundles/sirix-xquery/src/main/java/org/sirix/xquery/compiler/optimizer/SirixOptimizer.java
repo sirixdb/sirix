@@ -11,7 +11,7 @@ import org.brackit.xquery.compiler.optimizer.TopDownOptimizer;
 import org.brackit.xquery.module.StaticContext;
 import org.sirix.xquery.node.DBStore;
 
-public class SirixOptimizer extends TopDownOptimizer {
+public final class SirixOptimizer extends TopDownOptimizer {
 
 	public SirixOptimizer(final Map<QNm, Str> options, final DBStore store) {
 		super(options);
