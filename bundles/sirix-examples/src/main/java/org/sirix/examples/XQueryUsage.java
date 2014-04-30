@@ -208,7 +208,7 @@ public final class XQueryUsage {
 		// Prepare sample document.
 		final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 
-		// Initialize query context and store.
+		// Initialize query context and store (implicit transaction commit).
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 			final CompileChain compileChain = new SirixCompileChain(store);
@@ -229,16 +229,44 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Insert into loaded document:");
-			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
+			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1')/log";
 			System.out.println(xq2);
 			final XQuery q1 = new XQuery(compileChain, xq2);
 			q1.execute(ctx2);
-			System.out.println("Commit changes:");
-			final String xq3 = "sdb:commit(sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)))";
-			final XQuery q2 = new XQuery(compileChain, xq3);
-			q2.execute(ctx2);
 			System.out.println();
 		}
+		
+//		// Initialize query context and store (explicit transaction commit).
+//		try (final DBStore store = DBStore.newBuilder().build()) {
+//			final QueryContext ctx = new QueryContext(store);
+//			final CompileChain compileChain = new SirixCompileChain(store);
+//
+//			final File doc1 = generateSampleDoc(tmpDir, "sample1");
+//			doc1.deleteOnExit();
+//			
+//			final URI docUri = doc1.toURI();
+//
+//			// Use XQuery to load sample document into store.
+//			System.out.println("Loading document:");
+//			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
+//					docUri.toString());
+//			System.out.println(xq1);
+//			new XQuery(compileChain, xq1).evaluate(ctx);
+//
+//			// Reuse store and insert into loaded document with a subsequent explicit commit.
+//			final QueryContext ctx2 = new QueryContext(store);
+//			System.out.println();
+//			System.out.println("Insert into loaded document:");
+//			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
+//			System.out.println(xq2);
+//			final XQuery q1 = new XQuery(compileChain, xq2);
+//			q1.execute(ctx2);
+//			System.out.println("Commit changes:");
+//			final String xq3 = "sdb:commit(sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)))";
+//			final XQuery q2 = new XQuery(compileChain, xq3);
+//			q2.execute(ctx2);
+//			System.out.println();
+//		}
 
 		// Create and commit CAS indexes on all attribute- and text-nodes.
 		try (final DBStore store = DBStore.newBuilder().build()) {
