@@ -633,6 +633,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() != session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return append(wtx, kind, name, value);
@@ -713,9 +715,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() != session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
-				if (mRtx.getRevisionNumber() != session.getMostRecentRevisionNumber())
-					wtx.revertTo(mRtx.getRevisionNumber());
 				wtx.moveTo(mNodeKey);
 				return append(wtx, child);
 			} catch (final DocumentException e) {
@@ -769,6 +771,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return append(wtx, parser);
@@ -818,6 +822,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return prepend((NodeWriteTrx) mRtx, kind, name, value);
@@ -876,6 +882,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return prepend(wtx, child);
@@ -930,6 +938,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return prepend(wtx, parser);
@@ -974,6 +984,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, kind, name, value);
@@ -1032,6 +1044,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, node);
@@ -1076,6 +1090,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, parser);
@@ -1119,6 +1135,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertAfter(wtx, kind, name, value);
@@ -1173,6 +1191,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertAfter(wtx, node);
@@ -1216,6 +1236,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return insertAfter((NodeWriteTrx) mRtx, parser);
@@ -1258,6 +1280,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return setAttribute((NodeWriteTrx) mRtx, attribute);
@@ -1299,6 +1323,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return setAttribute((NodeWriteTrx) mRtx, name, value);
@@ -1337,6 +1363,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return deleteAttribute((NodeWriteTrx) mRtx, name);
@@ -1394,6 +1422,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith((NodeWriteTrx) mRtx, node);
@@ -1443,6 +1473,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith((NodeWriteTrx) mRtx, parser);
@@ -1480,6 +1512,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith((NodeWriteTrx) mRtx, kind, name, value);
@@ -1593,6 +1627,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		} else {
 			final Session session = mRtx.getSession();
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+				wtx.revertTo(mRtx.getRevisionNumber());
 			wtx.moveTo(mNodeKey);
 			try {
 				wtx.remove();
