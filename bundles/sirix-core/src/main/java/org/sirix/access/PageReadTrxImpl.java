@@ -84,6 +84,7 @@ import com.google.common.base.Objects;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 
 /**
  * <h1>PageReadTransaction</h1>
@@ -292,7 +293,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.build(
 						new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
 							public RecordPageContainer<UnorderedKeyValuePage> load(
-									final Long key) throws SirixException {
+									final Long key) {
 								final RecordPageContainer<UnorderedKeyValuePage> container = mNodeLog
 										.isPresent() ? mNodeLog.get().get(key)
 										: RecordPageContainer
@@ -310,7 +311,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mPathSummaryCache = builder
 					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final IndexLogKey key) throws SirixException {
+								final IndexLogKey key) {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mPathSummaryLog
 									.isPresent() ? mPathSummaryLog.get().get(key)
 									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
@@ -329,7 +330,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mPathCache = builder
 					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final IndexLogKey key) throws SirixException {
+								final IndexLogKey key) {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mPathLog
 									.isPresent() ? mPathLog.get().get(key) : RecordPageContainer
 									.<UnorderedKeyValuePage> emptyInstance();
@@ -347,7 +348,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mCASCache = builder
 					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final IndexLogKey key) throws SirixException {
+								final IndexLogKey key) {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mCASLog
 									.isPresent() ? mCASLog.get().get(key) : RecordPageContainer
 									.<UnorderedKeyValuePage> emptyInstance();
@@ -364,7 +365,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mNameCache = builder
 					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final IndexLogKey key) throws SirixException {
+								final IndexLogKey key) {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mNameLog
 									.isPresent() ? mNameLog.get().get(key) : RecordPageContainer
 									.<UnorderedKeyValuePage> emptyInstance();
@@ -382,7 +383,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.newBuilder();
 		final PageReadTrxImpl impl = this;
 		mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
-			public Page load(final PageReference reference) throws SirixException {
+			public Page load(final PageReference reference) {
 				assert reference.getLogKey() != null
 						|| reference.getKey() != Constants.NULL_ID;
 				Page page = mPageLog.isPresent() ? mPageLog.get().get(
@@ -450,7 +451,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			default:
 				throw new IllegalStateException();
 			}
-		} catch (final ExecutionException e) {
+		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e);
 		}
 
@@ -585,7 +586,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				page = (RevisionRootPage) mPageCache.get(reference);
 			}
 			return page;
-		} catch (final ExecutionException e) {
+		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
 	}
@@ -644,7 +645,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				reference.setPage(page);
 			}
 			return page;
-		} catch (final ExecutionException e) {
+		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
 	}
@@ -813,7 +814,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				page = (IndirectPage) mPageCache.get(reference);
 			}
 			return page;
-		} catch (final ExecutionException e) {
+		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
 	}
@@ -900,7 +901,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public void close() throws SirixIOException {
+	public void close() {
 		if (!mClosed) {
 			closeCaches();
 			mPageReader.close();

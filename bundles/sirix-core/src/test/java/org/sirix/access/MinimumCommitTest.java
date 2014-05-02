@@ -39,7 +39,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
-public class MinimumCommitTest {
+public final class MinimumCommitTest {
 
 	private Holder holder;
 
