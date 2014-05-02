@@ -285,7 +285,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 *           if can't close {@link NodeReadTrx}
 	 */
 	@Override
-	void close() throws SirixException;
+	void close();
 
 	/**
 	 * Is this transaction closed?

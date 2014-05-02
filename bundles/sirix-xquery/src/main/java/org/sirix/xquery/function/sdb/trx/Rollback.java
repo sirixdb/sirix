@@ -9,7 +9,6 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
@@ -52,12 +51,7 @@ public final class Rollback extends AbstractFunction {
 		if (doc.getTrx() instanceof NodeWriteTrx) {
 			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
-			try {
-				wtx.rollback();
-			} catch (final SirixException e) {
-				throw new QueryException(new QNm("Couldn't be commited: "
-						+ e.getMessage()), e);
-			}
+			wtx.rollback();
 			return new Int64(revision);
 		} else {
 			throw new QueryException(new QNm(

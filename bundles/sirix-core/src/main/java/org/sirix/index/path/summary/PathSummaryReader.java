@@ -416,7 +416,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public void close() throws SirixException {
+	public void close() {
 		if (!mClosed) {
 			// Immediately release all references.
 			mCurrentNode = null;

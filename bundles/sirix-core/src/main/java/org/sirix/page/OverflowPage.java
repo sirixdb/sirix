@@ -5,7 +5,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -53,7 +52,7 @@ public final class OverflowPage implements Page {
 
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			PageWriteTrx<K, V, S> pageWriteTrx) {
 	}
 
 	@Override

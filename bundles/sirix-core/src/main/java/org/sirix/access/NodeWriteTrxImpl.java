@@ -231,11 +231,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			mPool.scheduleAtFixedRate(new Runnable() {
 				@Override
 				public void run() {
-					try {
-						commit();
-					} catch (final SirixException e) {
-						throw new IllegalStateException(e);
-					}
+					commit();
 				}
 			}, maxTime, maxTime, timeUnit);
 		}
@@ -1804,7 +1800,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void revertTo(final @Nonnegative int revision) throws SirixException {
+	public void revertTo(final @Nonnegative int revision) {
 		acquireLock();
 		try {
 			mNodeRtx.assertNotClosed();
@@ -1840,13 +1836,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void close() throws SirixException {
+	public void close() {
 		acquireLock();
 		try {
 			if (!isClosed()) {
 				// Make sure to commit all dirty data.
 				if (mModificationCount > 0) {
-					throw new SirixUsageException("Must commit/abort transaction first");
+					throw new SirixUsageException("Must commit/rollback transaction first!");
 				}
 
 				final int revision = getRevisionNumber();
@@ -1873,7 +1869,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void rollback() throws SirixException {
+	public void rollback() {
 		acquireLock();
 		try {
 			mNodeRtx.assertNotClosed();
@@ -1921,7 +1917,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void commit() throws SirixException {
+	public void commit() {
 		mNodeRtx.assertNotClosed();
 
 		// Execute pre-commit hooks.
@@ -1960,11 +1956,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *          transaction ID
 	 * @param revNumber
 	 *          revision number
-	 * @throws SirixException
-	 *           if an I/O exception occurs
 	 */
 	private void reInstantiate(final @Nonnegative long trxID,
-			final @Nonnegative int revNumber) throws SirixException {
+			final @Nonnegative int revNumber) {
 		// Reset page transaction to new uber page.
 		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
 		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx = mNodeRtx.mSession

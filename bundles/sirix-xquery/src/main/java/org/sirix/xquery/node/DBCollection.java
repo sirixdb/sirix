@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
 
 import org.brackit.xquery.node.AbstractCollection;
@@ -77,6 +78,20 @@ public final class DBCollection extends
 		super(checkNotNull(name));
 		mDatabase = checkNotNull(database);
 		mID = ID_SEQUENCE.incrementAndGet();
+	}
+	
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof DBCollection) {
+			final DBCollection coll = (DBCollection) obj;
+			return mDatabase.equals(coll.mDatabase);
+		}
+		return false;
+	}
+	
+	@Override
+	public int hashCode() {
+		return mDatabase.hashCode();
 	}
 
 	/**

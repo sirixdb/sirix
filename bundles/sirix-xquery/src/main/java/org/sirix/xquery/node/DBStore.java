@@ -10,6 +10,8 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -31,7 +33,6 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.service.xml.shredder.Insert;
 
@@ -51,6 +52,8 @@ public final class DBStore implements Store, AutoCloseable {
 
 	/** {@link Set} of databases. */
 	private final Set<Database> mDatabases;
+
+	private final ConcurrentMap<Database, DBCollection> mCollections;
 
 	/** {@link StorageType} instance. */
 	private final StorageType mStorageType;
@@ -115,6 +118,7 @@ public final class DBStore implements Store, AutoCloseable {
 	 */
 	private DBStore(final Builder builder) {
 		mDatabases = new HashSet<>();
+		mCollections = new ConcurrentHashMap<>();
 		mStorageType = builder.mStorageType;
 		mLocation = builder.mLocation;
 	}
@@ -125,14 +129,22 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public TemporalCollection<?> lookup(final String name) throws DocumentException {
+	public TemporalCollection<?> lookup(final String name)
+			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		if (Databases.existsDatabase(dbConf)) {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
+				final Optional<Database> storedCollection = mDatabases.stream()
+						.findFirst().filter((Database db) -> db.equals(database));
+				if (storedCollection.isPresent()) {
+					return mCollections.get(storedCollection.get());
+				}
 				mDatabases.add(database);
-				return new DBCollection(name, database);
+				final DBCollection collection = new DBCollection(name, database);
+				mCollections.put(database, collection);
+				return collection;
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -141,7 +153,8 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public TemporalCollection<?> create(final String name) throws DocumentException {
+	public TemporalCollection<?> create(final String name)
+			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		try {
@@ -151,15 +164,18 @@ public final class DBStore implements Store, AutoCloseable {
 
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			return new DBCollection(name, database);
+
+			final DBCollection collection = new DBCollection(name, database);
+			mCollections.put(database, collection);
+			return collection;
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
 	}
 
 	@Override
-	public TemporalCollection<?> create(final String collName, final SubtreeParser parser)
-			throws DocumentException {
+	public TemporalCollection<?> create(final String collName,
+			final SubtreeParser parser) throws DocumentException {
 		return create(collName, Optional.<String> empty(), parser);
 	}
 
@@ -171,30 +187,32 @@ public final class DBStore implements Store, AutoCloseable {
 		try {
 			Databases.truncateDatabase(dbConf);
 			Databases.createDatabase(dbConf);
-			final Database database = Databases.openDatabase(dbConf.getFile());
-			mDatabases.add(database);
-			final String resName = optResName.isPresent() ? optResName.get()
-					: new StringBuilder(3).append("resource")
-							.append(database.listResources().length + 1).toString();
-			database.createResource(ResourceConfiguration.newBuilder(resName, dbConf)
-					.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
-					.storageType(mStorageType).build());
-			final Session session = database
-					.getSession(new SessionConfiguration.Builder(resName).build());
-			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			try (final Database database = Databases.openDatabase(dbConf.getFile())) {
+				mDatabases.add(database);
+				final String resName = optResName.isPresent() ? optResName.get()
+						: new StringBuilder(3).append("resource")
+								.append(database.listResources().length + 1).toString();
+				database.createResource(ResourceConfiguration
+						.newBuilder(resName, dbConf).useDeweyIDs(true)
+						.useTextCompression(true).buildPathSummary(true)
+						.storageType(mStorageType).build());
+				final DBCollection collection = new DBCollection(collName, database);
+				mCollections.put(database, collection);
+				try (final Session session = database
+						.getSession(new SessionConfiguration.Builder(resName).build());
+						final NodeWriteTrx wtx = session.beginNodeWriteTrx();) {
+					parser
+							.parse(new SubtreeBuilder(
+									collection,
+									wtx,
+									Insert.ASFIRSTCHILD,
+									Collections
+											.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 
-			final DBCollection collection = new DBCollection(collName, database);
-			parser
-					.parse(new SubtreeBuilder(
-							collection,
-							wtx,
-							Insert.ASFIRSTCHILD,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
-			
-			wtx.commit();
-			wtx.close();
-			return collection;
+					wtx.commit();
+				}
+				return collection;
+			}
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -227,20 +245,21 @@ public final class DBStore implements Store, AutoCloseable {
 										.newBuilder(resource, dbConf).storageType(mStorageType)
 										.useDeweyIDs(true).useTextCompression(true)
 										.buildPathSummary(true).build());
-								final Session session = database
+								try (final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
-								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-								final DBCollection collection = new DBCollection(collName,
-										database);
-								nextParser.parse(new SubtreeBuilder(
-										collection,
-										wtx,
-										Insert.ASFIRSTCHILD,
-										Collections
-												.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
-								wtx.commit();
-								wtx.close();
+										final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+									final DBCollection collection = new DBCollection(collName,
+											database);
+									mCollections.put(database, collection);
+									nextParser.parse(new SubtreeBuilder(
+											collection,
+											wtx,
+											Insert.ASFIRSTCHILD,
+											Collections
+													.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+									wtx.commit();
+								}
 								return null;
 							}
 						});
@@ -266,8 +285,11 @@ public final class DBStore implements Store, AutoCloseable {
 		if (Databases.existsDatabase(dbConfig)) {
 			try {
 				Databases.truncateDatabase(dbConfig);
-			} catch (final SirixIOException e) {
-				throw new DocumentException(e.getCause());
+				final Database database = Databases.openDatabase(dbConfig.getFile());
+				mDatabases.remove(database);
+				mCollections.remove(database);
+			} catch (final SirixException e) {
+				throw new DocumentException(e);
 			}
 		}
 		throw new DocumentException("No collection with the specified name found!");

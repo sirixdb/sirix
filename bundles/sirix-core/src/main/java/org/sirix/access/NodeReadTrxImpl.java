@@ -401,7 +401,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public void close() throws SirixException {
+	public void close() {
 		if (!mClosed) {
 			// Callback on session to make sure everything is cleaned up.
 			mSession.closeReadTransaction(mId);

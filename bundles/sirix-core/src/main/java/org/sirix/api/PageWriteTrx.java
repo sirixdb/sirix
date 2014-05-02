@@ -40,7 +40,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws SirixIOException
 	 *           if setting up the transaction log fails
 	 */
-	boolean setupIndexTransactionLog(IndexType indexType) throws SirixIOException;
+	boolean setupIndexTransactionLog(IndexType indexType);
 
 	/**
 	 * Put a page into the cache.
@@ -117,7 +117,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *           if {@code page} is {@code null}
 	 */
 	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind pageKind,
-			int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException;
+			int index, @Nonnull Optional<S> keyValuePage);
 
 	/**
 	 * Remove an entry from the storage.
@@ -136,7 +136,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *           if {@code pageKind} or {@code keyValuePage} is {@code null}
 	 */
 	void removeEntry(K key, @Nonnull PageKind pageKind, int index,
-			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
+			@Nonnull Optional<S> keyValuePage);
 
 	/**
 	 * Creating a namekey for a given name.
@@ -151,7 +151,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code name} or {@code kind} is {@code null}
 	 */
-	int createNameKey(String name, @Nonnull Kind kind) throws SirixIOException;
+	int createNameKey(String name, @Nonnull Kind kind);
 
 	/**
 	 * Commit the transaction, that is persist changes if any and create a new
@@ -162,7 +162,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code multipleWriteTrx} is {@code null}
 	 */
-	UberPage commit(MultipleWriteTrx multipleWriteTrx) throws SirixException;
+	UberPage commit(MultipleWriteTrx multipleWriteTrx);
 
 	/**
 	 * Update log.
@@ -189,7 +189,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code reference} is {@code null}
 	 */
-	void commit(PageReference reference) throws SirixException;
+	void commit(PageReference reference);
 
 	/**
 	 * Determines if this page write trx must restore a previous failed trx.

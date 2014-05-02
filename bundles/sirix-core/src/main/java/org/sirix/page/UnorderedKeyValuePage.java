@@ -37,7 +37,6 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -55,7 +54,6 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -71,7 +69,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
-import com.google.common.primitives.UnsignedBytes;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>
@@ -390,7 +387,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			PageWriteTrx<K, V, S> pageWriteTrx) {
 		if (!mAddedReferences) {
 			try {
 				addReferences();

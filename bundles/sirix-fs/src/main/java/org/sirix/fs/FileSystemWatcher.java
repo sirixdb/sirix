@@ -116,13 +116,13 @@ public class FileSystemWatcher implements AutoCloseable {
 	private final Session mSession;
 
 	/** Determines the state. */
-	private EState mState;
+	private State mState;
 
 	/** sirix {@link NodeWriteTrx}. */
 	private NodeWriteTrx mWtx;
 
 	/** Possible states. */
-	public enum EState {
+	public enum State {
 		/** Loops and waits for events. */
 		LOOP,
 
@@ -146,16 +146,12 @@ public class FileSystemWatcher implements AutoCloseable {
 		mSession = mDatabase
 				.getSession(new SessionConfiguration.Builder("shredded").build());
 		mWtx = mSession.beginNodeWriteTrx();
-		mState = EState.LOOP;
+		mState = State.LOOP;
 
 		mPool.scheduleAtFixedRate(new Runnable() {
 			@Override
 			public void run() {
-				try {
-					mWtx.commit();
-				} catch (final SirixException e) {
-					LOGWRAPPER.error(e.getMessage(), e);
-				}
+				mWtx.commit();
 			}
 		}, 60, 60, TimeUnit.SECONDS);
 	}
@@ -205,7 +201,7 @@ public class FileSystemWatcher implements AutoCloseable {
 		Files.walkFileTree(mPath, fileVisitor);
 		final Map<Path, org.sirix.fs.Path> index = checkNotNull(pIndex);
 
-		for (; mState == EState.LOOP;) {
+		for (; mState == State.LOOP;) {
 			// Wait for key to be signaled.
 			WatchKey key;
 			try {
@@ -282,7 +278,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 				// All directories are inaccessible.
 				if (keys.isEmpty()) {
-					mState = EState.NOLOOP;
+					mState = State.NOLOOP;
 				}
 			}
 		}
@@ -294,11 +290,11 @@ public class FileSystemWatcher implements AutoCloseable {
 	 * Set state.
 	 * 
 	 * @param pState
-	 *          {@link EState} value
+	 *          {@link State} value
 	 * @throws NullPointerException
 	 *           if {@code pState} is {@code null}
 	 */
-	public void setState(final EState pState) {
+	public void setState(final State pState) {
 		mState = checkNotNull(pState);
 	}
 

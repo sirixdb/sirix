@@ -25,6 +25,7 @@ import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
+import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 import org.sirix.api.NodeWriteTrx;
@@ -210,7 +211,7 @@ public final class XQueryUsage {
 
 		// Initialize query context and store (implicit transaction commit).
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx1 = new SirixQueryContext(store);
 			final CompileChain compileChain = new SirixCompileChain(store);
 
 			final File doc1 = generateSampleDoc(tmpDir, "sample1");
@@ -223,16 +224,15 @@ public final class XQueryUsage {
 			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
 					docUri.toString());
 			System.out.println(xq1);
-			new XQuery(compileChain, xq1).evaluate(ctx);
+			new XQuery(compileChain, xq1).evaluate(ctx1);
 
 			// Reuse store and insert into loaded document with a subsequent explicit commit.
-			final QueryContext ctx2 = new QueryContext(store);
+			final QueryContext ctx2 = new SirixQueryContext(store);
 			System.out.println();
 			System.out.println("Insert into loaded document:");
 			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1')/log";
 			System.out.println(xq2);
-			final XQuery q1 = new XQuery(compileChain, xq2);
-			q1.execute(ctx2);
+			new XQuery(compileChain, xq2).evaluate(ctx2);
 			System.out.println();
 		}
 		
