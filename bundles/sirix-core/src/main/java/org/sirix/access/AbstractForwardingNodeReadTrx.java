@@ -50,7 +50,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public void close() throws SirixException {
+	public void close() {
 		delegate().close();
 	}
 

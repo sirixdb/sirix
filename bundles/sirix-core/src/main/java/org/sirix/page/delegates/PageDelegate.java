@@ -36,7 +36,6 @@ import java.io.IOException;
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -128,14 +127,12 @@ public class PageDelegate implements Page {
 	/**
 	 * Recursively call commit on all referenced pages.
 	 * 
-	 * @param pState
-	 *          IWriteTransaction state
-	 * @throws SirixException
-	 *           if a write-error occured
+	 * @param pageWriteTransaction
+	 *         	the page write transaction
 	 */
 	@Override
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			final PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		for (final PageReference reference : mReferences) {
 			if (!(reference.getLogKey() == null && reference.getPage() == null && reference
 					.getKey() == Constants.NULL_ID)) {

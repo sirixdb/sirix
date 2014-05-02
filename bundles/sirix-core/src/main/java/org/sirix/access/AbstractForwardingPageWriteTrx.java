@@ -7,7 +7,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.RecordPageContainer;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
@@ -74,8 +73,7 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public UberPage commit(MultipleWriteTrx multipleWriteTrx)
-			throws SirixException {
+	public UberPage commit(MultipleWriteTrx multipleWriteTrx) {
 		return delegate().commit(multipleWriteTrx);
 	}
 
@@ -87,7 +85,7 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public void commit(PageReference reference) throws SirixException {
+	public void commit(PageReference reference) {
 		delegate().commit(reference);
 	}
 

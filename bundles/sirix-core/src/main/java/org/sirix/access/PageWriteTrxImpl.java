@@ -170,7 +170,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final Writer writer, final @Nonnegative long trxId,
 			final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
-			final @Nonnegative int lastCommitedRev) throws SirixException {
+			final @Nonnegative int lastCommitedRev) {
 		final int revision = uberPage.isBootstrap() ? 0 : lastStoredRev + 1;
 		mUsePathSummary = session.mResourceConfig.mPathSummary;
 		mIndexController = session.getWtxIndexController(representRev);
@@ -490,8 +490,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void commit(final @Nullable PageReference reference)
-			throws SirixException {
+	public void commit(final @Nullable PageReference reference) {
 		Page page = null;
 
 		// First, try to get one from the transaction log.
@@ -615,8 +614,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public UberPage commit(final MultipleWriteTrx multipleWriteTrx)
-			throws SirixException {
+	public UberPage commit(final MultipleWriteTrx multipleWriteTrx) {
 		mPageRtx.assertNotClosed();
 		mPageRtx.mSession.mCommitLock.lock();
 		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
@@ -671,7 +669,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 						+ ".xml");
 		try (final OutputStream out = new FileOutputStream(indexes)) {
 			mIndexController.serialize(out);
-		} catch (IOException e) {
+		} catch (final IOException e) {
 			throw new SirixIOException("Index definitions couldn't be serialized!", e);
 		}
 
@@ -687,7 +685,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void close() throws SirixIOException {
+	public void close() {
 		if (!mIsClosed) {
 			mPageRtx.assertNotClosed();
 			mPageRtx.clearCaches();

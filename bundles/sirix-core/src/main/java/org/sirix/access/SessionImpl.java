@@ -208,13 +208,13 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public NodeReadTrx beginNodeReadTrx() throws SirixException {
+	public NodeReadTrx beginNodeReadTrx() {
 		return beginNodeReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
 	public synchronized NodeReadTrx beginNodeReadTrx(
-			@Nonnegative final int revisionKey) throws SirixException {
+			@Nonnegative final int revisionKey) {
 		assertAccess(revisionKey);
 		// Make sure not to exceed available number of read transactions.
 		try {
@@ -255,14 +255,14 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public NodeWriteTrx beginNodeWriteTrx() throws SirixException {
+	public NodeWriteTrx beginNodeWriteTrx() {
 		return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
 	}
 
 	@Override
 	public synchronized NodeWriteTrx beginNodeWriteTrx(
 			@Nonnegative final int maxNodeCount, @Nonnull final TimeUnit timeUnit,
-			@Nonnegative final int maxTime) throws SirixException {
+			@Nonnegative final int maxTime) {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (maxNodeCount < 0 || maxTime < 0) {
@@ -276,7 +276,9 @@ public final class SessionImpl implements Session {
 //					"There already is a running exclusive write transaction.");
 //		}
 		try {
-			mWriteSemaphore.acquire();
+			if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+				throw new SirixUsageException("No write transaction available, please close the write transaction first.");
+			}
 		} catch (final InterruptedException e) {
 			throw new SirixThreadedException(e);
 		}
@@ -312,13 +314,10 @@ public final class SessionImpl implements Session {
 	 * @param storeRevision
 	 *          revisions
 	 * @return a new {@link PageWriteTrx} instance
-	 * @throws SirixException
-	 *           if an error occurs
 	 */
 	PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(
 			final @Nonnegative long id, final @Nonnegative int representRevision,
-			final @Nonnegative int storeRevision, final Abort abort)
-			throws SirixException {
+			final @Nonnegative int storeRevision, final Abort abort) {
 		checkArgument(id >= 0, "id must be >= 0!");
 		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
 		checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
@@ -668,9 +667,9 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized Session commitAll() throws SirixException {
+	public synchronized Session commitAll() {
 		if (!mClosed) {
-			for (NodeReadTrx rtx : mNodeTrxMap.values()) {
+			for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof NodeWriteTrx) {
 					((NodeWriteTrx) rtx).commit();
 				}

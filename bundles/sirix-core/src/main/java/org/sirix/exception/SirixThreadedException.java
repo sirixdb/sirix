@@ -36,7 +36,7 @@ import java.util.concurrent.ExecutionException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class SirixThreadedException extends SirixException {
+public final class SirixThreadedException extends SirixRuntimeException {
 
 	/** Generated ID. */
 	private static final long serialVersionUID = -2891221683798924769L;
@@ -57,7 +57,7 @@ public final class SirixThreadedException extends SirixException {
 	 * @param message
 	 *          to be stored
 	 */
-	public SirixThreadedException(final String... message) {
+	public SirixThreadedException(final String message) {
 		super(message);
 	}
 

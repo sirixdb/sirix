@@ -614,7 +614,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if this revision couldn't be commited
 	 */
-	void commit() throws SirixException;
+	void commit();
 
 	/**
 	 * Rollback all modifications of the exclusive write transaction.
@@ -622,7 +622,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if the changes in this revision couldn't be rollbacked
 	 */
-	void rollback() throws SirixException;
+	void rollback();
 
 	/**
 	 * Reverting all changes to the revision defined. This command has to be
@@ -631,10 +631,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @param revision
 	 *          revert to the revision
-	 * @throws SirixException
-	 *           if anything went wrong
 	 */
-	void revertTo(@Nonnegative int revision) throws SirixException;
+	void revertTo(@Nonnegative int revision);
 
 	/**
 	 * Closing current WriteTransaction.
@@ -643,7 +641,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if write transaction couldn't be closed
 	 */
 	@Override
-	void close() throws SirixException;
+	void close();
 
 	/**
 	 * Add pre commit hook.

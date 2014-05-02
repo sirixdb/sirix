@@ -361,28 +361,24 @@ public final class CommandoLineExplorer {
 			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				final StringBuilder builder = new StringBuilder("Insert ");
-				try {
-					if (mCurrentRtx instanceof NodeWriteTrx) {
-						final NodeWriteTrx wtx = (NodeWriteTrx) mCurrentRtx;
+				if (mCurrentRtx instanceof NodeWriteTrx) {
+					final NodeWriteTrx wtx = (NodeWriteTrx) mCurrentRtx;
 
-						if (mParameter.equals("commit")) {
-							wtx.commit();
-							builder.append(
-									" operation: commit succeed. New revision-number is ")
-									.append(wtx.getRevisionNumber());
-						} else if (mParameter.equals("abort")) {
-							wtx.rollback();
-							builder.append(
-									" operation: abort succeed. Old revision-number is ").append(
-									wtx.getRevisionNumber());
-						}
-
-					} else {
-						builder.append(" not succeed, Please login with write-right "
-								+ "(that means without revision parameter");
+					if (mParameter.equals("commit")) {
+						wtx.commit();
+						builder.append(
+								" operation: commit succeed. New revision-number is ").append(
+								wtx.getRevisionNumber());
+					} else if (mParameter.equals("abort")) {
+						wtx.rollback();
+						builder
+								.append(" operation: abort succeed. Old revision-number is ")
+								.append(wtx.getRevisionNumber());
 					}
-				} catch (final SirixException exc) {
-					builder.append(" throws exception: ").append(exc);
+
+				} else {
+					builder.append(" not succeed, Please login with write-right "
+							+ "(that means without revision parameter");
 				}
 				return builder.toString();
 			}

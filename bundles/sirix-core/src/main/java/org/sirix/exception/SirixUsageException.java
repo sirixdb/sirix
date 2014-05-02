@@ -33,7 +33,7 @@ package org.sirix.exception;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class SirixUsageException extends SirixException {
+public class SirixUsageException extends SirixRuntimeException {
 	/**
 	 * Constructor.
 	 * 

@@ -38,7 +38,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -213,7 +212,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 */
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		if (mRevision == pageWriteTrx.getUberPage().getRevision()) {
 			super.commit(pageWriteTrx);
 		}

@@ -284,36 +284,36 @@ public final class TestHelper {
 	 * @throws SirixException
 	 */
 	public static void createTestDocument() throws SirixException {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-				PATHS.PATH1.config).build());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
-		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		wtx.close();
-		session.close();
-		database.close();
+		try (final Database database = TestHelper
+				.getDatabase(PATHS.PATH1.getFile())) {
+			database.createResource(new ResourceConfiguration.Builder(RESOURCE,
+					PATHS.PATH1.config).build());
+			try (final Session session = database
+					.getSession(new SessionConfiguration.Builder(RESOURCE).build());
+					final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+				DocumentCreater.create(wtx);
+				wtx.commit();
+			}
+		}
 	}
 
 	/**
-	 * Creating a test document at {@link PATHS#PATH1}.
+	 * Creating a test document with comments and processing instructions at {@link PATHS#PATH1}.
 	 * 
 	 * @throws SirixException
 	 */
 	public static void createPICommentTestDocument() throws SirixException {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-				PATHS.PATH1.config).build());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
-		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		DocumentCreater.createCommentPI(wtx);
-		wtx.commit();
-		wtx.close();
-		session.close();
-		database.close();
+		try (final Database database = TestHelper
+				.getDatabase(PATHS.PATH1.getFile())) {
+			database.createResource(new ResourceConfiguration.Builder(RESOURCE,
+					PATHS.PATH1.config).build());
+			try (final Session session = database
+					.getSession(new SessionConfiguration.Builder(RESOURCE).build());
+					final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+				DocumentCreater.createCommentPI(wtx);
+				wtx.commit();
+			}
+		}
 	}
 
 	/**

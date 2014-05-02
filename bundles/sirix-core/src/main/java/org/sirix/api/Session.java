@@ -47,9 +47,9 @@ import org.sirix.page.UnorderedKeyValuePage;
  * 
  * <p>
  * Each <code>Database</code> is bound to multiple instances implementing
- * <code>ISession</code>. Transactions can then be started from this instance.
- * There can only be one <code>IWriteTransaction</code> at the time. However,
- * multiple <code>IReadTransactions</code> can coexist concurrently.
+ * <code>Session</code>. Transactions can then be started from this instance.
+ * There can only be one <code>NodeWriteTransaction</code> at the time. However,
+ * multiple <code>NodeReadTransactions</code> can coexist concurrently.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -129,22 +129,26 @@ public interface Session extends AutoCloseable {
 	 * 
 	 * @param revision
 	 *          revision to read from denoted by the revision number.
-	 * @throws SirixException
-	 *           if can't begin Read Transaction
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
+	 * @throws SirixThreadedException
+	 *           if the thread is interrupted
+	 * @throws SirixUsageException
+	 *           if the number of read-transactions is exceeded for a defined time
 	 * @return {@link NodeReadTrx} instance
 	 */
-	NodeReadTrx beginNodeReadTrx(@Nonnegative int revision) throws SirixException;
+	NodeReadTrx beginNodeReadTrx(@Nonnegative int revision);
 
 	/**
 	 * Begin exclusive read/write transaction without auto commit.
 	 * 
-	 * @throws SirixException
-	 *           if can't begin Write Transaction
+	 * @throws SirixThreadedException
+	 *           if the thread is interrupted
+	 * @throws SirixUsageException
+	 *           if the number of write-transactions is exceeded for a defined time
 	 * @return {@link NodeWriteTrx} instance
 	 */
-	NodeWriteTrx beginNodeWriteTrx() throws SirixException;
+	NodeWriteTrx beginNodeWriteTrx();
 
 	/**
 	 * Begin exclusive read/write transaction with auto commit.
@@ -155,8 +159,10 @@ public interface Session extends AutoCloseable {
 	 *          unit used for time
 	 * @param maxTime
 	 *          time after which a commit is issued
-	 * @throws SirixException
-	 *           if can't begin Write Transaction
+	 * @throws SirixThreadedException
+	 *           if the thread is interrupted
+	 * @throws SirixUsageException
+	 *           if the number of write-transactions is exceeded for a defined time
 	 * @throws IllegalArgumentException
 	 *           if {@code maxNodes < 0}
 	 * @throws NullPointerException
@@ -164,16 +170,14 @@ public interface Session extends AutoCloseable {
 	 * @return {@link NodeWriteTrx} instance
 	 */
 	NodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes,
-			final TimeUnit timeUnit, final int maxTime) throws SirixException;
+			final TimeUnit timeUnit, final int maxTime);
 
 	/**
 	 * Commit all running {@link NodeWriteTrx}s (currently at most one).
 	 * 
 	 * @return this session reference
-	 * @throws SirixException
-	 *           if commiting fails
 	 */
-	Session commitAll() throws SirixException;
+	Session commitAll();
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of

@@ -33,6 +33,7 @@ import org.sirix.api.Session;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
@@ -166,17 +167,17 @@ public final class IndexController {
 	 * 
 	 * @param out
 	 *          the {@link OutputStream} to serialize to
-	 * @throws SirixException
+	 * @throws SirixRuntimeException
 	 *           if an exception occurs during serialization
 	 */
-	public void serialize(final OutputStream out) throws SirixException {
+	public void serialize(final OutputStream out) {
 		try {
 			final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(
 					checkNotNull(out)));
 			serializer.print(mIndexes.materialize());
 			serializer.end();
 		} catch (final DocumentException e) {
-			throw new SirixException(e);
+			throw new SirixRuntimeException(e);
 		}
 	}
 

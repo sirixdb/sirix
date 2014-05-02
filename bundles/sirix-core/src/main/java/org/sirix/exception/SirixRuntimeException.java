@@ -27,52 +27,84 @@
 
 package org.sirix.exception;
 
-import java.io.IOException;
-
 /**
- * All sirix IO Exception are wrapped in this class. It inherits from
- * IOException since it is a sirix IO Exception.
+ * Exception to hold all relevant runtime failures upcoming from Sirix.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class SirixIOException extends SirixRuntimeException {
+public class SirixRuntimeException extends RuntimeException {
+
+	/** General ID. */
+	private static final long serialVersionUID = 1L;
 
 	/**
-	 * Serializable id.
-	 */
-	private static final long serialVersionUID = 4099242625448155216L;
-
-	/**
-	 * Constructor.
+	 * Constructor to encapsulate parsing.
 	 * 
-	 * @param message
-	 *          to be used
+	 * @param throwable
+	 *          to encapsulate
 	 */
-	public SirixIOException(final String message) {
+	public SirixRuntimeException(final Throwable throwable) {
+		super(throwable);
+	}
+
+	public SirixRuntimeException(String message, Object... args) {
+		super(String.format(message, args));
+	}
+
+	public SirixRuntimeException(String message) {
 		super(message);
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param throwable
-	 *          {@link Throwable} exception
 	 * @param message
-	 *          for the overlaying {@link IOException}
+	 *          message
 	 */
-	public SirixIOException(final String message, final Throwable throwable) {
-		super(message, throwable);
+	private SirixRuntimeException(final StringBuilder message) {
+		super(message.toString());
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param throwable
-	 *          {@link Throwable} exception
+	 * @param message
+	 *          message as string, they are concatenated with spaces in between
 	 */
-	public SirixIOException(final Throwable throwable) {
-		super(throwable);
+	public SirixRuntimeException(final String... message) {
+		this(concat(message));
+	}
+
+	/**
+	 * Constructor
+	 * 
+	 * @param message
+	 *          message as string
+	 * @param throwable
+	 */
+	public SirixRuntimeException(final String message, final Throwable throwable) {
+		super(message, throwable);
+	}
+
+	public SirixRuntimeException(Throwable cause, String message, Object[] args) {
+		super(String.format(message, args), cause);
+	}
+
+	/**
+	 * Util method to provide StringBuilder functionality.
+	 * 
+	 * @param message
+	 *          to be concatenated
+	 * @return the StringBuilder for the combined string
+	 */
+	public static StringBuilder concat(final String... pMessage) {
+		final StringBuilder builder = new StringBuilder();
+		for (final String mess : pMessage) {
+			builder.append(mess);
+			builder.append(" ");
+		}
+		return builder;
 	}
 
 }

@@ -33,7 +33,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 
@@ -68,11 +68,10 @@ public interface Page {
 	 *
 	 * @param pageWriteTrx
 	 *          {@link PageWriteTrx} implementation
-	 * @throws SirixException
-	 *           if something went wrong
+	 * @throws SirixIOException if an I/O exception occured
 	 */
 	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException;
+			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx);
 
 	/**
 	 * Get the {@link PageReference} at the specified offset

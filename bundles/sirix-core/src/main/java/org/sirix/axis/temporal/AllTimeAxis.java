@@ -5,9 +5,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.exception.SirixException;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * Retrieve a node by node key in all revisions. In each revision a
@@ -19,10 +16,6 @@ import org.slf4j.LoggerFactory;
  * 
  */
 public final class AllTimeAxis extends AbstractTemporalAxis {
-
-	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(AllTimeAxis.class));
 
 	/** The revision number. */
 	private int mRevision;
@@ -51,11 +44,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	@Override
 	protected NodeReadTrx computeNext() {
 		if (mRevision <= mSession.getMostRecentRevisionNumber()) {
-			try {
-				mRtx = mSession.beginNodeReadTrx(mRevision++);
-			} catch (final SirixException e) {
-				LOGGER.error(e.getMessage(), e);
-			}
+			mRtx = mSession.beginNodeReadTrx(mRevision++);
 			return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
 		} else {
 			return endOfData();

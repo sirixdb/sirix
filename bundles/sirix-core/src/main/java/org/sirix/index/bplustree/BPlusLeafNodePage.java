@@ -14,7 +14,6 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.PageKind;
@@ -162,7 +161,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	@Override
 	public <KE extends Comparable<? super KE>, VA extends Record, S extends KeyValuePage<KE, VA>> void commit(
-			PageWriteTrx<KE, VA, S> pageWriteTrx) throws SirixException {
+			PageWriteTrx<KE, VA, S> pageWriteTrx) {
 	}
 
 	@Override
