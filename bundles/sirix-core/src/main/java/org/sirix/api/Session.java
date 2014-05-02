@@ -66,15 +66,15 @@ public interface Session extends AutoCloseable {
 	Database getDatabase();
 	
 	SessionConfiguration getSessionConfiguration();
+	
+	Optional<NodeWriteTrx> getNodeWriteTrx();
 
 	/**
 	 * Begin a new {@link PageReadTrx}.
 	 * 
 	 * @return new {@link PageReadTrx} instance
-	 * @throws SirixException
-	 *           if Sirix fails to create a new instance
 	 */
-	PageReadTrx beginPageReadTrx() throws SirixException;
+	PageReadTrx beginPageReadTrx();
 
 	/**
 	 * Begin a new {@link PageReadTrx}.
@@ -84,10 +84,8 @@ public interface Session extends AutoCloseable {
 	 * @return new {@link PageReadTrx} instance
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
-	 * @throws SirixException
-	 *           if Sirix fails to create a new instance
 	 */
-	PageReadTrx beginPageReadTrx(@Nonnegative int revision) throws SirixException;
+	PageReadTrx beginPageReadTrx(@Nonnegative int revision);
 
 	/**
 	 * Begin a new {@link PageWriteTrx}.

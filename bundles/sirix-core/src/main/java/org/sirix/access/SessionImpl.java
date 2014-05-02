@@ -626,13 +626,13 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public PageReadTrx beginPageReadTrx() throws SirixException {
+	public PageReadTrx beginPageReadTrx() {
 		return beginPageReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
 	public synchronized PageReadTrx beginPageReadTrx(
-			final @Nonnegative int revision) throws SirixException {
+			final @Nonnegative int revision) {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
 				mFac.getReader(), Optional.<PageWriteTrxImpl> empty(),
 				Optional.<IndexController> empty());
@@ -714,6 +714,16 @@ public final class SessionImpl implements Session {
 		
 		if (rtx.isPresent() && rtx.get() instanceof NodeWriteTrx) {
 			return Optional.of((NodeWriteTrx) rtx.get()); 
+		}
+		return Optional.empty();
+	}
+	
+	@Override
+	public synchronized Optional<NodeWriteTrx> getNodeWriteTrx() {
+		for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
+			if (rtx instanceof NodeWriteTrx) {
+				return Optional.of((NodeWriteTrx) rtx);
+			}
 		}
 		return Optional.empty();
 	}
