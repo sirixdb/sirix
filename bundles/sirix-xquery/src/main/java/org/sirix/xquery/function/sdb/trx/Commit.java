@@ -9,6 +9,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
@@ -54,8 +55,19 @@ public final class Commit extends AbstractFunction {
 			wtx.commit();
 			return new Int64(revision);
 		} else {
-			throw new QueryException(new QNm(
-					"The transaction is not a write transaction!"));
+			final Session session = doc.getTrx().getSession();
+			final NodeWriteTrx wtx;
+			if (session.getAvailableNodeWriteTrx() == 0) {
+				wtx = session.getNodeWriteTrx().get();
+			} else {
+			  wtx = session.beginNodeWriteTrx();
+			}
+			final int revision = doc.getTrx().getRevisionNumber();
+			if (revision < session.getMostRecentRevisionNumber()) {
+				wtx.revertTo(doc.getTrx().getRevisionNumber());
+			}
+			wtx.commit();
+			return new Int64(revision);
 		}
 	}
 }

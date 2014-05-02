@@ -471,13 +471,27 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				try {
 					wtx.setName(name);
 				} catch (final SirixException e) {
-					throw new DocumentException(e.getCause());
+					throw new DocumentException(e);
 				}
 			} else {
 				throw new DocumentException("Node has no name!");
 			}
 		} else {
-			throw new DocumentException("Node has no name!");
+			final Session session = mRtx.getSession();
+			final NodeWriteTrx wtx;
+			if (session.getAvailableNodeWriteTrx() == 0) {
+				wtx = session.getNodeWriteTrx().get();
+			} else {
+			  wtx = session.beginNodeWriteTrx();
+			}
+			wtx.moveTo(mNodeKey);
+			try {
+				wtx.setName(name);
+			} catch (final SirixException e) {
+				wtx.rollback();
+				wtx.close();
+				throw new DocumentException(e);
+			}
 		}
 	}
 
@@ -547,11 +561,16 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			try {
 				wtx.setValue(value.stringValue());
 			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
+				throw new DocumentException(e);
 			}
 		} else {
 			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			final NodeWriteTrx wtx;
+			if (session.getAvailableNodeWriteTrx() == 0) {
+				wtx = session.getNodeWriteTrx().get();
+			} else {
+			  wtx = session.beginNodeWriteTrx();
+			}
 			wtx.moveTo(mNodeKey);
 			try {
 				wtx.setValue(value.stringValue());
