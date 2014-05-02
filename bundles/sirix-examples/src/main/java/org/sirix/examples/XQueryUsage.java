@@ -230,7 +230,7 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new SirixQueryContext(store);
 			System.out.println();
 			System.out.println("Insert into loaded document:");
-			final String xq2 = "replace node doc('mydocs.col')/log/b with <div>foo</div>";
+			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1')/log";
 			System.out.println(xq2);
 			new XQuery(compileChain, xq2).evaluate(ctx2);
 			System.out.println();
