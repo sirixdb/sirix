@@ -2128,7 +2128,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					.prepareEntryForModification(newNode.getParentKey(), pageKind, -1,
 							Optional.<UnorderedKeyValuePage> empty());
 			parent.incrementChildCount();
-			if (insertPos == InsertPos.ASFIRSTCHILD) {
+			if (!((StructNode) newNode).hasLeftSibling()) {
 				parent.setFirstChildKey(newNode.getNodeKey());
 			}
 
