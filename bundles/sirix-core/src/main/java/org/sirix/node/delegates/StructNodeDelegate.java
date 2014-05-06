@@ -220,7 +220,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public void setDescendantCount(final @Nonnegative long descendantCount) {
-		assert descendantCount >= 0 : "pDescendantCount must be >= 0!";
+		assert descendantCount >= 0 : "descendantCount must be >= 0!";
 		mDescendantCount = descendantCount;
 	}
 

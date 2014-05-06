@@ -61,6 +61,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
+import org.sirix.axis.DescendantAxis;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -671,6 +672,9 @@ public final class SessionImpl implements Session {
 		if (!mClosed) {
 			for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof NodeWriteTrx) {
+					rtx.moveToDocumentRoot();
+					for (final long nodeKey : new DescendantAxis(rtx))
+						System.out.println(rtx);
 					((NodeWriteTrx) rtx).commit();
 				}
 			}
