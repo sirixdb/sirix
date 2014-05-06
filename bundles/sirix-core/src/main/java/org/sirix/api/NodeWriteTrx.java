@@ -213,7 +213,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	NodeWriteTrx replaceNode(NodeReadTrx rtx) throws SirixException;
 
 	/**
-	 * Move a subtree rooted at {@code pToKey} to the first child of the current
+	 * Move a subtree rooted at {@code fromKey} to the first child of the current
 	 * node.
 	 * 
 	 * @param fromKey
