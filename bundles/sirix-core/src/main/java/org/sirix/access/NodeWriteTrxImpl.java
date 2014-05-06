@@ -358,7 +358,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		assert type != null;
 		final long beforeNodeKey = getNode().getNodeKey();
 		moveTo(node.getNodeKey());
-		final Axis axis = new DescendantAxis(this);
+		final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
 		while (axis.hasNext()) {
 			axis.next();
 			for (int i = 0, attCount = getAttributeCount(); i < attCount; i++) {

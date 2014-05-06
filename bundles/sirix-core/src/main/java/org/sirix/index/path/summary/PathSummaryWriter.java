@@ -23,6 +23,7 @@ import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
+import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.PathKindFilter;
@@ -360,25 +361,24 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				long nodeKey = mPathSummaryReader.getNodeKey();
 				// Decrement reference count or remove path summary node.
 				mNodeRtx.moveTo(node.getNodeKey());
-				final Set<Long> nodesToDelete = new HashSet<>();
-				for (final Axis descendants = new DescendantAxis(mNodeRtx,
+				for (final Axis descendants = new PostOrderAxis(mNodeRtx,
 						IncludeSelf.YES); descendants.hasNext();) {
 					descendants.next();
-					deleteOrDecrement(nodesToDelete);
+					deleteOrDecrement();
 					if (mNodeRtx.getKind() == Kind.ELEMENT) {
 						final ElementNode element = (ElementNode) mNodeRtx.getCurrentNode();
 
 						// Namespaces.
 						for (int i = 0, nsps = element.getNamespaceCount(); i < nsps; i++) {
 							mNodeRtx.moveToNamespace(i);
-							deleteOrDecrement(nodesToDelete);
+							deleteOrDecrement();
 							mNodeRtx.moveToParent();
 						}
 
 						// Attributes.
 						for (int i = 0, atts = element.getAttributeCount(); i < atts; i++) {
 							mNodeRtx.moveToAttribute(i);
-							deleteOrDecrement(nodesToDelete);
+							deleteOrDecrement();
 							mNodeRtx.moveToParent();
 						}
 					}
@@ -432,16 +432,17 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 					}
 				}
 
-				/*
-				 * Remove path nodes with zero node references.
-				 * 
-				 * (TODO: Johannes: might not be necessary, as it's likely that future
-				 * updates will reinsert the path).
-				 */
-				for (final long key : nodesToDelete) {
-					mPathSummaryReader.moveTo(key);
-					removePathSummaryNode(Remove.NO);
-				}
+//				/*
+//				 * Remove path nodes with zero node references.
+//				 * 
+//				 * (TODO: Johannes: might not be necessary, as it's likely that future
+//				 * updates will reinsert the path).
+//				 */
+//				for (final long key : nodesToDelete) {
+//					if (mPathSummaryReader.moveTo(key).hasMoved()) {
+//						removePathSummaryNode(Remove.NO);
+//					}
+//				}
 
 				mPathSummaryReader.moveTo(nodeKey);
 			}
@@ -706,20 +707,12 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		}
 	}
 
-	/**
-	 * Schedule for deletion of decrement path reference counter.
-	 * 
-	 * @param nodesToDelete
-	 *          stores nodeKeys which should be deleted
-	 * @throws SirixIOException
-	 *           if an I/O error occurs while decrementing the reference counter
-	 */
-	private void deleteOrDecrement(final Set<Long> nodesToDelete)
-			throws SirixIOException {
+	private void deleteOrDecrement()
+			throws SirixIOException, SirixException {
 		if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
 			movePathSummary();
 			if (mPathSummaryReader.getReferences() == 1) {
-				nodesToDelete.add(mPathSummaryReader.getNodeKey());
+				removePathSummaryNode(Remove.NO);
 			} else {
 				final PathNode pathNode = (PathNode) mPageWriteTrx
 						.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
