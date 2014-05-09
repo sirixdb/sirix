@@ -43,6 +43,7 @@ import org.sirix.xquery.function.sdb.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
 import org.sirix.xquery.function.sdb.io.Doc;
 import org.sirix.xquery.function.sdb.io.Load;
+import org.sirix.xquery.function.sdb.io.Serialize;
 import org.sirix.xquery.function.sdb.io.Store;
 import org.sirix.xquery.function.sdb.trx.Commit;
 import org.sirix.xquery.function.sdb.trx.GetMostRecentRevision;
@@ -68,6 +69,8 @@ public final class SDBFun {
 
 	public static final QNm ERR_INDEX_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX,
 			"SIRIXDBF0002");
+	
+	public static final QNm ERR_FILE_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0003");
 
 	public static final QNm ERR_INVALID_INDEX_TYPE = null;
 
@@ -79,6 +82,9 @@ public final class SDBFun {
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
+		// serialize
+		Functions.predefine(new Serialize());
+		
 		// sort by document order
 		Functions.predefine(new SortByDocOrder(SORT, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
 		
