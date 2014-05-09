@@ -32,10 +32,10 @@ import com.google.common.collect.ImmutableSet;
  * signatures are:</br>
  * <ul>
  * <li>
- * <code>sdb:create-path-index($doc as node(), $include as xs:QName*) as 
+ * <code>sdb:create-name-index($doc as node(), $include as xs:QName*) as 
  * node()</code></li>
  * <li>
- * <code>sdb:create-path-index($doc as node()) as node()</code></li>
+ * <code>sdb:create-name-index($doc as node()) as node()</code></li>
  * </ul>
  * 
  * @author Max Bechtold
