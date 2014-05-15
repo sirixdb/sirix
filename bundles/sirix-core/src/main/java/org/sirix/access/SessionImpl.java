@@ -612,7 +612,7 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public synchronized PathSummaryReader openPathSummary(
-			final @Nonnegative int revision) throws SirixException {
+			final @Nonnegative int revision) {
 		assertAccess(revision);
 
 		return PathSummaryReader.getInstance(
@@ -672,9 +672,6 @@ public final class SessionImpl implements Session {
 		if (!mClosed) {
 			for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof NodeWriteTrx) {
-					rtx.moveToDocumentRoot();
-					for (final long nodeKey : new DescendantAxis(rtx))
-						System.out.println(rtx);
 					((NodeWriteTrx) rtx).commit();
 				}
 			}
@@ -710,16 +707,6 @@ public final class SessionImpl implements Session {
 	@Override
 	public Optional<NodeReadTrx> getNodeReadTrx(final long ID) {
 		return Optional.of(mNodeTrxMap.get(ID));
-	}
-
-	@Override
-	public synchronized Optional<NodeWriteTrx> getNodeWriteTrx(final long ID) {
-		final Optional<NodeReadTrx> rtx = getNodeReadTrx(ID);
-		
-		if (rtx.isPresent() && rtx.get() instanceof NodeWriteTrx) {
-			return Optional.of((NodeWriteTrx) rtx.get()); 
-		}
-		return Optional.empty();
 	}
 	
 	@Override

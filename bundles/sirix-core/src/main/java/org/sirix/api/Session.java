@@ -184,13 +184,10 @@ public interface Session extends AutoCloseable {
 	 * @param revision
 	 *          revision key to read from
 	 * @return {@link PathSummaryReader} instance
-	 * @throws SirixException
-	 *           if can't open path summary
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
 	 */
-	PathSummaryReader openPathSummary(@Nonnegative int revision)
-			throws SirixException;
+	PathSummaryReader openPathSummary(@Nonnegative int revision);
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of
@@ -273,6 +270,4 @@ public interface Session extends AutoCloseable {
 	IndexController getWtxIndexController(int revision);
 
 	Optional<NodeReadTrx> getNodeReadTrx(long ID);
-	
-	Optional<NodeWriteTrx> getNodeWriteTrx(long ID);
 }

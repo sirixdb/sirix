@@ -72,6 +72,36 @@ public class FunUtil {
 				"Invalid integer parameter %s. Expected %s", parameterName,
 				Arrays.toString(allowedValues));
 	}
+	
+	public static long getLong(Sequence[] params, int pos, String parameterName,
+			long defaultValue, long[] allowedValues, boolean required)
+			throws QueryException {
+		if (pos >= params.length || params[pos] == null) {
+			if (required) {
+				throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
+						"Invalid long parameter %s. Expected %s", parameterName,
+						Arrays.toString(allowedValues));
+			}
+
+			return defaultValue;
+		}
+
+		int value = ((IntNumeric) params[pos]).intValue();
+
+		if (allowedValues == null) {
+			return value;
+		}
+
+		for (long allowedValue : allowedValues) {
+			if (value == allowedValue) {
+				return value;
+			}
+		}
+
+		throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
+				"Invalid long parameter %s. Expected %s", parameterName,
+				Arrays.toString(allowedValues));
+	}
 
 	public static boolean getBoolean(Sequence[] params, int pos,
 			String parameterName, boolean defaultValue, boolean required)

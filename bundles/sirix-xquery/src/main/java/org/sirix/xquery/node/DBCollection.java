@@ -6,8 +6,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnegative;
@@ -56,9 +54,6 @@ public final class DBCollection extends
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 	
-	/** Open write transaction per resource. */
-	private static final ConcurrentMap<SessionConfiguration, Long> OPEN_WTX_PER_RESOURCE = new ConcurrentHashMap<>();
-
 	/** {@link Sirix} database. */
 	private final Database mDatabase;
 
@@ -288,15 +283,16 @@ public final class DBCollection extends
 		if (updatable) {
 			if (session.getAvailableNodeWriteTrx() == 0) {
 				final Optional<NodeWriteTrx> optionalWriteTrx;
-				optionalWriteTrx = session.getNodeWriteTrx(OPEN_WTX_PER_RESOURCE.get(sessionConfig));
+				optionalWriteTrx = session.getNodeWriteTrx();
 				
-				// Must exist.
-				rtx = optionalWriteTrx.get();					
-			}
-			else
+				if (optionalWriteTrx.isPresent()) {
+					rtx = optionalWriteTrx.get();					
+				} else {
+					rtx = session.beginNodeWriteTrx();
+				}
+			} else {
 				rtx = session.beginNodeWriteTrx();
-			
-			OPEN_WTX_PER_RESOURCE.put(sessionConfig, rtx.getTransactionID());
+			}
 			
 			if (version < session.getMostRecentRevisionNumber())
 				((NodeWriteTrx) rtx).revertTo(version);
