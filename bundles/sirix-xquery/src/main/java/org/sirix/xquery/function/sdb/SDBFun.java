@@ -48,7 +48,10 @@ import org.sirix.xquery.function.sdb.io.Store;
 import org.sirix.xquery.function.sdb.trx.Commit;
 import org.sirix.xquery.function.sdb.trx.GetMostRecentRevision;
 import org.sirix.xquery.function.sdb.trx.GetNamespaceCount;
+import org.sirix.xquery.function.sdb.trx.GetNodeKey;
+import org.sirix.xquery.function.sdb.trx.GetPath;
 import org.sirix.xquery.function.sdb.trx.GetRevision;
+import org.sirix.xquery.function.sdb.trx.MoveTo;
 import org.sirix.xquery.function.sdb.trx.Rollback;
 
 /**
@@ -82,6 +85,15 @@ public final class SDBFun {
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
+		// getPath
+		Functions.predefine(new GetPath(GetPath.GET_PATH, new Signature(SequenceType.STRING, SequenceType.NODE)));
+		
+		// getNodeKey
+		Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY, new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
+		
+		// move to
+		Functions.predefine(new MoveTo(MoveTo.MOVE_TO, new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One), SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
+		
 		// serialize
 		Functions.predefine(new Serialize());
 		

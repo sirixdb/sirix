@@ -84,6 +84,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	 */
 	public Path<QNm> getPath(final PathSummaryReader reader) {
 		PathNode node = this;
+		final long nodeKey = reader.getNodeKey();
 		reader.moveTo(node.getNodeKey());
 		final PathNode[] path = new PathNode[mLevel];
 		for (int i = mLevel - 1; i >= 0; i--) {
@@ -92,7 +93,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 		}
 
 		final Path<QNm> p = new Path<QNm>();
-		for (PathNode n : path) {
+		for (final PathNode n : path) {
 			reader.moveTo(n.getNodeKey());
 			if (n.getPathKind() == Kind.ELEMENT) {
 				p.child(reader.getName());
@@ -100,7 +101,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 				p.attribute(reader.getName());
 			}
 		}
-
+		reader.moveTo(nodeKey);
 		return p;
 	}
 

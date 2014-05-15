@@ -89,7 +89,7 @@ public final class PathFilter implements Filter {
 					mRtx.getRevisionNumber())) {
 				mMaxKnownPCR = reader.getMaxNodeKey();
 				mPCRFilter = reader.getPCRsForPaths(mPaths);
-			} catch (final PathException | SirixException e) {
+			} catch (final PathException e) {
 				LOGGER.error(e.getMessage(), e);
 			}
 		}
