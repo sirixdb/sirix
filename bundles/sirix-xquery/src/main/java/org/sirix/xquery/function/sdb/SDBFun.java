@@ -75,7 +75,7 @@ public final class SDBFun {
 	
 	public static final QNm ERR_FILE_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0003");
 
-	public static final QNm ERR_INVALID_INDEX_TYPE = null;
+	public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF004");
 
 	public static void register() {
 		// dummy function to cause static block
@@ -85,10 +85,10 @@ public final class SDBFun {
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
-		// getPath
+		// get path
 		Functions.predefine(new GetPath(GetPath.GET_PATH, new Signature(SequenceType.STRING, SequenceType.NODE)));
 		
-		// getNodeKey
+		// get nodeKey
 		Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY, new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
 		
 		// move to
