@@ -2,7 +2,6 @@ package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Bool;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
@@ -16,22 +15,22 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for moving a transaction-cursor. The result is either the boolean {@code true} or {@code false}.
+ * Function for selecting a node denoted by its node key. The first parameter is the context node.
  * Supported signature is:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:moveto($doc as xs:node, $nodeKey as xs:) as xs:boolean</code></li>
+ * <code>sdb:select-node($doc as xs:node, $nodeKey as xs:integer) as xs:node</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public final class MoveTo extends AbstractFunction {
+public final class SelectNode extends AbstractFunction {
 
 	/** Move to function name. */
-	public final static QNm MOVE_TO = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"moveTo");
+	public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
+			"select-node");
 
 	/**
 	 * Constructor.
@@ -41,21 +40,21 @@ public final class MoveTo extends AbstractFunction {
 	 * @param signature
 	 *          the signature of the function
 	 */
-	public MoveTo(QNm name, Signature signature) {
+	public SelectNode(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
 	@Override
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+		final DBNode node = ((DBNode) args[0]);
 
-		final Move<? extends NodeReadTrx> moved = doc.getTrx().moveTo(FunUtil.getLong(args, 1, "", 0 ,null, true));
+		final Move<? extends NodeReadTrx> moved = node.getTrx().moveTo(FunUtil.getLong(args, 1, "", 0 ,null, true));
 		
 		if (moved.hasMoved()) {
-			return Bool.TRUE;
+			return new DBNode(node.getTrx(), node.getCollection());
 		} else {
-			return Bool.FALSE;
+			return node;
 		}
 	}
 }
