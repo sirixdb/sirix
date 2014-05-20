@@ -49,10 +49,9 @@ public final class SelectNode extends AbstractFunction {
 			throws QueryException {
 		final DBNode node = ((DBNode) args[0]);
 		final NodeReadTrx rtx = node.getTrx();
+		final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0 ,null, true);
 
-		final Move<? extends NodeReadTrx> moved = rtx.moveTo(FunUtil.getLong(args, 1, "nodeKey", 0 ,null, true));
-		
-		if (moved.hasMoved()) {
+		if (rtx.moveTo(nodeKey).hasMoved()) {
 			return new DBNode(rtx, node.getCollection());
 		} else {
 			throw new QueryException(new QNm("Couldn't select node."));
