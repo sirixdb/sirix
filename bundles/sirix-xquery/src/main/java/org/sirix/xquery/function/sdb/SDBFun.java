@@ -92,7 +92,7 @@ public final class SDBFun {
 		Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY, new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
 		
 		// move to
-		Functions.predefine(new SelectNode(SelectNode.SELECT_NODE, new Signature(new SequenceType(AtomicType.BOOL, Cardinality.One), SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
+		Functions.predefine(new SelectNode(SelectNode.SELECT_NODE, new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
 		
 		// serialize
 		Functions.predefine(new Serialize());

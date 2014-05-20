@@ -41,7 +41,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * @author Sebastian Baechle
  * 
  */
-public class FunUtil {
+public final class FunUtil {
 
 	public static int getInt(Sequence[] params, int pos, String parameterName,
 			int defaultValue, int[] allowedValues, boolean required)
@@ -56,13 +56,13 @@ public class FunUtil {
 			return defaultValue;
 		}
 
-		int value = ((IntNumeric) params[pos]).intValue();
+		final int value = ((IntNumeric) params[pos]).intValue();
 
 		if (allowedValues == null) {
 			return value;
 		}
 
-		for (int allowedValue : allowedValues) {
+		for (final int allowedValue : allowedValues) {
 			if (value == allowedValue) {
 				return value;
 			}
@@ -86,13 +86,13 @@ public class FunUtil {
 			return defaultValue;
 		}
 
-		int value = ((IntNumeric) params[pos]).intValue();
+		final long value = ((IntNumeric) params[pos]).longValue();
 
 		if (allowedValues == null) {
 			return value;
 		}
 
-		for (long allowedValue : allowedValues) {
+		for (final long allowedValue : allowedValues) {
 			if (value == allowedValue) {
 				return value;
 			}

@@ -48,13 +48,14 @@ public final class SelectNode extends AbstractFunction {
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
 		final DBNode node = ((DBNode) args[0]);
+		final NodeReadTrx rtx = node.getTrx();
 
-		final Move<? extends NodeReadTrx> moved = node.getTrx().moveTo(FunUtil.getLong(args, 1, "", 0 ,null, true));
+		final Move<? extends NodeReadTrx> moved = rtx.moveTo(FunUtil.getLong(args, 1, "nodeKey", 0 ,null, true));
 		
 		if (moved.hasMoved()) {
-			return new DBNode(node.getTrx(), node.getCollection());
+			return new DBNode(rtx, node.getCollection());
 		} else {
-			return node;
+			throw new QueryException(new QNm("Couldn't select node."));
 		}
 	}
 }
