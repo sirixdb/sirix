@@ -1319,7 +1319,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return insertAfter((NodeWriteTrx) mRtx, parser);
+				return insertAfter(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1368,7 +1368,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return setAttribute((NodeWriteTrx) mRtx, attribute);
+				return setAttribute(wtx, attribute);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1416,7 +1416,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return setAttribute((NodeWriteTrx) mRtx, name, value);
+				return setAttribute(wtx, name, value);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1461,7 +1461,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return deleteAttribute((NodeWriteTrx) mRtx, name);
+				return deleteAttribute(wtx, name);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1525,7 +1525,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return replaceWith((NodeWriteTrx) mRtx, node);
+				return replaceWith(wtx, node);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1581,7 +1581,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return replaceWith((NodeWriteTrx) mRtx, parser);
+				return replaceWith(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
@@ -1625,7 +1625,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				wtx.revertTo(mRtx.getRevisionNumber());
 			try {
 				wtx.moveTo(mNodeKey);
-				return replaceWith((NodeWriteTrx) mRtx, kind, name, value);
+				return replaceWith(wtx, kind, name, value);
 			} catch (final DocumentException e) {
 				wtx.rollback();
 				wtx.close();
