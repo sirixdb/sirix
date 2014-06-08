@@ -477,14 +477,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException("Node has no name!");
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			wtx.moveTo(mNodeKey);
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.setName(name);
 			} catch (final SirixException e) {
@@ -564,14 +557,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException(e);
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			wtx.moveTo(mNodeKey);
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.setValue(value.stringValue());
 			} catch (final SirixException e) {
@@ -650,17 +636,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException(e);
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() != session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return append(wtx, kind, name, value);
 			} catch (final SirixException e) {
 				wtx.close();
@@ -737,17 +714,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() != session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return append(wtx, child);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -798,17 +766,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return append(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -854,17 +813,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return prepend((NodeWriteTrx) mRtx, kind, name, value);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -919,17 +869,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return prepend(wtx, child);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -980,17 +921,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return prepend(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1031,17 +963,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, kind, name, value);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1096,17 +1019,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, node);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1147,17 +1061,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertBefore(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1197,17 +1102,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException(e);
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertAfter(wtx, kind, name, value);
 			} catch (final SirixException e) {
 				wtx.rollback();
@@ -1258,17 +1154,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertAfter(wtx, node);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1308,17 +1195,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
-				wtx.moveTo(mNodeKey);
 				return insertAfter(wtx, parser);
 			} catch (final DocumentException e) {
 				wtx.rollback();
@@ -1357,15 +1235,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return setAttribute(wtx, attribute);
@@ -1405,15 +1275,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return setAttribute(wtx, name, value);
@@ -1450,15 +1312,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return deleteAttribute(wtx, name);
@@ -1514,15 +1368,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith(wtx, node);
@@ -1570,15 +1416,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith(wtx, parser);
@@ -1614,15 +1452,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw e;
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.moveTo(mNodeKey);
 				return replaceWith(wtx, kind, name, value);
@@ -1734,16 +1564,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException(e);
 			}
 		} else {
-			final Session session = mRtx.getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
-			} else {
-			  wtx = session.beginNodeWriteTrx();
-			}
-			if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
-				wtx.revertTo(mRtx.getRevisionNumber());
-			wtx.moveTo(mNodeKey);
+			final NodeWriteTrx wtx = getWtx();
 			try {
 				wtx.remove();
 			} catch (final SirixException e) {
@@ -1752,6 +1573,20 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				throw new DocumentException(e);
 			}
 		}
+	}
+	
+	private NodeWriteTrx getWtx() {
+		final Session session = mRtx.getSession();
+		final NodeWriteTrx wtx;
+		if (session.getAvailableNodeWriteTrx() == 0) {
+			wtx = session.getNodeWriteTrx().get();
+		} else {
+		  wtx = session.beginNodeWriteTrx();
+		}
+		if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
+			wtx.revertTo(mRtx.getRevisionNumber());
+		wtx.moveTo(mNodeKey);
+		return wtx;
 	}
 
 	@Override
