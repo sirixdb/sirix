@@ -50,6 +50,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.settings.CharsForSerializing;
@@ -140,7 +141,7 @@ public final class TestHelper {
 						config).build());
 				INSTANCES.put(file, database);
 				return database;
-			} catch (final SirixException e) {
+			} catch (final SirixRuntimeException e) {
 				fail(e.toString());
 				return null;
 			}

@@ -33,6 +33,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.xml.shredder.Insert;
 
@@ -145,7 +146,7 @@ public final class DBStore implements Store, AutoCloseable {
 				final DBCollection collection = new DBCollection(name, database);
 				mCollections.put(database, collection);
 				return collection;
-			} catch (final SirixException e) {
+			} catch (final SirixRuntimeException e) {
 				throw new DocumentException(e.getCause());
 			}
 		}
@@ -168,7 +169,7 @@ public final class DBStore implements Store, AutoCloseable {
 			final DBCollection collection = new DBCollection(name, database);
 			mCollections.put(database, collection);
 			return collection;
-		} catch (final SirixException e) {
+		} catch (final SirixRuntimeException e) {
 			throw new DocumentException(e.getCause());
 		}
 	}
@@ -271,7 +272,7 @@ public final class DBStore implements Store, AutoCloseable {
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
 				return new DBCollection(collName, database);
-			} catch (final SirixException | InterruptedException e) {
+			} catch (final SirixRuntimeException | InterruptedException e) {
 				throw new DocumentException(e.getCause());
 			}
 		}
@@ -288,7 +289,7 @@ public final class DBStore implements Store, AutoCloseable {
 				final Database database = Databases.openDatabase(dbConfig.getFile());
 				mDatabases.remove(database);
 				mCollections.remove(database);
-			} catch (final SirixException e) {
+			} catch (final SirixRuntimeException e) {
 				throw new DocumentException(e);
 			}
 		}

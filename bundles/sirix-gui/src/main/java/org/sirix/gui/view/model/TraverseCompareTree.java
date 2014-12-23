@@ -461,16 +461,16 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	}
 
 	@Override
-	public void diffListener(final DiffType pDiff,
-			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
-			@Nonnull final DiffDepth pDepth) {
-		LOGWRAPPER.debug("kind of diff: " + pDiff);
+	public void diffListener(final DiffType diffType,
+			@Nonnull final long newNodeKey, @Nonnull final long oldNodeKey,
+			@Nonnull final DiffDepth depth) {
+		LOGWRAPPER.debug("kind of diff: " + diffType);
 
 		if (mPrune != Pruning.DIFF_WITHOUT_SAMEHASHES
-				|| (mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES && pDiff != DiffType.SAMEHASH)
+				|| (mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES && diffType != DiffType.SAMEHASH)
 				|| mEntries == 0) {
-			final DiffTuple diffCont = new DiffTuple(pDiff, pNewNodeKey, pOldNodeKey,
-					pDepth);
+			final DiffTuple diffCont = new DiffTuple(diffType, newNodeKey, oldNodeKey,
+					depth);
 			final DiffType diff = diffCont.getDiff();
 			if (!mHasUpdatedNodes && mLastNodeUpdated) {
 				// Has at least one diff, thus it's safe.
@@ -489,11 +489,11 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 			mDiffs.put(mEntries, diffCont);
 			switch (diff) {
 			case INSERTED:
-				mNewKeys.put(pNewNodeKey, mEntries);
+				mNewKeys.put(newNodeKey, mEntries);
 				mModifications++;
 				break;
 			case DELETED:
-				mOldKeys.put(pOldNodeKey, mEntries);
+				mOldKeys.put(oldNodeKey, mEntries);
 				mModifications++;
 				break;
 			case UPDATED:
