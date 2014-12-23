@@ -2,13 +2,13 @@ package org.sirix.access;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.Files;
@@ -84,7 +84,7 @@ public final class Databases {
 	 *
 	 * @param dbConfig
 	 *          the database at this path should be deleted
-	 * @throws SirixException
+	 * @throws SirixIOException
 	 *           if Sirix fails to delete the database
 	 */
 	public static synchronized void truncateDatabase(
@@ -109,13 +109,16 @@ public final class Databases {
 	 *          determines where the database is located sessionConf a
 	 *          {@link SessionConfiguration} object to set up the session
 	 * @return {@link Database} instance.
-	 * @throws SirixException
-	 *           if something odd happens
+	 * @throws SirixIOException
+	 *           if an I/O exception occurs
+	 * @throws SirixUsageException
+	 *           if Sirix is not used properly
 	 * @throws NullPointerException
-	 *           if {@code pFile} is {@code null}
+	 *           if {@code file} is {@code null}
 	 */
 	public static synchronized Database openDatabase(final File file)
-			throws SirixException {
+			throws SirixUsageException, SirixIOException {
+		Objects.requireNonNull(file);
 		if (!file.exists()) {
 			throw new SirixUsageException(
 					"DB could not be opened (since it was not created?) at location",

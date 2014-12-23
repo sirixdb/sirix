@@ -61,7 +61,6 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -166,7 +165,7 @@ public final class SessionImpl implements Session {
 	 */
 	SessionImpl(final DatabaseImpl database,
 			final @Nonnull ResourceConfiguration resourceConf,
-			final @Nonnull SessionConfiguration sessionConf) throws SirixException {
+			final @Nonnull SessionConfiguration sessionConf) {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
 		mSessionConfig = checkNotNull(sessionConf);
@@ -262,8 +261,8 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public synchronized NodeWriteTrx beginNodeWriteTrx(
-			@Nonnegative final int maxNodeCount, @Nonnull final TimeUnit timeUnit,
-			@Nonnegative final int maxTime) {
+		 final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
+			 final @Nonnegative int maxTime) {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (maxNodeCount < 0 || maxTime < 0) {
@@ -272,10 +271,6 @@ public final class SessionImpl implements Session {
 		checkNotNull(timeUnit);
 
 		// Make sure not to exceed available number of write transactions.
-//		if (mWriteSemaphore.availablePermits() == 0) {
-//			throw new IllegalStateException(
-//					"There already is a running exclusive write transaction.");
-//		}
 		try {
 			if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
 				throw new SirixUsageException("No write transaction available, please close the write transaction first.");
@@ -284,8 +279,7 @@ public final class SessionImpl implements Session {
 			throw new SirixThreadedException(e);
 		}
 
-		// Create new page write transaction (shares the same ID with the node write
-		// trx).
+		// Create new page write transaction (shares the same ID with the node write trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = createPageWriteTransaction(

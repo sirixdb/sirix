@@ -103,7 +103,7 @@ public final class DatabaseImpl implements Database {
 	 * @throws SirixException
 	 *           if something weird happens
 	 */
-	DatabaseImpl(final DatabaseConfiguration dbConfig) throws SirixException {
+	DatabaseImpl(final DatabaseConfiguration dbConfig) {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
 		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());

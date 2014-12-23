@@ -28,7 +28,6 @@ import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
-import org.sirix.api.NodeWriteTrx;
 
 import com.google.common.base.Optional;
 
@@ -61,12 +60,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			// loadDocumentAndQuery();
-			// System.out.println();
-			// loadDocumentAndUpdate();
-			// System.out.println();
-			// loadCollectionAndQuery();
-			// System.out.println();
+		  loadDocumentAndQuery();
+		  System.out.println();
+			loadDocumentAndUpdate();
+			System.out.println();
+			loadCollectionAndQuery();
+			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -141,7 +140,7 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/></a> into sdb:doc('mydoc.xml')/log";
+			final String xq2 = "insert nodes <a><b/></a> into sdb:doc('mycol.xml', 'mydoc.xml')/log";
 			System.out.println(xq2);
 			new XQuery(xq2).execute(ctx2);
 			store.commitAll();
