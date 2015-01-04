@@ -11,9 +11,9 @@ import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.Numeric;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.expr.Cast;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.utils.Calc;
 
 /**
@@ -60,14 +60,14 @@ public final class AtomicUtil {
 		return toBytes(toType(atomic, type));
 	}
 
-	public static byte[] toBytes(Atomic atomic) throws SirixException {
+	public static byte[] toBytes(Atomic atomic) {
 		if (atomic == null) {
 			return null;
 		}
 		Type type = atomic.type();
 
 		if (!type.isBuiltin()) {
-			throw new SirixException("%s is not a built-in type", type);
+			throw new SirixRuntimeException("%s is not a built-in type", type);
 		}
 		if (type.instanceOf(Type.STR)) {
 			return Calc.fromString(atomic.stringValue());
@@ -92,12 +92,12 @@ public final class AtomicUtil {
 				return Calc.fromBigDecimal(((Numeric) atomic).decimalValue());
 			}
 		}
-		throw new SirixException("Unsupported type: %s", type);
+		throw new SirixRuntimeException("Unsupported type: %s", type);
 	}
 
-	public static Atomic fromBytes(byte[] b, Type type) throws DocumentException {
+	public static Atomic fromBytes(byte[] b, Type type) {
 		if (!type.isBuiltin()) {
-			throw new DocumentException("%s is not a built-in type", type);
+			throw new SirixRuntimeException("%s is not a built-in type", type);
 		}
 		if (type.instanceOf(Type.STR)) {
 			return new Str(Calc.toString(b));
@@ -122,14 +122,14 @@ public final class AtomicUtil {
 				return new Dec(Calc.toBigDecimal(b));
 			}
 		}
-		throw new DocumentException("Unsupported type: %s", type);
+		throw new SirixRuntimeException("Unsupported type: %s", type);
 	}
 
-	public static Atomic toType(Atomic atomic, Type type) throws SirixException {
+	public static Atomic toType(Atomic atomic, Type type) {
 		try {
 			return Cast.cast(null, atomic, type);
 		} catch (final QueryException e) {
-			throw new SirixException(e);
+			throw new SirixRuntimeException(e);
 		}
 	}
 }

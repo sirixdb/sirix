@@ -9,7 +9,6 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;

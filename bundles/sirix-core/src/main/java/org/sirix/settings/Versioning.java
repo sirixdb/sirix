@@ -345,19 +345,6 @@ public enum Versioning {
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
 		}
 
-		// @Override
-		// public int[] getRevisionRoots(final @Nonnegative int previousRevision,
-		// final @Nonnegative int revsToRestore) {
-		// final int revisionsToRestore = previousRevision % revsToRestore;
-		// final int lastFullDump = previousRevision - revisionsToRestore;
-		// final int[] retVal = new int[lastFullDump == previousRevision ? 1
-		// : revisionsToRestore + 1];
-		// for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
-		// retVal[j] = i;
-		// }
-		// return retVal;
-		// }
-
 		@Override
 		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
 				final @Nonnegative int revsToRestore) {

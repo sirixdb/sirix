@@ -85,8 +85,8 @@ public final class Constants {
 
 	/**
 	 * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 *
-	 * INP_REFERENCE_COUNT_EXPONENT) = INP_REFERENCE_COUNT ^ 7, 2 ^ (6 *
-	 * INP_REFERENCE_COUNT_EXPONENT) = INP_REFERENCE_COUNT ^ 6....
+	 * PATHINP_REFERENCE_COUNT_EXPONENT) = PATHINP_REFERENCE_COUNT ^ 7, 2 ^ (6 *
+	 * PATHINP_REFERENCE_COUNT_EXPONENT) = PATHINP_REFERENCE_COUNT ^ 6....
 	 */
 	public static final int[] PATHINP_LEVEL_PAGE_COUNT_EXPONENT = {
 			// 4 * UBPINP_REFERENCE_COUNT_EXPONENT,
@@ -112,7 +112,7 @@ public final class Constants {
 	public static final int[] UBPINP_LEVEL_PAGE_COUNT_EXPONENT = {
 			// 4 * UBPINP_REFERENCE_COUNT_EXPONENT,
 			// 3 * UBPINP_REFERENCE_COUNT_EXPONENT,
-			// 2 * UBPINP_REFERENCE_COUNT_EXPONENT,
+		  2 * UBPINP_REFERENCE_COUNT_EXPONENT,
 			1 * UBPINP_REFERENCE_COUNT_EXPONENT, 0 * UBPINP_REFERENCE_COUNT_EXPONENT };
 
 	/** Revision count of unitialized storage. */
