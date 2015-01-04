@@ -15,8 +15,8 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.IndexDef;
 import org.sirix.index.SearchMode;
@@ -89,7 +89,7 @@ final class CASIndexBuilder extends AbstractVisitor {
 					if (mType != Type.STR)
 						AtomicUtil.toType(strValue, mType);
 					isOfType = true;
-				} catch (final SirixException e) {
+				} catch (final SirixRuntimeException e) {
 				}
 
 				if (isOfType) {

@@ -12,8 +12,8 @@ import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.IndexController.ChangeType;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexDef;
@@ -81,7 +81,7 @@ public final class CASIndexListener implements ChangeListener {
 		try {
 			AtomicUtil.toType(strValue, mType);
 			isOfType = true;
-		} catch (final SirixException e) {
+		} catch (final SirixRuntimeException e) {
 		}
 
 		if (isOfType) {

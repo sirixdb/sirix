@@ -7,7 +7,6 @@ import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.xdm.Type;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;

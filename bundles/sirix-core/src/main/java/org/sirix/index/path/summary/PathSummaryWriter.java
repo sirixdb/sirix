@@ -2,9 +2,7 @@ package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.xml.namespace.QName;

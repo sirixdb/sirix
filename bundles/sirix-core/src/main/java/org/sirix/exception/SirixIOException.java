@@ -30,8 +30,7 @@ package org.sirix.exception;
 import java.io.IOException;
 
 /**
- * All sirix IO Exception are wrapped in this class. It inherits from
- * IOException since it is a sirix IO Exception.
+ * All Sirix IO Exception are wrapped in this class.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 

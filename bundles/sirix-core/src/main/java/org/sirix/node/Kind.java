@@ -48,7 +48,6 @@ import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -616,19 +615,15 @@ public enum Kind implements NodePersistenter {
 			final long pathNodeKey = getVarLong(source);
 			final boolean isChanged = source.readBoolean();
 
-			try {
-				final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
-				AVLNode<CASValue, NodeReferences> node;
-				node = new AVLNode<CASValue, NodeReferences>(new CASValue(atomic,
-						atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
+			final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
+			AVLNode<CASValue, NodeReferences> node;
+			node = new AVLNode<CASValue, NodeReferences>(new CASValue(atomic,
+					atomicType, pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
 
-				node.setLeftChildKey(leftChild);
-				node.setRightChildKey(rightChild);
-				node.setChanged(isChanged);
-				return node;
-			} catch (final DocumentException e) {
-				throw new IOException(e);
-			}
+			node.setLeftChildKey(leftChild);
+			node.setRightChildKey(rightChild);
+			node.setChanged(isChanged);
+			return node;
 		}
 
 		@Override
