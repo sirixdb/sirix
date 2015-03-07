@@ -22,8 +22,8 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 /**
- * Interface for writing pages.
- * 
+ * Interface for writing pages to disk and to create in-memory records.
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
@@ -32,7 +32,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Setup the transaction log for different index-types.
-	 * 
+	 *
 	 * @param indexType
 	 *          the {@link IndexType}
 	 * @return {@code true}, if all transaction logs have been created,
@@ -44,7 +44,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Put a page into the cache.
-	 * 
+	 *
 	 * @param key
 	 *          the unique logKey in a subtree
 	 * @param page
@@ -54,7 +54,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Put a pageContainer into the key/value page cache.
-	 * 
+	 *
 	 * @param pageKind
 	 *          the kind of page
 	 * @param key
@@ -72,7 +72,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * Create fresh key/value (value must be a record) and prepare key/value-tuple
 	 * for modifications (CoW). The record might be a node, in this case the key
 	 * is the node.
-	 * 
+	 *
 	 * @param key
 	 *          optional key associated with the record to add (otherwise the
 	 *          record nodeKey is used)
@@ -98,7 +98,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * (persistence) layer, storing the page in the cache and setting up the entry
 	 * for upcoming modification. The key of the entry might be the node key and
 	 * the value the node itself.
-	 * 
+	 *
 	 * @param key
 	 *          key of the entry to be modified
 	 * @param pageKind
@@ -121,7 +121,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Remove an entry from the storage.
-	 * 
+	 *
 	 * @param key
 	 *          entry key from entry to be removed
 	 * @param pageKind
@@ -140,7 +140,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Creating a namekey for a given name.
-	 * 
+	 *
 	 * @param name
 	 *          for which the key should be created
 	 * @param kind
@@ -156,7 +156,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	/**
 	 * Commit the transaction, that is persist changes if any and create a new
 	 * revision.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if Sirix fails to commit
 	 * @throws NullPointerException
@@ -166,7 +166,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Update log.
-	 * 
+	 *
 	 * @param nodePageCont
 	 *          {@link RecordPageContainer} reference to synchronize
 	 * @param pageKind
@@ -181,7 +181,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	/**
 	 * Committing a {@link NodeWriteTrx}. This method is recursively invoked by
 	 * all {@link PageReference}s.
-	 * 
+	 *
 	 * @param reference
 	 *          to be commited
 	 * @throws SirixException
@@ -193,7 +193,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Determines if this page write trx must restore a previous failed trx.
-	 * 
+	 *
 	 * @param restore
 	 *          determines if this page write trx must restore a previous failed
 	 *          trx
@@ -204,7 +204,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
 	/**
 	 * Get inlying {@link PageReadTrx}.
-	 * 
+	 *
 	 * @return the {@link PageReadTrx} reference
 	 */
 	PageReadTrx getPageReadTrx();

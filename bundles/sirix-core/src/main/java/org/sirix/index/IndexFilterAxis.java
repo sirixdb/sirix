@@ -14,6 +14,7 @@ public final class IndexFilterAxis<K extends Comparable<? super K>> extends
 		AbstractIterator<NodeReferences> {
 
 	private final Iterator<AVLNode<K, NodeReferences>> mIter;
+
 	private final Set<? extends Filter> mFilter;
 
 	public IndexFilterAxis(final Iterator<AVLNode<K, NodeReferences>> iter,

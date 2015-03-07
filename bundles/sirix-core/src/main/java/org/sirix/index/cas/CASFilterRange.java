@@ -7,26 +7,23 @@ import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
 
 /**
  * CASFilter filter.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class CASFilterRange implements Filter {
 
 	/** The paths to filter. */
 	private final Set<Path<QNm>> mPaths;
-
-	/** Sirix {@link NodeReadTrx}. */
-	private final NodeReadTrx mRtx;
 
 	/** {@link PathFilter} instance to filter specific paths. */
 	private final PathFilter mPathFilter;
@@ -45,7 +42,7 @@ public final class CASFilterRange implements Filter {
 
 	/**
 	 * Constructor. Initializes the internal state.
-	 * 
+	 *
 	 * @param rtx
 	 *          transaction this filter is bound to
 	 * @param paths
@@ -58,13 +55,14 @@ public final class CASFilterRange implements Filter {
 	 *          include the minimum value
 	 * @param incMax
 	 *          include the maximum value
+	 * @param pcrCollector
+	 *          the PCR collector used
 	 */
-	public CASFilterRange(final NodeReadTrx rtx, final Set<Path<QNm>> paths,
-			final Atomic min, final Atomic max, final boolean incMin,
-			final boolean incMax) {
-		mRtx = checkNotNull(rtx);
+	public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min,
+			final Atomic max, final boolean incMin, final boolean incMax,
+			final PCRCollector pcrCollector) {
 		mPaths = checkNotNull(paths);
-		mPathFilter = new PathFilter(mRtx, mPaths);
+		mPathFilter = new PathFilter(mPaths, pcrCollector);
 		mMin = checkNotNull(min);
 		mMax = checkNotNull(max);
 		mIncMin = incMin;

@@ -49,6 +49,8 @@ import org.sirix.index.cas.CASIndexImpl;
 import org.sirix.index.name.NameFilter;
 import org.sirix.index.name.NameIndex;
 import org.sirix.index.name.NameIndexImpl;
+import org.sirix.index.path.PCRCollector;
+import org.sirix.index.path.PCRCollectorImpl;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.PathIndexImpl;
@@ -59,9 +61,9 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 /**
  * Index controller, used to control the handling of indexes.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class IndexController {
 
@@ -91,7 +93,7 @@ public final class IndexController {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param session
 	 *          the {@link Session} this {@link IndexController} is bound to
 	 */
@@ -105,7 +107,7 @@ public final class IndexController {
 
 	/**
 	 * Determines if an index of the specified type is available.
-	 * 
+	 *
 	 * @param type
 	 *          type of index to lookup
 	 * @return {@code true} if an index of the specified type exists,
@@ -121,7 +123,7 @@ public final class IndexController {
 
 	/**
 	 * Determines if an index of the specified type is available.
-	 * 
+	 *
 	 * @param type
 	 *          type of index to lookup
 	 * @param session
@@ -155,7 +157,7 @@ public final class IndexController {
 
 	/**
 	 * Get the indexes.
-	 * 
+	 *
 	 * @return the indexes
 	 */
 	public Indexes getIndexes() {
@@ -164,7 +166,7 @@ public final class IndexController {
 
 	/**
 	 * Serialize to an {@link OutputStream}.
-	 * 
+	 *
 	 * @param out
 	 *          the {@link OutputStream} to serialize to
 	 * @throws SirixRuntimeException
@@ -183,7 +185,7 @@ public final class IndexController {
 
 	/**
 	 * Deserialize from an {@link InputStream}.
-	 * 
+	 *
 	 * @param out
 	 *          the {@link InputStream} from which to deserialize the XML fragment
 	 * @throws SirixException
@@ -202,7 +204,7 @@ public final class IndexController {
 
 	/**
 	 * Notify the changes to all listening indexes.
-	 * 
+	 *
 	 * @param type
 	 *          type of change
 	 * @param node
@@ -222,7 +224,7 @@ public final class IndexController {
 
 	/**
 	 * Create new indexes.
-	 * 
+	 *
 	 * @param indexDefs
 	 *          Set of {@link IndexDef}s
 	 * @param nodeWriteTrx
@@ -254,12 +256,12 @@ public final class IndexController {
 
 	/**
 	 * Create index builders.
-	 * 
+	 *
 	 * @param indexDefs
 	 *          the {@link IndexDef}s
 	 * @param nodeWriteTrx
 	 *          the {@link NodeWriteTrx}
-	 * 
+	 *
 	 * @return the created index builder instances
 	 */
 	Set<Visitor> createIndexBuilders(final Set<IndexDef> indexDefs,
@@ -268,22 +270,22 @@ public final class IndexController {
 		final Set<Visitor> indexBuilders = new HashSet<>(indexDefs.size());
 		for (final IndexDef indexDef : indexDefs) {
 			switch (indexDef.getType()) {
-			case PATH:
-				indexBuilders.add(createPathIndexBuilder(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
-				break;
-			case CAS:
-				indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
-				break;
-			case NAME:
-				indexBuilders.add(createNameIndexBuilder(
-						nodeWriteTrx.getPageTransaction(), indexDef));
-				break;
-			default:
-				break;
+				case PATH:
+					indexBuilders.add(createPathIndexBuilder(
+							nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
+							indexDef));
+					break;
+				case CAS:
+					indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
+							nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
+							indexDef));
+					break;
+				case NAME:
+					indexBuilders.add(createNameIndexBuilder(
+							nodeWriteTrx.getPageTransaction(), indexDef));
+					break;
+				default:
+					break;
 			}
 		}
 		return indexBuilders;
@@ -291,12 +293,12 @@ public final class IndexController {
 
 	/**
 	 * Create index listeners.
-	 * 
+	 *
 	 * @param indexDefs
 	 *          the {@link IndexDef}s
 	 * @param nodeWriteTrx
 	 *          the {@link NodeWriteTrx}
-	 * 
+	 *
 	 * @return this {@link IndexController} instance
 	 */
 	IndexController createIndexListeners(final Set<IndexDef> indexDefs,
@@ -306,22 +308,22 @@ public final class IndexController {
 		for (final IndexDef indexDef : indexDefs) {
 			mIndexes.add(indexDef);
 			switch (indexDef.getType()) {
-			case PATH:
-				mListeners.add(createPathIndexListener(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
-				break;
-			case CAS:
-				mListeners.add(createCASIndexListener(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
-				break;
-			case NAME:
-				mListeners.add(createNameIndexListener(
-						nodeWriteTrx.getPageTransaction(), indexDef));
-				break;
-			default:
-				break;
+				case PATH:
+					mListeners.add(createPathIndexListener(
+							nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
+							indexDef));
+					break;
+				case CAS:
+					mListeners.add(createCASIndexListener(
+							nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
+							indexDef));
+					break;
+				case NAME:
+					mListeners.add(createNameIndexListener(
+							nodeWriteTrx.getPageTransaction(), indexDef));
+					break;
+				default:
+					break;
 			}
 		}
 		return this;
@@ -365,12 +367,12 @@ public final class IndexController {
 	}
 
 	public NameFilter createNameFilter(final String[] queryString) {
-		final Set<QNm> includes = new HashSet<QNm>(queryString.length);
+		final Set<QNm> includes = new HashSet<>(queryString.length);
 		for (final String name : queryString) {
 			// TODO: Prefix/NspURI
 			includes.add(new QNm(name));
 		}
-		return new NameFilter(includes, Collections.<QNm> emptySet());
+		return new NameFilter(includes, Collections.emptySet());
 	}
 
 	public PathFilter createPathFilter(final String[] queryString,
@@ -378,29 +380,30 @@ public final class IndexController {
 		final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
 		for (final String path : queryString)
 			paths.add(Path.parse(path));
-		return new PathFilter(rtx, paths);
+		return new PathFilter(paths, new PCRCollectorImpl(rtx));
 	}
 
-	public CASFilter createCASFilter(final String[] pathArray,
-			final NodeReadTrx rtx, final Atomic key, final SearchMode mode)
+	public CASFilter createCASFilter(final String[] pathArray, final Atomic key,
+			final SearchMode mode, final PCRCollector pcrCollector)
 			throws PathException {
 		final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
 		if (pathArray.length > 0) {
 			for (final String path : pathArray)
 				paths.add(Path.parse(path));
 		}
-		return new CASFilter(rtx, paths, key, mode);
+		return new CASFilter(paths, key, mode, pcrCollector);
 	}
 
 	public CASFilterRange createCASFilterRange(final String[] pathArray,
-			final NodeReadTrx rtx, final Atomic min, final Atomic max,
-			final boolean incMin, final boolean incMax) throws PathException {
+			final Atomic min, final Atomic max, final boolean incMin,
+			final boolean incMax, final PCRCollector pcrCollector)
+			throws PathException {
 		final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
 		if (pathArray.length > 0) {
 			for (final String path : pathArray)
 				paths.add(Path.parse(path));
 		}
-		return new CASFilterRange(rtx, paths, min, max, incMin, incMax);
+		return new CASFilterRange(paths, min, max, incMin, incMax, pcrCollector);
 	}
 
 	public Iterator<NodeReferences> openPathIndex(final PageReadTrx pageRtx,
@@ -424,27 +427,22 @@ public final class IndexController {
 	}
 
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final SearchMode mode, final CASFilter filter,
-			Atomic key, boolean inc) {
+			final IndexDef indexDef, final CASFilter filter) {
 		if (mCASIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
 		}
 
-		return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, key, inc);
+		return mCASIndex.openIndex(pageRtx, indexDef, filter);
 	}
 
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final SearchMode mode,
-			final CASFilterRange filter, Atomic low, Atomic max, boolean incLow,
-			boolean incMax) {
+			final IndexDef indexDef, final CASFilterRange filter) {
 		if (mCASIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
 		}
 
-		return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, low, max,
-				incLow, incMax);
+		return mCASIndex.openIndex(pageRtx, indexDef, filter);
 	}
-
 }

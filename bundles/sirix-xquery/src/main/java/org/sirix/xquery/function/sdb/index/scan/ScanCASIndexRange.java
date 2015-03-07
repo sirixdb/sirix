@@ -25,8 +25,8 @@ import org.sirix.access.IndexController;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
-import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilterRange;
+import org.sirix.index.path.PCRCollectorImpl;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -34,7 +34,7 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
  * Function for scanning for an index range in a CAS index.
- * 
+ *
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
  */
@@ -99,7 +99,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
 		final String[] pathArray = paths == null ? new String[] {} : paths
 				.split(";");
 		final CASFilterRange filter = controller.createCASFilterRange(pathArray,
-				doc.getTrx(), min, max, incMin, incMax);
+				min, max, incMin, incMax, new PCRCollectorImpl(rtx));
 
 		final IndexController ic = controller;
 		final DBNode node = doc;
@@ -114,8 +114,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
 					public Item next() throws QueryException {
 						if (s == null) {
 							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
-									.getPageTrx(), indexDef, SearchMode.LESS_OR_EQUAL, filter,
-									min, max, incMin, incMax), node.getCollection(),
+									.getPageTrx(), indexDef, filter), node.getCollection(),
 									node.getTrx());
 						}
 						return (Item) s.next();

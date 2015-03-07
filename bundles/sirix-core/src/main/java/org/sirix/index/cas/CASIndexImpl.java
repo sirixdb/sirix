@@ -1,6 +1,8 @@
 package org.sirix.index.cas;
 
 import java.util.Iterator;
+import java.util.Optional;
+import java.util.Set;
 
 import org.brackit.xquery.atomic.Atomic;
 import org.sirix.api.NodeReadTrx;
@@ -19,6 +21,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 
 public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 
@@ -38,8 +41,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 
 	@Override
 	public Iterator<NodeReferences> openIndex(PageReadTrx pageReadTrx,
-			IndexDef indexDef, SearchMode mode, CASFilterRange filter, Atomic low,
-			Atomic high, boolean incLow, boolean incMax) {
+			IndexDef indexDef, CASFilterRange filter) {
 		final AVLTreeReader<CASValue, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
@@ -51,14 +53,106 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 
 	@Override
 	public Iterator<NodeReferences> openIndex(PageReadTrx pageReadTrx,
-			IndexDef indexDef, SearchMode mode, CASFilter filter, Atomic key,
-			boolean incSelf) {
+			IndexDef indexDef, CASFilter filter) {
 		final AVLTreeReader<CASValue, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
-		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
-				Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		// PCRs requested.
+		final Set<Long> pcrsRequested = filter.getPCRs();
 
-		return new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter));
+		// PCRs available in index.
+		final Set<Long> pcrsAvailable = filter.getPCRCollector()
+				.getPCRsForPaths(indexDef.getPaths()).getPCRs();
+
+		// Only one path indexed. All PCRs are the same in each CASValue.
+		if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1) {
+			final Atomic atomic = filter.getKey();
+			final long pcr = pcrsRequested.iterator().next();
+			final SearchMode mode = filter.getMode();
+
+			final CASValue value = new CASValue(atomic, atomic.type(), pcr);
+
+			if (mode == SearchMode.EQUAL) {
+				// Compare for equality by PCR and atomic value.
+				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
+						.getAVLNode(value, mode);
+
+				if (node.isPresent()) {
+					return Iterators.forArray(node.get().getValue());
+				}
+
+				return Iterators.emptyIterator();
+			} else {
+				// Compare for search criteria by PCR and atomic value.
+				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
+						.getAVLNode(value, mode);
+
+				if (node.isPresent()) {
+					// Iterate over subtree.
+					final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+							node.get().getNodeKey());
+
+					return Iterators.concat(Iterators.forArray(node.get().getValue()),
+							new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
+				}
+
+				return Iterators.emptyIterator();
+			}
+		} else if (pcrsRequested.size() == 1) {
+			final Atomic atomic = filter.getKey();
+			final long pcr = pcrsRequested.iterator().next();
+			final SearchMode mode = filter.getMode();
+
+			final CASValue value = new CASValue(atomic, atomic.type(), pcr);
+
+			if (mode == SearchMode.EQUAL) {
+				// Compare for equality by PCR and atomic value.
+				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
+						.getAVLNode(value, mode);
+
+				if (node.isPresent()) {
+					// Iterate over subtree.
+					final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+							node.get().getNodeKey());
+
+					return Iterators.concat(Iterators.forArray(node.get().getValue()),
+							new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
+				}
+
+				return Iterators.emptyIterator();
+			} else {
+				// Compare for equality only by PCR.
+				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
+						.getAVLNode(value, SearchMode.EQUAL,
+								(CASValue v1, CASValue v2) -> ((Long) v1.getPathNodeKey())
+										.compareTo(v2.getPathNodeKey()));
+
+				if (node.isPresent()) {
+					// Now compare for equality by PCR and atomic value and find first
+					// node which satisfies criteria.
+					final Optional<AVLNode<CASValue, NodeReferences>> firstFoundNode = reader
+							.getAVLNode(node.get().getNodeKey(), value, mode);
+
+					if (firstFoundNode.isPresent()) {
+						// Iterate over subtree.
+						final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+								firstFoundNode.get().getNodeKey());
+
+						return Iterators.concat(
+								Iterators.forArray(firstFoundNode.get().getValue()),
+								new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
+					} else {
+						return Iterators.forArray(firstFoundNode.get().getValue());
+					}
+				}
+
+				return Iterators.emptyIterator();
+			}
+		} else {
+			final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+					Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+
+			return new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter));
+		}
 	}
 }

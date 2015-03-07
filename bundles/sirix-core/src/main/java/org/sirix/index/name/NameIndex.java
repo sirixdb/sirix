@@ -20,6 +20,6 @@ public interface NameIndex<K extends Comparable<? super K>, V extends References
 			PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			IndexDef indexDef);
 
-	public Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final NameFilter filter);
+	Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef,
+			NameFilter filter);
 }

@@ -18,7 +18,7 @@ import com.google.common.base.Objects;
 
 /**
  * AVLNode which is mutable.
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public final class AVLNode<K extends Comparable<? super K>, V> extends
@@ -43,7 +43,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param pToken
 	 *          token
 	 * @param pParent
@@ -86,10 +86,11 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 
 	/**
 	 * Flag which determines if node is changed.
-	 * 
+	 *
 	 * @return {@code true} if it has been changed in memory, {@code false}
 	 *         otherwise
 	 */
+	@Override
 	public boolean isChanged() {
 		return mChanged;
 	}
@@ -137,7 +138,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 	@Override
 	public int hashCode() {
 		return Objects.hashCode(mNodeDelegate.getNodeKey());
-	};
+	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
@@ -148,7 +149,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 					.getNodeKey();
 		}
 		return false;
-	};
+	}
 
 	@Override
 	public String toString() {
