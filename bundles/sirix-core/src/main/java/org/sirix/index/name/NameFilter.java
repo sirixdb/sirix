@@ -2,6 +2,7 @@ package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Collections;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
@@ -17,6 +18,14 @@ public final class NameFilter implements Filter {
 	public NameFilter(final Set<QNm> included, final Set<QNm> excluded) {
 		mIncludes = checkNotNull(included);
 		mExcludes = checkNotNull(excluded);
+	}
+
+	public Set<QNm> getIncludes() {
+		return Collections.unmodifiableSet(mIncludes);
+	}
+
+	public Set<QNm> getExcludes() {
+		return Collections.unmodifiableSet(mExcludes);
 	}
 
 	@Override

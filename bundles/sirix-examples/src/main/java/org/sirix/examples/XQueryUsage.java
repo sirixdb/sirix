@@ -34,10 +34,10 @@ import com.google.common.base.Optional;
 /**
  * A few examples (some taken from the official brackit examples). Usually you
  * would use a logger for all output!
- * 
+ *
  * @author Johannes Lichtenberger
  * @author Sebastian Bächle
- * 
+ *
  */
 public final class XQueryUsage {
 
@@ -54,14 +54,14 @@ public final class XQueryUsage {
 
 	/**
 	 * Main method.
-	 * 
+	 *
 	 * @param args
 	 *          not used
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-		  loadDocumentAndQuery();
-		  System.out.println();
+			loadDocumentAndQuery();
+			System.out.println();
 			loadDocumentAndUpdate();
 			System.out.println();
 			loadCollectionAndQuery();
@@ -131,8 +131,8 @@ public final class XQueryUsage {
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
 			URI docUri = doc.toURI();
-			final String xq1 = String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')",
-					docUri.toString());
+			final String xq1 = String.format(
+					"sdb:load('mycol.xml', 'mydoc.xml', '%s')", docUri.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -215,72 +215,79 @@ public final class XQueryUsage {
 
 			final File doc1 = generateSampleDoc(tmpDir, "sample1");
 			doc1.deleteOnExit();
-			
+
 			final URI docUri = doc1.toURI();
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
-					docUri.toString());
+			final String xq1 = String.format(
+					"sdb:load('mydocs.col', 'resource1', '%s')", docUri.toString());
 			System.out.println(xq1);
 			new XQuery(compileChain, xq1).evaluate(ctx1);
 		}
-		
-//		try (final DBStore store= DBStore.newBuilder().build();){
-//		  final CompileChain compileChain = new SirixCompileChain(store);
-//		  final QueryContext ctx1 = new SirixQueryContext(store);
-//		  final String query1 ="replace node doc('mydocs.col')/log/src with <node>aaa</node>";
-//		  new XQuery(compileChain, query1).evaluate(ctx1);
-//		  final QueryContext ctx2 = new SirixQueryContext(store);
-//		  final String query2 ="insert nodes <ab>abc</ab> into doc('mydocs.col')/log/content";
-//		  new XQuery(compileChain, query2).evaluate(ctx2);
-//			System.out.println();
-//			System.out.println("Query loaded document:");
-//			final String xq3 = "doc('mydocs.col')/log/all-time::*";
-//			System.out.println(xq3);
-//			XQuery q = new XQuery(new SirixCompileChain(store), xq3);
-//			q.prettyPrint();
-//			q.serialize(new SirixQueryContext(store), System.out);
-//		}
-		
-//		// Initialize query context and store (implicit transaction commit).
-//		try (final DBStore store = DBStore.newBuilder().build()) {
-//			final QueryContext ctx1 = new SirixQueryContext(store);
-//			final CompileChain compileChain = new SirixCompileChain(store);
-//
-//			final File doc1 = generateSampleDoc(tmpDir, "sample1");
-//			doc1.deleteOnExit();
-//			
-//			final URI docUri = doc1.toURI();
-//
-//			// Use XQuery to load sample document into store.
-//			System.out.println("Loading document:");
-//			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
-//					docUri.toString());
-//			System.out.println(xq1);
-//			new XQuery(compileChain, xq1).evaluate(ctx1);
-//
-////			// Reuse store and insert into loaded document with a subsequent explicit commit.
-////			final QueryContext ctx2 = new SirixQueryContext(store);
-////			System.out.println();
-////			System.out.println("Insert into loaded document:");
-////			final String xq2 = "replace node doc('mydocs.col')/log/content with <a><div>hej</div></a>";
-////			System.out.println(xq2);
-////			new XQuery(compileChain, xq2).evaluate(ctx2);
-////			System.out.println();
-//			
-//			// Reuse store and insert into loaded document with a subsequent explicit commit.
-//			final QueryContext ctx3 = new SirixQueryContext(store);
-//			System.out.println();
-//			System.out.println("Insert into loaded document:");
-//			final String xq3 = "replace node doc('mydocs.col')/log/content/a with <a><div>hej</div></a>";
-//			System.out.println(xq3);
-//			final XQuery q = new XQuery(compileChain, xq3);
-//			q.evaluate(ctx3);
-//			q.serialize(ctx3, System.out);
-//			System.out.println();
-//		}
-		
+
+		// try (final DBStore store= DBStore.newBuilder().build();){
+		// final CompileChain compileChain = new SirixCompileChain(store);
+		// final QueryContext ctx1 = new SirixQueryContext(store);
+		// final String query1
+		// ="replace node doc('mydocs.col')/log/src with <node>aaa</node>";
+		// new XQuery(compileChain, query1).evaluate(ctx1);
+		// final QueryContext ctx2 = new SirixQueryContext(store);
+		// final String query2
+		// ="insert nodes <ab>abc</ab> into doc('mydocs.col')/log/content";
+		// new XQuery(compileChain, query2).evaluate(ctx2);
+		// System.out.println();
+		// System.out.println("Query loaded document:");
+		// final String xq3 = "doc('mydocs.col')/log/all-time::*";
+		// System.out.println(xq3);
+		// XQuery q = new XQuery(new SirixCompileChain(store), xq3);
+		// q.prettyPrint();
+		// q.serialize(new SirixQueryContext(store), System.out);
+		// }
+
+		// // Initialize query context and store (implicit transaction commit).
+		// try (final DBStore store = DBStore.newBuilder().build()) {
+		// final QueryContext ctx1 = new SirixQueryContext(store);
+		// final CompileChain compileChain = new SirixCompileChain(store);
+		//
+		// final File doc1 = generateSampleDoc(tmpDir, "sample1");
+		// doc1.deleteOnExit();
+		//
+		// final URI docUri = doc1.toURI();
+		//
+		// // Use XQuery to load sample document into store.
+		// System.out.println("Loading document:");
+		// final String xq1 =
+		// String.format("sdb:load('mydocs.col', 'resource1', '%s')",
+		// docUri.toString());
+		// System.out.println(xq1);
+		// new XQuery(compileChain, xq1).evaluate(ctx1);
+		//
+		// // // Reuse store and insert into loaded document with a subsequent
+		// explicit commit.
+		// // final QueryContext ctx2 = new SirixQueryContext(store);
+		// // System.out.println();
+		// // System.out.println("Insert into loaded document:");
+		// // final String xq2 =
+		// "replace node doc('mydocs.col')/log/content with <a><div>hej</div></a>";
+		// // System.out.println(xq2);
+		// // new XQuery(compileChain, xq2).evaluate(ctx2);
+		// // System.out.println();
+		//
+		// // Reuse store and insert into loaded document with a subsequent explicit
+		// commit.
+		// final QueryContext ctx3 = new SirixQueryContext(store);
+		// System.out.println();
+		// System.out.println("Insert into loaded document:");
+		// final String xq3 =
+		// "replace node doc('mydocs.col')/log/content/a with <a><div>hej</div></a>";
+		// System.out.println(xq3);
+		// final XQuery q = new XQuery(compileChain, xq3);
+		// q.evaluate(ctx3);
+		// q.serialize(ctx3, System.out);
+		// System.out.println();
+		// }
+
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 			System.out.println();
@@ -291,7 +298,7 @@ public final class XQueryUsage {
 			q.prettyPrint();
 			q.serialize(ctx, System.out);
 		}
-		
+
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 			System.out.println();
@@ -302,38 +309,42 @@ public final class XQueryUsage {
 			q.prettyPrint();
 			q.serialize(ctx, System.out);
 		}
-		
-//		// Initialize query context and store (explicit transaction commit).
-//		try (final DBStore store = DBStore.newBuilder().build()) {
-//			final QueryContext ctx = new QueryContext(store);
-//			final CompileChain compileChain = new SirixCompileChain(store);
-//
-//			final File doc1 = generateSampleDoc(tmpDir, "sample1");
-//			doc1.deleteOnExit();
-//			
-//			final URI docUri = doc1.toURI();
-//
-//			// Use XQuery to load sample document into store.
-//			System.out.println("Loading document:");
-//			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
-//					docUri.toString());
-//			System.out.println(xq1);
-//			new XQuery(compileChain, xq1).evaluate(ctx);
-//
-//			// Reuse store and insert into loaded document with a subsequent explicit commit.
-//			final QueryContext ctx2 = new QueryContext(store);
-//			System.out.println();
-//			System.out.println("Insert into loaded document:");
-//			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
-//			System.out.println(xq2);
-//			final XQuery q1 = new XQuery(compileChain, xq2);
-//			q1.execute(ctx2);
-//			System.out.println("Commit changes:");
-//			final String xq3 = "sdb:commit(sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)))";
-//			final XQuery q2 = new XQuery(compileChain, xq3);
-//			q2.execute(ctx2);
-//			System.out.println();
-//		}
+
+		// // Initialize query context and store (explicit transaction commit).
+		// try (final DBStore store = DBStore.newBuilder().build()) {
+		// final QueryContext ctx = new QueryContext(store);
+		// final CompileChain compileChain = new SirixCompileChain(store);
+		//
+		// final File doc1 = generateSampleDoc(tmpDir, "sample1");
+		// doc1.deleteOnExit();
+		//
+		// final URI docUri = doc1.toURI();
+		//
+		// // Use XQuery to load sample document into store.
+		// System.out.println("Loading document:");
+		// final String xq1 =
+		// String.format("sdb:load('mydocs.col', 'resource1', '%s')",
+		// docUri.toString());
+		// System.out.println(xq1);
+		// new XQuery(compileChain, xq1).evaluate(ctx);
+		//
+		// // Reuse store and insert into loaded document with a subsequent explicit
+		// commit.
+		// final QueryContext ctx2 = new QueryContext(store);
+		// System.out.println();
+		// System.out.println("Insert into loaded document:");
+		// final String xq2 =
+		// "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
+		// System.out.println(xq2);
+		// final XQuery q1 = new XQuery(compileChain, xq2);
+		// q1.execute(ctx2);
+		// System.out.println("Commit changes:");
+		// final String xq3 =
+		// "sdb:commit(sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)))";
+		// final XQuery q2 = new XQuery(compileChain, xq3);
+		// q2.execute(ctx2);
+		// System.out.println();
+		// }
 
 		// Create and commit CAS indexes on all attribute- and text-nodes.
 		try (final DBStore store = DBStore.newBuilder().build()) {
@@ -480,8 +491,8 @@ public final class XQueryUsage {
 			System.out.println("Query name index (src-element).");
 			final QueryContext ctx3 = new QueryContext(store);
 			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1')"
-                         + " let $sequence := sdb:scan-name-index($doc, sdb:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))"
-                         + " return sdb:sort($sequence)";
+					+ " let $sequence := sdb:scan-name-index($doc, sdb:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))"
+					+ " return sdb:sort($sequence)";
 			final XQuery q = new XQuery(new SirixCompileChain(store), query);
 			q.prettyPrint();
 			q.serialize(ctx3, System.out);
@@ -521,15 +532,15 @@ public final class XQueryUsage {
 			final QueryContext ctx6 = new QueryContext(store);
 			final String xq6 = "for $i in ((doc('mydocs.col', 1), doc('mydocs.col', 2), doc('mydocs.col', 3))) return $i";
 			q = new XQuery(xq6);
-			try (final PrintStream out = new PrintStream(new FileOutputStream(
-					new File(new StringBuilder(LOCATION.getAbsolutePath())
-							.append(File.separator).append("output-revisions.xml")
-							.toString())))) {
+			try (final PrintStream out = new PrintStream(
+					new FileOutputStream(new File(new StringBuilder(
+							LOCATION.getAbsolutePath()).append(File.separator)
+							.append("output-revisions.xml").toString())))) {
 				q.prettyPrint().serialize(ctx6, out);
 			}
 			System.out.println();
 		}
-		
+
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final File doc = new File(new StringBuilder("src").append(File.separator)
 					.append("main").append(File.separator).append("resources")
@@ -548,7 +559,7 @@ public final class XQueryUsage {
 
 	/**
 	 * Generate a small sample document.
-	 * 
+	 *
 	 * @param dir
 	 *          the directory
 	 * @param prefix
@@ -565,10 +576,11 @@ public final class XQueryUsage {
 		final Random rnd = new Random();
 		final long now = System.currentTimeMillis();
 		final int diff = rnd.nextInt(6000 * 60 * 24 * 7);
-		final Date tst = new Date(now - diff);
-		final Severity sev = Severity.values()[rnd.nextInt(3)];
-		final String src = "192.168." + (1 + rnd.nextInt(254)) + "."
-				+ (1 + rnd.nextInt(254));
+		new Date(now - diff);
+		Severity.values();
+		rnd.nextInt(3);
+		rnd.nextInt(254);
+		rnd.nextInt(254);
 		final int mlen = 10 + rnd.nextInt(70);
 		final byte[] bytes = new byte[mlen];
 		int i = 0;
@@ -583,18 +595,18 @@ public final class XQueryUsage {
 				bytes[i++] = ' ';
 			}
 		}
-		final String msg = new String(bytes);
+		new String(bytes);
 		out.print("<?xml version='1.0'?>");
-//		out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst,
-//				sev));
-//		out.print(String.format("<src>%s</src>", src));
-//		out.print(String.format("<msg>%s</msg>", msg));
-//		out.print("oops1");
-//		out.print("<b/>");
-//		out.print("oops2");
-//		out.print("</log>");
-		out.print("<log tstamp=\"Sun May 04 23:29:47 CEST 2014\" severity=\"high\" foo=\"bar\"> <src>192.168.0.1</src> <content> <a.txt/> </content> </log>");
-//		out.close();
+		// out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst,
+		// sev));
+		// out.print(String.format("<src>%s</src>", src));
+		// out.print(String.format("<msg>%s</msg>", msg));
+		// out.print("oops1");
+		// out.print("<b/>");
+		// out.print("oops2");
+		// out.print("</log>");
+		out.print("<log tstamp=\"Sun May 04 23:29:47 CEST 2014\" severity=\"high\" foo=\"bar\">10 <src>192.168.0.1</src> 111<content> <a.txt/> </content> 5</log>");
+		// out.close();
 		return file;
 	}
 

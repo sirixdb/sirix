@@ -27,6 +27,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilter;
+import org.sirix.index.path.PCRCollectorImpl;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -34,10 +35,10 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
  * Scan the CAS-index for matching nodes.
- * 
+ *
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
- * 
+ *
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {
 		"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths" })
@@ -88,39 +89,38 @@ public final class ScanCASIndex extends AbstractFunction {
 
 		final Type keyType = indexDef.getContentType();
 		final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-		final boolean inc = FunUtil.getBoolean(args, 3, "$include-low-key", true,
-				true);
+		FunUtil.getBoolean(args, 3, "$include-low-key", true, true);
 		final int[] searchModes = new int[] { -2, -1, 0, 1, 2 };
 		final int searchMode = FunUtil.getInt(args, 4, "$search-mode", 0,
 				searchModes, true);
 
 		final SearchMode mode;
 		switch (searchMode) {
-		case -2:
-			mode = SearchMode.LESS;
-			break;
-		case -1:
-			mode = SearchMode.LESS_OR_EQUAL;
-			break;
-		case 0:
-			mode = SearchMode.EQUAL;
-			break;
-		case 1:
-			mode = SearchMode.GREATER;
-			break;
-		case 2:
-			mode = SearchMode.GREATER_OR_EQUAL;
-			break;
-		default:
-			// May never happen.
-			mode = SearchMode.EQUAL;
+			case -2:
+				mode = SearchMode.LESS;
+				break;
+			case -1:
+				mode = SearchMode.LESS_OR_EQUAL;
+				break;
+			case 0:
+				mode = SearchMode.EQUAL;
+				break;
+			case 1:
+				mode = SearchMode.GREATER;
+				break;
+			case 2:
+				mode = SearchMode.GREATER_OR_EQUAL;
+				break;
+			default:
+				// May never happen.
+				mode = SearchMode.EQUAL;
 		}
 
 		final String paths = FunUtil
 				.getString(args, 5, "$paths", null, null, false);
 		final CASFilter filter = (paths != null) ? controller.createCASFilter(
-				paths.split(";"), doc.getTrx(), key, mode) : controller
-				.createCASFilter(new String[] {}, doc.getTrx(), key, mode);
+				paths.split(";"), key, mode, new PCRCollectorImpl(rtx)) : controller
+				.createCASFilter(new String[] {}, key, mode, new PCRCollectorImpl(rtx));
 
 		final IndexController ic = controller;
 		final DBNode node = doc;
@@ -135,8 +135,8 @@ public final class ScanCASIndex extends AbstractFunction {
 					public Item next() throws QueryException {
 						if (s == null) {
 							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
-									.getPageTrx(), indexDef, mode, filter, key, inc),
-									node.getCollection(), node.getTrx());
+									.getPageTrx(), indexDef, filter), node.getCollection(),
+									node.getTrx());
 						}
 						return (Item) s.next();
 					}

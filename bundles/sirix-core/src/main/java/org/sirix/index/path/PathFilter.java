@@ -1,33 +1,25 @@
 package org.sirix.index.path;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
+import java.util.Collections;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.util.path.PathException;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * Path filter for {@link PathSummaryReader}, filtering specific path types.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class PathFilter implements Filter {
-
-	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(PathFilter.class));
 
 	/** Type to filter. */
 	private final boolean mGenericPath;
@@ -41,26 +33,40 @@ public final class PathFilter implements Filter {
 	/** Set of PCRs to filter. */
 	private Set<Long> mPCRFilter;
 
-	/** Sirix {@link NodeReadTrx}. */
-	private final NodeReadTrx mRtx;
+	/** Path class record collector. */
+	private final PCRCollector mPCRCollector;
 
 	/**
 	 * Constructor. Initializes the internal state.
-	 * 
+	 *
 	 * @param rtx
 	 *          transaction this filter is bound to
 	 * @param paths
 	 *          paths to match
+	 * @param pcrCollector
+	 *          path class record collector
 	 */
-	public PathFilter(final NodeReadTrx rtx, final Set<Path<QNm>> paths) {
-		mRtx = checkNotNull(rtx);
-		mPaths = checkNotNull(paths);
+	public PathFilter(final Set<Path<QNm>> paths, final PCRCollector pcrCollector) {
+		mPaths = requireNonNull(paths, "The paths must not be null.");
+		mPCRCollector = requireNonNull(pcrCollector,
+				"The path class record collector must not be null.");
 		mGenericPath = mPaths.isEmpty();
+		final PCRValue pcrValue = mPCRCollector.getPCRsForPaths(mPaths);
+		mMaxKnownPCR = pcrValue.getMaxPCR();
+		mPCRFilter = pcrValue.getPCRs();
+	}
+
+	public Set<Long> getPCRs() {
+		return Collections.unmodifiableSet(mPCRFilter);
+	}
+
+	public PCRCollector getPCRCollector() {
+		return mPCRCollector;
 	}
 
 	/**
 	 * Filter the node.
-	 * 
+	 *
 	 * @param node
 	 *          node to filter
 	 * @return {@code true} if the node has been filtered, {@code false} otherwise
@@ -83,14 +89,9 @@ public final class PathFilter implements Filter {
 			throw new IllegalStateException();
 
 		if (pcr > mMaxKnownPCR) {
-			try (final PathSummaryReader reader = mRtx instanceof NodeWriteTrx ? ((NodeWriteTrx) mRtx)
-					.getPathSummary() : mRtx.getSession().openPathSummary(
-					mRtx.getRevisionNumber())) {
-				mMaxKnownPCR = reader.getMaxNodeKey();
-				mPCRFilter = reader.getPCRsForPaths(mPaths);
-			} catch (final PathException e) {
-				LOGGER.error(e.getMessage(), e);
-			}
+			final PCRValue pcrValue = mPCRCollector.getPCRsForPaths(mPaths);
+			mMaxKnownPCR = pcrValue.getMaxPCR();
+			mPCRFilter = pcrValue.getPCRs();
 		}
 
 		return mPCRFilter.contains(pcr);

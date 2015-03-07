@@ -19,9 +19,9 @@ import com.google.common.collect.ComparisonChain;
 /**
  * Value representing a text value, attribute value, element QName or any other
  * byte encoded value.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class CASValue implements Comparable<CASValue> {
 
@@ -40,7 +40,7 @@ public final class CASValue implements Comparable<CASValue> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param value
 	 *          the String value in bytes
 	 * @param nodeKey
@@ -58,7 +58,7 @@ public final class CASValue implements Comparable<CASValue> {
 
 	/**
 	 * Get the value.
-	 * 
+	 *
 	 * @return the value
 	 */
 	public byte[] getValue() {
@@ -82,7 +82,7 @@ public final class CASValue implements Comparable<CASValue> {
 
 	@Override
 	public int compareTo(final @Nullable CASValue other) {
-		final CASValue otherValue = (CASValue) other;
+		final CASValue otherValue = other;
 		Atomic thisAtomic = null;
 		Atomic otherAtomic = null;
 		try {
@@ -91,8 +91,9 @@ public final class CASValue implements Comparable<CASValue> {
 		} catch (final QueryException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
-		return ComparisonChain.start().compare(thisAtomic, otherAtomic)
-				.compare((Long) mPathNodeKey, (Long) otherValue.mPathNodeKey).result();
+		return ComparisonChain.start()
+				.compare(mPathNodeKey, otherValue.mPathNodeKey)
+				.compare(thisAtomic, otherAtomic).result();
 	}
 
 	@Override
@@ -113,7 +114,7 @@ public final class CASValue implements Comparable<CASValue> {
 
 	/**
 	 * Get path node key.
-	 * 
+	 *
 	 * @return path node key
 	 */
 	public long getPathNodeKey() {
