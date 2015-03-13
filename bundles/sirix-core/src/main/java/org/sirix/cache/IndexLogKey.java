@@ -3,13 +3,14 @@ package org.sirix.cache;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * Index log key.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class IndexLogKey {
 	/** Unique number. */
@@ -20,7 +21,7 @@ public final class IndexLogKey {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param pageKind
 	 *          the page kind (kind of the index)
 	 * @param recordPageKey
@@ -59,8 +60,7 @@ public final class IndexLogKey {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("recordPageKey", mRecordPageKey)
-				.add("index", mIndex).toString();
+		return MoreObjects.toStringHelper(this)
+				.add("recordPageKey", mRecordPageKey).add("index", mIndex).toString();
 	}
-
 }

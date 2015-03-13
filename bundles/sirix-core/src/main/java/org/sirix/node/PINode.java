@@ -16,11 +16,12 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * <h1>PINode</h1>
- * 
+ *
  * <p>
  * Node representing a processing instruction.
  * </p>
@@ -42,14 +43,14 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Creating an attribute.
-	 * 
+	 *
 	 * @param structDel
 	 *          {@link StructNodeDelegate} to be set
 	 * @param nameDel
 	 *          {@link NameNodeDelegate} to be set
 	 * @param valDel
 	 *          {@link ValNodeDelegate} to be set
-	 * 
+	 *
 	 */
 	public PINode(final StructNodeDelegate structDel,
 			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
@@ -76,7 +77,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("structDel", mStructDel)
+		return MoreObjects.toStringHelper(this).add("structDel", mStructDel)
 				.add("nameDel", mNameDel).add("valDel", mValDel).toString();
 	}
 
@@ -147,7 +148,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the inlying {@link NameNodeDelegate}.
-	 * 
+	 *
 	 * @return the {@link NameNodeDelegate} instance
 	 */
 	NameNodeDelegate getNameNodeDelegate() {
@@ -156,7 +157,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the inlying {@link ValNodeDelegate}.
-	 * 
+	 *
 	 * @return the {@link ValNodeDelegate} instance
 	 */
 	ValNodeDelegate getValNodeDelegate() {

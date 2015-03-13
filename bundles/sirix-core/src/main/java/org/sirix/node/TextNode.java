@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -43,11 +43,12 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * <h1>TextNode</h1>
- * 
+ *
  * <p>
  * Node representing a text node.
  * </p>
@@ -66,7 +67,7 @@ public final class TextNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Constructor for TextNode.
-	 * 
+	 *
 	 * @param pDel
 	 *          delegate for {@link Node} implementation
 	 * @param valDel
@@ -157,7 +158,7 @@ public final class TextNode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this)
+		return MoreObjects.toStringHelper(this)
 				.add("node delegate", mStructNodeDel.getNodeDelegate())
 				.add("struct delegate", mStructNodeDel).add("value delegate", mValDel)
 				.toString();

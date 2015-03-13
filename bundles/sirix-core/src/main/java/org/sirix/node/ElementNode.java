@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -45,16 +45,17 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 
 /**
  * <h1>ElementNode</h1>
- * 
+ *
  * <p>
  * Node representing an XML element.
  * </p>
- * 
+ *
  * <strong>This class is not part of the public API and might change.</strong>
  */
 public final class ElementNode extends AbstractStructForwardingNode implements
@@ -80,7 +81,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Constructor
-	 * 
+	 *
 	 * @param structDel
 	 *          {@link StructNodeDelegate} to be set
 	 * @param nameDel
@@ -113,7 +114,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the count of attributes.
-	 * 
+	 *
 	 * @return the count of attributes
 	 */
 	public int getAttributeCount() {
@@ -122,7 +123,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the attribute key for an given index.
-	 * 
+	 *
 	 * @param index
 	 *          index of the attribute
 	 * @return the attribute key
@@ -136,7 +137,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the attribute key by name (from the dictionary).
-	 * 
+	 *
 	 * @param name
 	 *          the attribute-name to lookup
 	 * @return the attribute key associated with the name
@@ -153,7 +154,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Get name key (prefixKey+localNameKey) by node key.
-	 * 
+	 *
 	 * @param key
 	 *          node key
 	 * @return optional name key
@@ -164,7 +165,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Inserting an attribute.
-	 * 
+	 *
 	 * @param attrKey
 	 *          the new attribute key
 	 * @param nameIndex
@@ -178,7 +179,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Removing an attribute.
-	 * 
+	 *
 	 * @param attrKey
 	 *          the key of the attribute to be removed@Nonnegative@Nonnegative
 	 */
@@ -189,7 +190,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the count of namespaces.
-	 * 
+	 *
 	 * @return the count of namespaces
 	 */
 	public int getNamespaceCount() {
@@ -198,7 +199,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Getting the namespace key for a given index.
-	 * 
+	 *
 	 * @param namespaceKey
 	 *          index of the namespace
 	 * @return the namespace key
@@ -212,7 +213,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Inserting a namespace.
-	 * 
+	 *
 	 * @param namespaceKey
 	 *          new namespace key
 	 */
@@ -222,7 +223,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Removing a namepsace.
-	 * 
+	 *
 	 * @param namespaceKey
 	 *          the key of the namespace to be removed
 	 */
@@ -267,7 +268,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nameDelegate", mNameDel)
+		return MoreObjects.toStringHelper(this).add("nameDelegate", mNameDel)
 				.add("nameSpaceKeys", mNamespaceKeys)
 				.add("attributeKeys", mAttributeKeys)
 				.add("structDelegate", mStructNodeDel).toString();
@@ -295,7 +296,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Get a {@link List} with all attribute keys.
-	 * 
+	 *
 	 * @return unmodifiable view of {@link List} with all attribute keys
 	 */
 	public List<Long> getAttributeKeys() {
@@ -304,7 +305,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Get a {@link List} with all namespace keys.
-	 * 
+	 *
 	 * @return unmodifiable view of {@link List} with all namespace keys
 	 */
 	public List<Long> getNamespaceKeys() {
@@ -323,7 +324,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Get name node delegate.
-	 * 
+	 *
 	 * @return snapshot of the name node delegate (new instance)
 	 */
 	@Nonnull

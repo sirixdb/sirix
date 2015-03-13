@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -43,11 +43,11 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>UberPage</h1>
- * 
+ *
  * <p>
  * Uber page holds a reference to the static revision root page tree.
  * </p>
@@ -80,7 +80,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Create uber page.
-	 * 
+	 *
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
@@ -93,7 +93,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Read uber page.
-	 * 
+	 *
 	 * @param pIn
 	 *          input bytes
 	 * @param resourceConfig
@@ -109,7 +109,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Clone constructor.
-	 * 
+	 *
 	 * @param commitedUberPage
 	 *          page to clone
 	 * @param resourceConfig
@@ -134,7 +134,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Increment the number of stored indexes by one.
-	 * 
+	 *
 	 * @return this {@code UberPage} reference
 	 */
 	public UberPage incrementIndexCount() {
@@ -144,7 +144,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Get the number of stored indexes.
-	 * 
+	 *
 	 * @return number of stored indexes
 	 */
 	public int getIndexCount() {
@@ -153,7 +153,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Get indirect page reference.
-	 * 
+	 *
 	 * @return indirect page reference
 	 */
 	public PageReference getIndirectPageReference() {
@@ -162,7 +162,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Get number of revisions.
-	 * 
+	 *
 	 * @return number of revisions
 	 */
 	public int getRevisionCount() {
@@ -171,7 +171,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Get revision key of current in-memory state.
-	 * 
+	 *
 	 * @return revision key
 	 */
 	public int getRevisionNumber() {
@@ -180,7 +180,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Flag to indicate whether this uber page is the first ever.
-	 * 
+	 *
 	 * @return {@code true} if this uber page is the first one of sirix,
 	 *         {@code false} otherwise
 	 */
@@ -197,7 +197,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this)
+		return MoreObjects.toStringHelper(this)
 				.add("forwarding page", super.toString())
 				.add("revisionCount", mRevisionCount)
 				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
@@ -217,7 +217,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Create revision tree.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @param revisionRoot
@@ -242,7 +242,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 	/**
 	 * Get the page count exponent for the given page.
-	 * 
+	 *
 	 * @param pageKind
 	 *          page to lookup the exponent in the constant definition
 	 * @return page count exponent
@@ -250,27 +250,27 @@ public final class UberPage extends AbstractForwardingPage {
 	public int[] getPageCountExp(final PageKind pageKind) {
 		int[] inpLevelPageCountExp = new int[0];
 		switch (pageKind) {
-		case PATHSUMMARYPAGE:
-			inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
-			break;
-		case PATHPAGE:
-		case CASPAGE:
-		case NAMEPAGE:
-		case RECORDPAGE:
-			inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
-			break;
-		case UBERPAGE:
-			inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
-			break;
-		default:
-			throw new IllegalStateException("page kind not known!");
+			case PATHSUMMARYPAGE:
+				inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
+				break;
+			case PATHPAGE:
+			case CASPAGE:
+			case NAMEPAGE:
+			case RECORDPAGE:
+				inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
+				break;
+			case UBERPAGE:
+				inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
+				break;
+			default:
+				throw new IllegalStateException("page kind not known!");
 		}
 		return inpLevelPageCountExp;
 	}
 
 	/**
 	 * Get the revision number.
-	 * 
+	 *
 	 * @return revision number
 	 */
 	public int getRevision() {

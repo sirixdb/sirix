@@ -53,14 +53,13 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.MoreObjects;
 
 /**
  * Path summary reader organizing the path classes of a resource.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class PathSummaryReader implements NodeReadTrx {
 
@@ -90,7 +89,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Private constructor.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          page reader
 	 * @param session
@@ -139,7 +138,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get a new path summary reader instance.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          Sirix {@link PageReaderTrx}
 	 * @param session
@@ -184,7 +183,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	/**
 	 * Match all descendants of the node denoted by its {@code pathNodeKey} with
 	 * the given {@code name}.
-	 * 
+	 *
 	 * @param name
 	 *          the QName
 	 * @param pathNodeKey
@@ -212,7 +211,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Match a {@link QNm} with a minimum level.
-	 * 
+	 *
 	 * @param name
 	 *          the QName
 	 * @param minLevel
@@ -236,7 +235,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get a set of PCRs matching the specified collection of paths
-	 * 
+	 *
 	 * @param expressions
 	 *          the paths to lookup
 	 * @return a set of PCRs matching the specified collection of paths
@@ -262,7 +261,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get the path node corresponding to the key.
-	 * 
+	 *
 	 * @param pathNodeKey
 	 *          path node key
 	 * @return path node corresponding to the provided key
@@ -284,7 +283,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get path class records (PCRs) for the specified path.
-	 * 
+	 *
 	 * @param path
 	 *          the path for which to get a set of PCRs
 	 * @return set of PCRs belonging to the specified path
@@ -344,7 +343,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get a path node.
-	 * 
+	 *
 	 * @return {@link PathNode} reference or null for the document root.
 	 */
 	public PathNode getPathNode() {
@@ -444,12 +443,12 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get the current node as a structural node.
-	 * 
+	 *
 	 * @return structural node
 	 */
 	private StructNode getStructuralNode() {
 		if (mCurrentNode instanceof StructNode) {
-			return (StructNode) mCurrentNode;
+			return mCurrentNode;
 		} else {
 			return new NullNode(mCurrentNode);
 		}
@@ -614,7 +613,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this);
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
@@ -632,7 +631,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get level of currently selected path node.
-	 * 
+	 *
 	 * @return level of currently selected path node
 	 */
 	public int getLevel() {
@@ -903,7 +902,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	/**
 	 * Get references.
-	 * 
+	 *
 	 * @return number of references of a node
 	 */
 	public int getReferences() {

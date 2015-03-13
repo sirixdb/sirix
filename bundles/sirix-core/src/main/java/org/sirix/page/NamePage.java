@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -45,11 +45,11 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>NamePage</h1>
- * 
+ *
  * <p>
  * Name page holds all names and their keys for a revision.
  * </p>
@@ -88,7 +88,7 @@ public final class NamePage extends AbstractForwardingPage {
 
 	/**
 	 * Read name page.
-	 * 
+	 *
 	 * @param in
 	 *          input bytes to read from
 	 */
@@ -107,7 +107,7 @@ public final class NamePage extends AbstractForwardingPage {
 
 	/**
 	 * Get raw name belonging to name key.
-	 * 
+	 *
 	 * @param key
 	 *          name key identifying name
 	 * @return raw name of name key
@@ -115,27 +115,27 @@ public final class NamePage extends AbstractForwardingPage {
 	public byte[] getRawName(final int key, final Kind nodeKind) {
 		byte[] rawName = new byte[] {};
 		switch (nodeKind) {
-		case ELEMENT:
-			rawName = mElements.getRawName(key);
-			break;
-		case NAMESPACE:
-			rawName = mNamespaces.getRawName(key);
-			break;
-		case ATTRIBUTE:
-			rawName = mAttributes.getRawName(key);
-			break;
-		case PROCESSING_INSTRUCTION:
-			rawName = mPIs.getRawName(key);
-			break;
-		default:
-			throw new IllegalStateException("No other node types supported!");
+			case ELEMENT:
+				rawName = mElements.getRawName(key);
+				break;
+			case NAMESPACE:
+				rawName = mNamespaces.getRawName(key);
+				break;
+			case ATTRIBUTE:
+				rawName = mAttributes.getRawName(key);
+				break;
+			case PROCESSING_INSTRUCTION:
+				rawName = mPIs.getRawName(key);
+				break;
+			default:
+				throw new IllegalStateException("No other node types supported!");
 		}
 		return rawName;
 	}
 
 	/**
 	 * Get raw name belonging to name key.
-	 * 
+	 *
 	 * @param key
 	 *          name key identifying name
 	 * @return raw name of name key, or {@code null} if not present
@@ -143,27 +143,27 @@ public final class NamePage extends AbstractForwardingPage {
 	public String getName(final int key, @Nonnull final Kind nodeKind) {
 		String name;
 		switch (nodeKind) {
-		case ELEMENT:
-			name = mElements.getName(key);
-			break;
-		case NAMESPACE:
-			name = mNamespaces.getName(key);
-			break;
-		case ATTRIBUTE:
-			name = mAttributes.getName(key);
-			break;
-		case PROCESSING_INSTRUCTION:
-			name = mPIs.getName(key);
-			break;
-		default:
-			throw new IllegalStateException("No other node types supported!");
+			case ELEMENT:
+				name = mElements.getName(key);
+				break;
+			case NAMESPACE:
+				name = mNamespaces.getName(key);
+				break;
+			case ATTRIBUTE:
+				name = mAttributes.getName(key);
+				break;
+			case PROCESSING_INSTRUCTION:
+				name = mPIs.getName(key);
+				break;
+			default:
+				throw new IllegalStateException("No other node types supported!");
 		}
 		return name;
 	}
 
 	/**
 	 * Get number of nodes with the given name key.
-	 * 
+	 *
 	 * @param key
 	 *          name key identifying name
 	 * @return number of nodes with the given name key
@@ -171,27 +171,27 @@ public final class NamePage extends AbstractForwardingPage {
 	public int getCount(final int key, @Nonnull final Kind nodeKind) {
 		int count;
 		switch (nodeKind) {
-		case ELEMENT:
-			count = mElements.getCount(key);
-			break;
-		case NAMESPACE:
-			count = mNamespaces.getCount(key);
-			break;
-		case ATTRIBUTE:
-			count = mAttributes.getCount(key);
-			break;
-		case PROCESSING_INSTRUCTION:
-			count = mPIs.getCount(key);
-			break;
-		default:
-			throw new IllegalStateException("No other node types supported!");
+			case ELEMENT:
+				count = mElements.getCount(key);
+				break;
+			case NAMESPACE:
+				count = mNamespaces.getCount(key);
+				break;
+			case ATTRIBUTE:
+				count = mAttributes.getCount(key);
+				break;
+			case PROCESSING_INSTRUCTION:
+				count = mPIs.getCount(key);
+				break;
+			default:
+				throw new IllegalStateException("No other node types supported!");
 		}
 		return count;
 	}
 
 	/**
 	 * Create name key given a name.
-	 * 
+	 *
 	 * @param key
 	 *          key for given name
 	 * @param name
@@ -201,20 +201,20 @@ public final class NamePage extends AbstractForwardingPage {
 	 */
 	public void setName(final int key, final String name, final Kind nodeKind) {
 		switch (nodeKind) {
-		case ELEMENT:
-			mElements.setName(key, name);
-			break;
-		case NAMESPACE:
-			mNamespaces.setName(key, name);
-			break;
-		case ATTRIBUTE:
-			mAttributes.setName(key, name);
-			break;
-		case PROCESSING_INSTRUCTION:
-			mPIs.setName(key, name);
-			break;
-		default:
-			throw new IllegalStateException("No other node types supported!");
+			case ELEMENT:
+				mElements.setName(key, name);
+				break;
+			case NAMESPACE:
+				mNamespaces.setName(key, name);
+				break;
+			case ATTRIBUTE:
+				mAttributes.setName(key, name);
+				break;
+			case PROCESSING_INSTRUCTION:
+				mPIs.setName(key, name);
+				break;
+			default:
+				throw new IllegalStateException("No other node types supported!");
 		}
 	}
 
@@ -235,39 +235,39 @@ public final class NamePage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("elements", mElements)
+		return MoreObjects.toStringHelper(this).add("elements", mElements)
 				.add("attributes", mAttributes).add("URIs", mNamespaces)
 				.add("PIs", mPIs).toString();
 	}
 
 	/**
 	 * Remove an attribute-name.
-	 * 
+	 *
 	 * @param key
 	 *          the key to remove
 	 */
 	public void removeName(final int key, final Kind nodeKind) {
 		switch (nodeKind) {
-		case ELEMENT:
-			mElements.removeName(key);
-			break;
-		case NAMESPACE:
-			mNamespaces.removeName(key);
-			break;
-		case ATTRIBUTE:
-			mAttributes.removeName(key);
-			break;
-		case PROCESSING_INSTRUCTION:
-			mPIs.removeName(key);
-			break;
-		default:
-			throw new IllegalStateException("No other node types supported!");
+			case ELEMENT:
+				mElements.removeName(key);
+				break;
+			case NAMESPACE:
+				mNamespaces.removeName(key);
+				break;
+			case ATTRIBUTE:
+				mAttributes.removeName(key);
+				break;
+			case PROCESSING_INSTRUCTION:
+				mPIs.removeName(key);
+				break;
+			default:
+				throw new IllegalStateException("No other node types supported!");
 		}
 	}
 
 	/**
 	 * Initialize name index tree.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @param index
@@ -289,7 +289,7 @@ public final class NamePage extends AbstractForwardingPage {
 
 	/**
 	 * Get indirect page reference.
-	 * 
+	 *
 	 * @param offset
 	 *          the offset of the indirect page, that is the index number
 	 * @return indirect page reference
@@ -300,7 +300,7 @@ public final class NamePage extends AbstractForwardingPage {
 
 	/**
 	 * Get the maximum node key of the specified index by its index number.
-	 * 
+	 *
 	 * @param indexNo
 	 *          the index number
 	 * @return the maximum node key stored

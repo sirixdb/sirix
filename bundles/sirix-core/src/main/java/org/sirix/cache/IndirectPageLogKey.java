@@ -5,13 +5,14 @@ import javax.annotation.Nullable;
 
 import org.sirix.page.PageKind;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * Log key.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class IndirectPageLogKey {
 	private int mLevel;
@@ -63,9 +64,8 @@ public final class IndirectPageLogKey {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("pageKind", mPageKind)
+		return MoreObjects.toStringHelper(this).add("pageKind", mPageKind)
 				.add("index", mIndex).add("level", mLevel).add("offset", mOffset)
 				.toString();
 	}
-
 }

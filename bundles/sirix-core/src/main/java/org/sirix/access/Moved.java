@@ -6,13 +6,13 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.NodeCursor;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * Determines that a {@link NodeCursor} has been moved.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  * @param <T>
  *          the cursor instance
  */
@@ -23,7 +23,7 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param nodeCursor
 	 *          the cursor which has been moved
 	 */
@@ -57,6 +57,7 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("cursor", mNodeCursor).toString();
+		return MoreObjects.toStringHelper(this).add("cursor", mNodeCursor)
+				.toString();
 	}
 }

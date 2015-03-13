@@ -16,13 +16,14 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * Comment node implementation.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class CommentNode extends AbstractStructForwardingNode implements
 		ValueNode {
@@ -38,7 +39,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements
 
 	/**
 	 * Constructor for TextNode.
-	 * 
+	 *
 	 * @param pDel
 	 *          delegate for {@link Node} implementation
 	 * @param valDel
@@ -129,7 +130,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this)
+		return MoreObjects.toStringHelper(this)
 				.add("node delegate", mStructNodeDel.getNodeDelegate())
 				.add("value delegate", mValDel).toString();
 	}

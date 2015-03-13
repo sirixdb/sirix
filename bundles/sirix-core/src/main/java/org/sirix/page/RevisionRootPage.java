@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -44,11 +44,11 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>RevisionRootPage</h1>
- * 
+ *
  * <p>
  * Revision root page holds a reference to the name page as well as the static
  * node page tree.
@@ -98,7 +98,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Read revision root page.
-	 * 
+	 *
 	 * @param in
 	 *          input stream
 	 */
@@ -111,7 +111,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Clone revision root page.
-	 * 
+	 *
 	 * @param committedRevisionRootPage
 	 *          page to clone
 	 * @param representRev
@@ -127,7 +127,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get path summary page reference.
-	 * 
+	 *
 	 * @return path summary page reference
 	 */
 	public PageReference getPathSummaryPageReference() {
@@ -136,7 +136,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get CAS page reference.
-	 * 
+	 *
 	 * @return CAS page reference
 	 */
 	public PageReference getCASPageReference() {
@@ -145,7 +145,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get name page reference.
-	 * 
+	 *
 	 * @return name page reference
 	 */
 	public PageReference getNamePageReference() {
@@ -154,7 +154,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get path page reference.
-	 * 
+	 *
 	 * @return path page reference
 	 */
 	public PageReference getPathPageReference() {
@@ -163,7 +163,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get indirect page reference.
-	 * 
+	 *
 	 * @return Indirect page reference.
 	 */
 	public PageReference getIndirectPageReference() {
@@ -172,7 +172,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get timestamp of revision.
-	 * 
+	 *
 	 * @return Revision timestamp.
 	 */
 	public long getRevisionTimestamp() {
@@ -181,7 +181,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get last allocated node key.
-	 * 
+	 *
 	 * @return Last allocated node key
 	 */
 	public long getMaxNodeKey() {
@@ -197,7 +197,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Set the maximum node key in the revision.
-	 * 
+	 *
 	 * @param maxNodeKey
 	 *          new maximum node key
 	 */
@@ -207,7 +207,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Only commit whole subtree if it's the currently added revision.
-	 * 
+	 *
 	 * {@inheritDoc}
 	 */
 	@Override
@@ -229,7 +229,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this)
+		return MoreObjects.toStringHelper(this)
 				.add("revisionTimestamp", mRevisionTimestamp)
 				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
 				.add("namePage", getReference(NAME_REFERENCE_OFFSET))
@@ -252,7 +252,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Initialize node tree.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 */
@@ -268,7 +268,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/**
 	 * Get the revision number.
-	 * 
+	 *
 	 * @return revision number
 	 */
 	public int getRevision() {

@@ -14,6 +14,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
@@ -153,7 +154,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("node delegate", mNodeDelegate)
+		return MoreObjects.toStringHelper(this).add("node delegate", mNodeDelegate)
 				.add("left child", mLeft).add("right child", mRight)
 				.add("changed", mChanged).add("key", mKey).add("value", mValue)
 				.toString();

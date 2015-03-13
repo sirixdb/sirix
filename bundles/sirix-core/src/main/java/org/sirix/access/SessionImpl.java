@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -77,11 +77,11 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>Session</h1>
- * 
+ *
  * <p>
  * Makes sure that there only is a single session instance bound to a Sirix
  * resource.
@@ -151,7 +151,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Package private constructor.
-	 * 
+	 *
 	 * @param database
 	 *          {@link DatabaseImpl} for centralized operations on related
 	 *          sessions
@@ -180,10 +180,10 @@ public final class SessionImpl implements Session {
 		mPageTrxIDCounter = new AtomicLong();
 		mCommitLock = new ReentrantLock(false);
 
-		final File resourceFile = new File(new File(database.getDatabaseConfig().getFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()),
+		final File resourceFile = new File(new File(database.getDatabaseConfig()
+				.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				sessionConf.getResource());
-		
+
 		// Init session members.
 		mWriteSemaphore = database.getWriteSemaphore(resourceFile);
 		mReadSemaphore = database.getReadSemaphore(resourceFile);
@@ -244,7 +244,7 @@ public final class SessionImpl implements Session {
 	/**
 	 * A commit file which is used by a {@link NodeWriteTrx} to denote if it's
 	 * currently commiting or not.
-	 * 
+	 *
 	 * @param revision
 	 *          revision number
 	 */
@@ -261,8 +261,8 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public synchronized NodeWriteTrx beginNodeWriteTrx(
-		 final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
-			 final @Nonnegative int maxTime) {
+			final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
+			final @Nonnegative int maxTime) {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (maxNodeCount < 0 || maxTime < 0) {
@@ -273,13 +273,15 @@ public final class SessionImpl implements Session {
 		// Make sure not to exceed available number of write transactions.
 		try {
 			if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-				throw new SirixUsageException("No write transaction available, please close the write transaction first.");
+				throw new SirixUsageException(
+						"No write transaction available, please close the write transaction first.");
 			}
 		} catch (final InterruptedException e) {
 			throw new SirixThreadedException(e);
 		}
 
-		// Create new page write transaction (shares the same ID with the node write trx).
+		// Create new page write transaction (shares the same ID with the node write
+		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = createPageWriteTransaction(
@@ -301,7 +303,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Create a new {@link PageWriteTrx}.
-	 * 
+	 *
 	 * @param id
 	 *          the transaction ID
 	 * @param representRevision
@@ -363,7 +365,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Checks for valid revision.
-	 * 
+	 *
 	 * @param revision
 	 *          revision number to check
 	 * @throws IllegalStateException
@@ -397,7 +399,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Set a new node page write trx.
-	 * 
+	 *
 	 * @param transactionID
 	 *          page write transaction ID
 	 * @param pageWriteTrx
@@ -411,7 +413,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Close a node page transaction.
-	 * 
+	 *
 	 * @param transactionID
 	 *          page write transaction ID
 	 * @throws SirixIOException
@@ -426,7 +428,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Close a write transaction.
-	 * 
+	 *
 	 * @param transactionID
 	 *          write transaction ID
 	 */
@@ -440,7 +442,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Close a read transaction.
-	 * 
+	 *
 	 * @param transactionID
 	 *          read transaction ID
 	 */
@@ -454,7 +456,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Remove from internal maps.
-	 * 
+	 *
 	 * @param transactionID
 	 *          transaction ID to remove
 	 */
@@ -473,7 +475,7 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("sessionConf", mSessionConfig)
+		return MoreObjects.toStringHelper(this).add("sessionConf", mSessionConfig)
 				.add("resourceConf", mResourceConfig).toString();
 	}
 
@@ -484,13 +486,13 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Synchronize logs.
-	 * 
+	 *
 	 * @param contToSync
 	 *          {@link RecordPageContainer} to synchronize
 	 * @param pTransactionId
 	 *          transaction ID
 	 * @throws SirixThreadedException
-	 * 
+	 *
 	 */
 	protected synchronized void syncLogs(
 			final RecordPageContainer<UnorderedKeyValuePage> contToSync,
@@ -519,7 +521,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Wait until synchronization is finished.
-	 * 
+	 *
 	 * @param transactionID
 	 *          transaction ID for which to wait (all others)
 	 * @throws SirixThreadedException
@@ -560,7 +562,7 @@ public final class SessionImpl implements Session {
 
 		/**
 		 * Log synchronizer.
-		 * 
+		 *
 		 * @param pPageWriteTransaction
 		 *          Sirix {@link PageWriteTrx}
 		 * @param pNodePageCont
@@ -586,7 +588,7 @@ public final class SessionImpl implements Session {
 
 	/**
 	 * Set last commited {@link UberPage}.
-	 * 
+	 *
 	 * @param page
 	 *          the new {@link UberPage}
 	 */
@@ -702,7 +704,7 @@ public final class SessionImpl implements Session {
 	public Optional<NodeReadTrx> getNodeReadTrx(final long ID) {
 		return Optional.of(mNodeTrxMap.get(ID));
 	}
-	
+
 	@Override
 	public synchronized Optional<NodeWriteTrx> getNodeWriteTrx() {
 		for (final NodeReadTrx rtx : mNodeTrxMap.values()) {

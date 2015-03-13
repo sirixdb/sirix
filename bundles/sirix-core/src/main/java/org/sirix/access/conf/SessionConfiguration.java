@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -34,16 +34,14 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.io.Key;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * <h1>SessionConfiguration</h1>
- * 
+ *
  * <p>
  * Holds the {@link Session}-wide settings that can not change within the
  * runtime of a {@link Session}. This includes stuff like commit-threshold and
@@ -93,7 +91,7 @@ public final class SessionConfiguration {
 
 	/**
 	 * Convenience constructor using the standard settings.
-	 * 
+	 *
 	 * @param builder
 	 *          {@link Builder} reference
 	 */
@@ -106,8 +104,7 @@ public final class SessionConfiguration {
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mUser,
-				mResource);
+		return Objects.hashCode(mUser, mResource);
 	}
 
 	@Override
@@ -122,14 +119,14 @@ public final class SessionConfiguration {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("Resource", mResource)
+		return MoreObjects.toStringHelper(this).add("Resource", mResource)
 				.add("Commit threshold", mCommitThreshold).add("User", mUser)
 				.toString();
 	}
 
 	/**
 	 * Get the resource.
-	 * 
+	 *
 	 * @return the resource file name
 	 */
 	public String getResource() {
@@ -138,7 +135,7 @@ public final class SessionConfiguration {
 
 	/**
 	 * Dump the logs to persistent store or not.
-	 * 
+	 *
 	 * @return {@code true} if it should be dumped, {@code false} otherwise
 	 */
 	public boolean dumpLogs() {
@@ -147,7 +144,7 @@ public final class SessionConfiguration {
 
 	/**
 	 * Get a new builder instance.
-	 * 
+	 *
 	 * @param resource
 	 *          the name of the resource
 	 * @throws NullPointerException
@@ -162,12 +159,6 @@ public final class SessionConfiguration {
 	 * Builder class for generating new {@link SessionConfiguration} instance.
 	 */
 	public static final class Builder {
-
-		/** Number of allowed {@link NodeWriteTrx} instances. */
-		private int mWtxAllowed = SessionConfiguration.MAX_WRITE_TRANSACTIONS;
-
-		/** Number of allowed {@link NodeReadTrx} instances. */
-		private int mRtxAllowed = SessionConfiguration.MAX_READ_TRANSACTIONS;
 
 		/** Number of node modifications until an automatic commit occurs. */
 		private int mCommitThreshold = SessionConfiguration.COMMIT_THRESHOLD;
@@ -184,11 +175,9 @@ public final class SessionConfiguration {
 		/** Resource for the this session. */
 		private final String mResource;
 
-		private Key mKey;
-
 		/**
 		 * Constructor for the {@link Builder} with fixed fields to be set.
-		 * 
+		 *
 		 * @param resource
 		 *          the resource
 		 */
@@ -196,36 +185,9 @@ public final class SessionConfiguration {
 			mResource = checkNotNull(resource);
 		}
 
-//		/**
-//		 * Determines how many concurrent write transactions are allowed (only 1
-//		 * (default) allowed).
-//		 * 
-//		 * @param wtxAllowed
-//		 *          new value for field
-//		 * @return reference to the builder object
-//		 */
-//		public Builder writeTrxAllowed(@Nonnegative final int wtxAllowed) {
-//			checkArgument(wtxAllowed < 1, "Value must be > 0!");
-//			mWtxAllowed = wtxAllowed;
-//			return this;
-//		}
-//
-//		/**
-//		 * Determines how many concurrent reading transactions are allowed.
-//		 * 
-//		 * @param rtxAllowed
-//		 *          how many concurrent reading transactions are allowed
-//		 * @return reference to the builder object
-//		 */
-//		public Builder readTrxAllowed(final @Nonnegative int rtxAllowed) {
-//			checkArgument(rtxAllowed < 1, "Value must be > 0!");
-//			mRtxAllowed = rtxAllowed;
-//			return this;
-//		}
-
 		/**
 		 * Commit threshold.
-		 * 
+		 *
 		 * @param commitThreshold
 		 *          new value for field
 		 * @return reference to the builder object
@@ -238,7 +200,7 @@ public final class SessionConfiguration {
 
 		/**
 		 * The user accessing the resource.
-		 * 
+		 *
 		 * @param user
 		 *          the user accessing the resource
 		 * @return reference to the builder object
@@ -250,7 +212,7 @@ public final class SessionConfiguration {
 
 		/**
 		 * Dump transaction-logs to persistent storage at first during a commit.
-		 * 
+		 *
 		 * @return reference to the builder object
 		 */
 		public Builder dumpLogs() {
@@ -259,20 +221,8 @@ public final class SessionConfiguration {
 		}
 
 		/**
-		 * Set key for cipher.
-		 * 
-		 * @param key
-		 *          key for cipher
-		 * @return reference to the builder object
-		 */
-		public Builder setKey(final Key key) {
-			mKey = checkNotNull(key);
-			return this;
-		}
-
-		/**
 		 * Building a new {@link SessionConfiguration} with immutable fields.
-		 * 
+		 *
 		 * @return a new {@link SessionConfiguration}.
 		 */
 		public SessionConfiguration build() {

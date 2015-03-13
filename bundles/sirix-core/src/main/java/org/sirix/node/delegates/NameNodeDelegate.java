@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 /**
- * 
+ *
  */
 package org.sirix.node.delegates;
 
@@ -39,6 +39,7 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
@@ -46,10 +47,10 @@ import com.google.common.base.Objects;
  * different fixed defined names are represented by the nodes delegating the
  * calls of the interface {@link NameNode} to this class. Mainly, keys are
  * stored referencing later on to the string stored in dedicated pages.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class NameNodeDelegate extends AbstractForwardingNode implements
 		NameNode {
@@ -71,7 +72,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param delegate
 	 *          page delegator
 	 * @param uriKey
@@ -97,7 +98,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Copy constructor.
-	 * 
+	 *
 	 * @param nameDel
 	 *          old name node delegate
 	 */
@@ -141,10 +142,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Setting the class path record.
-	 * 
+	 *
 	 * @param pPCR
 	 *          the path class record to set
 	 */
+	@Override
 	public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
 		assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
 		mPathNodeKey = pathNodeKey;
@@ -152,9 +154,10 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Get the path class record.
-	 * 
+	 *
 	 * @return path class record the node belongs to
 	 */
+	@Override
 	public long getPathNodeKey() {
 		return mPathNodeKey;
 	}
@@ -177,7 +180,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("node delegate", mDelegate)
+		return MoreObjects.toStringHelper(this).add("node delegate", mDelegate)
 				.add("uriKey", mUriKey).add("prefixKey", mPrefixKey)
 				.add("localNameKey", mLocalNameKey).add("pathNodeKey", mPathNodeKey)
 				.toString();

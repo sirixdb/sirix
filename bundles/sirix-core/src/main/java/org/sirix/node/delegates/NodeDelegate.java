@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -39,6 +39,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
@@ -46,10 +47,10 @@ import com.google.common.base.Objects;
  * represented by an instance of the interface {@link Node} namely containing
  * the position in the tree related to a parent-node, the related type and the
  * corresponding hash recursively computed.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public class NodeDelegate implements Node {
 
@@ -79,7 +80,7 @@ public class NodeDelegate implements Node {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param nodeKey
 	 *          node key
 	 * @param parentKey
@@ -158,7 +159,7 @@ public class NodeDelegate implements Node {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("node key", mNodeKey)
+		return MoreObjects.toStringHelper(this).add("node key", mNodeKey)
 				.add("parent key", mParentKey).add("type key", mTypeKey)
 				.add("hash", mHash).add("deweyID", mID).toString();
 	}

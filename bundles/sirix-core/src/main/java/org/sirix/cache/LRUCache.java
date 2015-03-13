@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -37,14 +37,14 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible
  * second cache as a second layer for example for storing data in a persistent
  * way.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  */
 public final class LRUCache<K, V> implements Cache<K, V> {
@@ -66,7 +66,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	/**
 	 * Creates a new LRU cache.
-	 * 
+	 *
 	 * @param secondCache
 	 *          the reference to the second {@link Cache} where the data is stored
 	 *          when it gets removed from the first one.
@@ -104,7 +104,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	/**
 	 * Retrieves an entry from the cache.<br>
 	 * The retrieved entry becomes the MRU (most recently used) entry.
-	 * 
+	 *
 	 * @param key
 	 *          the key whose associated value is to be returned.
 	 * @return the value associated to this key, or {@code null} if no value with
@@ -112,18 +112,18 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 */
 	@Override
 	public V get(final K key) {
-		V page = (V) mMap.get(key);
+		V page = mMap.get(key);
 		if (page == null) {
-			page = (V) mSecondCache.get(key);
+			page = mSecondCache.get(key);
 		}
 		return page;
 	}
 
 	/**
-	 * 
+	 *
 	 * Adds an entry to this cache. If the cache is full, the LRU (least recently
 	 * used) entry is dropped.
-	 * 
+	 *
 	 * @param key
 	 *          the key with which the specified value is to be associated
 	 * @param value
@@ -145,7 +145,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	/**
 	 * Returns the number of used entries in the cache.
-	 * 
+	 *
 	 * @return the number of entries currently in the cache.
 	 */
 	public int usedEntries() {
@@ -154,7 +154,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	/**
 	 * Returns a {@code Collection} that contains a copy of all cache entries.
-	 * 
+	 *
 	 * @return a {@code Collection} with a copy of the cache content
 	 */
 	public Collection<Map.Entry<? super K, ? super V>> getAll() {
@@ -163,7 +163,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("First Cache", mMap)
+		return MoreObjects.toStringHelper(this).add("First Cache", mMap)
 				.add("Second Cache", mSecondCache).toString();
 	}
 
@@ -190,7 +190,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	/**
 	 * Get a view of the underlying map.
-	 * 
+	 *
 	 * @return an unmodifiable view of all entries in the cache
 	 */
 	public Map<K, V> getMap() {

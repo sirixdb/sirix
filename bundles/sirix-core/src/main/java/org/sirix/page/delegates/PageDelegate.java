@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -42,11 +42,11 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>PageDelegate</h1>
- * 
+ *
  * <p>
  * Class to provide basic reference handling functionality.
  * </p>
@@ -61,7 +61,7 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Constructor to initialize instance.
-	 * 
+	 *
 	 * @param referenceCount
 	 *          number of references of page
 	 * @param revision
@@ -78,7 +78,7 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Constructor to initialize instance.
-	 * 
+	 *
 	 * @param referenceCount
 	 *          number of references of page
 	 * @param in
@@ -99,7 +99,7 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Constructor to initialize instance.
-	 * 
+	 *
 	 * @param commitedPage
 	 *          commited page
 	 * @param revision
@@ -112,11 +112,12 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Get page reference of given offset.
-	 * 
+	 *
 	 * @param offset
 	 *          offset of page reference
 	 * @return {@link PageReference} at given offset
 	 */
+	@Override
 	public final PageReference getReference(final @Nonnegative int offset) {
 		if (mReferences[offset] == null) {
 			mReferences[offset] = new PageReference();
@@ -126,9 +127,9 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Recursively call commit on all referenced pages.
-	 * 
+	 *
 	 * @param pageWriteTransaction
-	 *         	the page write transaction
+	 *          the page write transaction
 	 */
 	@Override
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
@@ -143,7 +144,7 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Serialize page references into output.
-	 * 
+	 *
 	 * @param out
 	 *          output stream
 	 */
@@ -156,20 +157,17 @@ public class PageDelegate implements Page {
 
 	/**
 	 * Get all references.
-	 * 
+	 *
 	 * @return copied references
 	 */
 	@Override
 	public final PageReference[] getReferences() {
-		// final PageReference[] copiedRefs = new PageReference[mReferences.length];
-		// System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-		// return copiedRefs;
 		return mReferences;
 	}
 
 	@Override
 	public String toString() {
-		final Objects.ToStringHelper helper = Objects.toStringHelper(this);
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 		for (final PageReference ref : mReferences) {
 			helper.add("reference", ref);
 		}

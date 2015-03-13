@@ -3,7 +3,7 @@ package org.sirix.page;
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -14,7 +14,7 @@ package org.sirix.page;
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -40,13 +40,13 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * Page to hold references to a path summary.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class PathSummaryPage extends AbstractForwardingPage {
 
@@ -66,7 +66,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
 	/**
 	 * Get indirect page reference.
-	 * 
+	 *
 	 * @param index
 	 *          the offset of the indirect page, that is the index number
 	 * @return indirect page reference
@@ -77,7 +77,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
 	/**
 	 * Read meta page.
-	 * 
+	 *
 	 * @param in
 	 *          input bytes to read from
 	 */
@@ -92,7 +92,8 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
+		return MoreObjects.toStringHelper(this).add("mDelegate", mDelegate)
+				.toString();
 	}
 
 	@Override
@@ -108,7 +109,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
 	/**
 	 * Initialize text value tree.
-	 * 
+	 *
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @param index
@@ -142,7 +143,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	/**
 	 * Get the maximum node key of the specified index by its index number. The
 	 * index number of the PathSummary is 0.
-	 * 
+	 *
 	 * @param indexNo
 	 *          the index number
 	 * @return the maximum node key stored

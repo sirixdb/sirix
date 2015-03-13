@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -92,29 +92,30 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
 /**
  * <h1>NodeWriteTrxImpl</h1>
- * 
+ *
  * <p>
  * Single-threaded instance of only write-transaction per resource, thus it is
  * not thread-safe.
  * </p>
- * 
+ *
  * <p>
  * If auto-commit is enabled, that is a scheduled commit(), all access to public
  * methods is synchronized, such that a commit() and another method doesn't
  * interfere, which could produce severe inconsistencies.
  * </p>
- * 
+ *
  * <p>
  * All methods throw {@link NullPointerException}s in case of null values for
  * reference parameters.
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
@@ -178,7 +179,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param transactionID
 	 *          ID of transaction
 	 * @param session
@@ -344,7 +345,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapt subtree regarding the index-structures.
-	 * 
+	 *
 	 * @param toMove
 	 *          node which is moved (either before the move, or after the move)
 	 * @param type
@@ -390,7 +391,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Compute the new DeweyIDs.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
@@ -418,8 +419,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (root.hasFirstChild()) {
 			final Node firstChild = (Node) getPageTransaction()
 					.prepareEntryForModification(root.getFirstChildKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			firstChild.setDeweyID(Optional.of(id.getNewChildID()));
 
 			int previousLevel = getDeweyID().get().getLevel();
@@ -565,7 +565,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapt hashes for move operation ("remove" phase).
-	 * 
+	 *
 	 * @param nodeToMove
 	 *          node which implements {@link StructNode} and is moved
 	 * @throws SirixIOException
@@ -580,7 +580,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapting everything for move operations.
-	 * 
+	 *
 	 * @param fromNode
 	 *          root {@link StructNode} of the subtree to be moved
 	 * @param toNode
@@ -603,20 +603,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				.prepareEntryForModification(fromNode.getParentKey(),
 						PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 		switch (insertPos) {
-		case ASRIGHTSIBLING:
-			if (fromNode.getParentKey() != toNode.getParentKey()) {
-				parent.decrementChildCount();
-			}
-			break;
-		case ASFIRSTCHILD:
-			if (fromNode.getParentKey() != toNode.getNodeKey()) {
-				parent.decrementChildCount();
-			}
-			break;
-		case ASNONSTRUCTURAL:
-			// Do not decrement child count.
-			break;
-		default:
+			case ASRIGHTSIBLING:
+				if (fromNode.getParentKey() != toNode.getParentKey()) {
+					parent.decrementChildCount();
+				}
+				break;
+			case ASFIRSTCHILD:
+				if (fromNode.getParentKey() != toNode.getNodeKey()) {
+					parent.decrementChildCount();
+				}
+				break;
+			case ASNONSTRUCTURAL:
+				// Do not decrement child count.
+				break;
+			default:
 		}
 
 		// Adapt first child key of former parent.
@@ -628,8 +628,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (fromNode.hasRightSibling()) {
 			final StructNode rightSibling = (StructNode) getPageTransaction()
 					.prepareEntryForModification(fromNode.getRightSiblingKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
 		}
 
@@ -637,8 +636,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (fromNode.hasLeftSibling()) {
 			final StructNode leftSibling = (StructNode) getPageTransaction()
 					.prepareEntryForModification(fromNode.getLeftSiblingKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
 		}
 
@@ -858,15 +856,15 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				shredder.call();
 				moveTo(nodeKey);
 				switch (insert) {
-				case ASFIRSTCHILD:
-					moveToFirstChild();
-					break;
-				case ASRIGHTSIBLING:
-					moveToRightSibling();
-					break;
-				case ASLEFTSIBLING:
-					moveToLeftSibling();
-					break;
+					case ASFIRSTCHILD:
+						moveToFirstChild();
+						break;
+					case ASRIGHTSIBLING:
+						moveToRightSibling();
+						break;
+					case ASLEFTSIBLING:
+						moveToLeftSibling();
+						break;
 				}
 				nodeKey = getCurrentNode().getNodeKey();
 				postOrderTraversalHashes();
@@ -905,7 +903,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Processing instruction.
-	 * 
+	 *
 	 * @param target
 	 *          target PI
 	 * @param content
@@ -937,28 +935,28 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				InsertPos pos = InsertPos.ASFIRSTCHILD;
 				Optional<SirixDeweyID> id = Optional.<SirixDeweyID> empty();
 				switch (insert) {
-				case ASFIRSTCHILD:
-					parentKey = getCurrentNode().getNodeKey();
-					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
-					id = newFirstChildID();
-					break;
-				case ASRIGHTSIBLING:
-					parentKey = getCurrentNode().getParentKey();
-					leftSibKey = getCurrentNode().getNodeKey();
-					rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
-					pos = InsertPos.ASRIGHTSIBLING;
-					id = newRightSiblingID();
-					break;
-				case ASLEFTSIBLING:
-					parentKey = getCurrentNode().getParentKey();
-					leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
-					rightSibKey = getCurrentNode().getNodeKey();
-					pos = InsertPos.ASLEFTSIBLING;
-					id = newLeftSiblingID();
-					break;
-				default:
-					throw new IllegalStateException("Insert location not known!");
+					case ASFIRSTCHILD:
+						parentKey = getCurrentNode().getNodeKey();
+						leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+						rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+						id = newFirstChildID();
+						break;
+					case ASRIGHTSIBLING:
+						parentKey = getCurrentNode().getParentKey();
+						leftSibKey = getCurrentNode().getNodeKey();
+						rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+						pos = InsertPos.ASRIGHTSIBLING;
+						id = newRightSiblingID();
+						break;
+					case ASLEFTSIBLING:
+						parentKey = getCurrentNode().getParentKey();
+						leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
+						rightSibKey = getCurrentNode().getNodeKey();
+						pos = InsertPos.ASLEFTSIBLING;
+						id = newLeftSiblingID();
+						break;
+					default:
+						throw new IllegalStateException("Insert location not known!");
 				}
 
 				final QNm targetName = new QNm(target);
@@ -1003,7 +1001,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Comment node.
-	 * 
+	 *
 	 * @param value
 	 *          value of comment
 	 * @param insert
@@ -1036,28 +1034,28 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				InsertPos pos = InsertPos.ASFIRSTCHILD;
 				Optional<SirixDeweyID> id = Optional.<SirixDeweyID> empty();
 				switch (insert) {
-				case ASFIRSTCHILD:
-					parentKey = getCurrentNode().getNodeKey();
-					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
-					id = newFirstChildID();
-					break;
-				case ASRIGHTSIBLING:
-					parentKey = getCurrentNode().getParentKey();
-					leftSibKey = getCurrentNode().getNodeKey();
-					rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
-					pos = InsertPos.ASRIGHTSIBLING;
-					id = newRightSiblingID();
-					break;
-				case ASLEFTSIBLING:
-					parentKey = getCurrentNode().getParentKey();
-					leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
-					rightSibKey = getCurrentNode().getNodeKey();
-					pos = InsertPos.ASLEFTSIBLING;
-					id = newLeftSiblingID();
-					break;
-				default:
-					throw new IllegalStateException("Insert location not known!");
+					case ASFIRSTCHILD:
+						parentKey = getCurrentNode().getNodeKey();
+						leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+						rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+						id = newFirstChildID();
+						break;
+					case ASRIGHTSIBLING:
+						parentKey = getCurrentNode().getParentKey();
+						leftSibKey = getCurrentNode().getNodeKey();
+						rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+						pos = InsertPos.ASRIGHTSIBLING;
+						id = newRightSiblingID();
+						break;
+					case ASLEFTSIBLING:
+						parentKey = getCurrentNode().getParentKey();
+						leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
+						rightSibKey = getCurrentNode().getNodeKey();
+						pos = InsertPos.ASLEFTSIBLING;
+						id = newLeftSiblingID();
+						break;
+					default:
+						throw new IllegalStateException("Insert location not known!");
 				}
 
 				final CommentNode node = mNodeFactory.createCommentNode(parentKey,
@@ -1268,7 +1266,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get an optional namespace {@link SirixDeweyID} reference.
-	 * 
+	 *
 	 * @return optional namespace {@link SirixDeweyID} reference
 	 * @throws SirixException
 	 *           if generating an ID fails
@@ -1291,7 +1289,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get an optional attribute {@link SirixDeweyID} reference.
-	 * 
+	 *
 	 * @return optional attribute {@link SirixDeweyID} reference
 	 * @throws SirixException
 	 *           if generating an ID fails
@@ -1314,7 +1312,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get an optional first child {@link SirixDeweyID} reference.
-	 * 
+	 *
 	 * @return optional first child {@link SirixDeweyID} reference
 	 * @throws SirixException
 	 *           if generating an ID fails
@@ -1336,7 +1334,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get an optional left sibling {@link SirixDeweyID} reference.
-	 * 
+	 *
 	 * @return optional left sibling {@link SirixDeweyID} reference
 	 * @throws SirixException
 	 *           if generating an ID fails
@@ -1359,7 +1357,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get an optional right sibling {@link SirixDeweyID} reference.
-	 * 
+	 *
 	 * @return optional right sibling {@link SirixDeweyID} reference
 	 * @throws SirixException
 	 *           if generating an ID fails
@@ -1382,7 +1380,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get a byte-array from a value.
-	 * 
+	 *
 	 * @param pValue
 	 *          the value
 	 * @return byte-array representation of {@code pValue}
@@ -1523,7 +1521,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Check ancestors of current node.
-	 * 
+	 *
 	 * @throws IllegalStateException
 	 *           if one of the ancestors is the node/subtree rooted at the node to
 	 *           move
@@ -1565,9 +1563,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					removeValue();
 
 					// Then remove node.
-					getPageTransaction().removeEntry(getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+					getPageTransaction()
+							.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE,
+									-1, Optional.<UnorderedKeyValuePage> empty());
 				}
 
 				// Adapt hashes and neighbour nodes as well as the name from the
@@ -1641,7 +1639,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Remove non structural nodes of an {@link ElementNode}, that is namespaces
 	 * and attributes.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if anything goes wrong
 	 */
@@ -1669,7 +1667,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Remove a name from the {@link NamePage} reference and the path summary if
 	 * needed.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if Sirix fails
 	 */
@@ -1842,7 +1840,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			if (!isClosed()) {
 				// Make sure to commit all dirty data.
 				if (mModificationCount > 0) {
-					throw new SirixUsageException("Must commit/rollback transaction first!");
+					throw new SirixUsageException(
+							"Must commit/rollback transaction first!");
 				}
 
 				final int revision = getRevisionNumber();
@@ -1904,7 +1903,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Remove a commit file and all transaction logs.
-	 * 
+	 *
 	 * @param revision
 	 *          the revision from which to remove all transaction logs
 	 * @throws SirixIOException
@@ -1951,7 +1950,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Create new instances.
-	 * 
+	 *
 	 * @param trxID
 	 *          transaction ID
 	 * @param revNumber
@@ -1975,7 +1974,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Create new instances for indexes.
-	 * 
+	 *
 	 * @param trxID
 	 *          transaction ID
 	 * @param revNumber
@@ -1999,7 +1998,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Modifying hashes in a postorder-traversal.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -2026,71 +2025,71 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Add a hash.
-	 * 
+	 *
 	 * @param startNode
 	 *          start node
 	 */
 	private void addParentHash(final ImmutableNode startNode)
 			throws SirixIOException {
 		switch (mHashKind) {
-		case ROLLING:
-			long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
-			Node node = (Node) getPageTransaction().prepareEntryForModification(
-					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
-					Optional.<UnorderedKeyValuePage> empty());
-			node.setHash(node.getHash() + hashToAdd * PRIME);
-			if (startNode instanceof StructNode) {
-				((StructNode) node).setDescendantCount(((StructNode) node)
-						.getDescendantCount()
-						+ ((StructNode) startNode).getDescendantCount() + 1);
-			}
-			break;
-		case POSTORDER:
-			break;
-		default:
+			case ROLLING:
+				long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+				Node node = (Node) getPageTransaction().prepareEntryForModification(
+						mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+						Optional.<UnorderedKeyValuePage> empty());
+				node.setHash(node.getHash() + hashToAdd * PRIME);
+				if (startNode instanceof StructNode) {
+					((StructNode) node).setDescendantCount(((StructNode) node)
+							.getDescendantCount()
+							+ ((StructNode) startNode).getDescendantCount() + 1);
+				}
+				break;
+			case POSTORDER:
+				break;
+			default:
 		}
 	}
 
 	/** Add a hash and the descendant count. */
 	private void addHashAndDescendantCount() throws SirixIOException {
 		switch (mHashKind) {
-		case ROLLING:
-			// Setup.
-			final ImmutableNode startNode = getCurrentNode();
-			final long oldDescendantCount = mNodeRtx.getStructuralNode()
-					.getDescendantCount();
-			final long descendantCount = oldDescendantCount == 0 ? 1
-					: oldDescendantCount + 1;
+			case ROLLING:
+				// Setup.
+				final ImmutableNode startNode = getCurrentNode();
+				final long oldDescendantCount = mNodeRtx.getStructuralNode()
+						.getDescendantCount();
+				final long descendantCount = oldDescendantCount == 0 ? 1
+						: oldDescendantCount + 1;
 
-			// Set start node.
-			long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
-			Node node = (Node) getPageTransaction().prepareEntryForModification(
-					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
-					Optional.<UnorderedKeyValuePage> empty());
-			node.setHash(hashToAdd);
-
-			// Set parent node.
-			if (startNode.hasParent()) {
-				moveToParent();
-				node = (Node) getPageTransaction().prepareEntryForModification(
+				// Set start node.
+				long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+				Node node = (Node) getPageTransaction().prepareEntryForModification(
 						mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
 						Optional.<UnorderedKeyValuePage> empty());
-				node.setHash(node.getHash() + hashToAdd * PRIME);
-				setAddDescendants(startNode, node, descendantCount);
-			}
+				node.setHash(hashToAdd);
 
-			mNodeRtx.setCurrentNode(startNode);
-			break;
-		case POSTORDER:
-			postorderAdd();
-			break;
-		default:
+				// Set parent node.
+				if (startNode.hasParent()) {
+					moveToParent();
+					node = (Node) getPageTransaction().prepareEntryForModification(
+							mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
+					node.setHash(node.getHash() + hashToAdd * PRIME);
+					setAddDescendants(startNode, node, descendantCount);
+				}
+
+				mNodeRtx.setCurrentNode(startNode);
+				break;
+			case POSTORDER:
+				postorderAdd();
+				break;
+			default:
 		}
 	}
 
 	/**
 	 * Checking write access and intermediate commit.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
@@ -2106,7 +2105,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapting everything for insert operations.
-	 * 
+	 *
 	 * @param newNode
 	 *          pointer of the new node to be inserted
 	 * @param insertPos
@@ -2157,7 +2156,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapting everything for remove operations.
-	 * 
+	 *
 	 * @param oldNode
 	 *          pointer of the old node to be replaced
 	 * @throws SirixException
@@ -2268,7 +2267,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Making an intermediate commit based on set attributes.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if commit fails
 	 */
@@ -2281,9 +2280,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get the page transaction.
-	 * 
+	 *
 	 * @return the page transaction
 	 */
+	@Override
 	public PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction() {
 		@SuppressWarnings("unchecked")
 		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx = (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeRtx
@@ -2293,47 +2293,47 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Adapting the structure with a hash for all ancestors only with insert.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private void adaptHashesWithAdd() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case ROLLING:
-				rollingAdd();
-				break;
-			case POSTORDER:
-				postorderAdd();
-				break;
-			default:
+				case ROLLING:
+					rollingAdd();
+					break;
+				case POSTORDER:
+					postorderAdd();
+					break;
+				default:
 			}
 		}
 	}
 
 	/**
 	 * Adapting the structure with a hash for all ancestors only with remove.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private void adaptHashesWithRemove() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case ROLLING:
-				rollingRemove();
-				break;
-			case POSTORDER:
-				postorderRemove();
-				break;
-			default:
+				case ROLLING:
+					rollingRemove();
+					break;
+				case POSTORDER:
+					postorderRemove();
+					break;
+				default:
 			}
 		}
 	}
 
 	/**
 	 * Adapting the structure with a hash for all ancestors only with update.
-	 * 
+	 *
 	 * @param pOldHash
 	 *          pOldHash to be removed
 	 * @throws SirixIOException
@@ -2343,20 +2343,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case ROLLING:
-				rollingUpdate(pOldHash);
-				break;
-			case POSTORDER:
-				postorderAdd();
-				break;
-			default:
+				case ROLLING:
+					rollingUpdate(pOldHash);
+					break;
+				case POSTORDER:
+					postorderAdd();
+					break;
+				default:
 			}
 		}
 	}
 
 	/**
 	 * Removal operation for postorder hash computation.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if anything weird happens
 	 */
@@ -2368,7 +2368,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * insert.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if anything weird happened
 	 */
@@ -2381,8 +2381,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (!(startNode instanceof StructNode)) {
 			final Node node = (Node) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			node.setHash(mHash.hashLong(mNodeRtx.getCurrentNode().hashCode())
 					.asLong());
 			moveTo(mNodeRtx.getCurrentNode().getParentKey());
@@ -2392,8 +2391,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		do {
 			cursorToRoot = (StructNode) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			hashCodeForParent = mNodeRtx.getCurrentNode().hashCode()
 					+ hashCodeForParent * PRIME;
 			// Caring about attributes and namespaces if node is an element.
@@ -2436,7 +2434,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * update.
-	 * 
+	 *
 	 * @param oldHash
 	 *          pOldHash to be removed
 	 * @throws SirixIOException
@@ -2452,8 +2450,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		do {
 			final Node node = (Node) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == newNode.getNodeKey()) {
 				resultNew = node.getHash() - oldHash;
 				resultNew = resultNew + newNodeHash;
@@ -2470,7 +2467,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * remove.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if anything weird happened
 	 */
@@ -2483,8 +2480,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		do {
 			final Node node = (Node) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == startNode.getNodeKey()) {
 				// the begin node is always null
 				newHash = 0;
@@ -2509,7 +2505,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Set new descendant count of ancestor after a remove-operation.
-	 * 
+	 *
 	 * @param startNode
 	 *          the node which has been removed
 	 */
@@ -2525,7 +2521,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * insert.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -2544,8 +2540,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		do {
 			final Node node = (Node) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1,
-							Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == startNode.getNodeKey()) {
 				// at the beginning, take the hashcode of the node only
 				newHash = hashToAdd;
@@ -2571,7 +2566,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Set new descendant count of ancestor after an add-operation.
-	 * 
+	 *
 	 * @param startNode
 	 *          the node which has been removed
 	 * @param nodeToModify
@@ -2644,7 +2639,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Helper method for copy-operations.
-	 * 
+	 *
 	 * @param rtx
 	 *          the source {@link NodeReadTrx}
 	 * @param insert
@@ -2671,56 +2666,56 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 		final Kind kind = rtx.getKind();
 		switch (kind) {
-		case TEXT:
-			final String textValue = rtx.getValue();
-			switch (insert) {
-			case ASFIRSTCHILD:
-				insertTextAsFirstChild(textValue);
+			case TEXT:
+				final String textValue = rtx.getValue();
+				switch (insert) {
+					case ASFIRSTCHILD:
+						insertTextAsFirstChild(textValue);
+						break;
+					case ASLEFTSIBLING:
+						insertTextAsLeftSibling(textValue);
+						break;
+					case ASRIGHTSIBLING:
+						insertTextAsRightSibling(textValue);
+						break;
+					default:
+						throw new IllegalStateException();
+				}
 				break;
-			case ASLEFTSIBLING:
-				insertTextAsLeftSibling(textValue);
+			case PROCESSING_INSTRUCTION:
+				switch (insert) {
+					case ASFIRSTCHILD:
+						insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
+						break;
+					case ASLEFTSIBLING:
+						insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
+						break;
+					case ASRIGHTSIBLING:
+						insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
+						break;
+					default:
+						throw new IllegalStateException();
+				}
 				break;
-			case ASRIGHTSIBLING:
-				insertTextAsRightSibling(textValue);
+			case COMMENT:
+				final String commentValue = rtx.getValue();
+				switch (insert) {
+					case ASFIRSTCHILD:
+						insertCommentAsFirstChild(commentValue);
+						break;
+					case ASLEFTSIBLING:
+						insertCommentAsLeftSibling(commentValue);
+						break;
+					case ASRIGHTSIBLING:
+						insertCommentAsRightSibling(commentValue);
+						break;
+					default:
+						throw new IllegalStateException();
+				}
 				break;
 			default:
-				throw new IllegalStateException();
-			}
-			break;
-		case PROCESSING_INSTRUCTION:
-			switch (insert) {
-			case ASFIRSTCHILD:
-				insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
-				break;
-			case ASLEFTSIBLING:
-				insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
-				break;
-			case ASRIGHTSIBLING:
-				insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
-				break;
-			default:
-				throw new IllegalStateException();
-			}
-			break;
-		case COMMENT:
-			final String commentValue = rtx.getValue();
-			switch (insert) {
-			case ASFIRSTCHILD:
-				insertCommentAsFirstChild(commentValue);
-				break;
-			case ASLEFTSIBLING:
-				insertCommentAsLeftSibling(commentValue);
-				break;
-			case ASRIGHTSIBLING:
-				insertCommentAsRightSibling(commentValue);
-				break;
-			default:
-				throw new IllegalStateException();
-			}
-			break;
-		default:
-			new XMLShredder.Builder(this, new StAXSerializer(rtx), insert).build()
-					.call();
+				new XMLShredder.Builder(this, new StAXSerializer(rtx), insert).build()
+						.call();
 		}
 		rtx.close();
 	}
@@ -2748,27 +2743,27 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						}
 
 						switch (event.getEventType()) {
-						case XMLStreamConstants.START_ELEMENT:
-							Insert pos = Insert.ASFIRSTCHILD;
-							if (currentNode.hasLeftSibling()) {
-								moveToLeftSibling();
-								pos = Insert.ASRIGHTSIBLING;
-							} else {
-								moveToParent();
-							}
+							case XMLStreamConstants.START_ELEMENT:
+								Insert pos = Insert.ASFIRSTCHILD;
+								if (currentNode.hasLeftSibling()) {
+									moveToLeftSibling();
+									pos = Insert.ASRIGHTSIBLING;
+								} else {
+									moveToParent();
+								}
 
-							final XMLShredder shredder = new XMLShredder.Builder(this,
-									reader, pos).build();
-							shredder.call();
-							if (reader.hasNext()) {
-								reader.nextEvent(); // End document.
-							}
+								final XMLShredder shredder = new XMLShredder.Builder(this,
+										reader, pos).build();
+								shredder.call();
+								if (reader.hasNext()) {
+									reader.nextEvent(); // End document.
+								}
 
-							insertedRootNode = mNodeRtx.getCurrentNode();
-							moveTo(currentNode.getNodeKey());
-							remove();
-							moveTo(insertedRootNode.getNodeKey());
-							break;
+								insertedRootNode = mNodeRtx.getCurrentNode();
+								moveTo(currentNode.getNodeKey());
+								remove();
+								moveTo(insertedRootNode.getNodeKey());
+								break;
 						}
 					}
 				} else {
@@ -2794,27 +2789,27 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			switch (rtx.getKind()) {
-			case ELEMENT:
-			case TEXT:
-				checkCurrentNode();
-				replace(rtx);
-				break;
-			case ATTRIBUTE:
-				if (getCurrentNode().getKind() != Kind.ATTRIBUTE) {
-					throw new IllegalStateException(
-							"Current node must be an attribute node!");
-				}
-				insertAttribute(rtx.getName(), rtx.getValue());
-				break;
-			case NAMESPACE:
-				if (mNodeRtx.getCurrentNode().getClass() != NamespaceNode.class) {
-					throw new IllegalStateException(
-							"Current node must be a namespace node!");
-				}
-				insertNamespace(rtx.getName());
-				break;
-			default:
-				throw new UnsupportedOperationException("Node type not supported!");
+				case ELEMENT:
+				case TEXT:
+					checkCurrentNode();
+					replace(rtx);
+					break;
+				case ATTRIBUTE:
+					if (getCurrentNode().getKind() != Kind.ATTRIBUTE) {
+						throw new IllegalStateException(
+								"Current node must be an attribute node!");
+					}
+					insertAttribute(rtx.getName(), rtx.getValue());
+					break;
+				case NAMESPACE:
+					if (mNodeRtx.getCurrentNode().getClass() != NamespaceNode.class) {
+						throw new IllegalStateException(
+								"Current node must be a namespace node!");
+					}
+					insertNamespace(rtx.getName());
+					break;
+				default:
+					throw new UnsupportedOperationException("Node type not supported!");
 			}
 		} finally {
 			unLock();
@@ -2833,7 +2828,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Replace current node with a {@link TextNode}.
-	 * 
+	 *
 	 * @param value
 	 *          text value
 	 * @return inserted node
@@ -2862,7 +2857,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Replace a node.
-	 * 
+	 *
 	 * @param rtx
 	 *          the transaction which is located at the node to replace
 	 * @return
@@ -2887,7 +2882,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/**
 	 * Get the current node.
-	 * 
+	 *
 	 * @return {@link Node} implementation
 	 */
 	private ImmutableNode getCurrentNode() {
@@ -2895,7 +2890,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	/**
-	 * 
+	 *
 	 * @param node
 	 * @param key
 	 * @throws SirixException
@@ -2911,7 +2906,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("readTrx", mNodeRtx.toString())
+		return MoreObjects.toStringHelper(this).add("readTrx", mNodeRtx.toString())
 				.add("hashKind", mHashKind).toString();
 	}
 

@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -40,19 +40,19 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>AbstractAxis</h1>
- * 
+ *
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced
  * for loop available since Java 5.
- * 
+ *
  * Override the "template method" {@code nextKey()} to implement an axis. Return
  * {@code done()} if the axis has no more "elements".
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public abstract class AbstractAxis implements Axis {
@@ -89,7 +89,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Bind axis step to transaction.
-	 * 
+	 *
 	 * @param rtx
 	 *          transaction to operate with
 	 * @throws NullPointerException
@@ -103,7 +103,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Bind axis step to transaction.
-	 * 
+	 *
 	 * @param rtx
 	 *          transaction to operate with
 	 * @param includeSelf
@@ -127,7 +127,7 @@ public abstract class AbstractAxis implements Axis {
 	 * false. Is callable from subclasses which implement {@link #nextKey()} to
 	 * signal that the axis-traversal is done and {@link #hasNext()} must return
 	 * false.
-	 * 
+	 *
 	 * @return null node key to indicate that the travesal is done
 	 */
 	protected final long done() {
@@ -136,12 +136,12 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * {@inheritDoc}
-	 * 
+	 *
 	 * <p>
 	 * During the last call to {@code hasNext()}, that is {@code hasNext()}
 	 * returns false, the transaction is reset to the start key.
 	 * </p>
-	 * 
+	 *
 	 * <p>
 	 * <strong>Implementors must implement {@code nextKey()} instead which is a
 	 * template method called from this {@code hasNext()} method.</strong>
@@ -152,11 +152,11 @@ public abstract class AbstractAxis implements Axis {
 		// First check the state.
 		checkState(mState != State.FAILED);
 		switch (mState) {
-		case DONE:
-			return false;
-		case READY:
-			return true;
-		default:
+			case DONE:
+				return false;
+			case READY:
+				return true;
+			default:
 		}
 
 		// Reset to last node key.
@@ -174,7 +174,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Try to compute the next node key.
-	 * 
+	 *
 	 * @return {@code true} if next node key exists, {@code false} otherwise
 	 */
 	private boolean tryToComputeNext() {
@@ -196,7 +196,7 @@ public abstract class AbstractAxis implements Axis {
 	 * either call {@link #done()} when there are no elements left in the
 	 * iteration or return the node key
 	 * {@code EFixed.NULL_NODE.getStandardProperty()}.
-	 * 
+	 *
 	 * <p>
 	 * The initial invocation of {@link #hasNext()} or {@link #next()} calls this
 	 * method, as does the first invocation of {@code hasNext} or {@code next}
@@ -205,20 +205,20 @@ public abstract class AbstractAxis implements Axis {
 	 * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception,
 	 * {@code nextKey()} is guaranteed to never be called again.
 	 * </p>
-	 * 
+	 *
 	 * <p>
 	 * If this method throws an exception, it will propagate outward to the
 	 * {@code hasNext} or {@code next} invocation that invoked this method. Any
 	 * further attempts to use the iterator will result in an
 	 * {@link IllegalStateException}.
 	 * </p>
-	 * 
+	 *
 	 * <p>
 	 * The implementation of this method may not invoke the {@code hasNext},
 	 * {@code next}, or {@link #peek()} methods on this instance; if it does, an
 	 * {@code IllegalStateException} will result.
 	 * </p>
-	 * 
+	 *
 	 * @return the next node key
 	 * @throws RuntimeException
 	 *           if any unrecoverable error happens. This exception will propagate
@@ -257,7 +257,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
-	 * 
+	 *
 	 * @param nodeKey
 	 *          the nodekey where the reset should occur to
 	 */
@@ -270,7 +270,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Get current {@link NodeReadTrx}.
-	 * 
+	 *
 	 * @return the {@link NodeReadTrx} used
 	 */
 	@Override
@@ -281,7 +281,7 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Make sure the transaction points to the node it started with. This must be
 	 * called just before {@code hasNext() == false}.
-	 * 
+	 *
 	 * @return key of node where transaction was before the first call of
 	 *         {@code hasNext()}
 	 */
@@ -294,7 +294,7 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Make sure the transaction points to the node after the last hasNext(). This
 	 * must be called first in hasNext().
-	 * 
+	 *
 	 * @return key of node where transaction was after the last call of
 	 *         {@code hasNext()}
 	 */
@@ -324,7 +324,7 @@ public abstract class AbstractAxis implements Axis {
 
 	/**
 	 * Implements a simple foreach-method.
-	 * 
+	 *
 	 * @param visitor
 	 *          {@link IVisitor} implementation
 	 */
@@ -350,6 +350,6 @@ public abstract class AbstractAxis implements Axis {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("trx", mRtx).toString();
+		return MoreObjects.toStringHelper(this).add("trx", mRtx).toString();
 	}
 }
