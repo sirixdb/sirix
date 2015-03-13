@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -39,12 +39,13 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * <h1>PageContainer</h1>
- * 
+ *
  * <p>
  * This class acts as a container for revisioned {@link KeyValuePage}s. Each
  * {@link KeyValuePage} is stored in a versioned manner. If modifications occur,
@@ -52,16 +53,16 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * Afterwards, this container is used to store a complete {@link KeyValuePage}
  * as well as one for upcoming modifications.
  * </p>
- * 
+ *
  * <p>
  * Both {@link KeyValuePage}s can differ since the complete one is mainly used
  * for read access and the modifying one for write access (and therefore mostly
  * lazy dereferenced).
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
@@ -92,7 +93,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Get the empty instance (parameterized).
-	 * 
+	 *
 	 * @return the empty instance
 	 */
 	@SuppressWarnings("unchecked")
@@ -102,7 +103,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Constructor with complete page and lazy instantiated modifying page.
-	 * 
+	 *
 	 * @param complete
 	 *          page to clone
 	 * @param revision
@@ -117,7 +118,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Constructor with both, complete and modifying page.
-	 * 
+	 *
 	 * @param complete
 	 *          to be used as a base for this container
 	 * @param modifying
@@ -133,7 +134,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Getting the complete page.
-	 * 
+	 *
 	 * @return the complete page
 	 */
 	public T getComplete() {
@@ -142,7 +143,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Getting the modified page.
-	 * 
+	 *
 	 * @return the modified page
 	 */
 	public T getModified() {
@@ -151,7 +152,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/**
 	 * Serializing the container to the cache.
-	 * 
+	 *
 	 * @param out
 	 *          for serialization
 	 */
@@ -184,7 +185,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("complete page", mComplete)
+		return MoreObjects.toStringHelper(this).add("complete page", mComplete)
 				.add("modified page", mModified).toString();
 	}
 }

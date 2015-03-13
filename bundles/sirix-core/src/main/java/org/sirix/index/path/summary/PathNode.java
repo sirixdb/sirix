@@ -18,13 +18,14 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * Path node in the {@link PathSummaryReader}.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
@@ -48,7 +49,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param nodeDel
 	 *          {@link NodeDelegate} instance
 	 * @param structNodeDel
@@ -77,7 +78,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Get the path up to the root path node.
-	 * 
+	 *
 	 * @param reader
 	 *          {@link PathSummaryReader} instance
 	 * @return path up to the root
@@ -107,7 +108,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Level of this path node.
-	 * 
+	 *
 	 * @return level of this path node
 	 */
 	public int getLevel() {
@@ -116,7 +117,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Get the number of references to this path node.
-	 * 
+	 *
 	 * @return number of references
 	 */
 	public int getReferences() {
@@ -125,7 +126,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Set the reference count.
-	 * 
+	 *
 	 * @param references
 	 *          number of references
 	 */
@@ -153,7 +154,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Get the kind of path (element, attribute or namespace).
-	 * 
+	 *
 	 * @return path kind
 	 */
 	public Kind getPathKind() {
@@ -212,7 +213,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	/**
 	 * Get the name node delegate.
-	 * 
+	 *
 	 * @return name node delegate.
 	 */
 	public NameNodeDelegate getNameNodeDelegate() {
@@ -236,7 +237,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("node delegate", mNodeDel)
+		return MoreObjects.toStringHelper(this).add("node delegate", mNodeDel)
 				.add("struct delegate", mStructNodeDel)
 				.add("name delegate", mNameNodeDel).add("references", mReferences)
 				.add("kind", mKind).add("level", mLevel).toString();

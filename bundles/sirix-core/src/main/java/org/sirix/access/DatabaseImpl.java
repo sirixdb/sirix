@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -57,6 +57,7 @@ import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -65,7 +66,7 @@ import com.google.common.collect.Maps;
 /**
  * This class represents one concrete database for enabling several
  * {@link Session} instances.
- * 
+ *
  * @see Database
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
@@ -81,13 +82,13 @@ public final class DatabaseImpl implements Database {
 
 	/** Central repository of all running sessions. */
 	private final ConcurrentMap<File, Set<Session>> mSessions;
-	
+
 	/** Read semaphores shared for each resource. */
 	private final ConcurrentMap<File, Semaphore> mReadSemaphores;
-	
+
 	/** Write semaphores shared for each resource. */
 	private final ConcurrentMap<File, Semaphore> mWriteSemaphores;
-	
+
 	/** Central repository of all resource-ID/ResourceConfiguration tuples. */
 	private final BiMap<Long, String> mResources;
 
@@ -96,7 +97,7 @@ public final class DatabaseImpl implements Database {
 
 	/**
 	 * Package private constructor.
-	 * 
+	 *
 	 * @param dbConfig
 	 *          {@link ResourceConfiguration} reference to configure the
 	 *          {@link Database}
@@ -234,17 +235,18 @@ public final class DatabaseImpl implements Database {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				sessionConf.getResource());
-		Set<Session> sessions = mSessions.get(resourceFile);		
+		Set<Session> sessions = mSessions.get(resourceFile);
 		if (sessions == null) {
 			sessions = Collections.newSetFromMap(new ConcurrentHashMap<>());
 		} else {
-			final Optional<Session> optionalSession = sessions.stream().filter(new SessionPredicate(sessionConf)).findFirst();
-	
+			final Optional<Session> optionalSession = sessions.stream()
+					.filter(new SessionPredicate(sessionConf)).findFirst();
+
 			if (optionalSession.isPresent()) {
 				return optionalSession.get();
 			}
 		}
-			
+
 		if (!resourceFile.exists()) {
 			throw new SirixUsageException(
 					"Resource could not be opened (since it was not created?) at location",
@@ -254,7 +256,8 @@ public final class DatabaseImpl implements Database {
 				.deserialize(resourceFile);
 
 		// Resource of session must be associated to this database
-		assert resourceConfig.mPath.getParentFile().getParentFile().equals(mDBConfig.getFile());
+		assert resourceConfig.mPath.getParentFile().getParentFile()
+				.equals(mDBConfig.getFile());
 		if (!mReadSemaphores.containsKey(resourceFile))
 			mReadSemaphores.put(resourceFile, new Semaphore(512));
 		if (!mWriteSemaphores.containsKey(resourceFile))
@@ -320,20 +323,22 @@ public final class DatabaseImpl implements Database {
 	/**
 	 * Closing a resource. This callback is necessary due to centralized handling
 	 * of all sessions within a database.
-	 * 
+	 *
 	 * @param resourceFile
 	 *          {@link File} to be closed
 	 * @param sessionConfig
 	 *          the session configuration
 	 * @return {@code true} if close successful, {@code false} otherwise
 	 */
-	protected boolean removeSession(final File resourceFile, final SessionConfiguration sessionConfig) {
-		final Set<Session> sessions = mSessions.get(resourceFile);		
+	protected boolean removeSession(final File resourceFile,
+			final SessionConfiguration sessionConfig) {
+		final Set<Session> sessions = mSessions.get(resourceFile);
 		if (sessions == null || sessions.isEmpty() || sessions.size() == 1) {
 			return mSessions.remove(resourceFile) == null ? false : true;
 		}
-		
-		final Optional<Session> optionalSession = sessions.stream().filter(new SessionPredicate(sessionConfig)).findFirst();
+
+		final Optional<Session> optionalSession = sessions.stream()
+				.filter(new SessionPredicate(sessionConfig)).findFirst();
 		if (optionalSession.isPresent()) {
 			return mSessions.get(resourceFile).remove(optionalSession.get());
 		}
@@ -350,7 +355,8 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
+		return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig)
+				.toString();
 	}
 
 	@Override
@@ -370,15 +376,15 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 	// END general methods //////////////////////////////////////
 	// //////////////////////////////////////////////////////////
-	
+
 	private static class SessionPredicate implements Predicate<Session> {
-		
+
 		private final SessionConfiguration mSessionConf;
 
 		private SessionPredicate(final SessionConfiguration sessionConf) {
 			mSessionConf = sessionConf;
 		}
-	
+
 		@Override
 		public boolean test(final Session session) {
 			return session.getSessionConfiguration().equals(mSessionConf);
@@ -388,7 +394,7 @@ public final class DatabaseImpl implements Database {
 	Semaphore getReadSemaphore(File resourceFile) {
 		return mReadSemaphores.get(resourceFile);
 	}
-	
+
 	Semaphore getWriteSemaphore(File resourceFile) {
 		return mWriteSemaphores.get(resourceFile);
 	}

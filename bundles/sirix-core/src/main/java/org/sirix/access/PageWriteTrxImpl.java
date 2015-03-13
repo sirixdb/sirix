@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -38,7 +38,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -85,12 +84,12 @@ import org.sirix.utils.NamePageHash;
 
 /**
  * <h1>PageWriteTrx</h1>
- * 
+ *
  * <p>
  * Implements the {@link PageWriteTrx} interface to provide write capabilities
  * to the persistent storage layer.
  * </p>
- * 
+ *
  * @author Marc Kramis, Seabix AG
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
@@ -150,7 +149,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Standard constructor.
-	 * 
+	 *
 	 * @param session
 	 *          {@link ISessionConfiguration} this page write trx is bound to
 	 * @param uberPage
@@ -293,31 +292,31 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		// Allocate record key and increment record count.
 		long recordKey;
 		switch (pageKind) {
-		case RECORDPAGE:
-			recordKey = mNewRoot.incrementAndGetMaxNodeKey();
-			break;
-		case PATHSUMMARYPAGE:
-			final PathSummaryPage pathSummaryPage = ((PathSummaryPage) mNewRoot
-					.getPathSummaryPageReference().getPage());
-			recordKey = pathSummaryPage.incrementAndGetMaxNodeKey(index);
-			break;
-		case CASPAGE:
-			final CASPage casPage = ((CASPage) mNewRoot.getCASPageReference()
-					.getPage());
-			recordKey = casPage.incrementAndGetMaxNodeKey(index);
-			break;
-		case PATHPAGE:
-			final PathPage pathPage = ((PathPage) mNewRoot.getPathPageReference()
-					.getPage());
-			recordKey = pathPage.incrementAndGetMaxNodeKey(index);
-			break;
-		case NAMEPAGE:
-			final NamePage namePage = ((NamePage) mNewRoot.getNamePageReference()
-					.getPage());
-			recordKey = namePage.incrementAndGetMaxNodeKey(index);
-			break;
-		default:
-			throw new IllegalStateException();
+			case RECORDPAGE:
+				recordKey = mNewRoot.incrementAndGetMaxNodeKey();
+				break;
+			case PATHSUMMARYPAGE:
+				final PathSummaryPage pathSummaryPage = ((PathSummaryPage) mNewRoot
+						.getPathSummaryPageReference().getPage());
+				recordKey = pathSummaryPage.incrementAndGetMaxNodeKey(index);
+				break;
+			case CASPAGE:
+				final CASPage casPage = ((CASPage) mNewRoot.getCASPageReference()
+						.getPage());
+				recordKey = casPage.incrementAndGetMaxNodeKey(index);
+				break;
+			case PATHPAGE:
+				final PathPage pathPage = ((PathPage) mNewRoot.getPathPageReference()
+						.getPage());
+				recordKey = pathPage.incrementAndGetMaxNodeKey(index);
+				break;
+			case NAMEPAGE:
+				final NamePage namePage = ((NamePage) mNewRoot.getNamePageReference()
+						.getPage());
+				recordKey = namePage.incrementAndGetMaxNodeKey(index);
+				break;
+			default:
+				throw new IllegalStateException();
 		}
 
 		final long recordPageKey = mPageRtx.pageKey(recordKey);
@@ -374,7 +373,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Get the page container.
-	 * 
+	 *
 	 * @param pageKind
 	 *          the kind of page
 	 * @param index
@@ -389,21 +388,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnegative long recordPageKey) {
 		if (pageKind != null) {
 			switch (pageKind) {
-			case RECORDPAGE:
-				return mNodeLog.get(recordPageKey);
-			case PATHSUMMARYPAGE:
-				return mPathSummaryLog.get(new IndexLogKey(recordPageKey, index));
-			case PATHPAGE:
-				return mPathLog.get(new IndexLogKey(recordPageKey, index));
-			case CASPAGE:
-				return mCASLog.get(new IndexLogKey(recordPageKey, index));
-			case NAMEPAGE:
-				return mNameLog.get(new IndexLogKey(recordPageKey, index));
-			default:
-				throw new IllegalStateException();
+				case RECORDPAGE:
+					return mNodeLog.get(recordPageKey);
+				case PATHSUMMARYPAGE:
+					return mPathSummaryLog.get(new IndexLogKey(recordPageKey, index));
+				case PATHPAGE:
+					return mPathLog.get(new IndexLogKey(recordPageKey, index));
+				case CASPAGE:
+					return mCASLog.get(new IndexLogKey(recordPageKey, index));
+				case NAMEPAGE:
+					return mNameLog.get(new IndexLogKey(recordPageKey, index));
+				default:
+					throw new IllegalStateException();
 			}
 		}
-		return RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+		return RecordPageContainer.emptyInstance();
 	}
 
 	@Override
@@ -413,29 +412,29 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			return true;
 		}
 		switch (indexType) {
-		case CAS:
-			if (mCASLog == null) {
-				mCASLog = new SynchronizedIndexTransactionLogCache<>(
-						mPageRtx.mSession.mResourceConfig.mPath,
-						mPageRtx.getRevisionNumber(), "cas", this);
-			}
-			break;
-		case NAME:
-			if (mNameLog == null) {
-				mNameLog = new SynchronizedIndexTransactionLogCache<>(
-						mPageRtx.mSession.mResourceConfig.mPath,
-						mPageRtx.getRevisionNumber(), "name", this);
-			}
-			break;
-		case PATH:
-			if (mPathLog == null) {
-				mPathLog = new SynchronizedIndexTransactionLogCache<>(
-						mPageRtx.mSession.mResourceConfig.mPath,
-						mPageRtx.getRevisionNumber(), "path", this);
-			}
-			break;
-		default:
-			throw new IllegalStateException("Index type not known!");
+			case CAS:
+				if (mCASLog == null) {
+					mCASLog = new SynchronizedIndexTransactionLogCache<>(
+							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.getRevisionNumber(), "cas", this);
+				}
+				break;
+			case NAME:
+				if (mNameLog == null) {
+					mNameLog = new SynchronizedIndexTransactionLogCache<>(
+							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.getRevisionNumber(), "name", this);
+				}
+				break;
+			case PATH:
+				if (mPathLog == null) {
+					mPathLog = new SynchronizedIndexTransactionLogCache<>(
+							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.getRevisionNumber(), "path", this);
+				}
+				break;
+			default:
+				throw new IllegalStateException("Index type not known!");
 		}
 		return false;
 	}
@@ -505,15 +504,15 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 		} else if (pageKind != null) {
 			switch (pageKind) {
-			case CASPAGE:
-			case PATHPAGE:
-			case NAMEPAGE:
-			case RECORDPAGE:
-			case PATHSUMMARYPAGE:
-				cont = getUnorderedRecordPageContainer(pageKind, index, recordPageKey);
-				break;
-			default:
-				// throw new IllegalStateException("Page kind not known!");
+				case CASPAGE:
+				case PATHPAGE:
+				case NAMEPAGE:
+				case RECORDPAGE:
+				case PATHSUMMARYPAGE:
+					cont = getUnorderedRecordPageContainer(pageKind, index, recordPageKey);
+					break;
+				default:
+					// throw new IllegalStateException("Page kind not known!");
 			}
 
 			if (cont != null) {
@@ -741,7 +740,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Prepare indirect page, that is getting the referenced indirect page or a
 	 * new page.
-	 * 
+	 *
 	 * @param reference
 	 *          {@link PageReference} to get the indirect page from or to create a
 	 *          new one
@@ -768,7 +767,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Prepare record page.
-	 * 
+	 *
 	 * @param recordPageKey
 	 *          the key of the record page
 	 * @param pageKind
@@ -790,35 +789,34 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 					mPageRtx.getPageReference(mNewRoot, pageKind, index), recordPageKey,
 					index, pageKind);
 			if (reference.getKey() == Constants.NULL_ID) {
-				cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
-						recordPageKey, pageKind, Optional.<PageReference> empty(),
-						mPageRtx));
+				cont = new RecordPageContainer<>(
+						new UnorderedKeyValuePage(recordPageKey, pageKind,
+								Optional.<PageReference> empty(), mPageRtx));
 			} else {
-				cont = dereferenceRecordPageForModification(recordPageKey, index,
-						pageKind, reference);
+				cont = dereferenceRecordPageForModification(reference);
 			}
 
 			assert cont != null;
 			reference.setKeyValuePageKey(recordPageKey);
 
 			switch (pageKind) {
-			case RECORDPAGE:
-				mNodeLog.put(recordPageKey, cont);
-				break;
-			case PATHSUMMARYPAGE:
-				mPathSummaryLog.put(new IndexLogKey(recordPageKey, index), cont);
-				break;
-			case PATHPAGE:
-				mPathLog.put(new IndexLogKey(recordPageKey, index), cont);
-				break;
-			case CASPAGE:
-				mCASLog.put(new IndexLogKey(recordPageKey, index), cont);
-				break;
-			case NAMEPAGE:
-				mNameLog.put(new IndexLogKey(recordPageKey, index), cont);
-				break;
-			default:
-				throw new IllegalStateException("Page kind not known!");
+				case RECORDPAGE:
+					mNodeLog.put(recordPageKey, cont);
+					break;
+				case PATHSUMMARYPAGE:
+					mPathSummaryLog.put(new IndexLogKey(recordPageKey, index), cont);
+					break;
+				case PATHPAGE:
+					mPathLog.put(new IndexLogKey(recordPageKey, index), cont);
+					break;
+				case CASPAGE:
+					mCASLog.put(new IndexLogKey(recordPageKey, index), cont);
+					break;
+				case NAMEPAGE:
+					mNameLog.put(new IndexLogKey(recordPageKey, index), cont);
+					break;
+				default:
+					throw new IllegalStateException("Page kind not known!");
 			}
 		}
 		return cont;
@@ -827,7 +825,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Prepare the previous revision root page and retrieve the next
 	 * {@link RevisionRootPage}.
-	 * 
+	 *
 	 * @param baseRevision
 	 *          base revision
 	 * @param representRevision
@@ -869,7 +867,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Prepare the leaf of a tree, namely the reference to a
 	 * {@link UnorderedKeyValuePage}.
-	 * 
+	 *
 	 * @param startReference
 	 *          start reference
 	 * @param key
@@ -917,30 +915,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Dereference record page reference.
-	 * 
+	 *
 	 * @param recordPageKey
 	 *          key of record page
 	 * @param pageKind
 	 *          the kind of subtree, the page is in
 	 * @return dereferenced page
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
 	 */
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceRecordPageForModification(
-			final @Nonnegative long recordPageKey, final int index,
-			final PageKind pageKind, final PageReference reference)
-			throws SirixIOException {
-		try {
-			final List<UnorderedKeyValuePage> revs = mPageRtx
-					.<Long, Record, UnorderedKeyValuePage> getSnapshotPages(
-							recordPageKey, index, pageKind, Optional.of(reference));
-			final Versioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
-			final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
-			return revisioning.combineRecordPagesForModification(revs,
-					mileStoneRevision, mPageRtx, reference);
-		} catch (final ExecutionException e) {
-			throw new SirixIOException(e.getCause());
-		}
+			final PageReference reference) {
+		final List<UnorderedKeyValuePage> revs = mPageRtx
+				.getSnapshotPages(reference);
+		final Versioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
+		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
+		return revisioning.combineRecordPagesForModification(revs,
+				mileStoneRevision, mPageRtx, reference);
 	}
 
 	@Override
@@ -950,7 +939,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Updating a container in this {@link PageWriteTrxImpl}.
-	 * 
+	 *
 	 * @param pCont
 	 *          {@link RecordPageContainer} reference to be updated
 	 * @param page
@@ -1013,23 +1002,24 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		checkArgument(recordPageKey >= 0, "key must be >= 0!");
 		checkNotNull(pageContainer);
 		switch (pageKind) {
-		case RECORDPAGE:
-			mNodeLog.put(recordPageKey, pageContainer);
-			break;
-		case PATHSUMMARYPAGE:
-			mPathSummaryLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
-			break;
-		case PATHPAGE:
-			mPathLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
-			break;
-		case CASPAGE:
-			mCASLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
-			break;
-		case NAMEPAGE:
-			mNameLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
-			break;
-		default:
-			throw new IllegalStateException("page kind not known!");
+			case RECORDPAGE:
+				mNodeLog.put(recordPageKey, pageContainer);
+				break;
+			case PATHSUMMARYPAGE:
+				mPathSummaryLog.put(new IndexLogKey(recordPageKey, index),
+						pageContainer);
+				break;
+			case PATHPAGE:
+				mPathLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
+				break;
+			case CASPAGE:
+				mCASLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
+				break;
+			case NAMEPAGE:
+				mNameLog.put(new IndexLogKey(recordPageKey, index), pageContainer);
+				break;
+			default:
+				throw new IllegalStateException("page kind not known!");
 		}
 	}
 

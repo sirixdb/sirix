@@ -65,8 +65,8 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 
@@ -211,9 +211,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final int dataSize = in.readInt();
 			final byte[] data = new byte[dataSize];
 			in.readFully(data);
-			final Record record = mPersistenter
-					.deserialize(new DataInputStream(new ByteArrayInputStream(data)),
-							key, Optional.empty(), mPageReadTrx);
+			final Record record = mPersistenter.deserialize(new DataInputStream(
+					new ByteArrayInputStream(data)), key, Optional.empty(), mPageReadTrx);
 			mRecords.put(key, record);
 		}
 		final int overlongEntrySize = in.readInt();
@@ -348,8 +347,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this).add("pagekey",
-				mRecordPageKey);
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this)
+				.add("pagekey", mRecordPageKey);
 		for (final Record record : mRecords.values()) {
 			helper.add("record", record);
 		}

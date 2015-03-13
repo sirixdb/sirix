@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -39,18 +39,19 @@ import javax.annotation.Nullable;
 
 import org.sirix.exception.SirixIOException;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 /**
  * <h1>Database Configuration</h1>
- * 
+ *
  * <p>
  * Represents a configuration of a database. Includes all settings which have to
  * be made during the creation of the database.
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  */
 public final class DatabaseConfiguration {
@@ -78,7 +79,7 @@ public final class DatabaseConfiguration {
 
 		/**
 		 * Constructor.
-		 * 
+		 *
 		 * @param file
 		 *          to be set
 		 * @param isFolder
@@ -91,7 +92,7 @@ public final class DatabaseConfiguration {
 
 		/**
 		 * Getting the file for the kind.
-		 * 
+		 *
 		 * @return the file to the kind
 		 */
 		public File getFile() {
@@ -100,7 +101,7 @@ public final class DatabaseConfiguration {
 
 		/**
 		 * Check if file is denoted as folder or not.
-		 * 
+		 *
 		 * @return boolean if file is folder
 		 */
 		public boolean isFolder() {
@@ -109,7 +110,7 @@ public final class DatabaseConfiguration {
 
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
-		 * 
+		 *
 		 * @param file
 		 *          to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
@@ -145,7 +146,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Constructor with the path to be set.
-	 * 
+	 *
 	 * @param file
 	 *          file to be set
 	 */
@@ -156,7 +157,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Set unique maximum resource ID.
-	 * 
+	 *
 	 * @param id
 	 *          maximum resource ID
 	 * @return this {@link DatabaseConfiguration} reference
@@ -169,7 +170,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Set unique maximum resource ID.
-	 * 
+	 *
 	 * @return maximum resource ID
 	 */
 	public long getMaxResourceID() {
@@ -178,7 +179,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Getting the database file.
-	 * 
+	 *
 	 * @return the database file
 	 */
 	public File getFile() {
@@ -187,7 +188,7 @@ public final class DatabaseConfiguration {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("File", mFile)
+		return MoreObjects.toStringHelper(this).add("File", mFile)
 				.add("Binary Version", mBinaryVersion).toString();
 	}
 
@@ -208,7 +209,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Get the configuration file.
-	 * 
+	 *
 	 * @return configuration file
 	 */
 	public File getConfigFile() {
@@ -217,7 +218,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Serializing a {@link DatabaseConfiguration} to a json file.
-	 * 
+	 *
 	 * @param config
 	 *          to be serialized
 	 * @throws SirixIOException
@@ -239,7 +240,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Generate a DatabaseConfiguration out of a file.
-	 * 
+	 *
 	 * @param file
 	 *          where the DatabaseConfiguration lies in as json
 	 * @return a new {@link DatabaseConfiguration} class

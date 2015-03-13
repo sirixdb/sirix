@@ -6,13 +6,13 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * Skeletal implementation of {@link StructNode} interface.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractStructForwardingNode extends
 		AbstractForwardingNode implements StructNode {
@@ -26,7 +26,7 @@ public abstract class AbstractStructForwardingNode extends
 
 	/**
 	 * Getting the inlying {@link NodeDelegate}.
-	 * 
+	 *
 	 * @return the inlying {@link NodeDelegate} instance
 	 */
 	public StructNodeDelegate getStructNodeDelegate() {
@@ -115,7 +115,8 @@ public abstract class AbstractStructForwardingNode extends
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nodeDelegate", super.toString())
+		return MoreObjects.toStringHelper(this)
+				.add("nodeDelegate", super.toString())
 				.add("structDelegate", structDelegate().toString()).toString();
 	}
 

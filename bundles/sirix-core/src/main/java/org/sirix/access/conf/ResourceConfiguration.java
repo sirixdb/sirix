@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -51,20 +51,21 @@ import org.sirix.node.NodePersistenterImpl;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.settings.Versioning;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 /**
  * <h1>ResourceConfiguration</h1>
- * 
+ *
  * <p>
  * Holds the settings for a resource which acts as a base for session that can
  * not change. This includes all settings which are persistent. Each
  * {@link ResourceConfiguration} is furthermore bound to one fixed database
  * denoted by a related {@link DatabaseConfiguration}.
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
@@ -95,7 +96,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Constructor.
-		 * 
+		 *
 		 * @param file
 		 *          the file
 		 * @param isFolder
@@ -108,7 +109,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Getting the file for the kind.
-		 * 
+		 *
 		 * @return the file to the kind
 		 */
 		public File getFile() {
@@ -117,7 +118,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Check if file is denoted as folder or not.
-		 * 
+		 *
 		 * @return boolean if file is folder
 		 */
 		public boolean isFolder() {
@@ -126,7 +127,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
-		 * 
+		 *
 		 * @param file
 		 *          to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
@@ -163,13 +164,13 @@ public final class ResourceConfiguration {
 
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenterImpl();
-	
+
 	/** Number of concurrent exclusive write transactions. */
 	public static final int MAX_WRITE_TRANSACTIONS = 1;
 
 	/** Number of concurrent read transactions. */
 	public static final int MAX_READ_TRANSACTIONS = 512;
-	
+
 	// END FIXED STANDARD FIELDS
 
 	// MEMBERS FOR FIXED FIELDS
@@ -213,7 +214,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Get a new builder instance.
-	 * 
+	 *
 	 * @param resource
 	 *          the name of the resource
 	 * @param config
@@ -229,7 +230,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Convenience constructor using the standard settings.
-	 * 
+	 *
 	 * @param builder
 	 *          {@link Builder} reference
 	 */
@@ -251,7 +252,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Set a unique ID.
-	 * 
+	 *
 	 * @param id
 	 *          the ID to set
 	 * @return this instance
@@ -264,7 +265,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Get the unique ID.
-	 * 
+	 *
 	 * @return the unique resource ID
 	 */
 	public long getID() {
@@ -293,14 +294,14 @@ public final class ResourceConfiguration {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("Resource", mPath)
+		return MoreObjects.toStringHelper(this).add("Resource", mPath)
 				.add("Type", mStorage).add("Revision", mRevisionKind)
 				.add("HashKind", mHashKind).toString();
 	}
 
 	/**
 	 * Get resource.
-	 * 
+	 *
 	 * @return resource
 	 */
 	public File getResource() {
@@ -309,7 +310,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Get the configuration file.
-	 * 
+	 *
 	 * @return configuration file
 	 */
 	public File getConfigFile() {
@@ -326,7 +327,7 @@ public final class ResourceConfiguration {
 
 	/**
 	 * Serialize the configuration.
-	 * 
+	 *
 	 * @param config
 	 *          configuration to serialize
 	 * @throws SirixIOException
@@ -379,7 +380,7 @@ public final class ResourceConfiguration {
 	/**
 	 * Deserializing a Resource configuration from a JSON-file from the persistent
 	 * storage.
-	 * 
+	 *
 	 * @param file
 	 *          where the resource lies in.
 	 * @return a complete {@link ResourceConfiguration} instance
@@ -516,7 +517,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Constructor, setting the mandatory fields.
-		 * 
+		 *
 		 * @param resource
 		 *          the name of the resource
 		 * @param config
@@ -533,7 +534,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Set the storage type.
-		 * 
+		 *
 		 * @param type
 		 *          storage type to use
 		 * @return reference to the builder object
@@ -550,7 +551,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Set the versioning algorithm to use.
-		 * 
+		 *
 		 * @param versioning
 		 *          versioning algorithm to use
 		 * @return reference to the builder object
@@ -562,7 +563,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Set the hash kind to use for the nodes.
-		 * 
+		 *
 		 * @param hashKind
 		 *          hash kind to use
 		 * @return reference to the builder object
@@ -574,7 +575,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Set the byte handler pipeline.
-		 * 
+		 *
 		 * @param byteHandler
 		 *          byte handler pipeline
 		 * @return reference to the builder object
@@ -586,7 +587,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Set the number of revisions to restore after the last full dump.
-		 * 
+		 *
 		 * @param revisionsToRestore
 		 *          number of versions to restore
 		 * @return reference to the builder object
@@ -599,7 +600,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Determines if DeweyIDs should be stored or not.
-		 * 
+		 *
 		 * @return reference to the builder object
 		 */
 		public Builder useDeweyIDs(boolean useDeweyIDs) {
@@ -609,7 +610,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Determines if text-compression should be used or not.
-		 * 
+		 *
 		 * @param compression
 		 *          use text compression or not (default: yes)
 		 * @return reference to the builder object
@@ -621,7 +622,7 @@ public final class ResourceConfiguration {
 
 		/**
 		 * Determines if a path summary should be build.
-		 * 
+		 *
 		 * @return reference to the builder object
 		 */
 		public Builder buildPathSummary(boolean buildPathSummary) {
@@ -631,14 +632,14 @@ public final class ResourceConfiguration {
 
 		@Override
 		public String toString() {
-			return Objects.toStringHelper(this).add("Type", mType)
+			return MoreObjects.toStringHelper(this).add("Type", mType)
 					.add("RevisionKind", mRevisionKind).add("HashKind", mHashKind)
 					.toString();
 		}
 
 		/**
 		 * Building a new {@link ResourceConfiguration} with immutable fields.
-		 * 
+		 *
 		 * @return a new {@link ResourceConfiguration} instance
 		 */
 		public ResourceConfiguration build() {

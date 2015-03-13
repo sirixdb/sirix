@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -40,15 +40,16 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.Compression;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * Delegate method for all nodes containing \"value\"-data. That means that
  * independent values are stored by the nodes delegating the calls of the
  * interface {@link ValueNode} to this class.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public class ValNodeDelegate extends AbstractForwardingNode implements
 		ValueNode {
@@ -64,7 +65,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Constructor
-	 * 
+	 *
 	 * @param nodeDel
 	 *          {@link NodeDelegate} reference
 	 * @param val
@@ -98,7 +99,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Get value which might be compressed.
-	 * 
+	 *
 	 * @return {@code value} which might be compressed
 	 */
 	public byte[] getCompressed() {
@@ -114,7 +115,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Determine if input value has been compressed.
-	 * 
+	 *
 	 * @return {@code true}, if it has been compressed, {@code false} otherwise
 	 */
 	public boolean isCompressed() {
@@ -123,7 +124,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Set compression.
-	 * 
+	 *
 	 * @param compressed
 	 *          determines if value is compressed or not
 	 */
@@ -148,7 +149,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("value", new String(mVal))
+		return MoreObjects.toStringHelper(this).add("value", new String(mVal))
 				.toString();
 	}
 

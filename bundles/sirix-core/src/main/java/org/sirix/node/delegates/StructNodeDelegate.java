@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -37,6 +37,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
@@ -45,10 +46,10 @@ import com.google.common.base.Objects;
  * interface {@link StructNode} namely containing the position of all related
  * siblings, the first-child and all nodes defined by the {@link NodeDelegate}
  * as well.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public class StructNodeDelegate extends AbstractForwardingNode implements
 		StructNode {
@@ -73,7 +74,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param del
 	 *          {@link NodeDelegate} instance
 	 * @param firstChild
@@ -196,7 +197,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("first child", getFirstChildKey())
+		return MoreObjects.toStringHelper(this)
+				.add("first child", getFirstChildKey())
 				.add("left sib", getLeftSiblingKey())
 				.add("right sib", getRightSiblingKey())
 				.add("child count", getChildCount())

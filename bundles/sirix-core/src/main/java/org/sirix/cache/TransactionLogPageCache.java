@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -37,16 +37,16 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.Page;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
 /**
  * Thread safe transaction-log for storing all upcoming nodes in either the ram
  * cache or a persistent second cache.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class TransactionLogPageCache implements
 		Cache<IndirectPageLogKey, Page> {
@@ -60,7 +60,7 @@ public final class TransactionLogPageCache implements
 	/**
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
 	 * storage.
-	 * 
+	 *
 	 * @param file
 	 *          the config for having a storage-place
 	 * @param revision
@@ -87,7 +87,8 @@ public final class TransactionLogPageCache implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("cache", mFirstCache).toString();
+		return MoreObjects.toStringHelper(this).add("cache", mFirstCache)
+				.toString();
 	}
 
 	@Override
@@ -137,7 +138,7 @@ public final class TransactionLogPageCache implements
 
 	/**
 	 * Determines if directory has been created beforehand.
-	 * 
+	 *
 	 * @return {@code true} if the persistent log exists, {@code false} otherwise
 	 */
 	public boolean isCreated() {

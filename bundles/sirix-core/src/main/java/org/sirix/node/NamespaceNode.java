@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -38,11 +38,12 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * <h1>NamespaceNode</h1>
- * 
+ *
  * <p>
  * Node representing a namespace.
  * </p>
@@ -61,7 +62,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param nodeDel
 	 *          {@link NodeDelegate} reference
 	 * @param nameDel
@@ -136,7 +137,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nodeDel", mNodeDel)
+		return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel)
 				.add("nameDel", mNameDel).toString();
 	}
 
@@ -152,7 +153,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 
 	/**
 	 * Getting the inlying {@link NameNodeDelegate}.
-	 * 
+	 *
 	 * @return {@link NameNodeDelegate} instance
 	 */
 	NameNodeDelegate getNameNodeDelegate() {

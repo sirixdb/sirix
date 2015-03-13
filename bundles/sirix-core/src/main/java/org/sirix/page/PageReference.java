@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -33,11 +33,11 @@ import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * <h1>PageReference</h1>
- * 
+ *
  * <p>
  * Page reference pointing to a page. This might be on stable storage pointing
  * to the start byte in a file, including the length in bytes, and the checksum
@@ -66,7 +66,7 @@ public final class PageReference {
 
 	/**
 	 * Copy constructor.
-	 * 
+	 *
 	 * @param reference
 	 *          {@link PageReference} to copy
 	 */
@@ -79,7 +79,7 @@ public final class PageReference {
 
 	/**
 	 * Get in-memory instance of deserialized page.
-	 * 
+	 *
 	 * @return in-memory instance of deserialized page
 	 */
 	public Page getPage() {
@@ -88,7 +88,7 @@ public final class PageReference {
 
 	/**
 	 * Set in-memory instance of deserialized page.
-	 * 
+	 *
 	 * @param page
 	 *          deserialized page
 	 */
@@ -98,7 +98,7 @@ public final class PageReference {
 
 	/**
 	 * Get start byte offset in file.
-	 * 
+	 *
 	 * @return start offset in file
 	 */
 	public long getKey() {
@@ -107,7 +107,7 @@ public final class PageReference {
 
 	/**
 	 * Set start byte offset in file.
-	 * 
+	 *
 	 * @param key
 	 *          key of this reference set by the persistent storage
 	 */
@@ -117,13 +117,14 @@ public final class PageReference {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("keyValuePage", mKeyValuePageKey)
-				.add("key", mKey).add("page", mPage).toString();
+		return MoreObjects.toStringHelper(this)
+				.add("keyValuePage", mKeyValuePageKey).add("key", mKey)
+				.add("page", mPage).toString();
 	}
 
 	/**
 	 * Set keyValuePageKey key.
-	 * 
+	 *
 	 * @param keyValuePageKey
 	 *          the keyValuePageKey to set
 	 */
@@ -133,7 +134,7 @@ public final class PageReference {
 
 	/**
 	 * Get nodepage key.
-	 * 
+	 *
 	 * @return the nodePageKey
 	 */
 	public long getKeyValuePageKey() {
@@ -142,7 +143,7 @@ public final class PageReference {
 
 	/**
 	 * Set a {@link IndirectPageLogKey}.
-	 * 
+	 *
 	 * @param logKey
 	 *          the {@link IndirectPageLogKey}
 	 */
@@ -152,7 +153,7 @@ public final class PageReference {
 
 	/**
 	 * Get a {@link IndirectPageLogKey}
-	 * 
+	 *
 	 * @return the {@link IndirectPageLogKey}
 	 */
 	public IndirectPageLogKey getLogKey() {

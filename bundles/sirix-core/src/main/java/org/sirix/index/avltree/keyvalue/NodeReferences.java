@@ -9,14 +9,14 @@ import javax.annotation.Nullable;
 
 import org.sirix.index.avltree.interfaces.References;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 
 /**
  * Text node-ID references.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class NodeReferences implements References {
 	/** A {@link Set} of node-keys. */
@@ -31,7 +31,7 @@ public final class NodeReferences implements References {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param nodeKeys
 	 *          node keys
 	 */
@@ -76,7 +76,7 @@ public final class NodeReferences implements References {
 
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this);
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 		for (final long nodeKey : mNodeKeys) {
 			helper.add("referenced node key", nodeKey);
 		}

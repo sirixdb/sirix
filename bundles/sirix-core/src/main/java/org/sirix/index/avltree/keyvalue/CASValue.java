@@ -13,6 +13,7 @@ import org.sirix.index.AtomicUtil;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.ComparisonChain;
 
@@ -123,7 +124,7 @@ public final class CASValue implements Comparable<CASValue> {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("value", mValue)
+		return MoreObjects.toStringHelper(this).add("value", mValue)
 				.add("pathNodeKey", mPathNodeKey).toString();
 	}
 

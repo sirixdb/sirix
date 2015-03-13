@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -78,12 +78,12 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 
 /**
  * <h1>NodeReadTrxImpl</h1>
- * 
+ *
  * <p>
  * Read-only transaction with single-threaded cursor semantics. Each read-only
  * transaction works on a given revision key.
@@ -111,7 +111,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param session
 	 *          the current {@link Session} the transaction is bound to
 	 * @param transactionID
@@ -144,7 +144,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Get the current node.
-	 * 
+	 *
 	 * @return current node
 	 */
 	public ImmutableNode getCurrentNode() {
@@ -154,22 +154,22 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public ImmutableNode getNode() {
 		switch (mCurrentNode.getKind()) {
-		case ELEMENT:
-			return ImmutableElement.of((ElementNode) mCurrentNode);
-		case TEXT:
-			return ImmutableText.of((TextNode) mCurrentNode);
-		case COMMENT:
-			return ImmutableComment.of((CommentNode) mCurrentNode);
-		case PROCESSING_INSTRUCTION:
-			return ImmutablePI.of((PINode) mCurrentNode);
-		case ATTRIBUTE:
-			return ImmutableAttribute.of((AttributeNode) mCurrentNode);
-		case NAMESPACE:
-			return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
-		case DOCUMENT:
-			return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
-		default:
-			throw new IllegalStateException("Node kind not known!");
+			case ELEMENT:
+				return ImmutableElement.of((ElementNode) mCurrentNode);
+			case TEXT:
+				return ImmutableText.of((TextNode) mCurrentNode);
+			case COMMENT:
+				return ImmutableComment.of((CommentNode) mCurrentNode);
+			case PROCESSING_INSTRUCTION:
+				return ImmutablePI.of((PINode) mCurrentNode);
+			case ATTRIBUTE:
+				return ImmutableAttribute.of((AttributeNode) mCurrentNode);
+			case NAMESPACE:
+				return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
+			case DOCUMENT:
+				return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
+			default:
+				throw new IllegalStateException("Node kind not known!");
 		}
 	}
 
@@ -289,7 +289,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getAttributeCount() > index) {
-				final Move<? extends NodeReadTrx> moved = (Move<? extends NodeReadTrx>) moveTo(element
+				final Move<? extends NodeReadTrx> moved = moveTo(element
 						.getAttributeKey(index));
 				return moved;
 			} else {
@@ -306,7 +306,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getNamespaceCount() > index) {
-				final Move<? extends NodeReadTrx> moved = (Move<? extends NodeReadTrx>) moveTo(element
+				final Move<? extends NodeReadTrx> moved = moveTo(element
 						.getNamespaceKey(index));
 				return moved;
 			} else {
@@ -421,7 +421,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this);
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 		helper.add("Revision number", getRevisionNumber());
 
 		if (mCurrentNode.getKind() == Kind.ATTRIBUTE
@@ -443,15 +443,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	/**
-	 * Set state to closed.
-	 */
-	void setClosed() {
-		mClosed = true;
-	}
-
-	/**
 	 * Is the transaction closed?
-	 * 
+	 *
 	 * @return {@code true} if the transaction was closed, {@code false} otherwise
 	 */
 	@Override
@@ -470,7 +463,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Get the {@link PageReadTrx}.
-	 * 
+	 *
 	 * @return current {@link PageReadTrx}
 	 */
 	public PageReadTrx getPageTransaction() {
@@ -480,7 +473,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Replace the current {@link PageReadTrxImpl}.
-	 * 
+	 *
 	 * @param pageReadTransaction
 	 *          {@link PageReadTrxImpl} instance
 	 */
@@ -492,7 +485,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Set current node.
-	 * 
+	 *
 	 * @param currentNode
 	 *          the current node to set
 	 */
@@ -509,7 +502,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/**
 	 * Retrieve the current node as a structural node.
-	 * 
+	 *
 	 * @return structural node instance of current node
 	 */
 	final StructNode getStructuralNode() {
@@ -542,8 +535,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			final Optional<Long> attrKey = element.getAttributeKeyByName(name);
 			if (attrKey.isPresent()) {
-				final Move<? extends NodeReadTrx> moved = (Move<? extends NodeReadTrx>) moveTo(attrKey
-						.get());
+				final Move<? extends NodeReadTrx> moved = moveTo(attrKey.get());
 				return moved;
 			}
 		}

@@ -1,5 +1,6 @@
 package org.sirix.index.cas;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
@@ -64,7 +65,8 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 		final Set<Long> pcrsAvailable = filter.getPCRCollector()
 				.getPCRsForPaths(indexDef.getPaths()).getPCRs();
 
-		// Only one path indexed. All PCRs are the same in each CASValue.
+		// Only one path indexed and requested. All PCRs are the same in each
+		// CASValue.
 		if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1) {
 			final Atomic atomic = filter.getKey();
 			final long pcr = pcrsRequested.iterator().next();
@@ -81,7 +83,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 					return Iterators.forArray(node.get().getValue());
 				}
 
-				return Iterators.emptyIterator();
+				return Collections.emptyIterator();
 			} else {
 				// Compare for search criteria by PCR and atomic value.
 				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
@@ -96,7 +98,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 							new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
 				}
 
-				return Iterators.emptyIterator();
+				return Collections.emptyIterator();
 			}
 		} else if (pcrsRequested.size() == 1) {
 			final Atomic atomic = filter.getKey();
@@ -119,7 +121,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 							new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
 				}
 
-				return Iterators.emptyIterator();
+				return Collections.emptyIterator();
 			} else {
 				// Compare for equality only by PCR.
 				final Optional<AVLNode<CASValue, NodeReferences>> node = reader
@@ -146,7 +148,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 					}
 				}
 
-				return Iterators.emptyIterator();
+				return Collections.emptyIterator();
 			}
 		} else {
 			final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(

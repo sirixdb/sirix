@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -42,11 +42,12 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
  * <h1>AttributeNode</h1>
- * 
+ *
  * <p>
  * Node representing an attribute.
  * </p>
@@ -68,14 +69,14 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	/**
 	 * Creating an attribute.
-	 * 
+	 *
 	 * @param nodeDel
 	 *          {@link NodeDelegate} to be set
 	 * @param nodeDel
 	 *          {@link StructNodeDelegate} to be set
 	 * @param valDel
 	 *          {@link ValNodeDelegate} to be set
-	 * 
+	 *
 	 */
 	public AttributeNode(final NodeDelegate nodeDel,
 			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
@@ -102,7 +103,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nameDel", mNameDel)
+		return MoreObjects.toStringHelper(this).add("nameDel", mNameDel)
 				.add("valDel", mValDel).toString();
 	}
 
@@ -173,7 +174,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	/**
 	 * Getting the inlying {@link NameNodeDelegate}.
-	 * 
+	 *
 	 * @return the {@link NameNodeDelegate} instance
 	 */
 	NameNodeDelegate getNameNodeDelegate() {
@@ -182,7 +183,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	/**
 	 * Getting the inlying {@link ValNodeDelegate}.
-	 * 
+	 *
 	 * @return the {@link ValNodeDelegate} instance
 	 */
 	ValNodeDelegate getValNodeDelegate() {
