@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -56,7 +56,7 @@ import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
 /**
  * Test XMLUpdateShredder.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class XMLUpdateShredderTest extends XMLTestCase {
@@ -87,14 +87,8 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 	private static final String XMLSAME = RESOURCES + File.separator
 			+ "revXMLsSame";
 
-	private static final String XMLALLFIRST = RESOURCES + File.separator
-			+ "revXMLsAll";
-
 	private static final String XMLALLSECOND = RESOURCES + File.separator
 			+ "revXMLsAll1";
-
-	private static final String XMLALLTHIRD = RESOURCES + File.separator
-			+ "revXMLsAll2";
 
 	private static final String XMLALLFOURTH = RESOURCES + File.separator
 			+ "revXMLsAll3";
@@ -102,17 +96,8 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 	private static final String XMLALLFIFTH = RESOURCES + File.separator
 			+ "revXMLsAll4";
 
-	private static final String XMLALLSIXTH = RESOURCES + File.separator
-			+ "revXMLsAll5";
-
 	private static final String XMLALLSEVENTH = RESOURCES + File.separator
 			+ "revXMLsAll6";
-
-	private static final String XMLALLEIGHTH = RESOURCES + File.separator
-			+ "revXMLsAll7";
-
-	private static final String XMLALLNINETH = RESOURCES + File.separator
-			+ "revXMLsAll8";
 
 	// private static final String XMLLINGUISTICS = RESOURCES + File.separator +
 	// "linguistics";
@@ -285,6 +270,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 					shredder.call();
 					first = false;
 				} else {
+					@SuppressWarnings("deprecation")
 					final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx,
 							XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD, file,
 							ShredderCommit.COMMIT);

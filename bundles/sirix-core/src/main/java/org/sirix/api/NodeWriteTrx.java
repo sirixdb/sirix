@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -48,9 +48,9 @@ import com.google.common.annotations.Beta;
 
 /**
  * <h1>NodeWriteTrx</h1>
- * 
+ *
  * <h2>Description</h2>
- * 
+ *
  * <p>
  * Interface to access nodes based on the
  * Key/ParentKey/FirstChildKey/LeftSiblingKey
@@ -58,9 +58,9 @@ import com.google.common.annotations.Beta;
  * children ordered but has no knowledge of the global node ordering. The
  * underlying tree is accessed in a cursor-like fashion.
  * </p>
- * 
+ *
  * <h2>Convention</h2>
- * 
+ *
  * <p>
  * <ol>
  * <li>Only a single thread accesses the single INodeWriteTransaction instance.</li>
@@ -71,18 +71,18 @@ import com.google.common.annotations.Beta;
  *       NodeWriteTrx.getKey() == m)</code>.</li>
  * </ol>
  * </p>
- * 
+ *
  * <h2>User Example</h2>
- * 
+ *
  * <p>
- * 
+ *
  * <pre>
  * // Without auto commit.
  * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
  *   wtx.insertElementAsFirstChild(&quot;foo&quot;);
  *   wtx.commit();
  * }
- * 
+ *
  * // With auto commit after every 10th modification.
  * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.MINUTES, 0)) {
@@ -90,7 +90,7 @@ import com.google.common.annotations.Beta;
  *   // 9 other modifications.
  *   // Auto commit.
  * }
- * 
+ *
  * // With auto commit after every minute.
  * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(0,
  * 		TimeUnit.MINUTES, 1)) {
@@ -99,7 +99,7 @@ import com.google.common.annotations.Beta;
  *   // Then rollback (transaction is also rolled back if this method wouldn't be called during the auto close.
  *   wtx.rollback();
  * }
- * 
+ *
  * // With auto commit after every 10th modification and every second.
  * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.SECONDS, 1)) {
@@ -108,13 +108,13 @@ import com.google.common.annotations.Beta;
  *   // Implicit rollback during implicit wtx.close()-call.
  * }
  * </pre>
- * 
+ *
  * </p>
- * 
+ *
  * <h2>Developer Example</h2>
- * 
+ *
  * <p>
- * 
+ *
  * <pre>
  *   public final void someNodeWriteTrxMethod() {
  *     // This must be called to make sure the transaction is not closed.
@@ -124,7 +124,7 @@ import com.google.common.annotations.Beta;
  *     ...
  *   }
  * </pre>
- * 
+ *
  * </p>
  */
 public interface NodeWriteTrx extends NodeReadTrx {
@@ -136,7 +136,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Copy subtree from another {@code database/resource/revision} (the subtree
 	 * rooted at the provided transaction) and insert as right sibling of the
 	 * current node.
-	 * 
+	 *
 	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
@@ -144,7 +144,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 * @throws NullpointerException
-	 *           if {@code pRtx} is {@code null}
+	 *           if {@code rtx} is {@code null}
 	 */
 	NodeWriteTrx copySubtreeAsFirstChild(NodeReadTrx rtx) throws SirixException;
 
@@ -152,7 +152,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Copy subtree from another {@code database/resource/revision} (the subtree
 	 * rooted at the provided transaction) and insert as left sibling of the
 	 * current node.
-	 * 
+	 *
 	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
@@ -168,7 +168,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Copy subtree from another {@code database/resource/revision} (the subtree
 	 * rooted at the provided transaction) and insert as right sibling of the
 	 * current node.
-	 * 
+	 *
 	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
@@ -183,7 +183,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Replace a node with another node or subtree, depending on whether the
 	 * replaced node is an {@code element}- or a {@code text-}node.
-	 * 
+	 *
 	 * @param xml
 	 *          an XML representation
 	 * @return the transaction instance
@@ -203,7 +203,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Replace a node with another node or subtree (the subtree rooted at the
 	 * provided transaction), depending on whether the replaced node is an
 	 * {@code element}- or a {@code text-}node.
-	 * 
+	 *
 	 * @param pNode
 	 *          a node from another resource
 	 * @return the transaction instance
@@ -215,7 +215,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Move a subtree rooted at {@code fromKey} to the first child of the current
 	 * node.
-	 * 
+	 *
 	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
@@ -236,7 +236,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * current node. In case of the moved node is a text-node the value of the
 	 * current node is prepended to the moved node and deleted afterwards. In this
 	 * case the transaction is moved to the moved node.
-	 * 
+	 *
 	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
@@ -256,7 +256,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * node. In case of the moved node is a text-node the value of the current
 	 * node is prepended to the moved node and deleted afterwards. In this case
 	 * the transaction is moved to the moved node.
-	 * 
+	 *
 	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
@@ -275,7 +275,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new comment node as left sibling of currently selected node. The
 	 * cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -289,7 +289,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new comment node as right sibling of currently selected node. The
 	 * cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -303,7 +303,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new comment node as first child of currently selected node. The
 	 * cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -317,7 +317,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new Processing Instruction node as left sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param content
 	 *          content of processing instruction
 	 * @param target
@@ -334,7 +334,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new Processing Instruction node as right sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param content
 	 *          content of processing instruction
 	 * @param target
@@ -351,7 +351,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new Processing Instruction node as first child of currently selected
 	 * node. The cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param content
 	 *          content of processing instruction
 	 * @param target
@@ -368,7 +368,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new element node as first child of currently selected node. The
 	 * cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param name
 	 *          {@link QNm} of node to insert
 	 * @throws SirixException
@@ -382,7 +382,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new element node as left sibling of currently selected node. The
 	 * cursor is moved to the inserted node.
-	 * 
+	 *
 	 * @param pName
 	 *          {@link QNm} of node to insert
 	 * @throws SirixException
@@ -396,7 +396,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new element node as right sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
-	 * 
+	 *
 	 * @param name
 	 *          {@link QNm} of the new node
 	 * @throws SirixException
@@ -412,7 +412,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * is moved to the inserted node. If the result would be two adjacent
 	 * {@link TextNode}s the value is appended with a single whitespace character
 	 * prepended at first.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -426,7 +426,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new text node as left sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -440,7 +440,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert new text node as right sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
-	 * 
+	 *
 	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
@@ -454,7 +454,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert attribute in currently selected node. The cursor is moved to the
 	 * inserted node.
-	 * 
+	 *
 	 * @param name
 	 *          {@link QNm} reference
 	 * @param value
@@ -471,7 +471,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert attribute in currently selected node. The cursor is moved depending
 	 * on the value of {@code pMove}.
-	 * 
+	 *
 	 * @param name
 	 *          {@link QNm} reference
 	 * @param value
@@ -488,7 +488,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
 	 * moved to the inserted node.
-	 * 
+	 *
 	 * @param name
 	 *          {@link QNm} reference
 	 * @throws SirixException
@@ -502,7 +502,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
 	 * moved depending on the value of {@code pMove}.
-	 * 
+	 *
 	 * @param pName
 	 *          {@link QNm} reference
 	 * @return the current transaction
@@ -516,7 +516,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 /**
    * Insert a subtree as a first child.
-   * 
+   *
    * @param reader
    *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
@@ -532,7 +532,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 /**
    * Insert a subtree as a right sibling.
-   * 
+   *
    * @param reader
    *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
@@ -548,7 +548,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 /**
    * Insert a subtree as a left sibling.
-   * 
+   *
    * @param reader
    *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
@@ -567,11 +567,11 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * If two adjacent {@link TextNode}s would be the result after the remove, the
 	 * value of the former right sibling is appended to the left sibling
 	 * {@link TextNode} and removed afterwards.
-	 * 
+	 *
 	 * The cursor is located at the former right sibling. If there was no right
 	 * sibling, it is located at the former left sibling. If there was no left
 	 * sibling, it is located at the former parent.
-	 * 
+	 *
 	 * @return the current transaction
 	 * @throws SirixException
 	 *           if node couldn't be removed
@@ -583,7 +583,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Set QName of node.
-	 * 
+	 *
 	 * @param name
 	 *          new qualified name of node
 	 * @return the current transaction
@@ -596,7 +596,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Set value of node.
-	 * 
+	 *
 	 * @param value
 	 *          new value of node
 	 * @return the current transaction
@@ -610,7 +610,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Commit all modifications of the exclusive write transaction. Even commit if
 	 * there are no modification at all.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if this revision couldn't be commited
 	 */
@@ -618,7 +618,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Rollback all modifications of the exclusive write transaction.
-	 * 
+	 *
 	 * @throws SirixException
 	 *           if the changes in this revision couldn't be rollbacked
 	 */
@@ -628,7 +628,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Reverting all changes to the revision defined. This command has to be
 	 * finalized with a commit. A revert is always bound to a
 	 * {@link NodeReadTrx#moveToDocumentRoot()}.
-	 * 
+	 *
 	 * @param revision
 	 *          revert to the revision
 	 */
@@ -636,7 +636,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Closing current WriteTransaction.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if write transaction couldn't be closed
 	 */
@@ -645,7 +645,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Add pre commit hook.
-	 * 
+	 *
 	 * @param hook
 	 *          pre commit hook
 	 */
@@ -653,7 +653,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 
 	/**
 	 * Add a post commit hook.
-	 * 
+	 *
 	 * @param hook
 	 *          post commit hook
 	 */
@@ -662,14 +662,14 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Get the {@link PathSummaryReader} associated with the current write
 	 * transaction -- might be {@code null} if no path summary index is used.
-	 * 
+	 *
 	 * @return {@link PathSummaryReader} instance
 	 */
 	PathSummaryReader getPathSummary();
 
 	/**
 	 * Get the page transaction used within the write transaction.
-	 * 
+	 *
 	 * @return the {@link PageWriteTrx} instance
 	 */
 	@Beta

@@ -15,7 +15,7 @@ import org.sirix.exception.SirixIOException;
 
 /**
  * Static methods for file operations.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class Files {
@@ -27,19 +27,19 @@ public final class Files {
 
 	/**
 	 * Recursively remove a directory.
-	 * 
+	 *
 	 * @param path
 	 *          {@link Path} to the directory
 	 * @param options
 	 *          {@link Set} of {@link FileVisitOption}s (currently only supports
 	 *          following {@code symlinks} or not).
-	 * @throws IOException
+	 * @throws SirixIOException
 	 *           if any I/O operation fails
 	 * @throws NullPointerException
 	 *           if any of the arguments are {@code null}
 	 */
 	public static void recursiveRemove(final Path path,
-			final Set<FileVisitOption> options) throws SirixIOException {
+			final Set<FileVisitOption> options) {
 		try {
 			if (java.nio.file.Files.exists(path)) {
 				java.nio.file.Files.walkFileTree(checkNotNull(path),
@@ -72,15 +72,15 @@ public final class Files {
 
 	/**
 	 * Recursively remove a directory. Doesn't follow symlinks.
-	 * 
+	 *
 	 * @param path
 	 *          {@link Path} to the directory
-	 * @throws IOException
+	 * @throws SirixIOException
 	 *           if any I/O operation fails
 	 * @throws NullPointerException
 	 *           if any of the arguments are {@code null}
 	 */
-	public static void recursiveRemove(final Path path) throws SirixIOException {
+	public static void recursiveRemove(final Path path) {
 		recursiveRemove(path, EnumSet.noneOf(FileVisitOption.class));
 	}
 }

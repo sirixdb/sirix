@@ -27,6 +27,8 @@
 
 package org.sirix.page;
 
+import java.util.Objects;
+
 import javax.annotation.Nullable;
 
 import org.sirix.cache.IndirectPageLogKey;
@@ -158,5 +160,19 @@ public final class PageReference {
 	 */
 	public IndirectPageLogKey getLogKey() {
 		return mLogKey;
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mKey);
+	}
+
+	@Override
+	public boolean equals(final @Nullable Object other) {
+		if (other instanceof PageReference) {
+			final PageReference otherPageRef = (PageReference) other;
+			return otherPageRef.mKey == mKey;
+		}
+		return false;
 	}
 }

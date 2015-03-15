@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -57,14 +57,14 @@ import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.DocumentCreater;
 
 /**
- * 
+ *
  * Helper class for offering convenient usage of {@link SessionImpl}s for test
  * cases.
- * 
+ *
  * This includes instantiation of databases plus resources.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public final class TestHelper {
 
@@ -121,7 +121,7 @@ public final class TestHelper {
 	/**
 	 * Getting a database and create one of not existing. This includes the
 	 * creation of a resource with the settings in the builder as standard.
-	 * 
+	 *
 	 * @param file
 	 *          to be created
 	 * @return a database-obj
@@ -150,7 +150,7 @@ public final class TestHelper {
 
 	/**
 	 * Deleting all resources as defined in the enum {@link PATHS}.
-	 * 
+	 *
 	 * @throws SirixException
 	 */
 	@Ignore
@@ -162,7 +162,7 @@ public final class TestHelper {
 
 	/**
 	 * Closing all resources as defined in the enum {@link PATHS}.
-	 * 
+	 *
 	 * @throws SirixException
 	 */
 	@Ignore
@@ -247,7 +247,7 @@ public final class TestHelper {
 
 	/**
 	 * Read a file into a StringBuilder.
-	 * 
+	 *
 	 * @param paramFile
 	 *          The file to read.
 	 * @param paramWhitespaces
@@ -281,7 +281,7 @@ public final class TestHelper {
 
 	/**
 	 * Creating a test document at {@link PATHS#PATH1}.
-	 * 
+	 *
 	 * @throws SirixException
 	 */
 	public static void createTestDocument() throws SirixException {
@@ -299,8 +299,9 @@ public final class TestHelper {
 	}
 
 	/**
-	 * Creating a test document with comments and processing instructions at {@link PATHS#PATH1}.
-	 * 
+	 * Creating a test document with comments and processing instructions at
+	 * {@link PATHS#PATH1}.
+	 *
 	 * @throws SirixException
 	 */
 	public static void createPICommentTestDocument() throws SirixException {
@@ -319,7 +320,7 @@ public final class TestHelper {
 
 	/**
 	 * Generating random bytes.
-	 * 
+	 *
 	 * @return the random bytes
 	 */
 	public static final @Nonnull byte[] generateRandomBytes(final int size) {
@@ -330,7 +331,7 @@ public final class TestHelper {
 
 	/**
 	 * Generating a single {@link DumbNode} with random values.
-	 * 
+	 *
 	 * @return a {@link DumbNode} with random values
 	 */
 	public static final Record generateOne() {

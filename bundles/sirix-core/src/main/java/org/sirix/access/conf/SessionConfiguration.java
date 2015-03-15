@@ -53,12 +53,6 @@ import com.google.common.base.Objects;
 public final class SessionConfiguration {
 
 	// STATIC STANDARD FIELDS
-	/** Number of concurrent exclusive write transactions. */
-	public static final int MAX_WRITE_TRANSACTIONS = 1;
-
-	/** Number of concurrent read transactions. */
-	public static final int MAX_READ_TRANSACTIONS = 512;
-
 	/** Commit threshold. */
 	public static final int COMMIT_THRESHOLD = 262144;
 
