@@ -387,11 +387,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 				if (page == null) {
 					page = mPageReader.read(reference.getKey(), impl).setDirty(true);
 
-					// if (page != null) {
-					// // Put page into buffer manager and set page reference.
-					// mResourceBufferManager.getPageCache().put(reference, page);
-					// reference.setPage(page);
-					// }
+					if (page != null) {
+						// Put page into buffer manager and set page reference (just to
+						// track when the in-memory page must be removed).
+						mResourceBufferManager.getPageCache().put(reference, page);
+						reference.setPage(page);
+					}
 				}
 				return page;
 			}
@@ -820,6 +821,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 				page = (IndirectPage) mPageWriteTrx.get().mPageLog.get(reference
 						.getLogKey());
 			}
+
+			if (page == null) {
+				page = (IndirectPage) reference.getPage();
+			}
+
 			if (page == null
 					&& (reference.getKey() != Constants.NULL_ID || reference.getLogKey() != null)) {
 				page = (IndirectPage) mPageCache.get(reference);
