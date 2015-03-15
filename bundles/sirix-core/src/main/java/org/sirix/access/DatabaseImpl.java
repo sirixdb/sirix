@@ -50,6 +50,8 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
+import org.sirix.cache.BufferManager;
+import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
@@ -89,7 +91,10 @@ public final class DatabaseImpl implements Database {
 	/** Write semaphores shared for each resource. */
 	private final ConcurrentMap<File, Semaphore> mWriteSemaphores;
 
-	/** Central repository of all resource-ID/ResourceConfiguration tuples. */
+	/** Buffers / page cache for each resource. */
+	private final ConcurrentMap<File, BufferManager> mBufferManagers;
+
+	/** Central repository of all resource-ID/resource-name tuples. */
 	private final BiMap<Long, String> mResources;
 
 	/** DatabaseConfiguration with fixed settings. */
@@ -107,9 +112,10 @@ public final class DatabaseImpl implements Database {
 	DatabaseImpl(final DatabaseConfiguration dbConfig) {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
-		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
+		mResources = Maps.synchronizedBiMap(HashBiMap.create());
 		mReadSemaphores = new ConcurrentHashMap<>();
 		mWriteSemaphores = new ConcurrentHashMap<>();
+		mBufferManagers = new ConcurrentHashMap<>();
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -191,11 +197,11 @@ public final class DatabaseImpl implements Database {
 			if (resourceFile.exists()
 					&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
 				// Instantiate the database for deletion.
-				try {
-					Files.recursiveRemove(resourceFile.toPath());
-				} catch (final SirixIOException e) {
-					LOGWRAPPER.error(e.getMessage(), e);
-				}
+				Files.recursiveRemove(resourceFile.toPath());
+
+				mReadSemaphores.remove(resourceFile);
+				mWriteSemaphores.remove(resourceFile);
+				mBufferManagers.remove(resourceFile);
 			}
 		}
 
@@ -262,7 +268,10 @@ public final class DatabaseImpl implements Database {
 			mReadSemaphores.put(resourceFile, new Semaphore(512));
 		if (!mWriteSemaphores.containsKey(resourceFile))
 			mWriteSemaphores.put(resourceFile, new Semaphore(1));
-		final Session session = new SessionImpl(this, resourceConfig, sessionConf);
+		if (!mBufferManagers.containsKey(resourceFile))
+			mBufferManagers.put(resourceFile, new BufferManagerImpl());
+		final Session session = new SessionImpl(this, resourceConfig, sessionConf,
+				mBufferManagers.get(resourceFile));
 		sessions.add(session);
 		mSessions.put(resourceFile, sessions);
 		return session;
@@ -334,6 +343,7 @@ public final class DatabaseImpl implements Database {
 			final SessionConfiguration sessionConfig) {
 		final Set<Session> sessions = mSessions.get(resourceFile);
 		if (sessions == null || sessions.isEmpty() || sessions.size() == 1) {
+
 			return mSessions.remove(resourceFile) == null ? false : true;
 		}
 
@@ -397,5 +407,9 @@ public final class DatabaseImpl implements Database {
 
 	Semaphore getWriteSemaphore(File resourceFile) {
 		return mWriteSemaphores.get(resourceFile);
+	}
+
+	BufferManager getPageCache(File resourceFile) {
+		return mBufferManagers.get(resourceFile);
 	}
 }

@@ -47,6 +47,7 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.Cache;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.IndirectPageLogKey;
@@ -161,7 +162,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @param representRev
 	 *          revision represent
 	 * @param lastStoredRev
-	 *          last store revision
+	 *          last stored revision
+	 * @param bufferManager
+	 *          the page cache buffer
 	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
@@ -169,13 +172,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final Writer writer, final @Nonnegative long trxId,
 			final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
-			final @Nonnegative int lastCommitedRev) {
+			final @Nonnegative int lastCommitedRev,
+			final @Nonnull BufferManager bufferManager) {
 		final int revision = uberPage.isBootstrap() ? 0 : lastStoredRev + 1;
-		mUsePathSummary = session.mResourceConfig.mPathSummary;
+		mUsePathSummary = session.getResourceConfig().mPathSummary;
 		mIndexController = session.getWtxIndexController(representRev);
 
 		// Deserialize index definitions.
-		final File indexes = new File(session.mResourceConfig.mPath,
+		final File indexes = new File(session.getResourceConfig().mPath,
 				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + lastStoredRev
 						+ ".xml");
 		if (indexes.exists()) {
@@ -189,26 +193,26 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		}
 
 		mPageLog = new SynchronizedTransactionLogPageCache(
-				session.mResourceConfig.mPath, revision, "page", this);
+				session.getResourceConfig().mPath, revision, "page", this);
 		mNodeLog = new SynchronizedTransactionLogCache<>(
-				session.mResourceConfig.mPath, revision, "node", this);
+				session.getResourceConfig().mPath, revision, "node", this);
 		if (mUsePathSummary) {
 			mPathSummaryLog = new TransactionIndexLogCache<>(
-					session.mResourceConfig.mPath, revision, "pathSummary", this);
+					session.getResourceConfig().mPath, revision, "pathSummary", this);
 		} else {
 			mPathSummaryLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
-					revision, "path", this);
+			mPathLog = new TransactionIndexLogCache<>(
+					session.getResourceConfig().mPath, revision, "path", this);
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
-					revision, "cas", this);
+			mCASLog = new TransactionIndexLogCache<>(
+					session.getResourceConfig().mPath, revision, "cas", this);
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
-					revision, "name", this);
+			mNameLog = new TransactionIndexLogCache<>(
+					session.getResourceConfig().mPath, revision, "name", this);
 		}
 
 		// Create revision tree if needed.
@@ -218,10 +222,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		// Page read trx.
 		mPageRtx = new PageReadTrxImpl(session, uberPage, representRev, writer,
-				Optional.of(this),
-				// uberPage.isBootstrap() ? Optional.of(this) : Optional
-				// .<PageWriteTrxImpl> absent(),
-				Optional.of(mIndexController));
+				Optional.of(this), Optional.of(mIndexController), bufferManager);
 
 		mPageWriter = writer;
 		mTransactionID = trxId;
@@ -415,21 +416,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			case CAS:
 				if (mCASLog == null) {
 					mCASLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.mSession.getResourceConfig().mPath,
 							mPageRtx.getRevisionNumber(), "cas", this);
 				}
 				break;
 			case NAME:
 				if (mNameLog == null) {
 					mNameLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.mSession.getResourceConfig().mPath,
 							mPageRtx.getRevisionNumber(), "name", this);
 				}
 				break;
 			case PATH:
 				if (mPathLog == null) {
 					mPathLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.mResourceConfig.mPath,
+							mPageRtx.mSession.getResourceConfig().mPath,
 							mPageRtx.getRevisionNumber(), "path", this);
 				}
 				break;
@@ -615,7 +616,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public UberPage commit(final MultipleWriteTrx multipleWriteTrx) {
 		mPageRtx.assertNotClosed();
-		mPageRtx.mSession.mCommitLock.lock();
+		mPageRtx.mSession.getCommitLock().lock();
 		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
 
 		final File commitFile = mPageRtx.mSession.commitFile(getRevisionNumber());
@@ -631,7 +632,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		}
 
 		// Forcefully flush write-ahead transaction logs to persistent storage.
-		if (mPageRtx.mSession.mSessionConfig.dumpLogs()) {
+		if (mPageRtx.mSession.getSessionConfig().dumpLogs()) {
 			mPageLog.toSecondCache();
 			mNodeLog.toSecondCache();
 
@@ -679,7 +680,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			throw new SirixIOException("Commit file couldn't be deleted!");
 		}
 
-		mPageRtx.mSession.mCommitLock.unlock();
+		mPageRtx.mSession.getCommitLock().unlock();
 		return uberPage;
 	}
 
@@ -916,18 +917,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Dereference record page reference.
 	 *
-	 * @param recordPageKey
-	 *          key of record page
-	 * @param pageKind
-	 *          the kind of subtree, the page is in
+	 * @param reference
+	 *          reference to leaf, that is the record page
 	 * @return dereferenced page
 	 */
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceRecordPageForModification(
 			final PageReference reference) {
 		final List<UnorderedKeyValuePage> revs = mPageRtx
 				.getSnapshotPages(reference);
-		final Versioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
-		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
+		final Versioning revisioning = mPageRtx.mSession.getResourceConfig().mRevisionKind;
+		final int mileStoneRevision = mPageRtx.mSession.getResourceConfig().mRevisionsToRestore;
 		return revisioning.combineRecordPagesForModification(revs,
 				mileStoneRevision, mPageRtx, reference);
 	}

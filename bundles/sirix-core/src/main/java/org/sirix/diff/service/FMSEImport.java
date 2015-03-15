@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -53,9 +53,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Import using the FMSE algorithm.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class FMSEImport {
 
@@ -65,10 +65,10 @@ public final class FMSEImport {
 
 	/**
 	 * Shredder new revision as temporal resource.
-	 * 
-	 * @param pResNewRev
+	 *
+	 * @param resNewRev
 	 *          {@link File} reference for new revision (XML resource)
-	 * @param pNewRev
+	 * @param newRev
 	 *          {@link File} reference for shreddered new revision (sirix
 	 *          resource)
 	 * @throws SirixException
@@ -80,20 +80,20 @@ public final class FMSEImport {
 	 * @throws NullPointerException
 	 *           if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
 	 */
-	private void shredder(final File pResNewRev, @Nonnull final File pNewRev)
+	private void shredder(final File resNewRev, @Nonnull final File newRev)
 			throws SirixException, IOException, XMLStreamException {
-		assert pResNewRev != null;
-		assert pNewRev != null;
-		final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
+		assert resNewRev != null;
+		assert newRev != null;
+		final DatabaseConfiguration conf = new DatabaseConfiguration(newRev);
 		Databases.truncateDatabase(conf);
 		Databases.createDatabase(conf);
-		final Database db = Databases.openDatabase(pNewRev);
+		final Database db = Databases.openDatabase(newRev);
 		db.createResource(new ResourceConfiguration.Builder("shredded", conf)
 				.build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"shredded").build());
 		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		final XMLEventReader reader = XMLShredder.createFileReader(pResNewRev);
+		final XMLEventReader reader = XMLShredder.createFileReader(resNewRev);
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
 				Insert.ASFIRSTCHILD).commitAfterwards().build();
 		shredder.call();
@@ -104,24 +104,24 @@ public final class FMSEImport {
 
 	/**
 	 * Import the data.
-	 * 
-	 * @param pResOldRev
+	 *
+	 * @param resOldRev
 	 *          {@link File} for old revision (sirix resource)
-	 * @param pResNewRev
+	 * @param resNewRev
 	 *          {@link File} for new revision (XML resource)
 	 */
-	private void dataImport(final File pResOldRev, @Nonnull final File pResNewRev) {
+	private void dataImport(final File resOldRev, @Nonnull final File resNewRev) {
 
 		try {
-			final File newRevTarget = new File(new StringBuilder("target")
-					.append(File.separator).append(checkNotNull(pResNewRev).getName())
-					.toString());
+			final File newRevTarget = new File(new StringBuilder(
+					System.getProperty("java.io.tmpdir")).append(File.separator)
+					.append(checkNotNull(resNewRev).getName()).toString());
 			if (newRevTarget.exists()) {
 				Files.recursiveRemove(newRevTarget.toPath());
 			}
-			shredder(checkNotNull(pResNewRev), newRevTarget);
+			shredder(checkNotNull(resNewRev), newRevTarget);
 
-			final Database databaseOld = Databases.openDatabase(pResOldRev);
+			final Database databaseOld = Databases.openDatabase(resOldRev);
 			final Session sessionOld = databaseOld
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = sessionOld.beginNodeWriteTrx();
@@ -146,7 +146,7 @@ public final class FMSEImport {
 
 	/**
 	 * Main entry point.
-	 * 
+	 *
 	 * @param args
 	 *          <p>
 	 *          arguments:

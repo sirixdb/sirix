@@ -7,6 +7,7 @@ import java.util.Optional;
 
 import javax.annotation.Nonnegative;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
@@ -38,20 +39,20 @@ public final class NodePersistenterImpl implements NodePersistenter {
 
 	@Override
 	public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source,
-			Optional<SirixDeweyID> previousDeweyID, final PageReadTrx pageReadTrx)
-			throws IOException {
+			Optional<SirixDeweyID> previousDeweyID,
+			ResourceConfiguration resourceConfig) throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
-		return enumKind.deserializeDeweyID(source, previousDeweyID, pageReadTrx);
+		return enumKind.deserializeDeweyID(source, previousDeweyID, resourceConfig);
 	}
 
 	@Override
 	public void serializeDeweyID(final DataOutput sink, final Kind nodeKind,
 			final SirixDeweyID deweyID, final Optional<SirixDeweyID> previousDeweyID,
-			final PageReadTrx pageReadTrx) throws IOException {
+			ResourceConfiguration resourceConfig) throws IOException {
 		final byte id = nodeKind.getId();
 		sink.writeByte(id);
 		nodeKind.serializeDeweyID(sink, nodeKind, deweyID, previousDeweyID,
-				pageReadTrx);
+				resourceConfig);
 	}
 }

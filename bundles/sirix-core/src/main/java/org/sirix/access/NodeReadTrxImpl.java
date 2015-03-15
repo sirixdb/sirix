@@ -990,7 +990,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
 		assertNotClosed();
-		if (mSession.mResourceConfig.mDeweyIDsStored) {
+		if (mSession.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
 			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
@@ -1006,7 +1006,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
-		if (mSession.mResourceConfig.mDeweyIDsStored) {
+		if (mSession.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
 			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
@@ -1022,7 +1022,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Optional<SirixDeweyID> getParentDeweyID() {
-		if (mSession.mResourceConfig.mDeweyIDsStored) {
+		if (mSession.getResourceConfig().mDeweyIDsStored) {
 			final long nodeKey = mCurrentNode.getNodeKey();
 			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
 			if (mCurrentNode.hasParent()) {
@@ -1037,7 +1037,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Optional<SirixDeweyID> getFirstChildDeweyID() {
-		if (mSession.mResourceConfig.mDeweyIDsStored) {
+		if (mSession.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
 			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();

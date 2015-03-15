@@ -61,6 +61,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
+import org.sirix.cache.BufferManager;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -108,13 +109,13 @@ public final class SessionImpl implements Session {
 	private final ConcurrentMap<Long, PageReadTrx> mPageTrxMap;
 
 	/** Lock for blocking the commit. */
-	final Lock mCommitLock;
+	private final Lock mCommitLock;
 
 	/** Session configuration. */
-	final ResourceConfiguration mResourceConfig;
+	private final ResourceConfiguration mResourceConfig;
 
 	/** Session configuration. */
-	final SessionConfiguration mSessionConfig;
+	private final SessionConfiguration mSessionConfig;
 
 	/** Remember the write seperately because of the concurrent writes. */
 	private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
@@ -140,6 +141,12 @@ public final class SessionImpl implements Session {
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
 
+	/**
+	 * The cache of in-memory pages shared amongst all sessions / resource
+	 * transactions.
+	 */
+	private final BufferManager mBufferManager;
+
 	/** Abort a write transaction. */
 	enum Abort {
 		/** Yes, abort. */
@@ -160,12 +167,16 @@ public final class SessionImpl implements Session {
 	 *          storage
 	 * @param sessionConf
 	 *          {@link SessionConfiguration} for handling this specific session
+	 * @param pageCache
+	 *          the cache of in-memory pages shared amongst all sessions /
+	 *          resource transactions
 	 * @throws SirixException
 	 *           if Sirix encounters an exception
 	 */
 	SessionImpl(final DatabaseImpl database,
 			final @Nonnull ResourceConfiguration resourceConf,
-			final @Nonnull SessionConfiguration sessionConf) {
+			final @Nonnull SessionConfiguration sessionConf,
+			final @Nonnull BufferManager bufferManager) {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
 		mSessionConfig = checkNotNull(sessionConf);
@@ -175,6 +186,7 @@ public final class SessionImpl implements Session {
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
 		mRtxIndexControllers = new ConcurrentHashMap<>();
 		mWtxIndexControllers = new ConcurrentHashMap<>();
+		mBufferManager = checkNotNull(bufferManager);
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
@@ -207,6 +219,14 @@ public final class SessionImpl implements Session {
 		mClosed = false;
 	}
 
+	SessionConfiguration getSessionConfig() {
+		return mSessionConfig;
+	}
+
+	Lock getCommitLock() {
+		return mCommitLock;
+	}
+
 	@Override
 	public NodeReadTrx beginNodeReadTrx() {
 		return beginNodeReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
@@ -230,8 +250,7 @@ public final class SessionImpl implements Session {
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
 						mLastCommittedUberPage.get(), revisionKey, mFac.getReader(),
-						Optional.<PageWriteTrxImpl> empty(),
-						Optional.<IndexController> empty()));
+						Optional.empty(), Optional.empty(), mBufferManager));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -309,7 +328,9 @@ public final class SessionImpl implements Session {
 	 * @param representRevision
 	 *          the revision which is represented
 	 * @param storeRevision
-	 *          revisions
+	 *          the revision which is stored
+	 * @param abort
+	 *          determines if a transaction must be aborted (rollback) or not
 	 * @return a new {@link PageWriteTrx} instance
 	 */
 	PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(
@@ -325,7 +346,7 @@ public final class SessionImpl implements Session {
 		return new PageWriteTrxImpl(this, abort == Abort.YES
 				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(
 				lastCommitedUberPage), writer, id, representRevision, storeRevision,
-				lastCommitedRev);
+				lastCommitedRev, mBufferManager);
 	}
 
 	@Override
@@ -613,8 +634,8 @@ public final class SessionImpl implements Session {
 
 		return PathSummaryReader.getInstance(
 				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac
-						.getReader(), Optional.<PageWriteTrxImpl> empty(), Optional
-						.<IndexController> empty()), this);
+						.getReader(), Optional.empty(), Optional.empty(), mBufferManager),
+				this);
 	}
 
 	@Override
@@ -631,8 +652,7 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(
 			final @Nonnegative int revision) {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.getReader(), Optional.<PageWriteTrxImpl> empty(),
-				Optional.<IndexController> empty());
+				mFac.getReader(), Optional.empty(), Optional.empty(), mBufferManager);
 	}
 
 	@Override

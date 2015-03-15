@@ -213,7 +213,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		mNodeRtx = new NodeReadTrxImpl(session, transactionID, pageWriteTrx);
 		mIndexController = session.getWtxIndexController(pageWriteTrx
 				.getRevisionNumber());
-		mBuildPathSummary = session.mResourceConfig.mPathSummary;
+		mBuildPathSummary = session.getResourceConfig().mPathSummary;
 
 		// Only auto commit by node modifications if it is more then 0.
 		mMaxNodeCount = maxNodeCount;
@@ -237,7 +237,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}, maxTime, maxTime, timeUnit);
 		}
 
-		mHashKind = session.mResourceConfig.mHashKind;
+		mHashKind = session.getResourceConfig().mHashKind;
 
 		// Synchronize commit and other public methods if needed.
 		if (maxTime > 0) {
@@ -246,8 +246,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			mLock = Optional.empty();
 		}
 
-		mDeweyIDsStored = mNodeRtx.mSession.mResourceConfig.mDeweyIDsStored;
-		mCompression = mNodeRtx.mSession.mResourceConfig.mCompression;
+		mDeweyIDsStored = mNodeRtx.mSession.getResourceConfig().mDeweyIDsStored;
+		mCompression = mNodeRtx.mSession.getResourceConfig().mCompression;
 
 		// // Redo last transaction if the system crashed.
 		// if (!pPageWriteTrx.isCreated()) {
@@ -1429,7 +1429,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 
 				// Get the path node key.
-				final long pathNodeKey = mNodeRtx.mSession.mResourceConfig.mPathSummary ? mPathSummaryWriter
+				final long pathNodeKey = mNodeRtx.mSession.getResourceConfig().mPathSummary ? mPathSummaryWriter
 						.getPathNodeKey(name, Kind.ATTRIBUTE) : 0;
 				final byte[] attValue = getBytes(value);
 
