@@ -155,8 +155,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *          last stored revision
 	 * @param bufferManager
 	 *          the page cache buffer
-	 * @throws AbsTTException
-	 *           if an error occurs
 	 */
 	PageWriteTrxImpl(final SessionImpl session, final UberPage uberPage,
 			final Writer writer, final @Nonnegative long trxId,
