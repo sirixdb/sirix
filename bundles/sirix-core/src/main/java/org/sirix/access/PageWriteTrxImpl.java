@@ -55,7 +55,6 @@ import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.SynchronizedIndexTransactionLogCache;
 import org.sirix.cache.SynchronizedTransactionLogCache;
 import org.sirix.cache.SynchronizedTransactionLogPageCache;
-import org.sirix.cache.TransactionIndexLogCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -124,17 +123,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Last reference to the actual revRoot. */
 	private final RevisionRootPage mNewRoot;
 
-	/** ID for current transaction. */
-	private final long mTransactionID;
-
 	/** {@link PageReadTrxImpl} instance. */
 	private final PageReadTrxImpl mPageRtx;
-
-	/**
-	 * Determines if multiple {@link SynchNodeWriteTrx} are working or just a
-	 * single {@link NodeWriteTrxImpl}.
-	 */
-	private MultipleWriteTrx mMultipleWriteTrx;
 
 	/** Determines if a log must be replayed or not. */
 	private Restore mRestore = Restore.NO;
@@ -197,21 +187,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mNodeLog = new SynchronizedTransactionLogCache<>(
 				session.getResourceConfig().mPath, revision, "node", this);
 		if (mUsePathSummary) {
-			mPathSummaryLog = new TransactionIndexLogCache<>(
+			mPathSummaryLog = new SynchronizedIndexTransactionLogCache<>(
 					session.getResourceConfig().mPath, revision, "pathSummary", this);
 		} else {
 			mPathSummaryLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathLog = new TransactionIndexLogCache<>(
+			mPathLog = new SynchronizedIndexTransactionLogCache<>(
 					session.getResourceConfig().mPath, revision, "path", this);
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASLog = new TransactionIndexLogCache<>(
+			mCASLog = new SynchronizedIndexTransactionLogCache<>(
 					session.getResourceConfig().mPath, revision, "cas", this);
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameLog = new TransactionIndexLogCache<>(
+			mNameLog = new SynchronizedIndexTransactionLogCache<>(
 					session.getResourceConfig().mPath, revision, "name", this);
 		}
 
@@ -225,8 +215,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				Optional.of(this), Optional.of(mIndexController), bufferManager);
 
 		mPageWriter = writer;
-		mTransactionID = trxId;
-
 		final RevisionRootPage lastCommitedRoot = mPageRtx
 				.loadRevRoot(lastCommitedRev);
 		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
@@ -467,8 +455,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public String getName(final int nameKey, final Kind nodeKind) {
 		mPageRtx.assertNotClosed();
-		final NamePage currentNamePage = (NamePage) mNewRoot.getNamePageReference()
-				.getPage();
+		final NamePage currentNamePage = getNamePage(mNewRoot);
 		// if currentNamePage == null -> state was commited and no prepareNodepage
 		// was invoked yet
 		return (currentNamePage == null || currentNamePage.getName(nameKey,
@@ -483,8 +470,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		checkNotNull(nodeKind);
 		final String string = (name == null ? "" : name);
 		final int nameKey = NamePageHash.generateHashForString(string);
-		final NamePage namePage = (NamePage) mNewRoot.getNamePageReference()
-				.getPage();
+		final NamePage namePage = getNamePage(mNewRoot);
 		namePage.setName(nameKey, string, nodeKind);
 		return nameKey;
 	}
@@ -614,10 +600,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public UberPage commit(final MultipleWriteTrx multipleWriteTrx) {
+	public UberPage commit() {
 		mPageRtx.assertNotClosed();
 		mPageRtx.mSession.getCommitLock().lock();
-		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
 
 		final File commitFile = mPageRtx.mSession.commitFile(getRevisionNumber());
 		commitFile.deleteOnExit();
@@ -662,7 +647,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageWriter.writeUberPageReference(uberPageReference);
 		uberPageReference.setPage(null);
 
-		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
+		// mPageRtx.mSession.waitForFinishedSync(mTransactionID);
 
 		final File indexes = new File(mPageRtx.mResourceConfig.mPath,
 				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision

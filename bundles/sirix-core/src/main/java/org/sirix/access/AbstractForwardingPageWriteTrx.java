@@ -18,9 +18,9 @@ import org.sirix.page.interfaces.KeyValuePage;
 
 /**
  * Forwards all methods to the delegate.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
 		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V, S> {
@@ -73,8 +73,8 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public UberPage commit(MultipleWriteTrx multipleWriteTrx) {
-		return delegate().commit(multipleWriteTrx);
+	public UberPage commit() {
+		return delegate().commit();
 	}
 
 	@Override

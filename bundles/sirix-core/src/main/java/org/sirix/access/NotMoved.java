@@ -1,14 +1,16 @@
 package org.sirix.access;
 
+import java.util.NoSuchElementException;
+
 import javax.annotation.Nullable;
 
 import org.sirix.api.NodeCursor;
 
 /**
  * Determines that a {@link NodeCursor} hasn't moved to the node.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class NotMoved extends Move<NodeCursor> {
 	/** Singleton instance. */
@@ -25,7 +27,7 @@ public class NotMoved extends Move<NodeCursor> {
 
 	@Override
 	public NodeCursor get() {
-		throw new IllegalStateException(
+		throw new NoSuchElementException(
 				"NotMoved.get() cannot be called on an absent value");
 	}
 

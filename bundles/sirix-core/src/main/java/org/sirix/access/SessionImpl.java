@@ -31,16 +31,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -62,7 +57,6 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.cache.BufferManager;
-import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
@@ -73,7 +67,6 @@ import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -505,107 +498,110 @@ public final class SessionImpl implements Session {
 		return mSessionConfig.mUser;
 	}
 
-	/**
-	 * Synchronize logs.
-	 *
-	 * @param contToSync
-	 *          {@link RecordPageContainer} to synchronize
-	 * @param pTransactionId
-	 *          transaction ID
-	 * @throws SirixThreadedException
-	 *
-	 */
-	protected synchronized void syncLogs(
-			final RecordPageContainer<UnorderedKeyValuePage> contToSync,
-			final @Nonnegative long transactionID, final PageKind pageKind)
-			throws SirixThreadedException {
-		final ExecutorService pool = Executors.newCachedThreadPool();
-		final Collection<Future<Void>> returnVals = new ArrayList<>();
-		for (final Long key : mNodePageTrxMap.keySet()) {
-			if (key != transactionID) {
-				returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
-						contToSync, pageKind)));
-			}
-		}
-		pool.shutdown();
-		if (!mSyncTransactionsReturns.containsKey(transactionID)) {
-			mSyncTransactionsReturns.put(transactionID,
-					new ConcurrentHashMap<Long, Collection<Future<Void>>>());
-		}
-		// if (mSyncTransactionsReturns.get(pTransactionId).put(
-		// ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) !=
-		// null) {
-		// throw new TTThreadedException(
-		// "only one commit and therefore sync per id and nodepage is allowed!");
-		// }
-	}
-
-	/**
-	 * Wait until synchronization is finished.
-	 *
-	 * @param transactionID
-	 *          transaction ID for which to wait (all others)
-	 * @throws SirixThreadedException
-	 *           if an exception occurs
-	 */
-	protected synchronized void waitForFinishedSync(
-			final @Nonnegative long transactionID) throws SirixThreadedException {
-		final Map<Long, Collection<Future<Void>>> completeVals = mSyncTransactionsReturns
-				.remove(transactionID);
-		if (completeVals != null) {
-			for (final Collection<Future<Void>> singleVals : completeVals.values()) {
-				for (final Future<Void> returnVal : singleVals) {
-					try {
-						returnVal.get();
-					} catch (final InterruptedException exc) {
-						throw new SirixThreadedException(exc);
-					} catch (final ExecutionException exc) {
-						throw new SirixThreadedException(exc);
-					}
-				}
-			}
-		}
-	}
-
-	/**
-	 * Synchronize the log.
-	 */
-	class LogSyncer implements Callable<Void> {
-
-		/** {@link PageWriteTrx} to interact with the page layer. */
-		private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
-
-		/** {@link RecordPageContainer} reference. */
-		private final RecordPageContainer<UnorderedKeyValuePage> mCont;
-
-		/** Type of page. */
-		private final PageKind mPage;
-
-		/**
-		 * Log synchronizer.
-		 *
-		 * @param pPageWriteTransaction
-		 *          Sirix {@link PageWriteTrx}
-		 * @param pNodePageCont
-		 *          {@link RecordPageContainer} to update
-		 * @param pPage
-		 *          page type
-		 */
-		LogSyncer(
-				final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pPageWriteTransaction,
-				final RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
-				final PageKind pPage) {
-			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
-			mCont = checkNotNull(pNodePageCont);
-			mPage = checkNotNull(pPage);
-		}
-
-		@Override
-		public Void call() throws Exception {
-			mPageWriteTrx.updateDataContainer(mCont, mPage);
-			return null;
-		}
-	}
+	// /**
+	// * Synchronize logs.
+	// *
+	// * @param contToSync
+	// * {@link RecordPageContainer} to synchronize
+	// * @param pTransactionId
+	// * transaction ID
+	// * @throws SirixThreadedException
+	// *
+	// */
+	// protected synchronized void syncLogs(
+	// final RecordPageContainer<UnorderedKeyValuePage> contToSync,
+	// final @Nonnegative long transactionID, final PageKind pageKind)
+	// throws SirixThreadedException {
+	// final ExecutorService pool = Executors.newCachedThreadPool();
+	// final Collection<Future<Void>> returnVals = new ArrayList<>();
+	// for (final Long key : mNodePageTrxMap.keySet()) {
+	// if (key != transactionID) {
+	// returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
+	// contToSync, pageKind)));
+	// }
+	// }
+	// pool.shutdown();
+	// if (!mSyncTransactionsReturns.containsKey(transactionID)) {
+	// mSyncTransactionsReturns.put(transactionID,
+	// new ConcurrentHashMap<Long, Collection<Future<Void>>>());
+	// }
+	// // if (mSyncTransactionsReturns.get(pTransactionId).put(
+	// // ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) !=
+	// // null) {
+	// // throw new TTThreadedException(
+	// // "only one commit and therefore sync per id and nodepage is allowed!");
+	// // }
+	// }
+	//
+	// /**
+	// * Wait until synchronization is finished.
+	// *
+	// * @param transactionID
+	// * transaction ID for which to wait (all others)
+	// * @throws SirixThreadedException
+	// * if an exception occurs
+	// */
+	// protected synchronized void waitForFinishedSync(
+	// final @Nonnegative long transactionID) throws SirixThreadedException {
+	// final Map<Long, Collection<Future<Void>>> completeVals =
+	// mSyncTransactionsReturns
+	// .remove(transactionID);
+	// if (completeVals != null) {
+	// for (final Collection<Future<Void>> singleVals : completeVals.values()) {
+	// for (final Future<Void> returnVal : singleVals) {
+	// try {
+	// returnVal.get();
+	// } catch (final InterruptedException exc) {
+	// throw new SirixThreadedException(exc);
+	// } catch (final ExecutionException exc) {
+	// throw new SirixThreadedException(exc);
+	// }
+	// }
+	// }
+	// }
+	// }
+	//
+	// /**
+	// * Synchronize the log.
+	// */
+	// class LogSyncer implements Callable<Void> {
+	//
+	// /** {@link PageWriteTrx} to interact with the page layer. */
+	// private final PageWriteTrx<Long, Record, UnorderedKeyValuePage>
+	// mPageWriteTrx;
+	//
+	// /** {@link RecordPageContainer} reference. */
+	// private final RecordPageContainer<UnorderedKeyValuePage> mCont;
+	//
+	// /** Type of page. */
+	// private final PageKind mPage;
+	//
+	// /**
+	// * Log synchronizer.
+	// *
+	// * @param pPageWriteTransaction
+	// * Sirix {@link PageWriteTrx}
+	// * @param pNodePageCont
+	// * {@link RecordPageContainer} to update
+	// * @param pPage
+	// * page type
+	// */
+	// LogSyncer(
+	// final PageWriteTrx<Long, Record, UnorderedKeyValuePage>
+	// pPageWriteTransaction,
+	// final RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
+	// final PageKind pPage) {
+	// mPageWriteTrx = checkNotNull(pPageWriteTransaction);
+	// mCont = checkNotNull(pNodePageCont);
+	// mPage = checkNotNull(pPage);
+	// }
+	//
+	// @Override
+	// public Void call() throws Exception {
+	// mPageWriteTrx.updateDataContainer(mCont, mPage);
+	// return null;
+	// }
+	// }
 
 	/**
 	 * Set last commited {@link UberPage}.

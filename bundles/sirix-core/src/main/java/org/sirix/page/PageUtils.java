@@ -18,7 +18,7 @@ import org.sirix.settings.Fixed;
 
 /**
  * Page utilities.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -33,7 +33,7 @@ public final class PageUtils {
 
 	/**
 	 * Create the initial tree structure.
-	 * 
+	 *
 	 * @param reference
 	 *          reference from revision root
 	 * @param pageKind
@@ -83,5 +83,4 @@ public final class PageUtils {
 		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0, index,
 				new RecordPageContainer<UnorderedKeyValuePage>(ndp, ndp));
 	}
-
 }
