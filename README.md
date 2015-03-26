@@ -159,6 +159,7 @@ Brackit binding:
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
+[![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
