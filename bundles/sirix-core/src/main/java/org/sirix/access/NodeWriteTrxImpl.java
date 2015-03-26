@@ -1930,8 +1930,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// Optionally lock while commiting and assigning new instances.
 		acquireLock();
 		try {
-			final UberPage uberPage = getPageTransaction()
-					.commit(MultipleWriteTrx.NO);
+			final UberPage uberPage = getPageTransaction().commit();
 
 			// Remember succesfully committed uber page in session.
 			mNodeRtx.mSession.setLastCommittedUberPage(uberPage);

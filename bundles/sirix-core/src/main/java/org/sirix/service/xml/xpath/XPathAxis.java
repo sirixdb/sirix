@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -54,14 +54,14 @@ import org.sirix.settings.Fixed;
  * information how to do that, see the sirix documentation.) Then the
  * <code>XPathAxis</code> can be used like this:
  * <p>
- * 
+ *
  * <pre>
  *   ...
  *   IReadTransaction rtx = session.beginReadTransaction(new ItemList());
- *   
- *   final String query = 
+ *
+ *   final String query =
  *   &quot;for $a in /articles/article[@name = \&quot;book\&quot;] return $a/price&quot;;
- *   
+ *
  *   final IAxis axis = new XPathAxis(rtx, query);
  *   while (axis.hasNext()) {
  *     // Move transaction cursor to do something.
@@ -70,7 +70,7 @@ import org.sirix.settings.Fixed;
  *   }
  *   ...
  * </pre>
- * 
+ *
  * <pre>
  *   ...
  *   for (final long key : new XPathAxis(rtx, query)) {
@@ -78,7 +78,7 @@ import org.sirix.settings.Fixed;
  *   }
  *   ...
  * </pre>
- * 
+ *
  * </p>
  */
 public final class XPathAxis extends AbstractAxis {
@@ -98,10 +98,9 @@ public final class XPathAxis extends AbstractAxis {
 	 * execution plan from the parser.
 	 * </p>
 	 * <p>
-	 * <strong>Deprecated: Use the saxon-binding instead or in the future the
-	 * upcoming brackit-binding.</strong>
+	 * <strong>Deprecated: Use the the brackit-binding.</strong>
 	 * </P>
-	 * 
+	 *
 	 * @param pRtx
 	 *          Transaction to operate with.
 	 * @param pQuery

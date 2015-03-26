@@ -6,7 +6,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.cache.RecordPageContainer;
-import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
@@ -20,11 +19,10 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 
 /**
  * Interface for reading pages.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
@@ -32,21 +30,21 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get {@link UberPage}.
-	 * 
+	 *
 	 * @return the {@link UberPage} reference
 	 */
 	UberPage getUberPage();
 
 	/**
 	 * Get the session this transaction is bound to.
-	 * 
+	 *
 	 * @return session instance
 	 */
 	Session getSession();
 
 	/**
 	 * Get a record from persistent storage.
-	 * 
+	 *
 	 * @param key
 	 *          the unique record-ID
 	 * @param pageKind
@@ -62,14 +60,14 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Current reference to actual revision-root page.
-	 * 
+	 *
 	 * @return the current revision root page
 	 */
 	RevisionRootPage getActualRevisionRootPage();
 
 	/**
 	 * Getting the name corresponding to the given key.
-	 * 
+	 *
 	 * @param nameKey
 	 *          name key for the term to search
 	 * @param recordKind
@@ -82,7 +80,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the number of references for a name.
-	 * 
+	 *
 	 * @param nameKey
 	 *          name key for the term to search
 	 * @param recordKind
@@ -93,7 +91,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Getting the raw name related to the name key and the record kind.
-	 * 
+	 *
 	 * @param nameKey
 	 *          name key for the term to search
 	 * @param recordKind
@@ -106,7 +104,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Close transaction.
-	 * 
+	 *
 	 * @throws SirixIOException
 	 *           if something weird happened in the storage
 	 */
@@ -116,7 +114,7 @@ public interface PageReadTrx extends AutoCloseable {
 	/**
 	 * Get a the record page container with the full/modified pages from the page
 	 * layer, given the unique page key and the page kind.
-	 * 
+	 *
 	 * @param key
 	 *          {@code key} of key/value page to get the record from
 	 * @param index
@@ -143,35 +141,15 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the revision number associated with the transaction.
-	 * 
+	 *
 	 * @return the revision number
 	 */
 	int getRevisionNumber();
 
 	/**
-	 * Get page from cache.
-	 * 
-	 * @param reference
-	 *          pointing to key of persistent storage
-	 * @return page instance
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	Page getFromPageCache(@Nonnegative PageReference reference)
-			throws SirixIOException;
-
-	/**
 	 * Clear the caches.
 	 */
 	void clearCaches();
-
-	/**
-	 * Put content from page cache into persistent storage.
-	 * 
-	 * @param pageLog
-	 *          persistent page log
-	 */
-	void putPageCache(TransactionLogPageCache pageLog);
 
 	/**
 	 * Close the caches.
@@ -180,7 +158,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Calculate record page key from a given record key.
-	 * 
+	 *
 	 * @param key
 	 *          entry key to find record page key for
 	 * @return record page key
@@ -191,7 +169,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the {@link NamePage} associated with the current revision root.
-	 * 
+	 *
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
 	 * @throws SirixIOException
@@ -201,7 +179,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the {@link PathPage} associated with the current revision root.
-	 * 
+	 *
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} for which to get the {@link PathPage}
 	 * @throws SirixIOException
@@ -211,7 +189,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the {@link CASPage} associated with the current revision root.
-	 * 
+	 *
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} for which to get the {@link CASPage}
 	 * @throws SirixIOException
@@ -222,7 +200,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the {@link PathSummaryPage} associated with the current revision root.
-	 * 
+	 *
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} for which to get the
 	 *          {@link PathSummaryPage}
@@ -234,7 +212,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the page reference pointing to the page denoted by {@code pageKey}.
-	 * 
+	 *
 	 * @param startReference
 	 *          the start reference (for instance to the indirect tree or the
 	 *          root-node of a BPlusTree)
@@ -258,7 +236,7 @@ public interface PageReadTrx extends AutoCloseable {
 
 	/**
 	 * Get the {@link Reader} to read a page from persistent storage if needed.
-	 * 
+	 *
 	 * @return the {@link Reader}
 	 */
 	Reader getReader();

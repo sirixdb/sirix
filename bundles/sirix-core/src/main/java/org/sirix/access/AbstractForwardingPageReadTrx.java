@@ -8,7 +8,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
 import org.sirix.cache.RecordPageContainer;
-import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
@@ -22,15 +21,14 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 
 import com.google.common.collect.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 		implements PageReadTrx {
@@ -142,16 +140,6 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	@Override
 	public int getRevisionNumber() {
 		return delegate().getRevisionNumber();
-	}
-
-	@Override
-	public Page getFromPageCache(PageReference reference) throws SirixIOException {
-		return delegate().getFromPageCache(reference);
-	}
-
-	@Override
-	public void putPageCache(TransactionLogPageCache pageLog) {
-		delegate().putPageCache(pageLog);
 	}
 
 	@Override

@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -387,7 +386,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				if (page == null) {
 					page = mPageReader.read(reference.getKey(), impl).setDirty(true);
 
-					if (page != null) {
+					if (page != null && !mPageWriteTrx.isPresent()) {
 						// Put page into buffer manager and set page reference (just to
 						// track when the in-memory page must be removed).
 						mResourceBufferManager.getPageCache().put(reference, page);
@@ -431,7 +430,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		final long recordPageKey = pageKey(nodeKey);
 
-		RecordPageContainer<UnorderedKeyValuePage> cont;
+		final RecordPageContainer<UnorderedKeyValuePage> cont;
+
 		try {
 			switch (pageKind) {
 				case RECORDPAGE:
@@ -453,7 +453,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					throw new IllegalStateException();
 			}
 		} catch (final ExecutionException | UncheckedExecutionException e) {
-			throw new SirixIOException(e);
+			throw new SirixIOException(e.getCause());
 		}
 
 		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
@@ -636,15 +636,18 @@ final class PageReadTrxImpl implements PageReadTrx {
 			throws SirixIOException {
 		try {
 			Page page = reference.getPage();
+
 			if (mPageWriteTrx.isPresent() || mPageLog.isPresent()) {
 				final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, -1,
 						-1, 0);
 				reference.setLogKey(logKey);
 			}
+
 			if (page == null) {
 				page = mPageCache.get(reference);
 				reference.setPage(page);
 			}
+
 			return page;
 		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e.getCause());
@@ -697,8 +700,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 				completePage);
 
 		// recordPageContainerFromBufferesource buffer manager.
-		mResourceBufferManager.getRecordPageCache().put(
-				pageReferenceToRecordPage.get(), recordPageContainer);
+		if (!mPageWriteTrx.isPresent())
+			mResourceBufferManager.getRecordPageCache().put(
+					pageReferenceToRecordPage.get(), recordPageContainer);
 
 		return recordPageContainer;
 	}
@@ -830,6 +834,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					&& (reference.getKey() != Constants.NULL_ID || reference.getLogKey() != null)) {
 				page = (IndirectPage) mPageCache.get(reference);
 			}
+
 			return page;
 		} catch (final ExecutionException | UncheckedExecutionException e) {
 			throw new SirixIOException(e.getCause());
@@ -942,25 +947,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 	public int getRevisionNumber() {
 		assertNotClosed();
 		return mRootPage.getRevision();
-	}
-
-	@Override
-	public Page getFromPageCache(final @Nonnegative PageReference reference)
-			throws SirixIOException {
-		assertNotClosed();
-		try {
-			return mPageCache.get(reference);
-		} catch (final ExecutionException e) {
-			throw new SirixIOException(e.getCause());
-		}
-	}
-
-	@Override
-	public void putPageCache(final TransactionLogPageCache pageLog) {
-		assertNotClosed();
-		for (final Entry<PageReference, Page> entry : mPageCache.asMap().entrySet()) {
-			pageLog.put(entry.getKey().getLogKey(), entry.getValue());
-		}
 	}
 
 	@Override

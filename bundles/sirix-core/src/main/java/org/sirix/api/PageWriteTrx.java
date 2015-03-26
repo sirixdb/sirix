@@ -5,7 +5,6 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.MultipleWriteTrx;
 import org.sirix.access.Restore;
 import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
@@ -162,7 +161,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code multipleWriteTrx} is {@code null}
 	 */
-	UberPage commit(MultipleWriteTrx multipleWriteTrx);
+	UberPage commit();
 
 	/**
 	 * Update log.
