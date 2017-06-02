@@ -1,4 +1,4 @@
-#Sirix - Beyond Versioning of Persistent Trees
+# Sirix - Beyond Versioning of Persistent Trees
 
 "Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
@@ -161,7 +161,7 @@ Other modules are currently not available (namely the GUI, the distributed packa
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 
-##GUI
+## GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
 http://www.youtube.com/watch?v=l9CXXBkl5vI
 
@@ -170,7 +170,7 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 ![Wikipedia / SunburstView comparison mode / TextView comparison mode](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-scrolled.png "Wikipedia / SunburstView comparison mode / TextView comparison mode")
 ![Small Multiple Displays (incremental variant)](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-incremental.png "Small Multiple Displays (incremental variant)")
 
-##Further information
+## Further information
 
 Sirix was initially forked from Treetank (https://github.com/disy/treetank) due to the specialization on XML, which isn't the focus of Treetank anymore.
 As such my deepest gratitude to all the other students who worked on the project.
