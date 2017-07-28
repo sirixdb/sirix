@@ -41,15 +41,15 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
 /**
- * Thread safe transaction-log for storing all upcoming nodes in either the ram
- * cache or a persistent second cache.
+ * Transaction-log for storing all upcoming nodes in either the ram cache or a
+ * persistent second cache.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
-		Cache<Long, RecordPageContainer<T>> {
+public final class TransactionLogCache<T extends KeyValuePage<?, ?>>
+		implements Cache<Long, RecordPageContainer<T>> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<Long, RecordPageContainer<T>> mFirstCache;

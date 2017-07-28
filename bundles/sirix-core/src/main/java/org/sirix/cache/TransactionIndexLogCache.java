@@ -41,8 +41,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
 /**
- * Thread safe transaction-log for storing all upcoming nodes in either the RAM
- * cache or a persistent second cache.
+ * Transaction-log for storing all upcoming nodes in either the RAM cache or a
+ * persistent second cache.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
