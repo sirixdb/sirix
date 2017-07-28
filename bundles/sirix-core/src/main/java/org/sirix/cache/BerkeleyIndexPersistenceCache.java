@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -54,9 +54,9 @@ import com.sleepycat.je.OperationStatus;
  * Berkeley implementation of a persistent cache. That means that all data is
  * stored in this cache and it is never removed. This is useful e.g. when it
  * comes to transaction logging.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 		extends AbstractPersistenceCache<IndexLogKey, RecordPageContainer<T>> {
@@ -96,9 +96,7 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
-	 * 
-	 * @param pPageWriteTrx
-	 *          page write transaction
+	 *
 	 * @param file
 	 *          the place where the berkeley db is stored.
 	 * @param revision
@@ -106,7 +104,8 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	 *          correct way
 	 * @param logType
 	 *          type of log to append to the path of the log
-	 * @param {@link PageReadTrx} instance
+	 * @param {@link
+	 * 					PageReadTrx} instance
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
@@ -191,8 +190,9 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 		try {
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
-			final RecordPageContainer<T> val = (status == OperationStatus.SUCCESS ? mValueBinding
-					.entryToObject(valueEntry) : null);
+			final RecordPageContainer<T> val = (status == OperationStatus.SUCCESS
+					? mValueBinding.entryToObject(valueEntry)
+					: null);
 			return val;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);
