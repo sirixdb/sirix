@@ -94,6 +94,7 @@ import org.sirix.utils.XMLToken;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
@@ -119,8 +120,8 @@ import com.google.common.hash.Hashing;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
-		NodeWriteTrx {
+final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx
+		implements NodeWriteTrx {
 
 	/** MD5 hash-function. */
 	private final HashFunction mHash = Hashing.md5();
@@ -156,7 +157,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/** {@link PathSummaryWriter} instance. */
 	private PathSummaryWriter mPathSummaryWriter;
 
-	/** Determines if a path summary should be built and kept up-to-date or not. */
+	/**
+	 * Determines if a path summary should be built and kept up-to-date or not.
+	 */
 	private final boolean mBuildPathSummary;
 
 	/** {@link NodeFactoryImpl} to be able to create nodes. */
@@ -201,18 +204,16 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final SessionImpl session,
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final @Nonnegative int maxNodeCount, final TimeUnit timeUnit,
-			final @Nonnegative int maxTime) throws SirixIOException,
-			SirixUsageException {
+			final @Nonnegative int maxTime)
+			throws SirixIOException, SirixUsageException {
 
 		// Do not accept negative values.
-		if ((maxNodeCount < 0) || (maxTime < 0)) {
-			throw new SirixUsageException(
-					"Negative arguments for maxNodeCount and maxTime are not accepted.");
-		}
+		Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
+				"Negative arguments for maxNodeCount and maxTime are not accepted.");
 
 		mNodeRtx = new NodeReadTrxImpl(session, transactionID, pageWriteTrx);
-		mIndexController = session.getWtxIndexController(pageWriteTrx
-				.getRevisionNumber());
+		mIndexController = session
+				.getWtxIndexController(pageWriteTrx.getRevisionNumber());
 		mBuildPathSummary = session.getResourceConfig().mPathSummary;
 
 		// Only auto commit by node modifications if it is more then 0.
@@ -229,22 +230,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 
 		if (maxTime > 0) {
-			mPool.scheduleAtFixedRate(new Runnable() {
-				@Override
-				public void run() {
-					commit();
-				}
-			}, maxTime, maxTime, timeUnit);
+			mPool.scheduleAtFixedRate(() -> commit(), maxTime, maxTime, timeUnit);
 		}
 
 		mHashKind = session.getResourceConfig().mHashKind;
 
 		// Synchronize commit and other public methods if needed.
-		if (maxTime > 0) {
-			mLock = Optional.of(new Semaphore(1));
-		} else {
-			mLock = Optional.empty();
-		}
+		mLock = maxTime > 0 ? Optional.of(new Semaphore(1)) : Optional.empty();
 
 		mDeweyIDsStored = mNodeRtx.mSession.getResourceConfig().mDeweyIDsStored;
 		mCompression = mNodeRtx.mSession.getResourceConfig().mCompression;
@@ -278,13 +270,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			throws SirixException, IllegalArgumentException {
 		acquireLock();
 		try {
-			if (fromKey < 0 || fromKey > getMaxNodeKey()) {
-				throw new IllegalArgumentException("Argument must be a valid node key!");
-			}
-			if (fromKey == getCurrentNode().getNodeKey()) {
-				throw new IllegalArgumentException(
-						"Can't move itself to right sibling of itself!");
-			}
+			Preconditions.checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(),
+					"Argument must be a valid node key!");
+
+			Preconditions.checkArgument(fromKey != getCurrentNode().getNodeKey(),
+					"Can't move itself to right sibling of itself!");
 
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) getPageTransaction()
@@ -375,9 +365,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				moveToParent();
 			}
 			long pathNodeKey = -1;
-			if (getNode() instanceof ValueNode
-					&& getNode().getParentKey() != Fixed.DOCUMENT_NODE_KEY
-							.getStandardProperty()) {
+			if (getNode() instanceof ValueNode && getNode()
+					.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 				final long nodeKey = getNode().getNodeKey();
 				pathNodeKey = moveToParent().get().getNameNode().getPathNodeKey();
 				moveTo(nodeKey);
@@ -419,7 +408,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (root.hasFirstChild()) {
 			final Node firstChild = (Node) getPageTransaction()
 					.prepareEntryForModification(root.getFirstChildKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
 			firstChild.setDeweyID(Optional.of(id.getNewChildID()));
 
 			int previousLevel = getDeweyID().get().getLevel();
@@ -433,24 +423,24 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				if (isAttribute()) {
 					final long attNodeKey = mNodeRtx.getNodeKey();
 					if (attributeNr == 0) {
-						deweyID = Optional.of(mNodeRtx.getParentDeweyID().get()
-								.getNewAttributeID());
+						deweyID = Optional
+								.of(mNodeRtx.getParentDeweyID().get().getNewAttributeID());
 					} else {
 						mNodeRtx.moveTo(attributeNr - 1);
-						deweyID = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
-								.getDeweyID().get(), null));
+						deweyID = Optional.of(SirixDeweyID
+								.newBetween(mNodeRtx.getNode().getDeweyID().get(), null));
 					}
 					mNodeRtx.moveTo(attNodeKey);
 					attributeNr++;
 				} else if (isNamespace()) {
 					final long nspNodeKey = mNodeRtx.getNodeKey();
 					if (nspNr == 0) {
-						deweyID = Optional.of(mNodeRtx.getParentDeweyID().get()
-								.getNewNamespaceID());
+						deweyID = Optional
+								.of(mNodeRtx.getParentDeweyID().get().getNewNamespaceID());
 					} else {
 						mNodeRtx.moveTo(nspNr - 1);
-						deweyID = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
-								.getDeweyID().get(), null));
+						deweyID = Optional.of(SirixDeweyID
+								.newBetween(mNodeRtx.getNode().getDeweyID().get(), null));
 					}
 					mNodeRtx.moveTo(nspNodeKey);
 					nspNr++;
@@ -459,8 +449,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					nspNr = 0;
 					if (previousLevel + 1 == getDeweyID().get().getLevel()) {
 						if (mNodeRtx.hasLeftSibling()) {
-							deweyID = Optional.of(SirixDeweyID.newBetween(
-									getLeftSiblingDeweyID().get(), null));
+							deweyID = Optional.of(
+									SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), null));
 						} else {
 							deweyID = Optional.of(getParentDeweyID().get().getNewChildID());
 						}
@@ -471,9 +461,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 
 				final Node node = (Node) getPageTransaction()
-						.prepareEntryForModification(
-								mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE,
-								-1, Optional.<UnorderedKeyValuePage> empty());
+						.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
+								PageKind.RECORDPAGE, -1,
+								Optional.<UnorderedKeyValuePage> empty());
 				node.setDeweyID(deweyID);
 			}
 
@@ -504,7 +494,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (fromKey < 0 || fromKey > getMaxNodeKey()) {
-				throw new IllegalArgumentException("Argument must be a valid node key!");
+				throw new IllegalArgumentException(
+						"Argument must be a valid node key!");
 			}
 			if (fromKey == getCurrentNode().getNodeKey()) {
 				throw new IllegalArgumentException(
@@ -541,7 +532,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					// Adapt path summary.
 					if (mBuildPathSummary && toMove instanceof NameNode) {
 						final NameNode moved = (NameNode) toMove;
-						final OPType type = moved.getParentKey() == parentKey ? OPType.MOVEDSAMELEVEL
+						final OPType type = moved.getParentKey() == parentKey
+								? OPType.MOVEDSAMELEVEL
 								: OPType.MOVED;
 						mPathSummaryWriter.adaptPathForChangedNode(moved, getName(),
 								moved.getURIKey(), moved.getPrefixKey(),
@@ -628,7 +620,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (fromNode.hasRightSibling()) {
 			final StructNode rightSibling = (StructNode) getPageTransaction()
 					.prepareEntryForModification(fromNode.getRightSiblingKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
 			rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
 		}
 
@@ -636,7 +629,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (fromNode.hasLeftSibling()) {
 			final StructNode leftSibling = (StructNode) getPageTransaction()
 					.prepareEntryForModification(fromNode.getLeftSiblingKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
 			leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
 		}
 
@@ -646,7 +640,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			if (getCurrentNode() != null && getCurrentNode().getKind() == Kind.TEXT) {
 				final StringBuilder builder = new StringBuilder(getValue());
 				moveTo(fromNode.getRightSiblingKey());
-				if (getCurrentNode() != null && getCurrentNode().getKind() == Kind.TEXT) {
+				if (getCurrentNode() != null
+						&& getCurrentNode().getKind() == Kind.TEXT) {
 					builder.append(getValue());
 					if (fromNode.getRightSiblingKey() == toNode.getNodeKey()) {
 						moveTo(fromNode.getLeftSiblingKey());
@@ -659,8 +654,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
 						}
 						final long leftSiblingKey = mNodeRtx.getStructuralNode()
-								.hasLeftSibling() == true ? mNodeRtx.getStructuralNode()
-								.getLeftSiblingKey() : getCurrentNode().getNodeKey();
+								.hasLeftSibling() == true
+										? mNodeRtx.getStructuralNode().getLeftSiblingKey()
+										: getCurrentNode().getNodeKey();
 						moveTo(fromNode.getRightSiblingKey());
 						final StructNode rightSibling = (StructNode) getPageTransaction()
 								.prepareEntryForModification(getCurrentNode().getNodeKey(),
@@ -680,8 +676,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
 						}
 						final long rightSiblingKey = mNodeRtx.getStructuralNode()
-								.hasRightSibling() == true ? mNodeRtx.getStructuralNode()
-								.getRightSiblingKey() : getCurrentNode().getNodeKey();
+								.hasRightSibling() == true
+										? mNodeRtx.getStructuralNode().getRightSiblingKey()
+										: getCurrentNode().getNodeKey();
 						moveTo(fromNode.getLeftSiblingKey());
 						final StructNode leftSibling = (StructNode) getPageTransaction()
 								.prepareEntryForModification(getCurrentNode().getNodeKey(),
@@ -719,8 +716,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final long rightSibKey = ((StructNode) mNodeRtx.getCurrentNode())
 						.getFirstChildKey();
 
-				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mBuildPathSummary
+						? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+						: 0;
 				final Optional<SirixDeweyID> id = newFirstChildID();
 				final ElementNode node = mNodeFactory.createElementNode(parentKey,
 						leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
@@ -754,8 +752,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mBuildPathSummary
+						? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+						: 0;
 				moveTo(key);
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -795,8 +794,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mBuildPathSummary
+						? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+						: 0;
 				moveTo(key);
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -960,8 +960,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 
 				final QNm targetName = new QNm(target);
-				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(targetName, Kind.PROCESSING_INSTRUCTION) : 0;
+				final long pathNodeKey = mBuildPathSummary
+						? mPathSummaryWriter.getPathNodeKey(targetName,
+								Kind.PROCESSING_INSTRUCTION)
+						: 0;
 				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
 						rightSibKey, targetName, processingContent, mCompression,
 						pathNodeKey, id);
@@ -974,7 +976,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				return this;
 			} else {
-				throw new SirixUsageException("Current node must be a structural node!");
+				throw new SirixUsageException(
+						"Current node must be a structural node!");
 			}
 		} finally {
 			unLock();
@@ -1022,8 +1025,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& (getCurrentNode().getKind() != Kind.DOCUMENT || (getCurrentNode()
-							.getKind() == Kind.DOCUMENT && insert == Insert.ASFIRSTCHILD))) {
+					&& (getCurrentNode().getKind() != Kind.DOCUMENT
+							|| (getCurrentNode().getKind() == Kind.DOCUMENT
+									&& insert == Insert.ASFIRSTCHILD))) {
 				checkAccessAndCommit();
 
 				// Insert new comment node.
@@ -1069,7 +1073,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				return this;
 			} else {
-				throw new SirixUsageException("Current node must be a structural node!");
+				throw new SirixUsageException(
+						"Current node must be a structural node!");
 			}
 		} finally {
 			unLock();
@@ -1105,8 +1110,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				// Insert new text node if no adjacent text nodes are found.
 				final byte[] textValue = getBytes(value);
 				final Optional<SirixDeweyID> id = newFirstChildID();
-				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue, mCompression, id);
+				final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+						rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1169,8 +1174,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				moveTo(rightSibKey);
 				final byte[] textValue = getBytes(builder.toString());
 				final Optional<SirixDeweyID> id = newLeftSiblingID();
-				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue, mCompression, id);
+				final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+						rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1179,8 +1184,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Get the path node key.
-				final long pathNodeKey = moveToParent().get().isElement() ? getNameNode()
-						.getPathNodeKey() : -1;
+				final long pathNodeKey = moveToParent().get().isElement()
+						? getNameNode().getPathNodeKey()
+						: -1;
 				mNodeRtx.setCurrentNode(node);
 
 				// Index text value.
@@ -1237,8 +1243,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final byte[] textValue = getBytes(builder.toString());
 				final Optional<SirixDeweyID> id = newRightSiblingID();
 
-				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue, mCompression, id);
+				final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+						rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1247,8 +1253,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Get the path node key.
-				final long pathNodeKey = moveToParent().get().isElement() ? getNameNode()
-						.getPathNodeKey() : -1;
+				final long pathNodeKey = moveToParent().get().isElement()
+						? getNameNode().getPathNodeKey()
+						: -1;
 				mNodeRtx.setCurrentNode(node);
 
 				// Index text value.
@@ -1276,12 +1283,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (mDeweyIDsStored) {
 			if (mNodeRtx.hasNamespaces()) {
 				mNodeRtx.moveToNamespace(mNodeRtx.getNamespaceCount() - 1);
-				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
-						.getDeweyID().get(), null));
+				id = Optional.of(SirixDeweyID
+						.newBetween(mNodeRtx.getNode().getDeweyID().get(), null));
 				mNodeRtx.moveToParent();
 			} else {
-				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
-						.getNewNamespaceID());
+				id = Optional.of(
+						mNodeRtx.getCurrentNode().getDeweyID().get().getNewNamespaceID());
 			}
 		}
 		return id;
@@ -1299,12 +1306,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (mDeweyIDsStored) {
 			if (mNodeRtx.hasAttributes()) {
 				mNodeRtx.moveToAttribute(mNodeRtx.getAttributeCount() - 1);
-				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
-						.getDeweyID().get(), null));
+				id = Optional.of(SirixDeweyID
+						.newBetween(mNodeRtx.getNode().getDeweyID().get(), null));
 				mNodeRtx.moveToParent();
 			} else {
-				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
-						.getNewAttributeID());
+				id = Optional.of(
+						mNodeRtx.getCurrentNode().getDeweyID().get().getNewAttributeID());
 			}
 		}
 		return id;
@@ -1322,11 +1329,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (mDeweyIDsStored) {
 			if (mNodeRtx.getStructuralNode().hasFirstChild()) {
 				mNodeRtx.moveToFirstChild();
-				id = Optional.of(SirixDeweyID.newBetween(null, mNodeRtx.getNode()
-						.getDeweyID().get()));
+				id = Optional.of(SirixDeweyID.newBetween(null,
+						mNodeRtx.getNode().getDeweyID().get()));
 			} else {
-				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
-						.getNewChildID());
+				id = Optional
+						.of(mNodeRtx.getCurrentNode().getDeweyID().get().getNewChildID());
 			}
 		}
 		return id;
@@ -1345,8 +1352,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final SirixDeweyID currID = mNodeRtx.getCurrentNode().getDeweyID().get();
 			if (mNodeRtx.hasLeftSibling()) {
 				mNodeRtx.moveToLeftSibling();
-				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getCurrentNode()
-						.getDeweyID().get(), currID));
+				id = Optional.of(SirixDeweyID
+						.newBetween(mNodeRtx.getCurrentNode().getDeweyID().get(), currID));
 				mNodeRtx.moveToRightSibling();
 			} else {
 				id = Optional.of(SirixDeweyID.newBetween(null, currID));
@@ -1368,8 +1375,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final SirixDeweyID currID = mNodeRtx.getCurrentNode().getDeweyID().get();
 			if (mNodeRtx.hasRightSibling()) {
 				mNodeRtx.moveToRightSibling();
-				id = Optional.of(SirixDeweyID.newBetween(currID, mNodeRtx
-						.getCurrentNode().getDeweyID().get()));
+				id = Optional.of(SirixDeweyID.newBetween(currID,
+						mNodeRtx.getCurrentNode().getDeweyID().get()));
 				mNodeRtx.moveToLeftSibling();
 			} else {
 				id = Optional.of(SirixDeweyID.newBetween(currID, null));
@@ -1429,8 +1436,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 
 				// Get the path node key.
-				final long pathNodeKey = mNodeRtx.mSession.getResourceConfig().mPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(name, Kind.ATTRIBUTE) : 0;
+				final long pathNodeKey = mNodeRtx.mSession
+						.getResourceConfig().mPathSummary
+								? mPathSummaryWriter.getPathNodeKey(name, Kind.ATTRIBUTE)
+								: 0;
 				final byte[] attValue = getBytes(value);
 
 				final Optional<SirixDeweyID> id = newAttributeID();
@@ -1490,8 +1499,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					moveToParent();
 				}
 
-				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
-						.getPathNodeKey(name, Kind.NAMESPACE) : 0;
+				final long pathNodeKey = mBuildPathSummary
+						? mPathSummaryWriter.getPathNodeKey(name, Kind.NAMESPACE)
+						: 0;
 				final long elementKey = getCurrentNode().getNodeKey();
 
 				final Optional<SirixDeweyID> id = newNamespaceID();
@@ -1563,9 +1573,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					removeValue();
 
 					// Then remove node.
-					getPageTransaction()
-							.removeEntry(getCurrentNode().getNodeKey(), PageKind.RECORDPAGE,
-									-1, Optional.<UnorderedKeyValuePage> empty());
+					getPageTransaction().removeEntry(getCurrentNode().getNodeKey(),
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
 				}
 
 				// Adapt hashes and neighbour nodes as well as the name from the
@@ -1599,8 +1609,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								Optional.<UnorderedKeyValuePage> empty());
 				parent.removeAttribute(node.getNodeKey());
 				adaptHashesWithRemove();
-				getPageTransaction().removeEntry(node.getNodeKey(),
-						PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+				getPageTransaction().removeEntry(node.getNodeKey(), PageKind.RECORDPAGE,
+						-1, Optional.<UnorderedKeyValuePage> empty());
 				removeName();
 				mIndexController.notifyChange(ChangeType.DELETE, getNode(),
 						parent.getPathNodeKey());
@@ -1614,8 +1624,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								Optional.<UnorderedKeyValuePage> empty());
 				parent.removeNamespace(node.getNodeKey());
 				adaptHashesWithRemove();
-				getPageTransaction().removeEntry(node.getNodeKey(),
-						PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+				getPageTransaction().removeEntry(node.getNodeKey(), PageKind.RECORDPAGE,
+						-1, Optional.<UnorderedKeyValuePage> empty());
 				removeName();
 				moveToParent();
 			}
@@ -1645,7 +1655,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void removeNonStructural() throws SirixException {
 		if (mNodeRtx.getKind() == Kind.ELEMENT) {
-			for (int i = 0, attCount = mNodeRtx.getAttributeCount(); i < attCount; i++) {
+			for (int i = 0, attCount = mNodeRtx
+					.getAttributeCount(); i < attCount; i++) {
 				moveToAttribute(i);
 				removeName();
 				removeValue();
@@ -1702,14 +1713,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 					// Create new keys for mapping.
 					final int prefixKey = name.getPrefix() != null
-							&& !name.getPrefix().isEmpty() ? getPageTransaction()
-							.createNameKey(name.getPrefix(), node.getKind()) : -1;
+							&& !name.getPrefix().isEmpty()
+									? getPageTransaction().createNameKey(name.getPrefix(),
+											node.getKind())
+									: -1;
 					final int localNameKey = name.getLocalName() != null
-							&& !name.getLocalName().isEmpty() ? getPageTransaction()
-							.createNameKey(name.getLocalName(), node.getKind()) : -1;
+							&& !name.getLocalName().isEmpty()
+									? getPageTransaction().createNameKey(name.getLocalName(),
+											node.getKind())
+									: -1;
 					final int uriKey = name.getNamespaceURI() != null
-							&& !name.getNamespaceURI().isEmpty() ? getPageTransaction()
-							.createNameKey(name.getNamespaceURI(), Kind.NAMESPACE) : -1;
+							&& !name.getNamespaceURI().isEmpty()
+									? getPageTransaction().createNameKey(name.getNamespaceURI(),
+											Kind.NAMESPACE)
+									: -1;
 
 					// Adapt path summary.
 					if (mBuildPathSummary) {
@@ -1735,8 +1752,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					node.setLocalNameKey(localNameKey);
 					node.setURIKey(uriKey);
 					node.setPrefixKey(prefixKey);
-					node.setPathNodeKey(mBuildPathSummary ? mPathSummaryWriter
-							.getNodeKey() : 0);
+					node.setPathNodeKey(
+							mBuildPathSummary ? mPathSummaryWriter.getNodeKey() : 0);
 
 					mNodeRtx.setCurrentNode(node);
 					adaptHashedWithUpdate(oldHash);
@@ -1775,9 +1792,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final byte[] byteVal = getBytes(value);
 
 				final ValueNode node = (ValueNode) getPageTransaction()
-						.prepareEntryForModification(
-								mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE,
-								-1, Optional.<UnorderedKeyValuePage> empty());
+						.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
+								PageKind.RECORDPAGE, -1,
+								Optional.<UnorderedKeyValuePage> empty());
 				node.setValue(byteVal);
 
 				mNodeRtx.setCurrentNode(node);
@@ -1986,13 +2003,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			mPathSummaryWriter = null;
 			mPathSummaryWriter = PathSummaryWriter.getInstance(
 					(PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeRtx
-							.getPageTransaction(), mNodeRtx.getSession(), mNodeFactory,
-					mNodeRtx);
+							.getPageTransaction(),
+					mNodeRtx.getSession(), mNodeFactory, mNodeRtx);
 		}
 
 		// Recreate index listeners.
-		mIndexController.createIndexListeners(mIndexController.getIndexes()
-				.getIndexDefs(), this);
+		mIndexController.createIndexListeners(
+				mIndexController.getIndexes().getIndexDefs(), this);
 	}
 
 	/**
@@ -2007,12 +2024,14 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final StructNode node = mNodeRtx.getStructuralNode();
 			if (node.getKind() == Kind.ELEMENT) {
 				final ElementNode element = (ElementNode) node;
-				for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
+				for (int i = 0, nspCount = element
+						.getNamespaceCount(); i < nspCount; i++) {
 					moveToNamespace(i);
 					addHashAndDescendantCount();
 					moveToParent();
 				}
-				for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
+				for (int i = 0, attCount = element
+						.getAttributeCount(); i < attCount; i++) {
 					moveToAttribute(i);
 					addHashAndDescendantCount();
 					moveToParent();
@@ -2038,9 +2057,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						Optional.<UnorderedKeyValuePage> empty());
 				node.setHash(node.getHash() + hashToAdd * PRIME);
 				if (startNode instanceof StructNode) {
-					((StructNode) node).setDescendantCount(((StructNode) node)
-							.getDescendantCount()
-							+ ((StructNode) startNode).getDescendantCount() + 1);
+					((StructNode) node)
+							.setDescendantCount(((StructNode) node).getDescendantCount()
+									+ ((StructNode) startNode).getDescendantCount() + 1);
 				}
 				break;
 			case POSTORDER:
@@ -2188,8 +2207,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							Optional.<UnorderedKeyValuePage> empty());
 			if (concatenated) {
 				moveTo(oldNode.getRightSiblingKey());
-				leftSibling.setRightSiblingKey(((StructNode) getCurrentNode())
-						.getRightSiblingKey());
+				leftSibling.setRightSiblingKey(
+						((StructNode) getCurrentNode()).getRightSiblingKey());
 			} else {
 				leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
 			}
@@ -2202,14 +2221,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				moveTo(oldNode.getRightSiblingKey());
 				moveTo(mNodeRtx.getStructuralNode().getRightSiblingKey());
 				rightSibling = (StructNode) getPageTransaction()
-						.prepareEntryForModification(
-								mNodeRtx.getCurrentNode().getNodeKey(), page, -1,
-								Optional.<UnorderedKeyValuePage> empty());
+						.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
+								page, -1, Optional.<UnorderedKeyValuePage> empty());
 				rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
 			} else {
 				rightSibling = (StructNode) getPageTransaction()
-						.prepareEntryForModification(oldNode.getRightSiblingKey(), page,
-								-1, Optional.<UnorderedKeyValuePage> empty());
+						.prepareEntryForModification(oldNode.getRightSiblingKey(), page, -1,
+								Optional.<UnorderedKeyValuePage> empty());
 				rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
 			}
 		}
@@ -2232,9 +2250,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			while (parent.hasParent()) {
 				moveToParent();
 				final StructNode ancestor = (StructNode) getPageTransaction()
-						.prepareEntryForModification(
-								mNodeRtx.getCurrentNode().getNodeKey(), page, -1,
-								Optional.<UnorderedKeyValuePage> empty());
+						.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
+								page, -1, Optional.<UnorderedKeyValuePage> empty());
 				ancestor.decrementDescendantCount();
 				parent = ancestor;
 			}
@@ -2378,11 +2395,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		long hashCodeForParent = 0;
 		// adapting the parent if the current node is no structural one.
 		if (!(startNode instanceof StructNode)) {
-			final Node node = (Node) getPageTransaction()
-					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
-			node.setHash(mHash.hashLong(mNodeRtx.getCurrentNode().hashCode())
-					.asLong());
+			final Node node = (Node) getPageTransaction().prepareEntryForModification(
+					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+					Optional.<UnorderedKeyValuePage> empty());
+			node.setHash(
+					mHash.hashLong(mNodeRtx.getCurrentNode().hashCode()).asLong());
 			moveTo(mNodeRtx.getCurrentNode().getParentKey());
 		}
 		// Cursor to root
@@ -2390,7 +2407,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		do {
 			cursorToRoot = (StructNode) getPageTransaction()
 					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> empty());
 			hashCodeForParent = mNodeRtx.getCurrentNode().hashCode()
 					+ hashCodeForParent * PRIME;
 			// Caring about attributes and namespaces if node is an element.
@@ -2447,9 +2465,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 		// go the path to the root
 		do {
-			final Node node = (Node) getPageTransaction()
-					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+			final Node node = (Node) getPageTransaction().prepareEntryForModification(
+					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+					Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == newNode.getNodeKey()) {
 				resultNew = node.getHash() - oldHash;
 				resultNew = resultNew + newNodeHash;
@@ -2477,9 +2495,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		long newHash = 0;
 		// go the path to the root
 		do {
-			final Node node = (Node) getPageTransaction()
-					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+			final Node node = (Node) getPageTransaction().prepareEntryForModification(
+					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+					Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == startNode.getNodeKey()) {
 				// the begin node is always null
 				newHash = 0;
@@ -2531,15 +2549,16 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				.getDescendantCount();
 		final long descendantCount = oldDescendantCount == 0 ? 1
 				: oldDescendantCount + 1;
-		long hashToAdd = startNode.getHash() == 0 ? mHash.hashLong(
-				startNode.hashCode()).asLong() : startNode.getHash();
+		long hashToAdd = startNode.getHash() == 0
+				? mHash.hashLong(startNode.hashCode()).asLong()
+				: startNode.getHash();
 		long newHash = 0;
 		long possibleOldHash = 0;
 		// go the path to the root
 		do {
-			final Node node = (Node) getPageTransaction()
-					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> empty());
+			final Node node = (Node) getPageTransaction().prepareEntryForModification(
+					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
+					Optional.<UnorderedKeyValuePage> empty());
 			if (node.getNodeKey() == startNode.getNodeKey()) {
 				// at the beginning, take the hashcode of the node only
 				newHash = hashToAdd;
@@ -2650,8 +2669,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			throws SirixException {
 		assert trx != null;
 		assert insert != null;
-		final NodeReadTrx rtx = trx.getSession().beginNodeReadTrx(
-				trx.getRevisionNumber());
+		final NodeReadTrx rtx = trx.getSession()
+				.beginNodeReadTrx(trx.getRevisionNumber());
 		assert rtx.getRevisionNumber() == trx.getRevisionNumber();
 		rtx.moveTo(trx.getNodeKey());
 		assert rtx.getNodeKey() == trx.getNodeKey();
@@ -2690,7 +2709,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
 						break;
 					case ASRIGHTSIBLING:
-						insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
+						insertPIAsRightSibling(rtx.getName().getLocalName(),
+								rtx.getValue());
 						break;
 					default:
 						throw new IllegalStateException();
@@ -2720,8 +2740,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public NodeWriteTrx replaceNode(final String xml) throws SirixException,
-			IOException, XMLStreamException {
+	public NodeWriteTrx replaceNode(final String xml)
+			throws SirixException, IOException, XMLStreamException {
 		checkNotNull(xml);
 		acquireLock();
 		try {
@@ -2821,7 +2841,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void checkCurrentNode() {
 		if (!(getCurrentNode() instanceof StructNode)) {
-			throw new IllegalStateException("Current node must be a structural node!");
+			throw new IllegalStateException(
+					"Current node must be a structural node!");
 		}
 	}
 
