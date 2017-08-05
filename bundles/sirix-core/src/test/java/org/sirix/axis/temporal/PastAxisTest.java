@@ -18,7 +18,7 @@ import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link PastAxis}.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -51,10 +51,6 @@ public final class PastAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(thirdRtx, secondRtx, firstRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new PastAxis(thirdRtx, IncludeSelf.YES);
@@ -70,10 +66,6 @@ public final class PastAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(secondRtx, firstRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new PastAxis(thirdRtx);

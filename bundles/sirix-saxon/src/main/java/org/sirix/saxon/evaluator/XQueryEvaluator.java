@@ -77,8 +77,7 @@ public final class XQueryEvaluator implements Callable<XdmValue> {
 	 * @param paramSession
 	 *          sirix database.
 	 */
-	public XQueryEvaluator(final String expression,
-			final Session session) {
+	public XQueryEvaluator(final String expression, final Session session) {
 		mExpression = checkNotNull(expression);
 		mSession = checkNotNull(session);
 	}

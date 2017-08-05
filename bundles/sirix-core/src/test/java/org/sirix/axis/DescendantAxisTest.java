@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -67,14 +67,10 @@ public class DescendantAxisTest {
 		final NodeReadTrx rtx = holder.getRtx();
 
 		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 1L,
-				4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx),
+				new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -84,14 +80,10 @@ public class DescendantAxisTest {
 		}.test();
 
 		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 4L,
-				5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx),
+				new long[] { 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -101,14 +93,10 @@ public class DescendantAxisTest {
 		}.test();
 
 		rtx.moveTo(9L);
-		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 11L,
-				12L });
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx),
+				new long[] { 11L, 12L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(11L, 12L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -121,10 +109,6 @@ public class DescendantAxisTest {
 		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				Collections.<Long> emptyList(), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -143,11 +127,8 @@ public class DescendantAxisTest {
 						6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L,
-						5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
+						5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+				null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -161,10 +142,6 @@ public class DescendantAxisTest {
 				new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -178,10 +155,6 @@ public class DescendantAxisTest {
 				new long[] { 9L, 11L, 12L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(9L, 11L, 12L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
@@ -195,10 +168,6 @@ public class DescendantAxisTest {
 				new long[] { 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(13L), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();

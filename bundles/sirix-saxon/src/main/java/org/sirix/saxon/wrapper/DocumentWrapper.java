@@ -129,8 +129,8 @@ public final class DocumentWrapper implements DocumentInfo {
 	 * @throws SirixException
 	 *           if Sirix encounters an error
 	 */
-	public DocumentWrapper(final Session session,
-			final Configuration config) throws SirixException {
+	public DocumentWrapper(final Session session, final Configuration config)
+			throws SirixException {
 		this(session, session.getMostRecentRevisionNumber(), config);
 	}
 

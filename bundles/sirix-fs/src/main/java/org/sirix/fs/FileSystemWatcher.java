@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -69,7 +69,7 @@ import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Optional;
 
 /**
@@ -77,15 +77,15 @@ import com.google.common.base.Optional;
  * Watches a directory in a filesystem recursively for changes and updates a
  * sirix database accordingly.
  * </p>
- * 
+ *
  * <p>
- * Note that it uses an {@code FSML} representation from
- * <em>Alexander Holupirek</em> for the creation of the database. Subsequent
- * notifications currently don't use any extractors.
+ * Note that it uses an {@code FSML} representation from <em>Alexander
+ * Holupirek</em> for the creation of the database. Subsequent notifications
+ * currently don't use any extractors.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public class FileSystemWatcher implements AutoCloseable {
 
@@ -97,8 +97,8 @@ public class FileSystemWatcher implements AutoCloseable {
 			.newSingleThreadScheduledExecutor();
 
 	/**
-	 * Mapping of {@code {@link Path}/{@link Database} to
-	 * {@link FileSystemWatcher} shared among all instances.
+	 * Mapping of {@code {@link Path}/{@link Database} to {@link
+	 * FileSystemWatcher} shared among all instances.
 	 */
 	private static final ConcurrentMap<PathDBContainer, FileSystemWatcher> INSTANCES = new ConcurrentHashMap<>();
 
@@ -132,7 +132,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	/**
 	 * Private constructor invoked from factory.
-	 * 
+	 *
 	 * @param pPath
 	 *          {@link Path} reference which denotes the {@code path/directory} to
 	 *          watch for changes.
@@ -160,10 +160,10 @@ public class FileSystemWatcher implements AutoCloseable {
 	 * Get an instance of {@link FileSystemWatcher}. If an instance with the
 	 * specified {@code {@link Path}/ {@link Database} already exists this
 	 * instance is returned.
-	 * 
-	 * @param pPath
-	 *          {@link Path} reference which denotes the {@code path/directory} to
-	 *          watch for changes.
+	 *
+	 * @param pPath {@link Path} reference which denotes the
+	 * {@code path/directory} to watch for changes.
+	 *
 	 * @return a new {@link FileSystemWatcher} instance
 	 * @throws NullPointerException
 	 *           if any of the arguments are {@code null}
@@ -183,7 +183,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	/**
 	 * Watch the directory for changes.
-	 * 
+	 *
 	 * @param pVisitor
 	 *          optional visitor
 	 * @param pIndex
@@ -238,7 +238,8 @@ public class FileSystemWatcher implements AutoCloseable {
 					final Path name = (Path) ev.context();
 					final Path child = dir.resolve(name);
 
-					if (kind == ENTRY_CREATE && Files.isDirectory(child, NOFOLLOW_LINKS)) {
+					if (kind == ENTRY_CREATE
+							&& Files.isDirectory(child, NOFOLLOW_LINKS)) {
 						Files.walkFileTree(child, new SimpleFileVisitor<Path>() {
 							@Override
 							public FileVisitResult preVisitDirectory(final Path pDir,
@@ -288,7 +289,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	/**
 	 * Set state.
-	 * 
+	 *
 	 * @param pState
 	 *          {@link State} value
 	 * @throws NullPointerException
@@ -300,7 +301,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	/**
 	 * Process an event if the {@link Path} context is available.
-	 * 
+	 *
 	 * @param pEvent
 	 *          {@link WatchEvent<Path>} reference
 	 * @param pVisitor
@@ -334,7 +335,7 @@ public class FileSystemWatcher implements AutoCloseable {
 	/**
 	 * Find node corresponding to the path. The {@link NodeWriteTrx} globally used
 	 * is moved to the found node.
-	 * 
+	 *
 	 * @param pXPath
 	 *          xpath expression
 	 * @throws SirixXPathException
@@ -345,7 +346,7 @@ public class FileSystemWatcher implements AutoCloseable {
 	private void findNode(final String pXPath) throws SirixXPathException {
 		final Axis axis = new XPathAxis(mWtx, checkNotNull(pXPath));
 		int countResults = 0;
-		long resultNodeKey = (Long) Fixed.NULL_NODE_KEY.getStandardProperty();
+		long resultNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 		while (axis.hasNext()) {
 			resultNodeKey = axis.next();
 			countResults++;
@@ -395,7 +396,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	/**
 	 * Execute a command on the node denoted by the event path.
-	 * 
+	 *
 	 * @param pOperation
 	 *          {@link OperationType} value
 	 * @param pVisitor
@@ -411,8 +412,9 @@ public class FileSystemWatcher implements AutoCloseable {
 			throws SirixException {
 		assert pOperation != null;
 		assert pIndex != null;
-		Path path = pOperation == OperationType.INSERT ? mPath.resolve(pPath)
-				.getParent().normalize() : mPath.resolve(pPath).normalize();
+		Path path = pOperation == OperationType.INSERT
+				? mPath.resolve(pPath).getParent().normalize()
+				: mPath.resolve(pPath).normalize();
 		if (path != null) {
 			final StringBuilder queryBuilder = new StringBuilder("/fsml/");
 			queryBuilder.append("dir[@name=\"")
@@ -436,8 +438,7 @@ public class FileSystemWatcher implements AutoCloseable {
 						assert kind != null;
 						kind.append(queryBuilder);
 					}
-					queryBuilder
-							.append("[@name=\"")
+					queryBuilder.append("[@name=\"")
 							.append(
 									XMLToken.escapeAttribute(element.getFileName().toString()))
 							.append("\"]");
@@ -461,13 +462,13 @@ public class FileSystemWatcher implements AutoCloseable {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("path", mPath)
+		return MoreObjects.toStringHelper(this).add("path", mPath)
 				.add("database", mDatabase).add("transaction", mWtx).toString();
 	}
 
 	/**
 	 * Main entry point.
-	 * 
+	 *
 	 * @param pArgs
 	 *          first argument speficies the path/directory to watch for changes,
 	 *          the second argument specifies the database to which to append
@@ -479,11 +480,11 @@ public class FileSystemWatcher implements AutoCloseable {
 	 * @throws IOException
 	 *           if any I/O error occurs
 	 */
-	public static void main(final String[] pArgs) throws SirixException,
-			IOException {
+	public static void main(final String[] pArgs)
+			throws SirixException, IOException {
 		if (pArgs.length < 2 || pArgs.length > 3) {
-			LOGWRAPPER
-					.info("Usage: FileSystemWatcher pathToWatch pathToDatabase [true|false]");
+			LOGWRAPPER.info(
+					"Usage: FileSystemWatcher pathToWatch pathToDatabase [true|false]");
 		}
 
 		if (Boolean.parseBoolean(pArgs[2])) {
@@ -498,14 +499,14 @@ public class FileSystemWatcher implements AutoCloseable {
 
 		Databases.createDatabase(conf);
 		final Database database = Databases.openDatabase(databasePath);
-		database.createResource(new ResourceConfiguration.Builder("shredded", conf)
-				.build());
+		database.createResource(
+				new ResourceConfiguration.Builder("shredded", conf).build());
 		index = FileHierarchyWalker.parseDir(Paths.get(pArgs[0]), database,
 				Optional.<Visitor<NodeWriteTrx>> of(new ProcessFileSystemAttributes()));
 		assert index != null;
 
-		final FileSystemWatcher watcher = FileSystemWatcher.getInstance(
-				Paths.get(pArgs[0]), Databases.openDatabase(databasePath));
+		final FileSystemWatcher watcher = FileSystemWatcher
+				.getInstance(Paths.get(pArgs[0]), Databases.openDatabase(databasePath));
 		watcher.watch(Optional.<Visitor<NodeWriteTrx>> absent(), index);
 		watcher.close();
 	}

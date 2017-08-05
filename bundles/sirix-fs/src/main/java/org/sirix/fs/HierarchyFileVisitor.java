@@ -24,25 +24,25 @@ import org.sirix.service.xml.shredder.Insert;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Optional;
 import com.google.common.collect.Maps;
 
 /**
  * Implements the {@link FileVisitor} interface and shredders an XML
  * representation of directories/files into sirix. The XML representation can be
- * easily equipped with further functionality through the usage of the
- * "Execute Around" idiom.
- * 
+ * easily equipped with further functionality through the usage of the "Execute
+ * Around" idiom.
+ *
  * Further functionality can be plugged in through the implementation of the
  * {@link Visitor} interface.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 @Nonnull
-public class HierarchyFileVisitor extends AbstractShredder implements
-		AutoCloseable, FileVisitor<Path> {
+public class HierarchyFileVisitor extends AbstractShredder
+		implements AutoCloseable, FileVisitor<Path> {
 
 	/**
 	 * Mapping of {@link Database} to {@link HierarchyFileVisitor} shared among
@@ -77,7 +77,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 		/**
 		 * Constructor.
-		 * 
+		 *
 		 * @param pDatabase
 		 *          sirix {@link NodeWriteTrx}
 		 */
@@ -87,7 +87,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 		/**
 		 * Set an {@link Visitor} implementation.
-		 * 
+		 *
 		 * @param pVisitor
 		 *          {@link Visitor} implementation
 		 * @return this builder instance
@@ -99,7 +99,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 		/**
 		 * Build a new {@link HierarchyFileVisitor} instance.
-		 * 
+		 *
 		 * @return {@link HierarchyFileVisitor} reference
 		 * @throws SirixException
 		 *           if setting up sirix fails
@@ -111,7 +111,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 	/**
 	 * Private constructor invoked from factory.
-	 * 
+	 *
 	 * @param pPath
 	 *          {@link Path} reference which denotes the {@code path/directory} to
 	 *          watch for changes.
@@ -132,10 +132,10 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 	 * Get an instance of {@link FileHierarchyWalker}. If an instance with the
 	 * specified {@code {@link Path}/ {@link Database} already exists this
 	 * instance is returned.
+	 *
+	 * @param pPath {@link Path} reference which denotes the
+	 * {@code path/directory} to watch for changes.
 	 * 
-	 * @param pPath
-	 *          {@link Path} reference which denotes the {@code path/directory} to
-	 *          watch for changes.
 	 * @return a new {@link FileHierarchyWalker} instance
 	 * @throws NullPointerException
 	 *           if {@code pBuilder} is {@code null}
@@ -165,7 +165,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 	 * sirix {@link NodeWriteTrx} is located on the new directory before and after
 	 * using a pluggable visitor.
 	 * </p>
-	 * 
+	 *
 	 * @throws NullPointerException
 	 *           if {@code pDir} or {@code pAttrs} is {@code null}
 	 */
@@ -209,7 +209,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 	 * sirix {@link NodeWriteTrx} is located on the new directory before and after
 	 * using a pluggable visitor.
 	 * </p>
-	 * 
+	 *
 	 * @throws NullPointerException
 	 *           if {@code pDir} or {@code pAttrs} is {@code null}
 	 */
@@ -236,7 +236,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 	/**
 	 * Process a directory.
-	 * 
+	 *
 	 * @param pVisitor
 	 *          an optional visitor implementing {@link Visitor}
 	 * @param pWtx
@@ -245,7 +245,8 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 	 *      processDirectory(IReadTransaction)
 	 */
 	private void processDirectory(final Optional<Visitor<NodeWriteTrx>> pVisitor,
-			final NodeWriteTrx pWtx, final Path pDir, final BasicFileAttributes pAttrs) {
+			final NodeWriteTrx pWtx, final Path pDir,
+			final BasicFileAttributes pAttrs) {
 		assert pVisitor != null;
 		assert pWtx != null;
 		if (pVisitor.isPresent()) {
@@ -255,7 +256,7 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 	/**
 	 * Process a file.
-	 * 
+	 *
 	 * @param pVisitor
 	 *          an optional visitor implementing {@link Visitor}
 	 * @param pWtx
@@ -280,13 +281,13 @@ public class HierarchyFileVisitor extends AbstractShredder implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("instances", INSTANCES)
+		return MoreObjects.toStringHelper(this).add("instances", INSTANCES)
 				.add("wtx", mWtx).toString();
 	}
 
 	/**
 	 * Get the path index.
-	 * 
+	 *
 	 * @return path index
 	 */
 	public Map<Path, org.sirix.fs.Path> getIndex() {

@@ -17,7 +17,7 @@ import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link AllTimeAxis}.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -50,10 +50,6 @@ public final class AllTimeAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new AllTimeAxis(holder.getRtx());

@@ -17,7 +17,7 @@ import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link FirstAxis}.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -48,10 +48,6 @@ public final class FirstAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(firstRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new FirstAxis(holder.getRtx());

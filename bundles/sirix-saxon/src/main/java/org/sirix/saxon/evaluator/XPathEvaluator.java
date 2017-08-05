@@ -88,8 +88,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
 		 * @param session
 		 *          sirix {@link Session} instance
 		 */
-		public Builder(final String expression,
-				final Session session) {
+		public Builder(final String expression, final Session session) {
 			mExpression = checkNotNull(expression);
 			mSession = checkNotNull(session);
 			mRevision = session.getMostRecentRevisionNumber();

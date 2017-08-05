@@ -130,8 +130,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 *          start noeKey to move to
 	 * @throws SirixException
 	 */
-	NodeWrapper(final DocumentWrapper docWrapper,
-			final long nodeKeyToStart) throws SirixException {
+	NodeWrapper(final DocumentWrapper docWrapper, final long nodeKeyToStart)
+			throws SirixException {
 		mDocWrapper = checkNotNull(docWrapper);
 		checkArgument(nodeKeyToStart >= 0, "nodeKeyToStart must be >= 0!");
 		final NodeReadTrx rtx = mDocWrapper.mSession

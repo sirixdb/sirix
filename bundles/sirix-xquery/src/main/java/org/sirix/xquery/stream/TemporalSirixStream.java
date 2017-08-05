@@ -10,16 +10,16 @@ import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * {@link Stream}, wrapping a temporal axis.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class TemporalSirixStream implements
-		Stream<AbstractTemporalNode<DBNode>> {
+public class TemporalSirixStream
+		implements Stream<AbstractTemporalNode<DBNode>> {
 
 	/** Temporal axis. */
 	private final AbstractTemporalAxis mAxis;
@@ -29,7 +29,7 @@ public class TemporalSirixStream implements
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param axis
 	 *          Sirix {@link Axis}
 	 * @param collection
@@ -56,6 +56,6 @@ public class TemporalSirixStream implements
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("axis", mAxis).toString();
+		return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
 	}
 }

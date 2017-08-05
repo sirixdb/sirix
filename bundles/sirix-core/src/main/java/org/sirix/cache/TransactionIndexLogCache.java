@@ -32,7 +32,6 @@ import java.util.Map;
 
 import javax.annotation.Nonnegative;
 
-import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -58,8 +57,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	private final BerkeleyIndexPersistenceCache<T> mSecondCache;
 
 	/**
-	 * Constructor including the {@link DatabaseConfiguration} for persistent
-	 * storage.
+	 * Constructor.
 	 *
 	 * @param file
 	 *          the config for having a storage-place
