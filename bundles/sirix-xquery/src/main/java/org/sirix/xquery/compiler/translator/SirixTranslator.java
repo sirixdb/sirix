@@ -73,15 +73,15 @@ import com.google.common.collect.ImmutableSet.Builder;
 public final class SirixTranslator extends TopDownTranslator {
 
 	/** Optimize accessors or not. */
-	public static final boolean OPTIMIZE = Cfg.asBool(
-			"org.sirix.xquery.optimize.accessor", true);
+	public static final boolean OPTIMIZE = Cfg
+			.asBool("org.sirix.xquery.optimize.accessor", true);
 
 	/**
 	 * Number of children (needed as a threshold to lookup in path summary if a
 	 * path exists at all).
 	 */
-	public static final int CHILD_THRESHOLD = Cfg.asInt(
-			"org.sirix.xquery.optimize.child.threshold", 1);
+	public static final int CHILD_THRESHOLD = Cfg
+			.asInt("org.sirix.xquery.optimize.child.threshold", 1);
 
 	/**
 	 * Constructor.
@@ -99,46 +99,46 @@ public final class SirixTranslator extends TopDownTranslator {
 			return super.axis(node);
 		}
 		switch (node.getType()) {
-		case XQ.DESCENDANT:
-			return new DescOrSelf(Axis.DESCENDANT);
-		case XQ.DESCENDANT_OR_SELF:
-			return new DescOrSelf(Axis.DESCENDANT_OR_SELF);
-		case XQ.CHILD:
-			return new Child(Axis.CHILD);
-		case XQ.ATTRIBUTE:
-			return new Attribute(Axis.ATTRIBUTE);
-		case XQ.PARENT:
-			return new Parent(Axis.PARENT);
-		case XQ.ANCESTOR:
-			return new AncestorOrSelf(Axis.ANCESTOR);
-		case XQ.ANCESTOR_OR_SELF:
-			return new AncestorOrSelf(Axis.ANCESTOR_OR_SELF);
-		case XQ.FOLLOWING:
-			return new Following(Axis.FOLLOWING);
-		case XQ.FOLLOWING_SIBLING:
-			return new FollowingSibling(Axis.FOLLOWING_SIBLING);
-		case XQ.PRECEDING_SIBLING:
-			return new PrecedingSibling(Axis.PRECEDING_SIBLING);
-		case XQ.FUTURE:
-			return new Future(Axis.FUTURE);
-		case XQ.FUTURE_OR_SELF:
-			return new Future(Axis.FUTURE_OR_SELF);
-		case XQ.PAST:
-			return new Past(Axis.PAST);
-		case XQ.PAST_OR_SELF:
-			return new Past(Axis.PAST_OR_SELF);
-		case XQ.PREVIOUS:
-			return new Previous(Axis.PREVIOUS);
-		case XQ.NEXT:
-			return new Next(Axis.NEXT);
-		case XQ.ALL_TIME:
-			return new AllTime(Axis.ALL_TIME);
-		case XQ.FIRST:
-			return new First(Axis.FIRST);
-		case XQ.LAST:
-			return new Last(Axis.LAST);
-		default:
-			return super.axis(node);
+			case XQ.DESCENDANT:
+				return new DescOrSelf(Axis.DESCENDANT);
+			case XQ.DESCENDANT_OR_SELF:
+				return new DescOrSelf(Axis.DESCENDANT_OR_SELF);
+			case XQ.CHILD:
+				return new Child(Axis.CHILD);
+			case XQ.ATTRIBUTE:
+				return new Attribute(Axis.ATTRIBUTE);
+			case XQ.PARENT:
+				return new Parent(Axis.PARENT);
+			case XQ.ANCESTOR:
+				return new AncestorOrSelf(Axis.ANCESTOR);
+			case XQ.ANCESTOR_OR_SELF:
+				return new AncestorOrSelf(Axis.ANCESTOR_OR_SELF);
+			case XQ.FOLLOWING:
+				return new Following(Axis.FOLLOWING);
+			case XQ.FOLLOWING_SIBLING:
+				return new FollowingSibling(Axis.FOLLOWING_SIBLING);
+			case XQ.PRECEDING_SIBLING:
+				return new PrecedingSibling(Axis.PRECEDING_SIBLING);
+			case XQ.FUTURE:
+				return new Future(Axis.FUTURE);
+			case XQ.FUTURE_OR_SELF:
+				return new Future(Axis.FUTURE_OR_SELF);
+			case XQ.PAST:
+				return new Past(Axis.PAST);
+			case XQ.PAST_OR_SELF:
+				return new Past(Axis.PAST_OR_SELF);
+			case XQ.PREVIOUS:
+				return new Previous(Axis.PREVIOUS);
+			case XQ.NEXT:
+				return new Next(Axis.NEXT);
+			case XQ.ALL_TIME:
+				return new AllTime(Axis.ALL_TIME);
+			case XQ.FIRST:
+				return new First(Axis.FIRST);
+			case XQ.LAST:
+				return new Last(Axis.LAST);
+			default:
+				return super.axis(node);
 		}
 	}
 
@@ -165,8 +165,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new LastAxis(rtx);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -202,8 +203,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new FirstAxis(rtx);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -239,8 +241,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new NextAxis(rtx);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -276,8 +279,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new PreviousAxis(rtx);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -313,8 +317,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new AllTimeAxis(rtx);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -354,8 +359,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new PastAxis(rtx, mSelf);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -395,8 +401,9 @@ public final class SirixTranslator extends TopDownTranslator {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
 			final AbstractTemporalAxis axis = new FutureAxis(rtx, mSelf);
-			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
-					rtx, axis), dbNode.getCollection());
+			return new TemporalSirixStream(
+					SirixTranslator.this.getTemporalAxis(test, rtx, axis),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -503,8 +510,9 @@ public final class SirixTranslator extends TopDownTranslator {
 				final NodeType test) throws QueryException {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
-			return new SirixStream(SirixTranslator.this.getAxis(test, rtx,
-					new FollowingAxis(rtx)), dbNode.getCollection());
+			return new SirixStream(
+					SirixTranslator.this.getAxis(test, rtx, new FollowingAxis(rtx)),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -542,8 +550,9 @@ public final class SirixTranslator extends TopDownTranslator {
 				final NodeType test) throws QueryException {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
-			return new SirixStream(SirixTranslator.this.getAxis(test, rtx,
-					new AncestorAxis(rtx, mSelf)), dbNode.getCollection());
+			return new SirixStream(
+					SirixTranslator.this.getAxis(test, rtx, new AncestorAxis(rtx, mSelf)),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -578,8 +587,9 @@ public final class SirixTranslator extends TopDownTranslator {
 				final NodeType test) throws QueryException {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
-			return new SirixStream(SirixTranslator.this.getAxis(test, rtx,
-					new ParentAxis(rtx)), dbNode.getCollection());
+			return new SirixStream(
+					SirixTranslator.this.getAxis(test, rtx, new ParentAxis(rtx)),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -659,8 +669,8 @@ public final class SirixTranslator extends TopDownTranslator {
 				try {
 					final long pcr = dbNode.getPCR();
 					BitSet matches = mFilterMap.get(pcr);
-					final PathSummaryReader reader = rtx.getSession().openPathSummary(
-							rtx.getRevisionNumber());
+					final PathSummaryReader reader = rtx.getSession()
+							.openPathSummary(rtx.getRevisionNumber());
 					if (matches == null) {
 						reader.moveTo(pcr);
 						final int level = reader.getLevel() + 1;
@@ -679,8 +689,9 @@ public final class SirixTranslator extends TopDownTranslator {
 				}
 			}
 
-			return new SirixStream(SirixTranslator.this.getAxis(test, rtx,
-					new ChildAxis(rtx)), dbNode.getCollection());
+			return new SirixStream(
+					SirixTranslator.this.getAxis(test, rtx, new ChildAxis(rtx)),
+					dbNode.getCollection());
 		}
 
 		@Override
@@ -731,8 +742,8 @@ public final class SirixTranslator extends TopDownTranslator {
 					final long pcr = dbNode.getPCR();
 					BitSet matches = mFilterMap.get(pcr);
 					final NodeReadTrx rtx = dbNode.getTrx();
-					final PathSummaryReader reader = rtx.getSession().openPathSummary(
-							rtx.getRevisionNumber());
+					final PathSummaryReader reader = rtx.getSession()
+							.openPathSummary(rtx.getRevisionNumber());
 					if (matches == null) {
 						reader.moveTo(pcr);
 						final int level = mSelf == IncludeSelf.YES ? reader.getLevel()
@@ -760,9 +771,10 @@ public final class SirixTranslator extends TopDownTranslator {
 						// Match at the next level (single child-path).
 						if (matchLevel == level + 1) {
 							reader.close();
-							return new SirixStream(new FilterAxis(new ChildAxis(rtx),
-									new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
-											.toString())), dbNode.getCollection());
+							return new SirixStream(
+									new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+											new NameFilter(rtx, test.getQName().toString())),
+									dbNode.getCollection());
 						}
 						// Match at a level below the child level.
 						final Deque<QNm> names = getNames(matchLevel, level, reader);
@@ -813,8 +825,9 @@ public final class SirixTranslator extends TopDownTranslator {
 								}
 							}
 
-							axisQueue.push(sameName ? new FilterAxis(new ChildAxis(rtx),
-									new ElementFilter(rtx), new NameFilter(rtx, name))
+							axisQueue.push(sameName
+									? new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+											new NameFilter(rtx, name))
 									: new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
 						}
 
@@ -824,12 +837,6 @@ public final class SirixTranslator extends TopDownTranslator {
 						}
 						reader.close();
 						return new SirixStream(axis, dbNode.getCollection());
-						// return new SirixStream(new FilterAxis(new
-						// DescendantAxis(rtx,
-						// mSelf),
-						// new ElementFilter(rtx), new NameFilter(rtx,
-						// test.getQName()
-						// .toString())), dbNode.getCollection());
 					} else {
 						// Matches on different levels.
 						// TODO: Use ConcurrentUnionAxis.
@@ -847,9 +854,9 @@ public final class SirixTranslator extends TopDownTranslator {
 							}
 							// Match at the next level (single child-path).
 							else if (matchLevel == level + 1) {
-								axisQueue.addLast(new FilterAxis(new ChildAxis(rtx),
-										new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
-												.toString())));
+								axisQueue.addLast(
+										new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+												new NameFilter(rtx, test.getQName().toString())));
 							}
 							// Match at a level below the child level.
 							else {
@@ -912,94 +919,95 @@ public final class SirixTranslator extends TopDownTranslator {
 			final org.sirix.axis.AbstractTemporalAxis innerAxis) {
 		TemporalFilterAxis axis = null;
 		switch (test.getNodeKind()) {
-		case COMMENT:
-			axis = new TemporalFilterAxis(innerAxis, new CommentFilter(trx));
-			break;
-		case PROCESSING_INSTRUCTION:
-			if (test.getQName() == null) {
-				axis = new TemporalFilterAxis(innerAxis, new PIFilter(trx));
-			} else {
-				axis = new TemporalFilterAxis(innerAxis, new PIFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case ELEMENT:
-			if (test.getQName() == null) {
-				axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx));
-			} else {
-				axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case TEXT:
-			axis = new TemporalFilterAxis(innerAxis, new TextFilter(trx));
-			break;
-		case NAMESPACE:
-			if (test.getQName() == null) {
-				axis = new TemporalFilterAxis(innerAxis, new NamespaceFilter(trx));
-			} else {
-				axis = new TemporalFilterAxis(innerAxis, new NamespaceFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case ATTRIBUTE:
-			if (test.getQName() == null) {
-				axis = new TemporalFilterAxis(innerAxis, new AttributeFilter(trx));
-			} else {
-				axis = new TemporalFilterAxis(innerAxis, new AttributeFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case DOCUMENT:
-			axis = new TemporalFilterAxis(innerAxis, new DocumentRootNodeFilter(trx));
+			case COMMENT:
+				axis = new TemporalFilterAxis(innerAxis, new CommentFilter(trx));
+				break;
+			case PROCESSING_INSTRUCTION:
+				if (test.getQName() == null) {
+					axis = new TemporalFilterAxis(innerAxis, new PIFilter(trx));
+				} else {
+					axis = new TemporalFilterAxis(innerAxis, new PIFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case ELEMENT:
+				if (test.getQName() == null) {
+					axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx));
+				} else {
+					axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case TEXT:
+				axis = new TemporalFilterAxis(innerAxis, new TextFilter(trx));
+				break;
+			case NAMESPACE:
+				if (test.getQName() == null) {
+					axis = new TemporalFilterAxis(innerAxis, new NamespaceFilter(trx));
+				} else {
+					axis = new TemporalFilterAxis(innerAxis, new NamespaceFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case ATTRIBUTE:
+				if (test.getQName() == null) {
+					axis = new TemporalFilterAxis(innerAxis, new AttributeFilter(trx));
+				} else {
+					axis = new TemporalFilterAxis(innerAxis, new AttributeFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case DOCUMENT:
+				axis = new TemporalFilterAxis(innerAxis,
+						new DocumentRootNodeFilter(trx));
 		}
 		return axis;
 	}
 
-	private org.sirix.api.Axis getAxis(final NodeType test,
-			final NodeReadTrx trx, final org.sirix.api.Axis innerAxis) {
+	private org.sirix.api.Axis getAxis(final NodeType test, final NodeReadTrx trx,
+			final org.sirix.api.Axis innerAxis) {
 		FilterAxis axis = null;
 		switch (test.getNodeKind()) {
-		case COMMENT:
-			axis = new FilterAxis(innerAxis, new CommentFilter(trx));
-			break;
-		case PROCESSING_INSTRUCTION:
-			if (test.getQName() == null) {
-				axis = new FilterAxis(innerAxis, new PIFilter(trx));
-			} else {
-				axis = new FilterAxis(innerAxis, new PIFilter(trx), new NameFilter(trx,
-						test.getQName()));
-			}
-			break;
-		case ELEMENT:
-			if (test.getQName() == null) {
-				axis = new FilterAxis(innerAxis, new ElementFilter(trx));
-			} else {
-				axis = new FilterAxis(innerAxis, new ElementFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case TEXT:
-			axis = new FilterAxis(innerAxis, new TextFilter(trx));
-			break;
-		case NAMESPACE:
-			if (test.getQName() == null) {
-				axis = new FilterAxis(innerAxis, new NamespaceFilter(trx));
-			} else {
-				axis = new FilterAxis(innerAxis, new NamespaceFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case ATTRIBUTE:
-			if (test.getQName() == null) {
-				axis = new FilterAxis(innerAxis, new AttributeFilter(trx));
-			} else {
-				axis = new FilterAxis(innerAxis, new AttributeFilter(trx),
-						new NameFilter(trx, test.getQName()));
-			}
-			break;
-		case DOCUMENT:
-			axis = new FilterAxis(innerAxis, new DocumentRootNodeFilter(trx));
+			case COMMENT:
+				axis = new FilterAxis(innerAxis, new CommentFilter(trx));
+				break;
+			case PROCESSING_INSTRUCTION:
+				if (test.getQName() == null) {
+					axis = new FilterAxis(innerAxis, new PIFilter(trx));
+				} else {
+					axis = new FilterAxis(innerAxis, new PIFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case ELEMENT:
+				if (test.getQName() == null) {
+					axis = new FilterAxis(innerAxis, new ElementFilter(trx));
+				} else {
+					axis = new FilterAxis(innerAxis, new ElementFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case TEXT:
+				axis = new FilterAxis(innerAxis, new TextFilter(trx));
+				break;
+			case NAMESPACE:
+				if (test.getQName() == null) {
+					axis = new FilterAxis(innerAxis, new NamespaceFilter(trx));
+				} else {
+					axis = new FilterAxis(innerAxis, new NamespaceFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case ATTRIBUTE:
+				if (test.getQName() == null) {
+					axis = new FilterAxis(innerAxis, new AttributeFilter(trx));
+				} else {
+					axis = new FilterAxis(innerAxis, new AttributeFilter(trx),
+							new NameFilter(trx, test.getQName()));
+				}
+				break;
+			case DOCUMENT:
+				axis = new FilterAxis(innerAxis, new DocumentRootNodeFilter(trx));
 		}
 		return axis;
 	}

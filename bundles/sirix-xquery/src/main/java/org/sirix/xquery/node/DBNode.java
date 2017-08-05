@@ -1,8 +1,9 @@
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Optional;
 
 import javax.annotation.Nullable;
@@ -52,14 +53,14 @@ import org.sirix.xquery.stream.SirixStream;
 import org.sirix.xquery.stream.TemporalSirixStream;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * A node which is used to provide all XDM functionality as well as temporal
  * functions.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class DBNode extends AbstractTemporalNode<DBNode> {
 
@@ -90,7 +91,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param rtx
 	 *          {@link NodeReadTrx} for providing reading access to the underlying
 	 *          node
@@ -98,8 +99,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	 *          {@link DBCollection} reference
 	 */
 	public DBNode(final NodeReadTrx rtx, final DBCollection collection) {
-		mCollection = checkNotNull(collection);
-		mRtx = checkNotNull(rtx);
+		mCollection = requireNonNull(collection);
+		mRtx = requireNonNull(rtx);
 		mIsWtx = mRtx instanceof NodeWriteTrx;
 		mNodeKey = mRtx.getNodeKey();
 		mKind = mRtx.getKind();
@@ -108,7 +109,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Create a new {@link IReadTransaction} and move to {@link mKey}.
-	 * 
+	 *
 	 * @return new read transaction instance which is moved to {@link mKey}
 	 */
 	private final void moveRtx() {
@@ -117,7 +118,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get underlying node.
-	 * 
+	 *
 	 * @return underlying node
 	 */
 	public org.sirix.node.interfaces.immutable.ImmutableNode getUnderlyingNode() {
@@ -195,7 +196,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get the transaction.
-	 * 
+	 *
 	 * @return transaction handle
 	 */
 	public NodeReadTrx getTrx() {
@@ -263,10 +264,10 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				if (mDeweyID.isPresent()) {
 					return mDeweyID.get().isSiblingOf(node.mDeweyID.get());
 				}
-				if (node.getKind() != Kind.NAMESPACE
-						&& node.getKind() != Kind.ATTRIBUTE
-						&& ((DBNode) node.getParent()).getUnderlyingNode().getNodeKey() == ((DBNode) other
-								.getParent()).getUnderlyingNode().getNodeKey()) {
+				if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
+						&& node.getParent().getUnderlyingNode()
+								.getNodeKey() == ((DBNode) other.getParent())
+										.getUnderlyingNode().getNodeKey()) {
 					retVal = true;
 				}
 			} catch (final DocumentException e) {
@@ -372,7 +373,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			final DBNode node = (DBNode) other;
 			assert node.getNodeClassID() == this.getNodeClassID();
 			try {
-				if (((DBNode) getParent()).getUnderlyingNode().getNodeKey() == node
+				if (getParent().getUnderlyingNode().getNodeKey() == node
 						.getUnderlyingNode().getNodeKey()) {
 					retVal = true;
 				}
@@ -403,14 +404,16 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public boolean isDocumentRoot() {
 		moveRtx();
-		return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty() ? true
+		return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+				? true
 				: false;
 	}
 
 	@Override
 	public boolean isRoot() {
 		moveRtx();
-		return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty() ? true
+		return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
+				? true
 				: false;
 	}
 
@@ -436,22 +439,22 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	public Kind getKind() {
 		moveRtx();
 		switch (mRtx.getKind()) {
-		case DOCUMENT:
-			return Kind.DOCUMENT;
-		case ELEMENT:
-			return Kind.ELEMENT;
-		case TEXT:
-			return Kind.TEXT;
-		case COMMENT:
-			return Kind.COMMENT;
-		case PROCESSING_INSTRUCTION:
-			return Kind.PROCESSING_INSTRUCTION;
-		case NAMESPACE:
-			return Kind.NAMESPACE;
-		case ATTRIBUTE:
-			return Kind.ATTRIBUTE;
-		default:
-			throw new IllegalStateException("Kind not known!");
+			case DOCUMENT:
+				return Kind.DOCUMENT;
+			case ELEMENT:
+				return Kind.ELEMENT;
+			case TEXT:
+				return Kind.TEXT;
+			case COMMENT:
+				return Kind.COMMENT;
+			case PROCESSING_INSTRUCTION:
+				return Kind.PROCESSING_INSTRUCTION;
+			case NAMESPACE:
+				return Kind.NAMESPACE;
+			case ATTRIBUTE:
+				return Kind.ATTRIBUTE;
+			default:
+				throw new IllegalStateException("Kind not known!");
 		}
 	}
 
@@ -462,8 +465,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public void setName(final QNm name) throws OperationNotSupportedException,
-			DocumentException {
+	public void setName(final QNm name)
+			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
@@ -494,29 +497,29 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 		String value;
 		switch (mKind) {
-		case DOCUMENT:
-		case ELEMENT:
-			value = expandString();
-			break;
-		case ATTRIBUTE:
-			value = emptyIfNull(mRtx.getValue());
-			break;
-		case TEXT:
-			value = mRtx.getValue();
-			break;
-		case COMMENT:
-		case PROCESSING_INSTRUCTION:
-			value = emptyIfNull(mRtx.getValue());
-			break;
-		default:
-			value = "";
+			case DOCUMENT:
+			case ELEMENT:
+				value = expandString();
+				break;
+			case ATTRIBUTE:
+				value = emptyIfNull(mRtx.getValue());
+				break;
+			case TEXT:
+				value = mRtx.getValue();
+				break;
+			case COMMENT:
+			case PROCESSING_INSTRUCTION:
+				value = emptyIfNull(mRtx.getValue());
+				break;
+			default:
+				value = "";
 		}
 		return new Una(value);
 	}
 
 	/**
 	 * Treat a node value of null as an empty string.
-	 * 
+	 *
 	 * @param s
 	 *          the node value
 	 * @return a zero-length string if s is null, otherwise s
@@ -527,7 +530,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Filter text nodes.
-	 * 
+	 *
 	 * @return concatenated String of text node values
 	 */
 	private String expandString() {
@@ -578,15 +581,17 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public DBNode getFirstChild() throws DocumentException {
 		moveRtx();
-		return mRtx.hasFirstChild() ? new DBNode(mRtx.moveToFirstChild().get(),
-				mCollection) : null;
+		return mRtx.hasFirstChild()
+				? new DBNode(mRtx.moveToFirstChild().get(), mCollection)
+				: null;
 	}
 
 	@Override
 	public DBNode getLastChild() throws DocumentException {
 		moveRtx();
-		return mRtx.hasLastChild() ? new DBNode(mRtx.moveToLastChild().get(),
-				mCollection) : null;
+		return mRtx.hasLastChild()
+				? new DBNode(mRtx.moveToLastChild().get(), mCollection)
+				: null;
 	}
 
 	@Override
@@ -599,8 +604,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public Stream<DBNode> getSubtree() throws DocumentException {
 		moveRtx();
-		return new SirixStream(new NonStructuralWrapperAxis(new DescendantAxis(
-				mRtx, IncludeSelf.YES)), mCollection);
+		return new SirixStream(
+				new NonStructuralWrapperAxis(new DescendantAxis(mRtx, IncludeSelf.YES)),
+				mCollection);
 	}
 
 	@Override
@@ -612,15 +618,17 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public DBNode getNextSibling() throws DocumentException {
 		moveRtx();
-		return mRtx.hasRightSibling() ? new DBNode(mRtx.moveToRightSibling().get(),
-				mCollection) : null;
+		return mRtx.hasRightSibling()
+				? new DBNode(mRtx.moveToRightSibling().get(), mCollection)
+				: null;
 	}
 
 	@Override
 	public DBNode getPreviousSibling() throws DocumentException {
 		moveRtx();
-		return mRtx.hasLeftSibling() ? new DBNode(mRtx.moveToLeftSibling().get(),
-				mCollection) : null;
+		return mRtx.hasLeftSibling()
+				? new DBNode(mRtx.moveToLeftSibling().get(), mCollection)
+				: null;
 	}
 
 	@Override
@@ -651,51 +659,51 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		if (wtx.hasFirstChild()) {
 			wtx.moveToLastChild();
 			switch (kind) {
-			case DOCUMENT:
-				break;
-			case ELEMENT:
-				wtx.insertElementAsRightSibling(name);
-				break;
-			case ATTRIBUTE:
-				wtx.insertAttribute(name, value.asStr().stringValue());
-				break;
-			case NAMESPACE:
-				wtx.insertNamespace(name);
-				break;
-			case TEXT:
-				wtx.insertTextAsRightSibling(value.asStr().stringValue());
-				break;
-			case COMMENT:
-				wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-				break;
-			case PROCESSING_INSTRUCTION:
-				wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-						name.getLocalName());
-				break;
+				case DOCUMENT:
+					break;
+				case ELEMENT:
+					wtx.insertElementAsRightSibling(name);
+					break;
+				case ATTRIBUTE:
+					wtx.insertAttribute(name, value.asStr().stringValue());
+					break;
+				case NAMESPACE:
+					wtx.insertNamespace(name);
+					break;
+				case TEXT:
+					wtx.insertTextAsRightSibling(value.asStr().stringValue());
+					break;
+				case COMMENT:
+					wtx.insertCommentAsRightSibling(value.asStr().stringValue());
+					break;
+				case PROCESSING_INSTRUCTION:
+					wtx.insertPIAsRightSibling(value.asStr().stringValue(),
+							name.getLocalName());
+					break;
 			}
 		} else {
 			switch (kind) {
-			case DOCUMENT:
-				break;
-			case ELEMENT:
-				wtx.insertElementAsFirstChild(name);
-				break;
-			case ATTRIBUTE:
-				wtx.insertAttribute(name, value.asStr().stringValue());
-				break;
-			case NAMESPACE:
-				wtx.insertNamespace(name);
-				break;
-			case TEXT:
-				wtx.insertTextAsFirstChild(value.asStr().stringValue());
-				break;
-			case COMMENT:
-				wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-				break;
-			case PROCESSING_INSTRUCTION:
-				wtx.insertPIAsFirstChild(value.asStr().stringValue(),
-						name.getLocalName());
-				break;
+				case DOCUMENT:
+					break;
+				case ELEMENT:
+					wtx.insertElementAsFirstChild(name);
+					break;
+				case ATTRIBUTE:
+					wtx.insertAttribute(name, value.asStr().stringValue());
+					break;
+				case NAMESPACE:
+					wtx.insertNamespace(name);
+					break;
+				case TEXT:
+					wtx.insertTextAsFirstChild(value.asStr().stringValue());
+					break;
+				case COMMENT:
+					wtx.insertCommentAsFirstChild(value.asStr().stringValue());
+					break;
+				case PROCESSING_INSTRUCTION:
+					wtx.insertPIAsFirstChild(value.asStr().stringValue(),
+							name.getLocalName());
+					break;
 			}
 		}
 
@@ -732,18 +740,12 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			if (rtx.hasFirstChild()) {
 				rtx.moveToLastChild();
 
-				builder = new SubtreeBuilder(
-						mCollection,
-						(NodeWriteTrx) rtx,
-						Insert.ASRIGHTSIBLING,
-						Collections
+				builder = new SubtreeBuilder(mCollection, (NodeWriteTrx) rtx,
+						Insert.ASRIGHTSIBLING, Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			} else {
-				builder = new SubtreeBuilder(
-						mCollection,
-						(NodeWriteTrx) rtx,
-						Insert.ASFIRSTCHILD,
-						Collections
+				builder = new SubtreeBuilder(mCollection, (NodeWriteTrx) rtx,
+						Insert.ASFIRSTCHILD, Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			}
 			child.parse(builder);
@@ -784,13 +786,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				rtx.moveToLastChild();
 			}
 
-			parser
-					.parse(new SubtreeBuilder(
-							mCollection,
-							(NodeWriteTrx) rtx,
-							Insert.ASRIGHTSIBLING,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+			parser.parse(new SubtreeBuilder(mCollection, (NodeWriteTrx) rtx,
+					Insert.ASRIGHTSIBLING, Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 
 			moveRtx();
 			rtx.moveToFirstChild();
@@ -828,27 +826,27 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			throws DocumentException {
 		try {
 			switch (kind) {
-			case DOCUMENT:
-				break;
-			case ELEMENT:
-				wtx.insertElementAsFirstChild(name);
-				break;
-			case ATTRIBUTE:
-				wtx.insertAttribute(name, value.asStr().stringValue());
-				break;
-			case NAMESPACE:
-				wtx.insertNamespace(name);
-				break;
-			case TEXT:
-				wtx.insertTextAsFirstChild(value.asStr().stringValue());
-				break;
-			case COMMENT:
-				wtx.insertCommentAsFirstChild(value.asStr().stringValue());
-				break;
-			case PROCESSING_INSTRUCTION:
-				wtx.insertPIAsFirstChild(value.asStr().stringValue(),
-						name.getLocalName());
-				break;
+				case DOCUMENT:
+					break;
+				case ELEMENT:
+					wtx.insertElementAsFirstChild(name);
+					break;
+				case ATTRIBUTE:
+					wtx.insertAttribute(name, value.asStr().stringValue());
+					break;
+				case NAMESPACE:
+					wtx.insertNamespace(name);
+					break;
+				case TEXT:
+					wtx.insertTextAsFirstChild(value.asStr().stringValue());
+					break;
+				case COMMENT:
+					wtx.insertCommentAsFirstChild(value.asStr().stringValue());
+					break;
+				case PROCESSING_INSTRUCTION:
+					wtx.insertPIAsFirstChild(value.asStr().stringValue(),
+							name.getLocalName());
+					break;
 			}
 		} catch (final SirixException e) {
 			throw new DocumentException(e);
@@ -887,17 +885,11 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			if (wtx.hasFirstChild()) {
 				wtx.moveToFirstChild();
 
-				builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASLEFTSIBLING,
+				builder = new SubtreeBuilder(mCollection, wtx, Insert.ASLEFTSIBLING,
 						Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			} else {
-				builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASFIRSTCHILD,
+				builder = new SubtreeBuilder(mCollection, wtx, Insert.ASFIRSTCHILD,
 						Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			}
@@ -935,13 +927,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	private DBNode prepend(NodeWriteTrx wtx, SubtreeParser parser)
 			throws DocumentException {
 		try {
-			parser
-					.parse(new SubtreeBuilder(
-							mCollection,
-							wtx,
-							Insert.ASFIRSTCHILD,
-							Collections
-									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+			parser.parse(
+					new SubtreeBuilder(mCollection, wtx, Insert.ASFIRSTCHILD, Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 			moveRtx();
 			wtx.moveToFirstChild();
 		} catch (final SirixException e) {
@@ -951,8 +939,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode insertBefore(final Kind kind, final QNm name, final Atomic value)
-			throws DocumentException {
+	public DBNode insertBefore(final Kind kind, final QNm name,
+			final Atomic value) throws DocumentException {
 		if (mIsWtx) {
 			try {
 				moveRtx();
@@ -978,27 +966,27 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			Atomic value) throws DocumentException {
 		try {
 			switch (kind) {
-			case DOCUMENT:
-				break;
-			case ELEMENT:
-				wtx.insertElementAsLeftSibling(name);
-				break;
-			case ATTRIBUTE:
-				wtx.insertAttribute(name, value.asStr().stringValue());
-				break;
-			case NAMESPACE:
-				wtx.insertNamespace(name);
-				break;
-			case TEXT:
-				wtx.insertTextAsLeftSibling(value.asStr().stringValue());
-				break;
-			case COMMENT:
-				wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
-				break;
-			case PROCESSING_INSTRUCTION:
-				wtx.insertPIAsLeftSibling(value.asStr().stringValue(),
-						name.getLocalName());
-				break;
+				case DOCUMENT:
+					break;
+				case ELEMENT:
+					wtx.insertElementAsLeftSibling(name);
+					break;
+				case ATTRIBUTE:
+					wtx.insertAttribute(name, value.asStr().stringValue());
+					break;
+				case NAMESPACE:
+					wtx.insertNamespace(name);
+					break;
+				case TEXT:
+					wtx.insertTextAsLeftSibling(value.asStr().stringValue());
+					break;
+				case COMMENT:
+					wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
+					break;
+				case PROCESSING_INSTRUCTION:
+					wtx.insertPIAsLeftSibling(value.asStr().stringValue(),
+							name.getLocalName());
+					break;
 			}
 		} catch (final SirixException e) {
 			throw new DocumentException(e);
@@ -1033,11 +1021,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	private DBNode insertBefore(NodeWriteTrx wtx, Node<?> node)
 			throws DocumentException {
 		try {
-			final SubtreeBuilder builder = new SubtreeBuilder(
-					mCollection,
-					wtx,
-					Insert.ASLEFTSIBLING,
-					Collections
+			final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx,
+					Insert.ASLEFTSIBLING, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			node.parse(builder);
 			wtx.moveTo(builder.getStartNodeKey());
@@ -1075,11 +1060,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	private DBNode insertBefore(NodeWriteTrx wtx, SubtreeParser parser)
 			throws DocumentException {
 		try {
-			final SubtreeBuilder builder = new SubtreeBuilder(
-					mCollection,
-					wtx,
-					Insert.ASLEFTSIBLING,
-					Collections
+			final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx,
+					Insert.ASLEFTSIBLING, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			parser.parse(builder);
 			return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(),
@@ -1113,30 +1095,30 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 	}
 
-	private DBNode insertAfter(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-			throws SirixException {
+	private DBNode insertAfter(NodeWriteTrx wtx, Kind kind, QNm name,
+			Atomic value) throws SirixException {
 		switch (kind) {
-		case DOCUMENT:
-			break;
-		case ELEMENT:
-			wtx.insertElementAsRightSibling(name);
-			break;
-		case ATTRIBUTE:
-			wtx.insertAttribute(name, value.asStr().stringValue());
-			break;
-		case NAMESPACE:
-			wtx.insertNamespace(name);
-			break;
-		case TEXT:
-			wtx.insertTextAsRightSibling(value.asStr().stringValue());
-			break;
-		case COMMENT:
-			wtx.insertCommentAsRightSibling(value.asStr().stringValue());
-			break;
-		case PROCESSING_INSTRUCTION:
-			wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-					name.getLocalName());
-			break;
+			case DOCUMENT:
+				break;
+			case ELEMENT:
+				wtx.insertElementAsRightSibling(name);
+				break;
+			case ATTRIBUTE:
+				wtx.insertAttribute(name, value.asStr().stringValue());
+				break;
+			case NAMESPACE:
+				wtx.insertNamespace(name);
+				break;
+			case TEXT:
+				wtx.insertTextAsRightSibling(value.asStr().stringValue());
+				break;
+			case COMMENT:
+				wtx.insertCommentAsRightSibling(value.asStr().stringValue());
+				break;
+			case PROCESSING_INSTRUCTION:
+				wtx.insertPIAsRightSibling(value.asStr().stringValue(),
+						name.getLocalName());
+				break;
 		}
 
 		return new DBNode(wtx, mCollection);
@@ -1168,11 +1150,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	private DBNode insertAfter(NodeWriteTrx wtx, Node<?> node)
 			throws DocumentException {
 		try {
-			final SubtreeBuilder builder = new SubtreeBuilder(
-					mCollection,
-					wtx,
-					Insert.ASRIGHTSIBLING,
-					Collections
+			final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx,
+					Insert.ASRIGHTSIBLING, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			node.parse(builder);
 			wtx.moveTo(builder.getStartNodeKey());
@@ -1209,11 +1188,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 	private DBNode insertAfter(NodeWriteTrx wtx, SubtreeParser parser)
 			throws DocumentException {
 		try {
-			final SubtreeBuilder builder = new SubtreeBuilder(
-					mCollection,
-					wtx,
-					Insert.ASRIGHTSIBLING,
-					Collections
+			final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx,
+					Insert.ASRIGHTSIBLING, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			parser.parse(builder);
 			return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(),
@@ -1335,14 +1311,15 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 					throw new DocumentException(e.getCause());
 				}
 			}
-			throw new DocumentException("No attribute with name " + name + " exists!");
+			throw new DocumentException(
+					"No attribute with name " + name + " exists!");
 		}
 		throw new DocumentException("No element node selected!");
 	}
 
 	@Override
-	public Stream<DBNode> getAttributes() throws OperationNotSupportedException,
-			DocumentException {
+	public Stream<DBNode> getAttributes()
+			throws OperationNotSupportedException, DocumentException {
 		moveRtx();
 		return new SirixStream(new AttributeAxis(mRtx), mCollection);
 	}
@@ -1464,8 +1441,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 	}
 
-	private DBNode replaceWith(NodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-			throws DocumentException {
+	private DBNode replaceWith(NodeWriteTrx wtx, Kind kind, QNm name,
+			Atomic value) throws DocumentException {
 		if (wtx.hasLeftSibling()) {
 			wtx.moveToLeftSibling();
 		} else {
@@ -1498,18 +1475,12 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		try {
 			if (wtx.hasLeftSibling()) {
 				wtx.moveToLeftSibling();
-				builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASRIGHTSIBLING,
+				builder = new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING,
 						Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			} else {
 				wtx.moveToParent();
-				builder = new SubtreeBuilder(
-						mCollection,
-						wtx,
-						Insert.ASFIRSTCHILD,
+				builder = new SubtreeBuilder(mCollection, wtx, Insert.ASFIRSTCHILD,
 						Collections
 								.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 			}
@@ -1522,7 +1493,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get the node key.
-	 * 
+	 *
 	 * @return node key
 	 */
 	public long getNodeKey() {
@@ -1538,7 +1509,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get the sibling position.
-	 * 
+	 *
 	 * @return sibling position
 	 */
 	public int getSiblingPosition() {
@@ -1574,14 +1545,14 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			}
 		}
 	}
-	
+
 	private NodeWriteTrx getWtx() {
 		final Session session = mRtx.getSession();
 		final NodeWriteTrx wtx;
 		if (session.getAvailableNodeWriteTrx() == 0) {
 			wtx = session.getNodeWriteTrx().get();
 		} else {
-		  wtx = session.beginNodeWriteTrx();
+			wtx = session.beginNodeWriteTrx();
 		}
 		if (mRtx.getRevisionNumber() < session.getMostRecentRevisionNumber())
 			wtx.revertTo(mRtx.getRevisionNumber());
@@ -1638,7 +1609,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 
 		try {
-			final DBNode firstParent = (DBNode) this.getParent();
+			final DBNode firstParent = this.getParent();
 			if (firstParent == null) {
 				// First node is the root.
 				return -1;
@@ -1658,7 +1629,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 					final DBNode other = (DBNode) otherNode;
 					if (cat1 == 1) {
 						mRtx.moveToParent();
-						for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
+						for (int i = 0, nspCount = mRtx
+								.getNamespaceCount(); i < nspCount; i++) {
 							mRtx.moveToNamespace(i);
 							if (mRtx.getNodeKey() == other.mNodeKey) {
 								return +1;
@@ -1671,7 +1643,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 					}
 					if (cat1 == 2) {
 						mRtx.moveToParent();
-						for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
+						for (int i = 0, attCount = mRtx
+								.getAttributeCount(); i < attCount; i++) {
 							mRtx.moveToAttribute(i);
 							if (mRtx.getNodeKey() == other.mNodeKey) {
 								return +1;
@@ -1696,17 +1669,17 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 			DBNode p2 = (DBNode) otherNode;
 			while (p1 != null) {
 				depth1++;
-				p1 = (DBNode) p1.getParent();
+				p1 = p1.getParent();
 			}
 			while (p2 != null) {
 				depth2++;
-				p2 = (DBNode) p2.getParent();
+				p2 = p2.getParent();
 			}
 
 			// Move up one branch of the tree so we have two nodes on the same level.
 			p1 = this;
 			while (depth1 > depth2) {
-				p1 = (DBNode) p1.getParent();
+				p1 = p1.getParent();
 				assert p1 != null;
 				if (p1.getNodeKey() == ((DBNode) otherNode).getNodeKey()) {
 					return +1;
@@ -1716,7 +1689,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 			p2 = ((DBNode) otherNode);
 			while (depth2 > depth1) {
-				p2 = (DBNode) p2.getParent();
+				p2 = p2.getParent();
 				assert p2 != null;
 				if (p2.getNodeKey() == this.getNodeKey()) {
 					return -1;
@@ -1726,17 +1699,19 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 			// Now move up both branches in sync until we find a common parent.
 			while (true) {
-				final DBNode par1 = (DBNode) p1.getParent();
-				final DBNode par2 = (DBNode) p2.getParent();
+				final DBNode par1 = p1.getParent();
+				final DBNode par2 = p2.getParent();
 				if (par1 == null || par2 == null) {
 					throw new NullPointerException(
 							"Node order comparison - internal error");
 				}
 				if (par1.getNodeKey() == par2.getNodeKey()) {
-					if (p1.getKind() == Kind.ATTRIBUTE && p2.getKind() != Kind.ATTRIBUTE) {
+					if (p1.getKind() == Kind.ATTRIBUTE
+							&& p2.getKind() != Kind.ATTRIBUTE) {
 						return -1; // attributes first
 					}
-					if (p1.getKind() != Kind.ATTRIBUTE && p2.getKind() == Kind.ATTRIBUTE) {
+					if (p1.getKind() != Kind.ATTRIBUTE
+							&& p2.getKind() == Kind.ATTRIBUTE) {
 						return +1; // attributes first
 					}
 					return p1.getSiblingPosition() - p2.getSiblingPosition();
@@ -1752,39 +1727,39 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Determine node category.
-	 * 
+	 *
 	 * @param kind
 	 *          node kind
 	 * @return category number
 	 */
 	private int nodeCategories(final Kind kind) {
 		switch (kind) {
-		case DOCUMENT:
-			return 0;
-		case COMMENT:
-		case PROCESSING_INSTRUCTION:
-		case TEXT:
-		case ELEMENT:
-			return 3;
-		case ATTRIBUTE:
-			return 2;
-		case NAMESPACE:
-			return 1;
-		default:
-			throw new IllegalStateException("Node kind not known!");
+			case DOCUMENT:
+				return 0;
+			case COMMENT:
+			case PROCESSING_INSTRUCTION:
+			case TEXT:
+			case ELEMENT:
+				return 3;
+			case ATTRIBUTE:
+				return 2;
+			case NAMESPACE:
+				return 1;
+			default:
+				throw new IllegalStateException("Node kind not known!");
 		}
 	}
 
 	@Override
 	public int hashCode() {
 		moveRtx();
-		return Objects.hashCode(mRtx.getNodeKey(), mRtx.getValue(), mRtx.getName());
+		return Objects.hash(mRtx.getNodeKey(), mRtx.getValue(), mRtx.getName());
 	}
 
 	@Override
 	public String toString() {
 		moveRtx();
-		return Objects.toStringHelper(this).add("rtx", mRtx).toString();
+		return MoreObjects.toStringHelper(this).add("rtx", mRtx).toString();
 	}
 
 	@Override
@@ -1937,9 +1912,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get the path class record (PCR).
-	 * 
+	 *
 	 * @return the path class record
-	 * 
+	 *
 	 * @throws SirixException
 	 */
 	public long getPCR() throws SirixException {
@@ -1948,7 +1923,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/**
 	 * Get the DeweyID associated with this node (if any).
-	 * 
+	 *
 	 * @return an optional DeweyID (might be absent, depending on the
 	 *         {@link DBStore} configuration)
 	 */

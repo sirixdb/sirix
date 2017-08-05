@@ -96,8 +96,8 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
 	 * @param out
 	 *          resulting stream of the transformation
 	 */
-	public XSLTEvaluator(final Session session,
-			final File stylesheet, final OutputStream out) {
+	public XSLTEvaluator(final Session session, final File stylesheet,
+			final OutputStream out) {
 		this(session, stylesheet, out, null);
 	}
 
@@ -113,9 +113,8 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
 	 * @param pSerializer
 	 *          serializer, for which one can specify output properties
 	 */
-	public XSLTEvaluator(final Session pSession,
-			final File pStyle, final OutputStream pOut,
-			@Nullable final Serializer pSerializer) {
+	public XSLTEvaluator(final Session pSession, final File pStyle,
+			final OutputStream pOut, @Nullable final Serializer pSerializer) {
 		mSession = checkNotNull(pSession);
 		mStylesheet = checkNotNull(pStyle);
 		mOut = checkNotNull(pOut);

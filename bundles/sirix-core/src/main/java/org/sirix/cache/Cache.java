@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -36,12 +36,12 @@ import com.google.common.collect.ImmutableMap;
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a
  * LRU-based one or a persistent. However, clear, put and get must to be
- * provided. Instances of this class are used with {@code IReadTransactions} as
- * well as with {@code IWriteTransactions}.
- * 
+ * provided. Instances of this class are used with {@code PageReadTrx} as well
+ * as with {@code PageWriteTrx}.
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  * @param K
  *          the key
  * @param V
@@ -55,7 +55,7 @@ public interface Cache<K, V> {
 
 	/**
 	 * Getting a value related to a given key.
-	 * 
+	 *
 	 * @param key
 	 *          the key for the requested {@link RecordPageContainer}
 	 * @return {@link RecordPageContainer} instance related to this key
@@ -64,7 +64,7 @@ public interface Cache<K, V> {
 
 	/**
 	 * Putting a key/value into the cache.
-	 * 
+	 *
 	 * @param key
 	 *          for putting the page in the cache
 	 * @param value
@@ -74,7 +74,7 @@ public interface Cache<K, V> {
 
 	/**
 	 * Put all entries from a map into the cache.
-	 * 
+	 *
 	 * @param map
 	 *          map with entries to put into the cache
 	 */
@@ -88,7 +88,7 @@ public interface Cache<K, V> {
 
 	/**
 	 * Get all entries corresponding to the keys.
-	 * 
+	 *
 	 * @param keys
 	 *          {@link Iterable} of keys
 	 * @return {@link ImmutableMap} instance with corresponding values
@@ -97,7 +97,7 @@ public interface Cache<K, V> {
 
 	/**
 	 * Remove key from storage.
-	 * 
+	 *
 	 * @param key
 	 *          key to remove
 	 */

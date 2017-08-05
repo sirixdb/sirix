@@ -9,10 +9,6 @@ import java.io.IOException;
 
 import javax.annotation.Nullable;
 
-import net.openhft.chronicle.Chronicle;
-import net.openhft.chronicle.Excerpt;
-import net.openhft.chronicle.IndexedChronicle;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -21,6 +17,10 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+
+import net.openhft.chronicle.Chronicle;
+import net.openhft.chronicle.Excerpt;
+import net.openhft.chronicle.IndexedChronicle;
 
 public final class ChronicleReader implements Reader {
 

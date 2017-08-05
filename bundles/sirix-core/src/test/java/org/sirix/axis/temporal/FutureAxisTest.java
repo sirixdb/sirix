@@ -18,7 +18,7 @@ import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link FutureAxis}.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -51,10 +51,6 @@ public final class FutureAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new FutureAxis(firstRtx, IncludeSelf.YES);
@@ -70,10 +66,6 @@ public final class FutureAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(secondRtx, thirdRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new FutureAxis(firstRtx);

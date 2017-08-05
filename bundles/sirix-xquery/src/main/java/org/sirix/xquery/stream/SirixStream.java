@@ -5,16 +5,17 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
+import org.sirix.api.SirixAxis;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 
 /**
  * {@link Stream}, wrapping a Sirix {@link Axis}.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class SirixStream implements Stream<DBNode> {
 	/** Sirix {@link Axis}. */
@@ -25,7 +26,7 @@ public final class SirixStream implements Stream<DBNode> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param axis
 	 *          Sirix {@link SirixAxis}
 	 * @param collection
@@ -51,6 +52,6 @@ public final class SirixStream implements Stream<DBNode> {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("axis", mAxis).toString();
+		return MoreObjects.toStringHelper(this).add("axis", mAxis).toString();
 	}
 }

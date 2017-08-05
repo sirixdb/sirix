@@ -17,7 +17,7 @@ import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link LastAxis}.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -49,10 +49,6 @@ public final class LastAxisTest {
 
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(thirdRtx), null) {
-			{
-				ignoreSunJavaBug6529795();
-			}
-
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
 				return new LastAxis(firstRtx);
