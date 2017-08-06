@@ -31,12 +31,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
-import java.util.Collection;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -113,10 +110,7 @@ public final class SessionImpl implements Session {
 	/** Remember the write seperately because of the concurrent writes. */
 	private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
 
-	/** Storing all return futures from the sync process. */
-	private final ConcurrentMap<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
-
-	/** abstract factory for all interaction to the storage. */
+	/** Factory for all interactions with the storage. */
 	private final Storage mFac;
 
 	/** Atomic counter for concurrent generation of node transaction id. */
@@ -169,14 +163,14 @@ public final class SessionImpl implements Session {
 	SessionImpl(final DatabaseImpl database,
 			final @Nonnull ResourceConfiguration resourceConf,
 			final @Nonnull SessionConfiguration sessionConf,
-			final @Nonnull BufferManager bufferManager) {
+			final @Nonnull BufferManager bufferManager,
+			final @Nonnull File resourceFile) {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
 		mSessionConfig = checkNotNull(sessionConf);
 		mNodeTrxMap = new ConcurrentHashMap<>();
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
-		mSyncTransactionsReturns = new ConcurrentHashMap<>();
 		mRtxIndexControllers = new ConcurrentHashMap<>();
 		mWtxIndexControllers = new ConcurrentHashMap<>();
 		mBufferManager = checkNotNull(bufferManager);
@@ -185,21 +179,17 @@ public final class SessionImpl implements Session {
 		mPageTrxIDCounter = new AtomicLong();
 		mCommitLock = new ReentrantLock(false);
 
-		final File resourceFile = new File(new File(database.getDatabaseConfig()
-				.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
-				sessionConf.getResource());
-
-		// Init session members.
 		mWriteSemaphore = database.getWriteSemaphore(resourceFile);
 		mReadSemaphore = database.getReadSemaphore(resourceFile);
 
 		mFac = StorageType.getStorage(mResourceConfig);
+
 		if (mFac.exists()) {
-			final Reader reader = mFac.getReader();
+			final Reader reader = mFac.createReader();
 			final PageReference firstRef = reader.readUberPageReference();
 			if (firstRef.getPage() == null) {
-				mLastCommittedUberPage = new AtomicReference<>((UberPage) reader.read(
-						firstRef.getKey(), null));
+				mLastCommittedUberPage = new AtomicReference<>(
+						(UberPage) reader.read(firstRef.getKey(), null));
 			} else {
 				mLastCommittedUberPage = new AtomicReference<>(
 						(UberPage) firstRef.getPage());
@@ -209,6 +199,7 @@ public final class SessionImpl implements Session {
 			// Bootstrap uber page and make sure there already is a root node.
 			mLastCommittedUberPage = new AtomicReference<>(new UberPage());
 		}
+
 		mClosed = false;
 	}
 
@@ -241,9 +232,10 @@ public final class SessionImpl implements Session {
 
 		// Create new read transaction.
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
-				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
-						mLastCommittedUberPage.get(), revisionKey, mFac.getReader(),
-						Optional.empty(), Optional.empty(), mBufferManager));
+				mNodeTrxIDCounter.incrementAndGet(),
+				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revisionKey,
+						mFac.createReader(), Optional.empty(), Optional.empty(),
+						mBufferManager));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -261,9 +253,10 @@ public final class SessionImpl implements Session {
 	 *          revision number
 	 */
 	File commitFile(final int revision) {
-		return new File(mResourceConfig.mPath, new File(
-				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(), new File(
-						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
+		return new File(mResourceConfig.mPath,
+				new File(ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(),
+						new File(new File(String.valueOf(revision)), ".commit").getPath())
+								.getPath());
 	}
 
 	@Override
@@ -332,14 +325,16 @@ public final class SessionImpl implements Session {
 		checkArgument(id >= 0, "id must be >= 0!");
 		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
 		checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
-		final Writer writer = mFac.getWriter();
+		final Writer writer = mFac.createWriter();
 		final int lastCommitedRev = mLastCommittedUberPage.get()
 				.getRevisionNumber();
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
-		return new PageWriteTrxImpl(this, abort == Abort.YES
-				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(
-				lastCommitedUberPage), writer, id, representRevision, storeRevision,
-				lastCommitedRev, mBufferManager);
+		return new PageWriteTrxImpl(this,
+				abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+						? new UberPage()
+						: new UberPage(lastCommitedUberPage),
+				writer, id, representRevision, storeRevision, lastCommitedRev,
+				mBufferManager);
 	}
 
 	@Override
@@ -394,10 +389,10 @@ public final class SessionImpl implements Session {
 		if (revision < 0) {
 			throw new IllegalArgumentException("Revision must be at least 0!");
 		} else if (revision > mLastCommittedUberPage.get().getRevision()) {
-			throw new IllegalArgumentException(new StringBuilder(
-					"Revision must not be bigger than ")
-					.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
-					.append("!").toString());
+			throw new IllegalArgumentException(
+					new StringBuilder("Revision must not be bigger than ")
+							.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
+							.append("!").toString());
 		}
 	}
 
@@ -419,8 +414,7 @@ public final class SessionImpl implements Session {
 	 * @param pageWriteTrx
 	 *          page write trx
 	 */
-	void setNodePageWriteTransaction(
-			final @Nonnegative long transactionID,
+	void setNodePageWriteTransaction(final @Nonnegative long transactionID,
 			@Nonnull final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
 		mNodePageTrxMap.put(transactionID, pageWriteTrx);
 	}
@@ -628,10 +622,9 @@ public final class SessionImpl implements Session {
 			final @Nonnegative int revision) {
 		assertAccess(revision);
 
-		return PathSummaryReader.getInstance(
-				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac
-						.getReader(), Optional.empty(), Optional.empty(), mBufferManager),
-				this);
+		return PathSummaryReader.getInstance(new PageReadTrxImpl(this,
+				mLastCommittedUberPage.get(), revision, mFac.createReader(),
+				Optional.empty(), Optional.empty(), mBufferManager), this);
 	}
 
 	@Override
@@ -648,7 +641,7 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(
 			final @Nonnegative int revision) {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.getReader(), Optional.empty(), Optional.empty(), mBufferManager);
+				mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager);
 	}
 
 	@Override

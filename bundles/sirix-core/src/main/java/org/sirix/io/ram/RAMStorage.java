@@ -64,12 +64,12 @@ public final class RAMStorage implements Storage {
 	}
 
 	@Override
-	public Writer getWriter() throws SirixIOException {
+	public Writer createWriter() throws SirixIOException {
 		return mAccess;
 	}
 
 	@Override
-	public Reader getReader() throws SirixIOException {
+	public Reader createReader() throws SirixIOException {
 		return mAccess;
 	}
 

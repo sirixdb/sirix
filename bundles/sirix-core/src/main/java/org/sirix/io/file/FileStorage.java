@@ -69,13 +69,13 @@ public final class FileStorage implements Storage {
 	}
 
 	@Override
-	public Reader getReader() throws SirixIOException {
+	public Reader createReader() throws SirixIOException {
 		return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
 				mByteHandler));
 	}
 
 	@Override
-	public Writer getWriter() throws SirixIOException {
+	public Writer createWriter() throws SirixIOException {
 		return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
 				mByteHandler));
 	}
