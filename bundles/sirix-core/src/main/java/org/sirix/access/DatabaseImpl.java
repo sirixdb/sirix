@@ -126,8 +126,9 @@ public final class DatabaseImpl implements Database {
 	public synchronized boolean createResource(
 			final ResourceConfiguration resConfig) throws SirixIOException {
 		boolean returnVal = true;
-		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()),
+		final File path = new File(
+				new File(mDBConfig.getFile().getAbsoluteFile(),
+						DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				resConfig.mPath.getName());
 		// If file is existing, skip.
 		if (path.exists()) {
@@ -145,7 +146,7 @@ public final class DatabaseImpl implements Database {
 						try {
 							returnVal = ResourceConfiguration.Paths.INDEXES.getFile()
 									.getName().equals(paths.getFile().getName()) ? true
-									: toCreate.createNewFile();
+											: toCreate.createNewFile();
 						} catch (final IOException e) {
 							Files.recursiveRemove(path.toPath());
 							throw new SirixIOException(e);
@@ -158,17 +159,18 @@ public final class DatabaseImpl implements Database {
 			}
 			// Serialization of the config.
 			mResourceID.set(mDBConfig.getMaxResourceID());
-			ResourceConfiguration.serialize(resConfig.setID(mResourceID
-					.getAndIncrement()));
+			ResourceConfiguration
+					.serialize(resConfig.setID(mResourceID.getAndIncrement()));
 			mDBConfig.setMaximumResourceID(mResourceID.get());
 			mResources.forcePut(mResourceID.get(), resConfig.getResource().getName());
 
 			if (returnVal) {
 				// If everything was correct so far, initialize storage.
 				try {
-					try (final Session session = this
-							.getSession(new SessionConfiguration.Builder(resConfig
-									.getResource().getName()).build());
+					try (
+							final Session session = this
+									.getSession(new SessionConfiguration.Builder(
+											resConfig.getResource().getName()).build());
 							final NodeWriteTrx wtx = session.beginNodeWriteTrx();) {
 						wtx.commit();
 					}
@@ -238,8 +240,9 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized Session getSession(final SessionConfiguration sessionConf)
 			throws SirixException {
-		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()),
+		final File resourceFile = new File(
+				new File(mDBConfig.getFile(),
+						DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				sessionConf.getResource());
 		Set<Session> sessions = mSessions.get(resourceFile);
 		if (sessions == null) {
@@ -270,8 +273,9 @@ public final class DatabaseImpl implements Database {
 			mWriteSemaphores.put(resourceFile, new Semaphore(1));
 		if (!mBufferManagers.containsKey(resourceFile))
 			mBufferManagers.put(resourceFile, new BufferManagerImpl());
+
 		final Session session = new SessionImpl(this, resourceConfig, sessionConf,
-				mBufferManagers.get(resourceFile));
+				mBufferManagers.get(resourceFile), resourceFile);
 		sessions.add(session);
 		mSessions.put(resourceFile, sessions);
 		return session;
@@ -303,17 +307,20 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized boolean existsResource(final String pResourceName) {
-		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()), pResourceName);
+		final File resourceFile = new File(
+				new File(mDBConfig.getFile(),
+						DatabaseConfiguration.Paths.DATA.getFile().getName()),
+				pResourceName);
 		return resourceFile.exists()
-				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
-				: false;
+				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0
+						? true
+						: false;
 	}
 
 	@Override
 	public String[] listResources() {
-		return new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA
-				.getFile().getName()).list();
+		return new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.DATA.getFile().getName()).list();
 	}
 
 	@Override

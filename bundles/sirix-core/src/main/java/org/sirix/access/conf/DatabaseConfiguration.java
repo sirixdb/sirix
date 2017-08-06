@@ -249,8 +249,9 @@ public final class DatabaseConfiguration {
 	 */
 	public static DatabaseConfiguration deserialize(final File file)
 			throws SirixIOException {
-		try (final FileReader fileReader = new FileReader(new File(file,
-				Paths.CONFIGBINARY.getFile().getName()));
+		try (
+				final FileReader fileReader = new FileReader(
+						new File(file, Paths.CONFIGBINARY.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
 			final String fileName = jsonReader.nextName();

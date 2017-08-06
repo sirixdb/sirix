@@ -126,7 +126,7 @@ public final class BerkeleyStorage implements Storage {
 	}
 
 	@Override
-	public Reader getReader() throws SirixIOException {
+	public Reader createReader() throws SirixIOException {
 		try {
 			return new BerkeleyReader(mEnv, mDatabase, mByteHandler);
 		} catch (final DatabaseException exc) {
@@ -135,7 +135,7 @@ public final class BerkeleyStorage implements Storage {
 	}
 
 	@Override
-	public Writer getWriter() throws SirixIOException {
+	public Writer createWriter() throws SirixIOException {
 		return new BerkeleyWriter(mEnv, mDatabase, mByteHandler);
 	}
 

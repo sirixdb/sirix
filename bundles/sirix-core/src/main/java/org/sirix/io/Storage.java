@@ -47,7 +47,7 @@ public interface Storage {
 	 * @throws SirixIOException
 	 *           if the initialization fails
 	 */
-	Writer getWriter() throws SirixIOException;
+	Writer createWriter() throws SirixIOException;
 
 	/**
 	 * Getting a reader.
@@ -56,7 +56,7 @@ public interface Storage {
 	 * @throws SirixIOException
 	 *           if the initialization fails
 	 */
-	Reader getReader() throws SirixIOException;
+	Reader createReader() throws SirixIOException;
 
 	/**
 	 * Closing this storage.

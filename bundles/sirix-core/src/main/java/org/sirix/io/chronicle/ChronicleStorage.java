@@ -45,7 +45,7 @@ public final class ChronicleStorage implements Storage {
 	}
 
 	@Override
-	public Reader getReader() throws SirixIOException {
+	public Reader createReader() throws SirixIOException {
 		try {
 			final File concreteStorage = getConcreteStorage();
 
@@ -62,7 +62,7 @@ public final class ChronicleStorage implements Storage {
 	}
 
 	@Override
-	public Writer getWriter() throws SirixIOException {
+	public Writer createWriter() throws SirixIOException {
 		try {
 			final File concreteStorage = getConcreteStorage();
 
