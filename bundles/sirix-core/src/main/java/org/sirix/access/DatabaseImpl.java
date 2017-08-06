@@ -100,6 +100,8 @@ public final class DatabaseImpl implements Database {
 	/** DatabaseConfiguration with fixed settings. */
 	private final DatabaseConfiguration mDBConfig;
 
+	private final SessionFactory mSessionFactory;
+
 	/**
 	 * Package private constructor.
 	 *
@@ -116,6 +118,7 @@ public final class DatabaseImpl implements Database {
 		mReadSemaphores = new ConcurrentHashMap<>();
 		mWriteSemaphores = new ConcurrentHashMap<>();
 		mBufferManagers = new ConcurrentHashMap<>();
+		mSessionFactory = new SessionFactory();
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -274,8 +277,8 @@ public final class DatabaseImpl implements Database {
 		if (!mBufferManagers.containsKey(resourceFile))
 			mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
-		final Session session = new SessionImpl(this, resourceConfig, sessionConf,
-				mBufferManagers.get(resourceFile), resourceFile);
+		final Session session = mSessionFactory.createSession(this, resourceConfig,
+				sessionConf, mBufferManagers.get(resourceFile), resourceFile);
 		sessions.add(session);
 		mSessions.put(resourceFile, sessions);
 		return session;

@@ -59,12 +59,9 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.io.Reader;
 import org.sirix.io.Storage;
-import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -164,16 +161,19 @@ public final class SessionImpl implements Session {
 			final @Nonnull ResourceConfiguration resourceConf,
 			final @Nonnull SessionConfiguration sessionConf,
 			final @Nonnull BufferManager bufferManager,
-			final @Nonnull File resourceFile) {
+			final @Nonnull File resourceFile, final @Nonnull Storage storage,
+			final @Nonnull UberPage uberPage) {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
 		mSessionConfig = checkNotNull(sessionConf);
+		mBufferManager = checkNotNull(bufferManager);
+		mFac = checkNotNull(storage);
+
 		mNodeTrxMap = new ConcurrentHashMap<>();
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mRtxIndexControllers = new ConcurrentHashMap<>();
 		mWtxIndexControllers = new ConcurrentHashMap<>();
-		mBufferManager = checkNotNull(bufferManager);
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
@@ -182,23 +182,7 @@ public final class SessionImpl implements Session {
 		mWriteSemaphore = database.getWriteSemaphore(resourceFile);
 		mReadSemaphore = database.getReadSemaphore(resourceFile);
 
-		mFac = StorageType.getStorage(mResourceConfig);
-
-		if (mFac.exists()) {
-			final Reader reader = mFac.createReader();
-			final PageReference firstRef = reader.readUberPageReference();
-			if (firstRef.getPage() == null) {
-				mLastCommittedUberPage = new AtomicReference<>(
-						(UberPage) reader.read(firstRef.getKey(), null));
-			} else {
-				mLastCommittedUberPage = new AtomicReference<>(
-						(UberPage) firstRef.getPage());
-			}
-			reader.close();
-		} else {
-			// Bootstrap uber page and make sure there already is a root node.
-			mLastCommittedUberPage = new AtomicReference<>(new UberPage());
-		}
+		mLastCommittedUberPage = new AtomicReference<>(uberPage);
 
 		mClosed = false;
 	}
@@ -492,111 +476,6 @@ public final class SessionImpl implements Session {
 		return mSessionConfig.mUser;
 	}
 
-	// /**
-	// * Synchronize logs.
-	// *
-	// * @param contToSync
-	// * {@link RecordPageContainer} to synchronize
-	// * @param pTransactionId
-	// * transaction ID
-	// * @throws SirixThreadedException
-	// *
-	// */
-	// protected synchronized void syncLogs(
-	// final RecordPageContainer<UnorderedKeyValuePage> contToSync,
-	// final @Nonnegative long transactionID, final PageKind pageKind)
-	// throws SirixThreadedException {
-	// final ExecutorService pool = Executors.newCachedThreadPool();
-	// final Collection<Future<Void>> returnVals = new ArrayList<>();
-	// for (final Long key : mNodePageTrxMap.keySet()) {
-	// if (key != transactionID) {
-	// returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
-	// contToSync, pageKind)));
-	// }
-	// }
-	// pool.shutdown();
-	// if (!mSyncTransactionsReturns.containsKey(transactionID)) {
-	// mSyncTransactionsReturns.put(transactionID,
-	// new ConcurrentHashMap<Long, Collection<Future<Void>>>());
-	// }
-	// // if (mSyncTransactionsReturns.get(pTransactionId).put(
-	// // ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) !=
-	// // null) {
-	// // throw new TTThreadedException(
-	// // "only one commit and therefore sync per id and nodepage is allowed!");
-	// // }
-	// }
-	//
-	// /**
-	// * Wait until synchronization is finished.
-	// *
-	// * @param transactionID
-	// * transaction ID for which to wait (all others)
-	// * @throws SirixThreadedException
-	// * if an exception occurs
-	// */
-	// protected synchronized void waitForFinishedSync(
-	// final @Nonnegative long transactionID) throws SirixThreadedException {
-	// final Map<Long, Collection<Future<Void>>> completeVals =
-	// mSyncTransactionsReturns
-	// .remove(transactionID);
-	// if (completeVals != null) {
-	// for (final Collection<Future<Void>> singleVals : completeVals.values()) {
-	// for (final Future<Void> returnVal : singleVals) {
-	// try {
-	// returnVal.get();
-	// } catch (final InterruptedException exc) {
-	// throw new SirixThreadedException(exc);
-	// } catch (final ExecutionException exc) {
-	// throw new SirixThreadedException(exc);
-	// }
-	// }
-	// }
-	// }
-	// }
-	//
-	// /**
-	// * Synchronize the log.
-	// */
-	// class LogSyncer implements Callable<Void> {
-	//
-	// /** {@link PageWriteTrx} to interact with the page layer. */
-	// private final PageWriteTrx<Long, Record, UnorderedKeyValuePage>
-	// mPageWriteTrx;
-	//
-	// /** {@link RecordPageContainer} reference. */
-	// private final RecordPageContainer<UnorderedKeyValuePage> mCont;
-	//
-	// /** Type of page. */
-	// private final PageKind mPage;
-	//
-	// /**
-	// * Log synchronizer.
-	// *
-	// * @param pPageWriteTransaction
-	// * Sirix {@link PageWriteTrx}
-	// * @param pNodePageCont
-	// * {@link RecordPageContainer} to update
-	// * @param pPage
-	// * page type
-	// */
-	// LogSyncer(
-	// final PageWriteTrx<Long, Record, UnorderedKeyValuePage>
-	// pPageWriteTransaction,
-	// final RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
-	// final PageKind pPage) {
-	// mPageWriteTrx = checkNotNull(pPageWriteTransaction);
-	// mCont = checkNotNull(pNodePageCont);
-	// mPage = checkNotNull(pPage);
-	// }
-	//
-	// @Override
-	// public Void call() throws Exception {
-	// mPageWriteTrx.updateDataContainer(mCont, mPage);
-	// return null;
-	// }
-	// }
-
 	/**
 	 * Set last commited {@link UberPage}.
 	 *
@@ -641,7 +520,8 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(
 			final @Nonnegative int revision) {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager);
+				mFac.createReader(), Optional.empty(), Optional.empty(),
+				mBufferManager);
 	}
 
 	@Override
