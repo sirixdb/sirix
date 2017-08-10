@@ -39,8 +39,7 @@ public interface ImmutableNode extends Record {
 	/**
 	 * Determines if {@code pOther} is the same item.
 	 * 
-	 * @param other
-	 *          the other node
+	 * @param other the other node
 	 * @return {@code true}, if it is the same item, {@code false} otherwise
 	 */
 	boolean isSameItem(@Nullable Node other);
@@ -48,8 +47,7 @@ public interface ImmutableNode extends Record {
 	/**
 	 * Accept a visitor and use double dispatching to invoke the visitor method.
 	 * 
-	 * @param visitor
-	 *          implementation of the {@link Visitor} interface
+	 * @param visitor implementation of the {@link Visitor} interface
 	 * @return the result of a visit
 	 */
 	VisitResult acceptVisitor(Visitor visitor);

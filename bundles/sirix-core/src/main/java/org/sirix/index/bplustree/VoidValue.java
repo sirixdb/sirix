@@ -4,8 +4,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 
 /**
- * Represents a void value, that is no value at all (for inner node pages in the
- * BPlusTree).
+ * Represents a void value, that is no value at all (for inner node pages in the BPlusTree).
  * 
  * @author Johannes Lichtenberger
  * 

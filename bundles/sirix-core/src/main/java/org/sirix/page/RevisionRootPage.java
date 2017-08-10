@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.page;
@@ -50,8 +44,7 @@ import com.google.common.base.MoreObjects;
  * <h1>RevisionRootPage</h1>
  *
  * <p>
- * Revision root page holds a reference to the name page as well as the static
- * node page tree.
+ * Revision root page holds a reference to the name page as well as the static node page tree.
  * </p>
  */
 public final class RevisionRootPage extends AbstractForwardingPage {
@@ -99,8 +92,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Read revision root page.
 	 *
-	 * @param in
-	 *          input stream
+	 * @param in input stream
 	 */
 	protected RevisionRootPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(5, in);
@@ -112,10 +104,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Clone revision root page.
 	 *
-	 * @param committedRevisionRootPage
-	 *          page to clone
-	 * @param representRev
-	 *          revision number to use
+	 * @param committedRevisionRootPage page to clone
+	 * @param representRev revision number to use
 	 */
 	public RevisionRootPage(final RevisionRootPage committedRevisionRootPage,
 			final @Nonnegative int representRev) {
@@ -198,8 +188,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Set the maximum node key in the revision.
 	 *
-	 * @param maxNodeKey
-	 *          new maximum node key
+	 * @param maxNodeKey new maximum node key
 	 */
 	public void setMaxNodeKey(final @Nonnegative long maxNodeKey) {
 		mMaxNodeKey = maxNodeKey;
@@ -229,8 +218,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("revisionTimestamp", mRevisionTimestamp)
+		return MoreObjects.toStringHelper(this).add("revisionTimestamp", mRevisionTimestamp)
 				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
 				.add("namePage", getReference(NAME_REFERENCE_OFFSET))
 				.add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
@@ -253,8 +241,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Initialize node tree.
 	 *
-	 * @param pageReadTrx
-	 *          {@link PageReadTrx} instance
+	 * @param pageReadTrx {@link PageReadTrx} instance
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {

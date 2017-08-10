@@ -29,8 +29,7 @@ public final class NameFilter implements Filter {
 	}
 
 	@Override
-	public <K extends Comparable<? super K>> boolean filter(
-			final AVLNode<K, NodeReferences> node) {
+	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
 
 		if (!(node.getKey() instanceof QNm))
 			throw new IllegalStateException("Key is not of type QNm!");

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath.parser;
@@ -33,9 +27,8 @@ package org.sirix.service.xml.xpath.parser;
  * Lexical scanner to extract tokens from the query.
  * </p>
  * <p>
- * This scanner is used to interpret the query. It reads the the query string
- * char by char and specifies the type of the input and creates a token for
- * every logic text unit.
+ * This scanner is used to interpret the query. It reads the the query string char by char and
+ * specifies the type of the input and creates a token for every logic text unit.
  * </p>
  */
 public final class XPathScanner {
@@ -76,8 +69,7 @@ public final class XPathScanner {
 	private StringBuilder mOutput;
 
 	/**
-	 * Defines if all digits of a token have been read or if the token still can
-	 * have more digits.
+	 * Defines if all digits of a token have been read or if the token still can have more digits.
 	 */
 	private boolean mFinnished;
 
@@ -88,25 +80,22 @@ public final class XPathScanner {
 	private char mInput;
 
 	/**
-	 * State with which the next token starts. Sometimes it is not needed to start
-	 * in the start state for some tokens, as their type is known because of the
-	 * preceding token.
+	 * State with which the next token starts. Sometimes it is not needed to start in the start state
+	 * for some tokens, as their type is known because of the preceding token.
 	 */
 	private State mStartState;
 
 	/**
-	 * Counts the number of nested comments. Is needed to distinguish whether the
-	 * current token is part of a comment, or part of the query. If mCommentCount
-	 * > 0, the current token is part of a comment.
+	 * Counts the number of nested comments. Is needed to distinguish whether the current token is
+	 * part of a comment, or part of the query. If mCommentCount > 0, the current token is part of a
+	 * comment.
 	 */
 	private int mCommentCount;
 
 	/**
-	 * Constructor. Initializes the internal state. Receives query and adds a end
-	 * mark to it.
+	 * Constructor. Initializes the internal state. Receives query and adds a end mark to it.
 	 * 
-	 * @param paramQuery
-	 *          the query to scan
+	 * @param paramQuery the query to scan
 	 */
 	public XPathScanner(final String paramQuery) {
 		mQuery = paramQuery + '#'; // end mark to recognize the end
@@ -117,11 +106,10 @@ public final class XPathScanner {
 	}
 
 	/**
-	 * Reads the string char by char and returns one token by call. The scanning
-	 * starts in the start state, if not further specified before, and specifies
-	 * the next scanner state and the type of the future token according to its
-	 * first char. As soon as the current char does not fit the conditions for the
-	 * current token type, the token is generated and returned.
+	 * Reads the string char by char and returns one token by call. The scanning starts in the start
+	 * state, if not further specified before, and specifies the next scanner state and the type of
+	 * the future token according to its first char. As soon as the current char does not fit the
+	 * conditions for the current token type, the token is generated and returned.
 	 * 
 	 * @return token the new token
 	 */
@@ -139,27 +127,27 @@ public final class XPathScanner {
 			mInput = mQuery.charAt(mPos);
 
 			switch (mState) {
-			case START: // specify token type according to first char
-				scanStart();
-				break;
-			case NUMBER: // number
-				scanNumber();
-				break;
-			case TEXT: // some text, could be a name
-				scanText();
-				break;
-			case SPECIAL2: // special character that could have 2 digits
-				scanTwoDigitSpecial();
-				break;
-			case COMMENT:
-				scanComment();
-				break;
-			case E_NUM:
-				scanENum();
-				break;
-			default:
-				mPos++;
-				mFinnished = true;
+				case START: // specify token type according to first char
+					scanStart();
+					break;
+				case NUMBER: // number
+					scanNumber();
+					break;
+				case TEXT: // some text, could be a name
+					scanText();
+					break;
+				case SPECIAL2: // special character that could have 2 digits
+					scanTwoDigitSpecial();
+					break;
+				case COMMENT:
+					scanComment();
+					break;
+				case E_NUM:
+					scanENum();
+					break;
+				default:
+					mPos++;
+					mFinnished = true;
 			}
 		} while (!mFinnished || mPos >= mQuery.length());
 
@@ -211,76 +199,75 @@ public final class XPathScanner {
 	/**
 	 * Returns the type of the given character.
 	 * 
-	 * @param paramInput
-	 *          the character the type should be determined
+	 * @param paramInput the character the type should be determined
 	 * @return type of the given character
 	 */
 	private TokenType retrieveType(final char paramInput) {
 		TokenType type;
 		switch (paramInput) {
-		case ',':
-			type = TokenType.COMMA;
-			break;
-		case '(':
-			type = TokenType.OPEN_BR;
-			break;
-		case ')':
-			type = TokenType.CLOSE_BR;
-			break;
-		case '[':
-			type = TokenType.OPEN_SQP;
-			break;
-		case ']':
-			type = TokenType.CLOSE_SQP;
-			break;
-		case '@':
-			type = TokenType.AT;
-			break;
-		case '=':
-			type = TokenType.EQ;
-			break;
-		case '<':
-		case '>':
-			type = TokenType.COMP;
-			break;
-		case '!':
-			type = TokenType.N_EQ;
-			break;
-		case '/':
-			type = TokenType.SLASH;
-			break;
-		case ':':
-			type = TokenType.COLON;
-			break;
-		case '.':
-			type = TokenType.POINT;
-			break;
-		case '+':
-			type = TokenType.PLUS;
-			break;
-		case '-':
-			type = TokenType.MINUS;
-			break;
-		case '\'':
-			type = TokenType.SINGLE_QUOTE;
-			break;
-		case '"':
-			type = TokenType.DBL_QUOTE;
-			break;
-		case '$':
-			type = TokenType.DOLLAR;
-			break;
-		case '?':
-			type = TokenType.INTERROGATION;
-			break;
-		case '*':
-			type = TokenType.STAR;
-			break;
-		case '|':
-			type = TokenType.OR;
-			break;
-		default:
-			type = TokenType.INVALID;
+			case ',':
+				type = TokenType.COMMA;
+				break;
+			case '(':
+				type = TokenType.OPEN_BR;
+				break;
+			case ')':
+				type = TokenType.CLOSE_BR;
+				break;
+			case '[':
+				type = TokenType.OPEN_SQP;
+				break;
+			case ']':
+				type = TokenType.CLOSE_SQP;
+				break;
+			case '@':
+				type = TokenType.AT;
+				break;
+			case '=':
+				type = TokenType.EQ;
+				break;
+			case '<':
+			case '>':
+				type = TokenType.COMP;
+				break;
+			case '!':
+				type = TokenType.N_EQ;
+				break;
+			case '/':
+				type = TokenType.SLASH;
+				break;
+			case ':':
+				type = TokenType.COLON;
+				break;
+			case '.':
+				type = TokenType.POINT;
+				break;
+			case '+':
+				type = TokenType.PLUS;
+				break;
+			case '-':
+				type = TokenType.MINUS;
+				break;
+			case '\'':
+				type = TokenType.SINGLE_QUOTE;
+				break;
+			case '"':
+				type = TokenType.DBL_QUOTE;
+				break;
+			case '$':
+				type = TokenType.DOLLAR;
+				break;
+			case '?':
+				type = TokenType.INTERROGATION;
+				break;
+			case '*':
+				type = TokenType.STAR;
+				break;
+			case '|':
+				type = TokenType.OR;
+				break;
+			default:
+				type = TokenType.INVALID;
 		}
 		return type;
 	}
@@ -288,20 +275,18 @@ public final class XPathScanner {
 	/**
 	 * Checks if the given character is a valid first letter.
 	 * 
-	 * @param paramInput
-	 *          The character to check.
+	 * @param paramInput The character to check.
 	 * @return Returns true, if the character is a first letter.
 	 */
 	private boolean isFirstLetter(final char paramInput) {
-		return (paramInput >= 'a' && paramInput <= 'z')
-				|| (paramInput >= 'A' && paramInput <= 'Z') || (paramInput == '_');
+		return (paramInput >= 'a' && paramInput <= 'z') || (paramInput >= 'A' && paramInput <= 'Z')
+				|| (paramInput == '_');
 	}
 
 	/**
 	 * Checks if the given character is a number.
 	 * 
-	 * @param paramInput
-	 *          The character to check.
+	 * @param paramInput The character to check.
 	 * @return Returns true, if the character is a number.
 	 */
 	private boolean isNumber(final char paramInput) {
@@ -309,33 +294,27 @@ public final class XPathScanner {
 	}
 
 	/**
-	 * Checks if the given character is a special character that can have 2
-	 * digits.
+	 * Checks if the given character is a special character that can have 2 digits.
 	 * 
-	 * @param paramInput
-	 *          The character to check.
-	 * @return Returns true, if the character is a special character that can have
-	 *         2 digits.
+	 * @param paramInput The character to check.
+	 * @return Returns true, if the character is a special character that can have 2 digits.
 	 */
 	private boolean isTwoDigistSpecial(final char paramInput) {
-		return (paramInput == '<') || (paramInput == '>') || (paramInput == '(')
-				|| (paramInput == '!') || (paramInput == '/') || (paramInput == '.');
+		return (paramInput == '<') || (paramInput == '>') || (paramInput == '(') || (paramInput == '!')
+				|| (paramInput == '/') || (paramInput == '.');
 	}
 
 	/**
 	 * Checks if the given character is a special character.
 	 * 
-	 * @param paramInput
-	 *          The character to check.
+	 * @param paramInput The character to check.
 	 * @return Returns true, if the character is a special character.
 	 */
 	private boolean isSpecial(final char paramInput) {
-		return (paramInput == ')') || (paramInput == ';') || (paramInput == ',')
-				|| (paramInput == '@') || (paramInput == '[') || (paramInput == ']')
-				|| (paramInput == '=') || (paramInput == '"') || (paramInput == '\'')
-				|| (paramInput == '$') || (paramInput == ':') || (paramInput == '|')
-				|| (paramInput == '+') || (paramInput == '-') || (paramInput == '?')
-				|| (paramInput == '*');
+		return (paramInput == ')') || (paramInput == ';') || (paramInput == ',') || (paramInput == '@')
+				|| (paramInput == '[') || (paramInput == ']') || (paramInput == '=') || (paramInput == '"')
+				|| (paramInput == '\'') || (paramInput == '$') || (paramInput == ':') || (paramInput == '|')
+				|| (paramInput == '+') || (paramInput == '-') || (paramInput == '?') || (paramInput == '*');
 	}
 
 	/**
@@ -355,8 +334,8 @@ public final class XPathScanner {
 	}
 
 	/**
-	 * Scans text token. A text is everything that with a character. It can
-	 * contain numbers, all letters in upper or lower case and underscores.
+	 * Scans text token. A text is everything that with a character. It can contain numbers, all
+	 * letters in upper or lower case and underscores.
 	 */
 	private void scanText() {
 		if (isLetter(mInput)) {
@@ -370,8 +349,7 @@ public final class XPathScanner {
 	}
 
 	/**
-	 * Scans special characters that can have more then one digit. E.g. ==, !=,
-	 * <=, >=, //, .., (:
+	 * Scans special characters that can have more then one digit. E.g. ==, !=, <=, >=, //, .., (:
 	 */
 	private void scanTwoDigitSpecial() {
 		if (mInput == '='
@@ -452,23 +430,20 @@ public final class XPathScanner {
 	/**
 	 * Checks if the given character is a letter.
 	 * 
-	 * @param paramInput
-	 *          the character to check
+	 * @param paramInput the character to check
 	 * @return returns true, if the character is a letter
 	 */
 	private boolean isLetter(final char paramInput) {
-		return (paramInput >= '0' && paramInput <= '9')
-				|| (paramInput >= 'a' && paramInput <= 'z')
-				|| (paramInput >= 'A' && paramInput <= 'Z') || (paramInput == '_')
-				|| (paramInput == '-') || (paramInput == '.');
+		return (paramInput >= '0' && paramInput <= '9') || (paramInput >= 'a' && paramInput <= 'z')
+				|| (paramInput >= 'A' && paramInput <= 'Z') || (paramInput == '_') || (paramInput == '-')
+				|| (paramInput == '.');
 	}
 
 	/**
-	 * Return the token that will be returned by the scanner after the call of
-	 * nextToken(), without changing the internal state of the scanner.
+	 * Return the token that will be returned by the scanner after the call of nextToken(), without
+	 * changing the internal state of the scanner.
 	 * 
-	 * @param paramNext
-	 *          number of next tokens to be read
+	 * @param paramNext number of next tokens to be read
 	 * @return token that will be read after calling nextToken()
 	 */
 	public XPathToken lookUpTokens(final int paramNext) {
@@ -491,9 +466,8 @@ public final class XPathScanner {
 	}
 
 	/**
-	 * Returns the beginning of a query that has already been scanned. This can be
-	 * used by the client e.g. for error messages in case of unexpected token
-	 * occurs.
+	 * Returns the beginning of a query that has already been scanned. This can be used by the client
+	 * e.g. for error messages in case of unexpected token occurs.
 	 * 
 	 * @return string so far
 	 */

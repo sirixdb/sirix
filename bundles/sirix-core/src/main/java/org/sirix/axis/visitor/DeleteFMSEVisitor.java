@@ -9,7 +9,7 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.AbstractVisitor;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.axis.DescendantAxis;
@@ -25,8 +25,8 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * Visitor implementation for use with the {@link VisitorDescendantAxis} to
- * delete unmatched nodes in the FSME implementation in the second step.
+ * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete unmatched nodes
+ * in the FSME implementation in the second step.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -34,14 +34,14 @@ import org.slf4j.LoggerFactory;
 public class DeleteFMSEVisitor extends AbstractVisitor {
 
 	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER = new LogWrapper(
-			LoggerFactory.getLogger(DeleteFMSEVisitor.class));
+	private static final LogWrapper LOGWRAPPER =
+			new LogWrapper(LoggerFactory.getLogger(DeleteFMSEVisitor.class));
 
 	/** {@link Matching} reference. */
 	private final Matching mMatching;
 
-	/** sirix {@link NodeWriteTrx}. */
-	private final NodeWriteTrx mWtx;
+	/** sirix {@link XdmNodeWriteTrx}. */
+	private final XdmNodeWriteTrx mWtx;
 
 	/** Start key. */
 	private final long mStartKey;
@@ -49,14 +49,11 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	/**
 	 * Constructor. pStartKey
 	 * 
-	 * @param wtx
-	 *          sirix {@link NodeWriteTrx}
-	 * @param matching
-	 *          {@link Matching} reference
-	 * @param startKey
-	 *          start key
+	 * @param wtx sirix {@link XdmNodeWriteTrx}
+	 * @param matching {@link Matching} reference
+	 * @param startKey start key
 	 */
-	public DeleteFMSEVisitor(final NodeWriteTrx wtx, final Matching matching,
+	public DeleteFMSEVisitor(final XdmNodeWriteTrx wtx, final Matching matching,
 			@Nonnegative final long startKey) {
 		mWtx = checkNotNull(wtx);
 		mMatching = checkNotNull(matching);
@@ -76,8 +73,8 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 		} else {
 			mWtx.moveTo(node.getNodeKey());
 			final long nodeKey = node.getNodeKey();
-			final List<Long> keysToDelete = new ArrayList<>(mWtx.getAttributeCount()
-					+ mWtx.getNamespaceCount());
+			final List<Long> keysToDelete =
+					new ArrayList<>(mWtx.getAttributeCount() + mWtx.getNamespaceCount());
 			for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
 				mWtx.moveToAttribute(i);
 				final long attNodeKey = mWtx.getNodeKey();
@@ -127,8 +124,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	/**
 	 * Delete a leaf node.
 	 * 
-	 * @param node
-	 *          the node to delete
+	 * @param node the node to delete
 	 * @return the result of the deletion
 	 */
 	private VisitResult deleteLeaf(final ImmutableNode node) {
@@ -145,14 +141,12 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	}
 
 	/**
-	 * Determines if a node must be deleted. If yes, it is deleted and
-	 * {@code true} is returned. If it must not be deleted {@code false} is
-	 * returned. The transaction is moved accordingly in case of a
-	 * remove-operation such that the {@link DescendantAxis} can move to the next
-	 * node after a delete occurred.
+	 * Determines if a node must be deleted. If yes, it is deleted and {@code true} is returned. If it
+	 * must not be deleted {@code false} is returned. The transaction is moved accordingly in case of
+	 * a remove-operation such that the {@link DescendantAxis} can move to the next node after a
+	 * delete occurred.
 	 * 
-	 * @param node
-	 *          the node to check and possibly delete
+	 * @param node the node to check and possibly delete
 	 * @return {@code EVisitResult} how to move the transaction subsequently
 	 */
 	private VisitResult delete(final ImmutableNode node) {
@@ -162,9 +156,8 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 			boolean removeTextNode = false;
 			boolean resetValue = false;
 			if (mWtx.hasLeftSibling() && mWtx.moveToLeftSibling().hasMoved()
-					&& mWtx.getKind() == Kind.TEXT
-					&& mWtx.moveToRightSibling().hasMoved() && mWtx.hasRightSibling()
-					&& mWtx.moveToRightSibling().hasMoved()
+					&& mWtx.getKind() == Kind.TEXT && mWtx.moveToRightSibling().hasMoved()
+					&& mWtx.hasRightSibling() && mWtx.moveToRightSibling().hasMoved()
 					&& mWtx.getKind() == Kind.TEXT) {
 				final Long partner = mMatching.partner(mWtx.getNodeKey());
 				if (partner == null) {
@@ -202,11 +195,9 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 			// Case: Has right sibl. and left sibl.
 			if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
 				final long rightSiblKey = mWtx.getRightSiblingKey();
-				final long rightRightSiblKey = mWtx.moveToRightSibling().get()
-						.getRightSiblingKey();
+				final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
 				mWtx.moveTo(nodeKey);
-				final String value = removeTextNode ? mWtx.moveToLeftSibling().get()
-						.getValue() : "";
+				final String value = removeTextNode ? mWtx.moveToLeftSibling().get().getValue() : "";
 				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {

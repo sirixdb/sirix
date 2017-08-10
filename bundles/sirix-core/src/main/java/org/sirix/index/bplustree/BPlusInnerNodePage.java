@@ -30,10 +30,8 @@ import com.google.common.io.ByteArrayDataInput;
  * 
  * @author Johannes Lichtenberger
  * 
- * @param <K>
- *          the key
- * @param <V>
- *          the value
+ * @param <K> the key
+ * @param <V> the value
  */
 public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V extends Record>
 		extends AbstractForwardingPage implements KeyValuePage<K, V> {
@@ -72,16 +70,12 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	/**
 	 * Create record page.
 	 * 
-	 * @param recordPageKey
-	 *          base key assigned to this node page
-	 * @param pageReadTrx
-	 *          Sirix page reading transaction
-	 * @param kind
-	 *          determines if it's a leaf or inner node page
+	 * @param recordPageKey base key assigned to this node page
+	 * @param pageReadTrx Sirix page reading transaction
+	 * @param kind determines if it's a leaf or inner node page
 	 */
-	public BPlusInnerNodePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef,
-			final PageReadTrx pageReadTrx) {
+	public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
+			final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -98,20 +92,17 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	/**
 	 * Read node page.
 	 * 
-	 * @param in
-	 *          input bytes to read page from
-	 * @param pageReadTrx
-	 *          {@link 
+	 * @param in input bytes to read page from
+	 * @param pageReadTrx {@link
 	 */
-	protected BPlusInnerNodePage(final ByteArrayDataInput in,
-			final PageReadTrx pageReadTrx) {
+	protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadTrx pageReadTrx) {
 		mDelegate = null;
 		// mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
-		final RecordPersistenter persistenter = pageReadTrx.getSession()
-				.getResourceConfig().mPersistenter;
+		final RecordPersistenter persistenter =
+				pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
 			// @SuppressWarnings("unchecked")
@@ -141,19 +132,18 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		out.writeInt(mRecords.size());
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
-		final RecordPersistenter persistenter = mPageReadTrx.getSession()
-				.getResourceConfig().mPersistenter;
+		final RecordPersistenter persistenter =
+				mPageReadTrx.getSession().getResourceConfig().mPersistenter;
 		// for (final K record : mRecords.keySet()) {
 		// persistenter.serialize(out, record, mPageReadTrx);
 		// }
 		out.writeByte(mPageKind.getID());
 	}
 
-	private void serializePointer(final Optional<PageReference> page,
-			final DataOutput out) throws IOException {
+	private void serializePointer(final Optional<PageReference> page, final DataOutput out)
+			throws IOException {
 		if (page.isPresent()) {
-			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
-					: true);
+			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false : true);
 		} else {
 			out.writeBoolean(false);
 		}
@@ -192,12 +182,10 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final PageKind pageKind,
-			final Optional<PageReference> previousPageRef,
+	public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
+			final PageKind pageKind, final Optional<PageReference> previousPageRef,
 			final PageReadTrx pageReadTrx) {
-		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind,
-				previousPageRef, pageReadTrx);
+		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
 	}
 
 	@Override

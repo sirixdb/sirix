@@ -2,8 +2,8 @@ package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -20,23 +20,22 @@ public final class NextAxis extends AbstractTemporalAxis {
 	/** The revision number. */
 	private int mRevision;
 
-	/** Sirix {@link Session}. */
-	private final Session mSession;
+	/** Sirix {@link ResourceManager}. */
+	private final ResourceManager mSession;
 
 	/** Node key to lookup and retrieve. */
 	private long mNodeKey;
 
-	/** Sirix {@link NodeReadTrx}. */
-	private NodeReadTrx mRtx;
+	/** Sirix {@link XdmNodeReadTrx}. */
+	private XdmNodeReadTrx mRtx;
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param rtx
-	 *          Sirix {@link NodeReadTrx}
+	 * @param rtx Sirix {@link XdmNodeReadTrx}
 	 */
-	public NextAxis(final NodeReadTrx rtx) {
-		mSession = checkNotNull(rtx.getSession());
+	public NextAxis(final XdmNodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getResourceManager());
 		mRevision = 0;
 		mNodeKey = rtx.getNodeKey();
 		mRevision = rtx.getRevisionNumber() + 1;
@@ -44,7 +43,7 @@ public final class NextAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	protected NodeReadTrx computeNext() {
+	protected XdmNodeReadTrx computeNext() {
 		if (mRevision <= mSession.getMostRecentRevisionNumber() && mFirst) {
 			mFirst = false;
 			mRtx = mSession.beginNodeReadTrx(mRevision);
@@ -55,7 +54,7 @@ public final class NextAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	public NodeReadTrx getTrx() {
+	public XdmNodeReadTrx getTrx() {
 		return mRtx;
 	}
 }

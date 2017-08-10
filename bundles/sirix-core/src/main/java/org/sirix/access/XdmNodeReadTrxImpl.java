@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.access;
@@ -39,12 +33,11 @@ import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.ItemList;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
@@ -82,20 +75,20 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>NodeReadTrxImpl</h1>
+ * <h1>XdmNodeReadTrxImpl</h1>
  *
  * <p>
- * Read-only transaction with single-threaded cursor semantics. Each read-only
- * transaction works on a given revision key.
+ * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
+ * revision.
  * </p>
  */
-public final class NodeReadTrxImpl implements NodeReadTrx {
+public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
 
 	/** ID of transaction. */
 	private final long mId;
 
-	/** Session state this write transaction is bound to. */
-	protected final SessionImpl mSession;
+	/** Resource manager this write transaction is bound to. */
+	protected final XdmResourceManager mResourceManager;
 
 	/** State of transaction including all cached stuff. */
 	private PageReadTrx mPageReadTrx;
@@ -112,32 +105,19 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	/**
 	 * Constructor.
 	 *
-	 * @param session
-	 *          the current {@link Session} the transaction is bound to
-	 * @param transactionID
-	 *          ID of transaction
-	 * @param pageReadTransaction
-	 *          {@link PageReadTrx} to interact with the page layer
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @param resourceManager the current {@link ResourceManager} the reader is bound to
+	 * @param trxId ID of the reader
+	 * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
+	 * @param documentNode the document node
+	 * @throws SirixIOException if an I/O error occurs
 	 */
-	NodeReadTrxImpl(final SessionImpl session,
-			final @Nonnegative long transactionID,
-			final PageReadTrx pageReadTransaction) throws SirixIOException {
-		mSession = checkNotNull(session);
-		checkArgument(transactionID >= 0);
-		mId = transactionID;
+	XdmNodeReadTrxImpl(final XdmResourceManager resourceManager, final @Nonnegative long trxId,
+			final PageReadTrx pageReadTransaction, final Node documentNode) throws SirixIOException {
+		mResourceManager = checkNotNull(resourceManager);
+		checkArgument(trxId >= 0);
+		mId = trxId;
 		mPageReadTrx = checkNotNull(pageReadTransaction);
-		@SuppressWarnings("unchecked")
-		final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-				.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-						PageKind.RECORDPAGE, -1);
-		if (node.isPresent()) {
-			mCurrentNode = node.get();
-		} else {
-			throw new IllegalStateException(
-					"Node couldn't be fetched from persistent storage!");
-		}
+		mCurrentNode = checkNotNull(documentNode);
 		mClosed = false;
 		mItemList = new ItemListImpl();
 	}
@@ -186,7 +166,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public long getTransactionID() {
+	public long getId() {
 		assertNotClosed();
 		return mId;
 	}
@@ -204,13 +184,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveTo(final long nodeKey) {
+	public Move<? extends XdmNodeReadTrx> moveTo(final long nodeKey) {
 		assertNotClosed();
-		// NOT NEEDED: Actually slows down Sirix in most cases (slightly), as it's a
-		// special case.
-		// if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-		// return Move.notMoved();
-		// }
 
 		// Remember old node and fetch new one.
 		final ImmutableNode oldNode = mCurrentNode;
@@ -224,8 +199,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.empty();
 				}
 			} else {
-				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey,
-						PageKind.RECORDPAGE, -1);
+				final Optional<? extends Record> node =
+						mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
 				newNode = node;
 			}
 		} catch (final SirixIOException e) {
@@ -242,39 +217,39 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToDocumentRoot() {
+	public Move<? extends XdmNodeReadTrx> moveToDocumentRoot() {
 		assertNotClosed();
 		return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToParent() {
+	public Move<? extends XdmNodeReadTrx> moveToParent() {
 		assertNotClosed();
 		return moveTo(mCurrentNode.getParentKey());
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToFirstChild() {
+	public Move<? extends XdmNodeReadTrx> moveToFirstChild() {
 		assertNotClosed();
 		final StructNode node = getStructuralNode();
 		if (!node.hasFirstChild()) {
-			return Moved.notMoved();
+			return Move.notMoved();
 		}
 		return moveTo(node.getFirstChildKey());
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToLeftSibling() {
+	public Move<? extends XdmNodeReadTrx> moveToLeftSibling() {
 		assertNotClosed();
 		final StructNode node = getStructuralNode();
 		if (!node.hasLeftSibling()) {
-			return Moved.notMoved();
+			return Move.notMoved();
 		}
 		return moveTo(node.getLeftSiblingKey());
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToRightSibling() {
+	public Move<? extends XdmNodeReadTrx> moveToRightSibling() {
 		assertNotClosed();
 		final StructNode node = getStructuralNode();
 		if (!node.hasRightSibling()) {
@@ -284,36 +259,34 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttribute(final int index) {
+	public Move<? extends XdmNodeReadTrx> moveToAttribute(final int index) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getAttributeCount() > index) {
-				final Move<? extends NodeReadTrx> moved = moveTo(element
-						.getAttributeKey(index));
+				final Move<? extends XdmNodeReadTrx> moved = moveTo(element.getAttributeKey(index));
 				return moved;
 			} else {
-				return Moved.notMoved();
+				return Move.notMoved();
 			}
 		} else {
-			return Moved.notMoved();
+			return Move.notMoved();
 		}
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNamespace(final int index) {
+	public Move<? extends XdmNodeReadTrx> moveToNamespace(final int index) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getNamespaceCount() > index) {
-				final Move<? extends NodeReadTrx> moved = moveTo(element
-						.getNamespaceKey(index));
+				final Move<? extends XdmNodeReadTrx> moved = moveTo(element.getNamespaceKey(index));
 				return moved;
 			} else {
-				return Moved.notMoved();
+				return Move.notMoved();
 			}
 		} else {
-			return Moved.notMoved();
+			return Move.notMoved();
 		}
 	}
 
@@ -322,11 +295,9 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		String returnVal;
 		if (mCurrentNode instanceof ValueNode) {
-			returnVal = new String(((ValueNode) mCurrentNode).getRawValue(),
-					Constants.DEFAULT_ENCODING);
+			returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
 		} else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
-			returnVal = mPageReadTrx.getName(
-					((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+			returnVal = mPageReadTrx.getName(((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
 		} else {
 			returnVal = "";
 		}
@@ -337,14 +308,14 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	public QNm getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			final String uri = mPageReadTrx.getName(
-					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+			final String uri =
+					mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
 			final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
-			final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
-					prefixKey, mCurrentNode.getKind());
+			final String prefix =
+					prefixKey == -1 ? "" : mPageReadTrx.getName(prefixKey, mCurrentNode.getKind());
 			final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
-			final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
-					localNameKey, mCurrentNode.getKind());
+			final String localName =
+					localNameKey == -1 ? "" : mPageReadTrx.getName(localNameKey, mCurrentNode.getKind());
 			return new QNm(uri, prefix, localName);
 		} else {
 			return null;
@@ -372,8 +343,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public String getType() {
 		assertNotClosed();
-		return mPageReadTrx.getName(mCurrentNode.getTypeKey(),
-				mCurrentNode.getKind());
+		return mPageReadTrx.getName(mCurrentNode.getTypeKey(), mCurrentNode.getKind());
 	}
 
 	@Override
@@ -404,7 +374,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	public void close() {
 		if (!mClosed) {
 			// Callback on session to make sure everything is cleaned up.
-			mSession.closeReadTransaction(mId);
+			mResourceManager.closeReadTransaction(mId);
 
 			// Close own state.
 			mPageReadTrx.close();
@@ -424,13 +394,11 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 		helper.add("Revision number", getRevisionNumber());
 
-		if (mCurrentNode.getKind() == Kind.ATTRIBUTE
-				|| mCurrentNode.getKind() == Kind.ELEMENT) {
+		if (mCurrentNode.getKind() == Kind.ATTRIBUTE || mCurrentNode.getKind() == Kind.ELEMENT) {
 			helper.add("Name of Node", getName().toString());
 		}
 
-		if (mCurrentNode.getKind() == Kind.ATTRIBUTE
-				|| mCurrentNode.getKind() == Kind.TEXT) {
+		if (mCurrentNode.getKind() == Kind.ATTRIBUTE || mCurrentNode.getKind() == Kind.TEXT) {
 			helper.add("Value of Node", getValue());
 		}
 
@@ -474,11 +442,9 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	/**
 	 * Replace the current {@link PageReadTrxImpl}.
 	 *
-	 * @param pageReadTransaction
-	 *          {@link PageReadTrxImpl} instance
+	 * @param pageReadTransaction {@link PageReadTrxImpl} instance
 	 */
-	final void setPageReadTransaction(
-			@Nullable final PageReadTrx pageReadTransaction) {
+	final void setPageReadTransaction(@Nullable final PageReadTrx pageReadTransaction) {
 		assertNotClosed();
 		mPageReadTrx = pageReadTransaction;
 	}
@@ -486,8 +452,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	/**
 	 * Set current node.
 	 *
-	 * @param currentNode
-	 *          the current node to set
+	 * @param currentNode the current node to set
 	 */
 	final void setCurrentNode(@Nullable final ImmutableNode currentNode) {
 		assertNotClosed();
@@ -514,13 +479,13 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Session getSession() {
+	public ResourceManager getResourceManager() {
 		assertNotClosed();
-		return mSession;
+		return mResourceManager;
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNextFollowing() {
+	public Move<? extends XdmNodeReadTrx> moveToNextFollowing() {
 		assertNotClosed();
 		while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
 			moveToParent();
@@ -529,58 +494,55 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttributeByName(final QNm name) {
+	public Move<? extends XdmNodeReadTrx> moveToAttributeByName(final QNm name) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			final Optional<Long> attrKey = element.getAttributeKeyByName(name);
 			if (attrKey.isPresent()) {
-				final Move<? extends NodeReadTrx> moved = moveTo(attrKey.get());
+				final Move<? extends XdmNodeReadTrx> moved = moveTo(attrKey.get());
 				return moved;
 			}
 		}
 		return Move.notMoved();
 	}
 
-	@Override
-	public NodeReadTrx cloneInstance() throws SirixException {
-		assertNotClosed();
-		final NodeReadTrx rtx = mSession.beginNodeReadTrx(mPageReadTrx
-				.getActualRevisionRootPage().getRevision());
-		rtx.moveTo(mCurrentNode.getNodeKey());
-		return rtx;
-	}
+	// @Override
+	// public XdmNodeReadTrx cloneInstance() throws SirixException {
+	// assertNotClosed();
+	// final XdmNodeReadTrx rtx = mResourceTrxManager.createNodeReader(
+	// mPageReadTrx.getActualRevisionRootPage().getRevision());
+	// rtx.moveTo(mCurrentNode.getNodeKey());
+	// return rtx;
+	// }
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NodeReadTrxImpl) {
-			final NodeReadTrxImpl rtx = (NodeReadTrxImpl) obj;
+		if (obj instanceof XdmNodeReadTrxImpl) {
+			final XdmNodeReadTrxImpl rtx = (XdmNodeReadTrxImpl) obj;
 			return mCurrentNode.getNodeKey() == rtx.mCurrentNode.getNodeKey()
-					&& mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx
-							.getRevisionNumber();
+					&& mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx.getRevisionNumber();
 		}
 		return false;
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mCurrentNode.getNodeKey(),
-				mPageReadTrx.getRevisionNumber());
+		return Objects.hashCode(mCurrentNode.getNodeKey(), mPageReadTrx.getRevisionNumber());
 	}
 
 	@Override
 	public final int getNameCount(final String name, final Kind kind) {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			return mPageReadTrx.getNameCount(
-					NamePageHash.generateHashForString(name), kind);
+			return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
 		} else {
 			return 0;
 		}
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToLastChild() {
+	public Move<? extends XdmNodeReadTrx> moveToLastChild() {
 		assertNotClosed();
 		if (getStructuralNode().hasFirstChild()) {
 			moveToFirstChild();
@@ -816,8 +778,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	public String getNamespaceURI() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			final String URI = mPageReadTrx.getName(
-					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+			final String URI =
+					mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
 			return URI;
 		}
 		return null;
@@ -878,8 +840,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Kind getParentKind() {
 		assertNotClosed();
-		if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY
-				.getStandardProperty()) {
+		if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return Kind.UNKNOWN;
 		}
 		final long nodeKey = mCurrentNode.getNodeKey();
@@ -952,13 +913,12 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToPrevious() {
+	public Move<? extends XdmNodeReadTrx> moveToPrevious() {
 		assertNotClosed();
 		final StructNode node = getStructuralNode();
 		if (node.hasLeftSibling()) {
 			// Left sibling node.
-			Move<? extends NodeReadTrx> leftSiblMove = moveTo(node
-					.getLeftSiblingKey());
+			Move<? extends XdmNodeReadTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
 			// Now move down to rightmost descendant node if it has one.
 			while (leftSiblMove.get().hasFirstChild()) {
 				leftSiblMove = leftSiblMove.get().moveToLastChild();
@@ -970,7 +930,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNext() {
+	public Move<? extends XdmNodeReadTrx> moveToNext() {
 		assertNotClosed();
 		final StructNode node = getStructuralNode();
 		if (node.hasRightSibling()) {
@@ -990,10 +950,10 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
 		assertNotClosed();
-		if (mSession.getResourceConfig().mDeweyIDsStored) {
+		if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
-			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
 			if (node.hasLeftSibling()) {
 				// Left sibling node.
 				deweyID = moveTo(node.getLeftSiblingKey()).get().getDeweyID();
@@ -1001,15 +961,15 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			moveTo(nodeKey);
 			return deweyID;
 		}
-		return Optional.<SirixDeweyID> empty();
+		return Optional.<SirixDeweyID>empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
-		if (mSession.getResourceConfig().mDeweyIDsStored) {
+		if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
-			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
 			if (node.hasRightSibling()) {
 				// Right sibling node.
 				deweyID = moveTo(node.getRightSiblingKey()).get().getDeweyID();
@@ -1017,14 +977,14 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			moveTo(nodeKey);
 			return deweyID;
 		}
-		return Optional.<SirixDeweyID> empty();
+		return Optional.<SirixDeweyID>empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getParentDeweyID() {
-		if (mSession.getResourceConfig().mDeweyIDsStored) {
+		if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
 			final long nodeKey = mCurrentNode.getNodeKey();
-			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
 			if (mCurrentNode.hasParent()) {
 				// Parent node.
 				deweyID = moveTo(mCurrentNode.getParentKey()).get().getDeweyID();
@@ -1032,15 +992,15 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			moveTo(nodeKey);
 			return deweyID;
 		}
-		return Optional.<SirixDeweyID> empty();
+		return Optional.<SirixDeweyID>empty();
 	}
 
 	@Override
 	public Optional<SirixDeweyID> getFirstChildDeweyID() {
-		if (mSession.getResourceConfig().mDeweyIDsStored) {
+		if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
 			final StructNode node = getStructuralNode();
 			final long nodeKey = node.getNodeKey();
-			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> empty();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
 			if (node.hasFirstChild()) {
 				// Right sibling node.
 				deweyID = moveTo(node.getFirstChildKey()).get().getDeweyID();
@@ -1048,7 +1008,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			moveTo(nodeKey);
 			return deweyID;
 		}
-		return Optional.<SirixDeweyID> empty();
+		return Optional.<SirixDeweyID>empty();
 	}
 
 	@Override

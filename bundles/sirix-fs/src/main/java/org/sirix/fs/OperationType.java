@@ -11,7 +11,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 
@@ -19,16 +19,16 @@ import com.google.common.base.Optional;
 
 /**
  * Determines the operation to perform on sirix.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 @Nonnull
-enum OperationType implements Operation<NodeWriteTrx> {
+enum OperationType implements Operation<XdmNodeWriteTrx> {
 	INSERT {
 		@Override
-		public void execute(final NodeWriteTrx wtx,
-				final Optional<Visitor<NodeWriteTrx>> visitor,
+		public void execute(final XdmNodeWriteTrx wtx,
+				final Visitor<XdmNodeWriteTrx> visitor,
 				final Map<Path, org.sirix.fs.Path> index, final Path child)
 				throws SirixException {
 			checkNotNull(wtx);
@@ -54,8 +54,8 @@ enum OperationType implements Operation<NodeWriteTrx> {
 
 	UPDATE {
 		@Override
-		public void execute(final NodeWriteTrx wtx,
-				final Optional<Visitor<NodeWriteTrx>> visitor,
+		public void execute(final XdmNodeWriteTrx wtx,
+				final Visitor<XdmNodeWriteTrx> visitor,
 				final Map<Path, org.sirix.fs.Path> index, final Path child)
 				throws SirixException {
 			checkNotNull(wtx);
@@ -72,8 +72,8 @@ enum OperationType implements Operation<NodeWriteTrx> {
 
 	DELETE {
 		@Override
-		public void execute(final NodeWriteTrx wtx,
-				final Optional<Visitor<NodeWriteTrx>> visitor,
+		public void execute(final XdmNodeWriteTrx wtx,
+				final Visitor<XdmNodeWriteTrx> visitor,
 				final Map<Path, org.sirix.fs.Path> index, final Path child)
 				throws SirixException {
 			checkNotNull(wtx);
@@ -88,25 +88,23 @@ enum OperationType implements Operation<NodeWriteTrx> {
 
 	/**
 	 * Process changed {@link Path} with an optional visitor if present.
-	 * 
+	 *
 	 * @param visitor
 	 *          optional visitor
 	 * @param wtx
-	 *          sirix {@link NodeWriteTrx}
+	 *          sirix {@link XdmNodeWriteTrx}
 	 * @param path
 	 *          {@link Path} reference
 	 */
-	private static void processVisitor(Optional<Visitor<NodeWriteTrx>> visitor,
-			final NodeWriteTrx wtx, final Path path) {
-		assert visitor != null;
+	private static void processVisitor(Visitor<XdmNodeWriteTrx> visitor,
+			final XdmNodeWriteTrx wtx, final Path path) {
 		assert path != null;
-		if (visitor.isPresent()) {
+		if (visitor != null) {
 			if (Files.isDirectory(path)) {
-				visitor.get().processDirectory(wtx, path,
+				visitor.processDirectory(wtx, path,
 						Optional.<BasicFileAttributes> absent());
 			} else if (Files.isRegularFile(path) | Files.isSymbolicLink(path)) {
-				visitor.get().processFile(wtx, path,
-						Optional.<BasicFileAttributes> absent());
+				visitor.processFile(wtx, path, Optional.<BasicFileAttributes> absent());
 			}
 		}
 	}

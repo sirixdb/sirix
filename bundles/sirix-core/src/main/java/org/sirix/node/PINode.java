@@ -26,8 +26,7 @@ import com.google.common.base.Objects;
  * Node representing a processing instruction.
  * </p>
  */
-public final class PINode extends AbstractStructForwardingNode implements
-		ValueNode, NameNode {
+public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;
@@ -44,17 +43,13 @@ public final class PINode extends AbstractStructForwardingNode implements
 	/**
 	 * Creating an attribute.
 	 *
-	 * @param structDel
-	 *          {@link StructNodeDelegate} to be set
-	 * @param nameDel
-	 *          {@link NameNodeDelegate} to be set
-	 * @param valDel
-	 *          {@link ValNodeDelegate} to be set
+	 * @param structDel {@link StructNodeDelegate} to be set
+	 * @param nameDel {@link NameNodeDelegate} to be set
+	 * @param valDel {@link ValNodeDelegate} to be set
 	 *
 	 */
-	public PINode(final StructNodeDelegate structDel,
-			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
-			final PageReadTrx pageReadTrx) {
+	public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
+			final ValNodeDelegate valDel, final PageReadTrx pageReadTrx) {
 		assert structDel != null : "structDel must not be null!";
 		mStructDel = structDel;
 		assert nameDel != null : "nameDel must not be null!";
@@ -77,8 +72,8 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("structDel", mStructDel)
-				.add("nameDel", mNameDel).add("valDel", mValDel).toString();
+		return MoreObjects.toStringHelper(this).add("structDel", mStructDel).add("nameDel", mNameDel)
+				.add("valDel", mValDel).toString();
 	}
 
 	@Override
@@ -130,8 +125,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof PINode) {
 			final PINode other = (PINode) obj;
-			return Objects.equal(mNameDel, other.mNameDel)
-					&& Objects.equal(mValDel, other.mValDel);
+			return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
 		}
 		return false;
 	}
@@ -176,14 +170,13 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	@Override
 	public QNm getName() {
-		final String uri = mPageReadTrx.getName(mNameDel.getURIKey(),
-				Kind.NAMESPACE);
+		final String uri = mPageReadTrx.getName(mNameDel.getURIKey(), Kind.NAMESPACE);
 		final int prefixKey = mNameDel.getPrefixKey();
-		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
-				prefixKey, Kind.PROCESSING_INSTRUCTION);
+		final String prefix =
+				prefixKey == -1 ? "" : mPageReadTrx.getName(prefixKey, Kind.PROCESSING_INSTRUCTION);
 		final int localNameKey = mNameDel.getLocalNameKey();
-		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
-				localNameKey, Kind.PROCESSING_INSTRUCTION);
+		final String localName =
+				localNameKey == -1 ? "" : mPageReadTrx.getName(localNameKey, Kind.PROCESSING_INSTRUCTION);
 		return new QNm(uri, prefix, localName);
 	}
 

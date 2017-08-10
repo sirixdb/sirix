@@ -23,16 +23,14 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode,
-		ImmutableStructNode {
+public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode {
 	/** Mutable {@link PINode}. */
 	private final PINode mNode;
 
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          {@link PINode} to wrap
+	 * @param node {@link PINode} to wrap
 	 */
 	private ImmutablePI(final PINode node) {
 		mNode = checkNotNull(node);
@@ -41,8 +39,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode,
 	/**
 	 * Get an immutable processing instruction node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link PINode} to wrap
+	 * @param node the mutable {@link PINode} to wrap
 	 * @return immutable processing instruction node instance
 	 */
 	public static ImmutablePI of(final PINode node) {

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.axis.concurrent;
@@ -38,7 +32,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -57,18 +51,17 @@ public final class ConcurrentAxisTest {
 	private static final String XMLFILE = "10mb.xml";
 
 	/** Path to XML file. */
-	private static final String XML = "src" + File.separator + "test"
-			+ File.separator + "resources" + File.separator + XMLFILE;
+	private static final String XML =
+			"src" + File.separator + "test" + File.separator + "resources" + File.separator + XMLFILE;
 
 	private Holder holder;
 
 	/**
-	 * Method is called once before each test. It deletes all states, shreds XML
-	 * file to database and initializes the required variables.
-	 * 
+	 * Method is called once before each test. It deletes all states, shreds XML file to database and
+	 * initializes the required variables.
+	 *
 	 * @throws Exception
 	 */
-	// @BeforeEachRun
 	@Before
 	public void setUp() throws Exception {
 		try {
@@ -82,10 +75,9 @@ public final class ConcurrentAxisTest {
 
 	/**
 	 * Close all connections.
-	 * 
+	 *
 	 * @throws SirixException
 	 */
-	// @AfterEachRun
 	@After
 	public void tearDown() throws Exception {
 		try {
@@ -109,7 +101,7 @@ public final class ConcurrentAxisTest {
 		final String query = "//regions/africa//location";
 		// final String result = "<name>Limor Simone</name>";
 		final int resultNumber = 55;
-		final Axis axis = new XPathAxis(holder.getRtx(), query);
+		final Axis axis = new XPathAxis(holder.getReader(), query);
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
 			axis.next();
@@ -125,12 +117,14 @@ public final class ConcurrentAxisTest {
 	public void testSeriellNew() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
-		final Axis axis = new NestedAxis(new NestedAxis(new FilterAxis(
-				new DescendantAxis(holder.getRtx(), IncludeSelf.YES), new NameFilter(
-						holder.getRtx(), "regions")), new FilterAxis(new ChildAxis(
-				holder.getRtx()), new NameFilter(holder.getRtx(), "africa"))),
-				new FilterAxis(new DescendantAxis(holder.getRtx(), IncludeSelf.YES),
-						new NameFilter(holder.getRtx(), "location")));
+		final Axis axis = new NestedAxis(
+				new NestedAxis(
+						new FilterAxis(new DescendantAxis(holder.getReader(), IncludeSelf.YES),
+								new NameFilter(holder.getReader(), "regions")),
+						new FilterAxis(new ChildAxis(holder.getReader()),
+								new NameFilter(holder.getReader(), "africa"))),
+				new FilterAxis(new DescendantAxis(holder.getReader(), IncludeSelf.YES),
+						new NameFilter(holder.getReader(), "location")));
 
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
@@ -141,9 +135,9 @@ public final class ConcurrentAxisTest {
 
 	/**
 	 * Test concurrent.
-	 * 
+	 *
 	 * @throws SirixException
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	// @Bench
@@ -151,19 +145,21 @@ public final class ConcurrentAxisTest {
 	public void testConcurrent() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
-		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
-		final NodeReadTrx secondConcurrRtx = holder.getSession().beginNodeReadTrx();
-		final NodeReadTrx thirdConcurrRtx = holder.getSession().beginNodeReadTrx();
-		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx();
-		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx();
-		final NodeReadTrx thirdRtx = holder.getSession().beginNodeReadTrx();
-		final Axis axis = new NestedAxis(new NestedAxis(new ConcurrentAxis(
-				firstConcurrRtx, new FilterAxis(new DescendantAxis(firstRtx,
-						IncludeSelf.YES), new NameFilter(firstRtx, "regions"))),
-				new ConcurrentAxis(secondConcurrRtx, new FilterAxis(new ChildAxis(
-						secondRtx), new NameFilter(secondRtx, "africa")))),
-				new ConcurrentAxis(thirdConcurrRtx, new FilterAxis(new DescendantAxis(
-						thirdRtx, IncludeSelf.YES), new NameFilter(thirdRtx, "location"))));
+		final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+		final XdmNodeReadTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+		final XdmNodeReadTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+		final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx();
+		final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx();
+		final XdmNodeReadTrx thirdRtx = holder.getResourceManager().beginNodeReadTrx();
+		final Axis axis = new NestedAxis(
+				new NestedAxis(
+						new ConcurrentAxis(firstConcurrRtx,
+								new FilterAxis(new DescendantAxis(firstRtx, IncludeSelf.YES),
+										new NameFilter(firstRtx, "regions"))),
+						new ConcurrentAxis(secondConcurrRtx,
+								new FilterAxis(new ChildAxis(secondRtx), new NameFilter(secondRtx, "africa")))),
+				new ConcurrentAxis(thirdConcurrRtx, new FilterAxis(
+						new DescendantAxis(thirdRtx, IncludeSelf.YES), new NameFilter(thirdRtx, "location"))));
 
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
@@ -174,7 +170,7 @@ public final class ConcurrentAxisTest {
 
 	/**
 	 * Test concurrent.
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	// @Bench
@@ -182,14 +178,16 @@ public final class ConcurrentAxisTest {
 	public void testPartConcurrentDescAxis1() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
-		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
-		final Axis axis = new NestedAxis(new NestedAxis(new ConcurrentAxis(
-				firstConcurrRtx, new FilterAxis(new DescendantAxis(holder.getRtx(),
-						IncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
-				new FilterAxis(new ChildAxis(firstConcurrRtx), new NameFilter(
-						firstConcurrRtx, "africa"))), new FilterAxis(new DescendantAxis(
-				firstConcurrRtx, IncludeSelf.YES), new NameFilter(firstConcurrRtx,
-				"location")));
+		final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+		final Axis axis = new NestedAxis(
+				new NestedAxis(
+						new ConcurrentAxis(firstConcurrRtx,
+								new FilterAxis(new DescendantAxis(holder.getReader(), IncludeSelf.YES),
+										new NameFilter(holder.getReader(), "regions"))),
+						new FilterAxis(new ChildAxis(firstConcurrRtx),
+								new NameFilter(firstConcurrRtx, "africa"))),
+				new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+						new NameFilter(firstConcurrRtx, "location")));
 
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
@@ -200,7 +198,7 @@ public final class ConcurrentAxisTest {
 
 	/**
 	 * Test concurrent.
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	// @Bench
@@ -208,14 +206,14 @@ public final class ConcurrentAxisTest {
 	public void testPartConcurrentDescAxis2() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
-		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
-		final Axis axis = new NestedAxis(new NestedAxis(new FilterAxis(
-				new DescendantAxis(firstConcurrRtx, IncludeSelf.YES), new NameFilter(
-						firstConcurrRtx, "regions")), new FilterAxis(new ChildAxis(
-				firstConcurrRtx), new NameFilter(firstConcurrRtx, "africa"))),
-				new ConcurrentAxis(firstConcurrRtx, new FilterAxis(new DescendantAxis(
-						holder.getRtx(), IncludeSelf.YES), new NameFilter(holder.getRtx(),
-						"location"))));
+		final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+		final Axis axis = new NestedAxis(new NestedAxis(
+				new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+						new NameFilter(firstConcurrRtx, "regions")),
+				new FilterAxis(new ChildAxis(firstConcurrRtx), new NameFilter(firstConcurrRtx, "africa"))),
+				new ConcurrentAxis(firstConcurrRtx,
+						new FilterAxis(new DescendantAxis(holder.getReader(), IncludeSelf.YES),
+								new NameFilter(holder.getReader(), "location"))));
 
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
@@ -225,8 +223,7 @@ public final class ConcurrentAxisTest {
 	}
 
 	/*
-	 * ##########################################################################
-	 * ###############
+	 * ########################################################################## ###############
 	 */
 
 	// /**
@@ -1137,8 +1134,7 @@ public final class ConcurrentAxisTest {
 	// }
 
 	/*
-	 * ##########################################################################
-	 * ###############
+	 * ########################################################################## ###############
 	 */
 
 }

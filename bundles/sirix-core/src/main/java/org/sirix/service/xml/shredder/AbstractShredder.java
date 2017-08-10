@@ -6,7 +6,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
@@ -14,9 +14,9 @@ import org.sirix.settings.Fixed;
 /**
  * Skeleton implementation of {@link Shredder} interface methods.
  * 
- * All methods throw {@link NullPointerException}s in case of {@code null}
- * values for reference parameters and check the arguments, whereas in case they
- * are not valid a {@link IllegalArgumentException} is thrown.
+ * All methods throw {@link NullPointerException}s in case of {@code null} values for reference
+ * parameters and check the arguments, whereas in case they are not valid a
+ * {@link IllegalArgumentException} is thrown.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * @author Marc Kramis, Seabix GmbH
@@ -24,8 +24,8 @@ import org.sirix.settings.Fixed;
  */
 public abstract class AbstractShredder implements Shredder<String, QNm> {
 
-	/** Sirix {@link NodeWriteTrx}. */
-	private final NodeWriteTrx mWtx;
+	/** Sirix {@link XdmNodeWriteTrx}. */
+	private final XdmNodeWriteTrx mWtx;
 
 	/** Keeps track of visited keys. */
 	private final Deque<Long> mParents;
@@ -36,10 +36,9 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	/**
 	 * Constructor.
 	 * 
-	 * @throws NullPointerException
-	 *           if {@code pWtx} is {@code null}
+	 * @throws NullPointerException if {@code pWtx} is {@code null}
 	 */
-	public AbstractShredder(final NodeWriteTrx wtx, final Insert insertLocation) {
+	public AbstractShredder(final XdmNodeWriteTrx wtx, final Insert insertLocation) {
 		mWtx = checkNotNull(wtx);
 		mInsertLocation = checkNotNull(insertLocation);
 		mParents = new ArrayDeque<>();
@@ -63,8 +62,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processPI(final String processingContent,
-			final String processingTarget) throws SirixException {
+	public void processPI(final String processingContent, final String processingTarget)
+			throws SirixException {
 		final String content = checkNotNull(processingContent);
 		final String target = checkNotNull(processingTarget);
 		long key;
@@ -101,33 +100,31 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 		final QNm name = checkNotNull(elementName);
 		long key = -1;
 		switch (mInsertLocation) {
-		case ASFIRSTCHILD:
-			if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-				key = mWtx.insertElementAsFirstChild(name).getNodeKey();
-			} else {
+			case ASFIRSTCHILD:
+				if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+					key = mWtx.insertElementAsFirstChild(name).getNodeKey();
+				} else {
+					key = mWtx.insertElementAsRightSibling(name).getNodeKey();
+				}
+				break;
+			case ASRIGHTSIBLING:
+				if (mWtx.getKind() == Kind.DOCUMENT
+						|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+					throw new IllegalStateException(
+							"Subtree can not be inserted as sibling of document root or the root-element!");
+				}
 				key = mWtx.insertElementAsRightSibling(name).getNodeKey();
-			}
-			break;
-		case ASRIGHTSIBLING:
-			if (mWtx.getKind() == Kind.DOCUMENT
-					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
-							.getStandardProperty()) {
-				throw new IllegalStateException(
-						"Subtree can not be inserted as sibling of document root or the root-element!");
-			}
-			key = mWtx.insertElementAsRightSibling(name).getNodeKey();
-			mInsertLocation = Insert.ASFIRSTCHILD;
-			break;
-		case ASLEFTSIBLING:
-			if (mWtx.getKind() == Kind.DOCUMENT
-					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
-							.getStandardProperty()) {
-				throw new IllegalStateException(
-						"Subtree can not be inserted as sibling of document root or the root-element!");
-			}
-			key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
-			mInsertLocation = Insert.ASFIRSTCHILD;
-			break;
+				mInsertLocation = Insert.ASFIRSTCHILD;
+				break;
+			case ASLEFTSIBLING:
+				if (mWtx.getKind() == Kind.DOCUMENT
+						|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+					throw new IllegalStateException(
+							"Subtree can not be inserted as sibling of document root or the root-element!");
+				}
+				key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
+				mInsertLocation = Insert.ASFIRSTCHILD;
+				break;
 		}
 
 		mParents.pop();

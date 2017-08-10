@@ -26,11 +26,11 @@ import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.Insert;
@@ -39,13 +39,13 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Database collection.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class DBCollection extends
-		AbstractCollection<AbstractTemporalNode<DBNode>> implements
-		TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
+public final class DBCollection
+		extends AbstractCollection<AbstractTemporalNode<DBNode>>
+		implements TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -53,17 +53,16 @@ public final class DBCollection extends
 
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
-	
+
 	/** {@link Sirix} database. */
 	private final Database mDatabase;
 
 	/** Unique ID. */
 	private final int mID;
-	
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *          collection name
 	 * @param database
@@ -74,7 +73,7 @@ public final class DBCollection extends
 		mDatabase = checkNotNull(database);
 		mID = ID_SEQUENCE.incrementAndGet();
 	}
-	
+
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof DBCollection) {
@@ -83,7 +82,7 @@ public final class DBCollection extends
 		}
 		return false;
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mDatabase.hashCode();
@@ -91,7 +90,7 @@ public final class DBCollection extends
 
 	/**
 	 * Get the unique ID.
-	 * 
+	 *
 	 * @return unique ID
 	 */
 	public int getID() {
@@ -100,7 +99,7 @@ public final class DBCollection extends
 
 	/**
 	 * Get the underlying Sirix {@link Database}.
-	 * 
+	 *
 	 * @return Sirix {@link Database}
 	 */
 	public Database getDatabase() {
@@ -110,8 +109,8 @@ public final class DBCollection extends
 	@Override
 	public void delete() throws DocumentException {
 		try {
-			Databases.truncateDatabase(new DatabaseConfiguration(mDatabase
-					.getDatabaseConfig().getFile()));
+			Databases.truncateDatabase(
+					new DatabaseConfiguration(mDatabase.getDatabaseConfig().getFile()));
 		} catch (final SirixIOException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -133,14 +132,15 @@ public final class DBCollection extends
 			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
-			throw new DocumentException("More than one document stored in database/collection!");
+			throw new DocumentException(
+					"More than one document stored in database/collection!");
 		}
 		try {
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(resources[0]).build());
-			final int version = revision == -1 ? session
-					.getMostRecentRevisionNumber() : revision;
-			final NodeReadTrx rtx = session.beginNodeReadTrx(version);
+			final ResourceManager session = mDatabase.getResourceManager(
+					ResourceManagerConfiguration.newBuilder(resources[0]).build());
+			final int version = revision == -1 ? session.getMostRecentRevisionNumber()
+					: revision;
+			final XdmNodeReadTrx rtx = session.beginNodeReadTrx(version);
 			return new DBNode(rtx, this);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -153,18 +153,14 @@ public final class DBCollection extends
 			final String resource = new StringBuilder(2).append("resource")
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig())
-					.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
-					.build());
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(resource).build());
-			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs(true)
+					.useTextCompression(true).buildPathSummary(true).build());
+			final ResourceManager manager = mDatabase.getResourceManager(
+					ResourceManagerConfiguration.newBuilder(resource).build());
+			final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
 
-			final SubtreeHandler handler = new SubtreeBuilder(
-					this,
-					wtx,
-					Insert.ASFIRSTCHILD,
-					Collections
+			final SubtreeHandler handler = new SubtreeBuilder(this, wtx,
+					Insert.ASFIRSTCHILD, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 
 			// Make sure the CollectionParser is used.
@@ -184,21 +180,18 @@ public final class DBCollection extends
 	public DBNode add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		try {
-			final String resource = new StringBuilder(2).append("resource")
+			final String resourceName = new StringBuilder(2).append("resource")
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig())
+					.newBuilder(resourceName, mDatabase.getDatabaseConfig())
 					.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
 					.build());
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(resource).build());
-			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			final ResourceManager resource = mDatabase.getResourceManager(
+					ResourceManagerConfiguration.newBuilder(resourceName).build());
+			final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 
-			final SubtreeHandler handler = new SubtreeBuilder(
-					this,
-					wtx,
-					Insert.ASFIRSTCHILD,
-					Collections
+			final SubtreeHandler handler = new SubtreeBuilder(this, wtx,
+					Insert.ASFIRSTCHILD, Collections
 							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
 
 			// Make sure the CollectionParser is used.
@@ -214,15 +207,15 @@ public final class DBCollection extends
 		}
 	}
 
-	public DBNode add(final String resource, final XMLEventReader reader)
+	public DBNode add(final String resourceName, final XMLEventReader reader)
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig())
+					.newBuilder(resourceName, mDatabase.getDatabaseConfig())
 					.useDeweyIDs(true).build());
-			final Session session = mDatabase.getSession(SessionConfiguration
-					.newBuilder(resource).build());
-			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			final ResourceManager resource = mDatabase.getResourceManager(
+					ResourceManagerConfiguration.newBuilder(resourceName).build());
+			final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 			wtx.insertSubtreeAsFirstChild(reader);
 			wtx.moveToDocumentRoot();
 			return new DBNode(wtx, this);
@@ -253,7 +246,8 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public DBNode getDocument(final int revision, final String name) throws DocumentException {
+	public DBNode getDocument(final int revision, final String name)
+			throws DocumentException {
 		return getDocument(revision, name, false);
 	}
 
@@ -266,7 +260,7 @@ public final class DBCollection extends
 	public DBNode getDocument(final int revision, final String name,
 			final boolean updatable) throws DocumentException {
 		try {
-			final SessionConfiguration sessionConfig = SessionConfiguration
+			final ResourceManagerConfiguration sessionConfig = ResourceManagerConfiguration
 					.newBuilder(name).build();
 			return getDocumentInternal(sessionConfig, revision, updatable);
 		} catch (final SirixException e) {
@@ -274,32 +268,35 @@ public final class DBCollection extends
 		}
 	}
 
-	private DBNode getDocumentInternal(final SessionConfiguration sessionConfig, final int revision, final boolean updatable) throws SirixException {
-		final Session session = mDatabase.getSession(sessionConfig);
-		final int version = revision == -1 ? session
-				.getMostRecentRevisionNumber() : revision;
-				
-		final NodeReadTrx rtx;
+	private DBNode getDocumentInternal(
+			final ResourceManagerConfiguration resourceManagerConfig,
+			final int revision, final boolean updatable) throws SirixException {
+		final ResourceManager resource = mDatabase
+				.getResourceManager(resourceManagerConfig);
+		final int version = revision == -1 ? resource.getMostRecentRevisionNumber()
+				: revision;
+
+		final XdmNodeReadTrx rtx;
 		if (updatable) {
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				final Optional<NodeWriteTrx> optionalWriteTrx;
-				optionalWriteTrx = session.getNodeWriteTrx();
-				
+			if (resource.getAvailableNodeWriteTrx() == 0) {
+				final Optional<XdmNodeWriteTrx> optionalWriteTrx;
+				optionalWriteTrx = resource.getNodeWriteTrx();
+
 				if (optionalWriteTrx.isPresent()) {
-					rtx = optionalWriteTrx.get();					
+					rtx = optionalWriteTrx.get();
 				} else {
-					rtx = session.beginNodeWriteTrx();
+					rtx = resource.beginNodeWriteTrx();
 				}
 			} else {
-				rtx = session.beginNodeWriteTrx();
+				rtx = resource.beginNodeWriteTrx();
 			}
-			
-			if (version < session.getMostRecentRevisionNumber())
-				((NodeWriteTrx) rtx).revertTo(version);
+
+			if (version < resource.getMostRecentRevisionNumber())
+				((XdmNodeWriteTrx) rtx).revertTo(version);
 		} else {
-			rtx = session.beginNodeReadTrx(version);
+			rtx = resource.beginNodeReadTrx(version);
 		}
-			
+
 		return new DBNode(rtx, this);
 	}
 
@@ -308,12 +305,13 @@ public final class DBCollection extends
 			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
-			throw new DocumentException("More than one document stored in database/collection!");
+			throw new DocumentException(
+					"More than one document stored in database/collection!");
 		}
 		try {
-			final SessionConfiguration sessionConfig = SessionConfiguration
+			final ResourceManagerConfiguration sessionConfig = ResourceManagerConfiguration
 					.newBuilder(resources[0]).build();
-			
+
 			return getDocumentInternal(sessionConfig, revision, updatable);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -321,27 +319,27 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public Stream<DBNode> getDocuments(
-			final boolean updatable) throws DocumentException {
+	public Stream<DBNode> getDocuments(final boolean updatable)
+			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		final List<DBNode> documents = new ArrayList<>(resources.length);
-		for (final String resource : resources) {
+		for (final String resourceName : resources) {
 			try {
-				final Session session = mDatabase.getSession(SessionConfiguration
-						.newBuilder(resource).build());
-				final NodeReadTrx rtx = updatable ? session.beginNodeWriteTrx() : session.beginNodeReadTrx();
+				final ResourceManager resource = mDatabase.getResourceManager(
+						ResourceManagerConfiguration.newBuilder(resourceName).build());
+				final XdmNodeReadTrx rtx = updatable ? resource.beginNodeReadTrx()
+						: resource.beginNodeReadTrx();
 				documents.add(new DBNode(rtx, this));
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
 		}
-		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents
-				.size()]));
+		return new ArrayStream<DBNode>(
+				documents.toArray(new DBNode[documents.size()]));
 	}
 
 	@Override
-	public DBNode getDocument(boolean updatabale)
-			throws DocumentException {
+	public DBNode getDocument(boolean updatabale) throws DocumentException {
 		return getDocument(-1, updatabale);
 	}
 }

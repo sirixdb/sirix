@@ -4,9 +4,9 @@ import com.sleepycat.persist.model.Entity;
 import com.sleepycat.persist.model.PrimaryKey;
 
 /**
- * This class represents the secret material model holding all data for KEKs(key
- * encryption keys) and TEKs (traffic encryption keys) with its selector key and
- * its revision and version respectively.
+ * This class represents the secret material model holding all data for KEKs(key encryption keys)
+ * and TEKs (traffic encryption keys) with its selector key and its revision and version
+ * respectively.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -54,17 +54,13 @@ public class KeyingMaterial {
 	/**
 	 * Constructor for building a new keying material instance.
 	 * 
-	 * @param paramKey
-	 *          selector key of keying material.
-	 * @param paramRev
-	 *          revision of keying material.
-	 * @param paramVer
-	 *          version of keying material.
-	 * @param paramSKey
-	 *          secret key of keying material.
+	 * @param paramKey selector key of keying material.
+	 * @param paramRev revision of keying material.
+	 * @param paramVer version of keying material.
+	 * @param paramSKey secret key of keying material.
 	 */
-	public KeyingMaterial(final long paramKey, final int paramRev,
-			final int paramVer, final byte[] paramSKey) {
+	public KeyingMaterial(final long paramKey, final int paramRev, final int paramVer,
+			final byte[] paramSKey) {
 		this.mMaterialKey = RightKey.getInstance().newMaterialKey();
 		this.mSelectorKey = paramKey;
 		this.mRevsion = paramRev;
@@ -120,8 +116,7 @@ public class KeyingMaterial {
 	/**
 	 * Sets a new secret key.
 	 * 
-	 * @param paramSKey
-	 *          new secret key.
+	 * @param paramSKey new secret key.
 	 */
 	public final void setSecretKey(final byte[] paramSKey) {
 		this.mSecretKey = paramSKey;

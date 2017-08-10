@@ -26,8 +26,7 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V, S> {
 
 	/** Constructor for use by subclasses. */
-	protected AbstractForwardingPageWriteTrx() {
-	}
+	protected AbstractForwardingPageWriteTrx() {}
 
 	@Override
 	public void closeCaches() {
@@ -45,30 +44,25 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public V createEntry(K key, @Nonnull V record, @Nonnull PageKind pageKind,
-			@Nonnegative int index, @Nonnull Optional<S> keyValuePage)
-			throws SirixIOException {
+	public V createEntry(K key, @Nonnull V record, @Nonnull PageKind pageKind, @Nonnegative int index,
+			@Nonnull Optional<S> keyValuePage) throws SirixIOException {
 		return delegate().createEntry(key, record, pageKind, index, keyValuePage);
 	}
 
 	@Override
-	public V prepareEntryForModification(@Nonnegative K recordKey,
-			@Nonnull PageKind pageKind, @Nonnegative int index,
-			@Nonnull Optional<S> keyValuePage) throws SirixIOException {
-		return delegate().prepareEntryForModification(recordKey, pageKind, index,
-				keyValuePage);
+	public V prepareEntryForModification(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
+			@Nonnegative int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException {
+		return delegate().prepareEntryForModification(recordKey, pageKind, index, keyValuePage);
 	}
 
 	@Override
 	public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
-			@Nonnegative int index, @Nonnull Optional<S> keyValuePage)
-			throws SirixIOException {
+			@Nonnegative int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException {
 		delegate().removeEntry(recordKey, pageKind, index, keyValuePage);
 	}
 
 	@Override
-	public int createNameKey(String name, @Nonnull Kind kind)
-			throws SirixIOException {
+	public int createNameKey(String name, @Nonnull Kind kind) throws SirixIOException {
 		return delegate().createNameKey(name, kind);
 	}
 

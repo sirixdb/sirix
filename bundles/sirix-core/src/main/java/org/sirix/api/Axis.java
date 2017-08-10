@@ -18,29 +18,26 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
 	 * 
 	 * @return the transaction or {@code null}
 	 */
-	NodeReadTrx getTrx();
+	XdmNodeReadTrx getTrx();
 
 	/**
 	 * Foreach-iterator calling a {@link IVistor} for each iteration.
 	 * 
-	 * @param visitor
-	 *          {@link Visitor} implementation
+	 * @param visitor {@link Visitor} implementation
 	 */
 	void foreach(Visitor visitor);
 
 	/**
 	 * Thread safe node iterator.
 	 * 
-	 * @return next node kind if one is available via the axis or
-	 *         {@code EKing.UNKNOWN} if not
+	 * @return next node kind if one is available via the axis or {@code EKing.UNKNOWN} if not
 	 */
 	long nextNode();
 
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param nodeKey
-	 *          the nodekey where the reset should occur to
+	 * @param nodeKey the nodekey where the reset should occur to
 	 */
 	void reset(@Nonnegative long nodeKey);
 

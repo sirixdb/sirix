@@ -10,8 +10,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 /**
- * OverflowPage used to store records which are longer than a predefined
- * threshold.
+ * OverflowPage used to store records which are longer than a predefined threshold.
  * 
  * @author Johannes Lichtenberger
  * 
@@ -31,8 +30,7 @@ public final class OverflowPage implements Page {
 	/**
 	 * Constructor.
 	 * 
-	 * @param data
-	 *          data to be stored
+	 * @param data data to be stored
 	 */
 	public OverflowPage(final byte[] data) {
 		assert data != null;
@@ -52,8 +50,7 @@ public final class OverflowPage implements Page {
 
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			PageWriteTrx<K, V, S> pageWriteTrx) {
-	}
+			PageWriteTrx<K, V, S> pageWriteTrx) {}
 
 	@Override
 	public PageReference getReference(int offset) {

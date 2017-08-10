@@ -7,7 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
@@ -32,7 +32,7 @@ public final class AllTimeAxisTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		DocumentCreater.createVersioned(Holder.generateWtx().getWtx());
+		DocumentCreater.createVersioned(Holder.generateWtx().getWriter());
 		holder = Holder.generateRtx();
 	}
 
@@ -44,15 +44,15 @@ public final class AllTimeAxisTest {
 
 	@Test
 	public void testAxis() throws SirixException {
-		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
-		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
-		final NodeReadTrx thirdRtx = holder.getRtx();
+		final XdmNodeReadTrx firstReader = holder.getResourceManager().beginNodeReadTrx(1);
+		final XdmNodeReadTrx secondReader = holder.getResourceManager().beginNodeReadTrx(2);
+		final XdmNodeReadTrx thirdReader = holder.getReader();
 
-		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
+		new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+				ImmutableList.of(firstReader, secondReader, thirdReader), null) {
 			@Override
-			protected Iterator<NodeReadTrx> newTargetIterator() {
-				return new AllTimeAxis(holder.getRtx());
+			protected Iterator<XdmNodeReadTrx> newTargetIterator() {
+				return new AllTimeAxis(holder.getReader());
 			}
 		}.test();
 	}

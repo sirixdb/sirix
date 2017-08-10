@@ -32,20 +32,16 @@ public class DatabaseConfigurationTest {
 	/**
 	 * Test method for
 	 * {@link org.treetank.access.conf.DatabaseConfiguration#serialize(org.treetank.access.conf.DatabaseConfiguration)}
-	 * and
-	 * {@link org.treetank.access.conf.DatabaseConfiguration#deserialize(java.io.File)}
-	 * .
+	 * and {@link org.treetank.access.conf.DatabaseConfiguration#deserialize(java.io.File)} .
 	 * 
-	 * @throws SirixIOException
-	 *           if an I/O exception occurs
+	 * @throws SirixIOException if an I/O exception occurs
 	 */
 	@Test
 	public void testDeSerialize() throws SirixIOException {
-		DatabaseConfiguration conf = new DatabaseConfiguration(
-				TestHelper.PATHS.PATH1.getFile());
+		DatabaseConfiguration conf = new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile());
 		assertTrue(Databases.createDatabase(conf));
-		DatabaseConfiguration serializedConf = DatabaseConfiguration
-				.deserialize(TestHelper.PATHS.PATH1.getFile());
+		DatabaseConfiguration serializedConf =
+				DatabaseConfiguration.deserialize(TestHelper.PATHS.PATH1.getFile());
 		assertEquals(conf.toString(), serializedConf.toString());
 	}
 }

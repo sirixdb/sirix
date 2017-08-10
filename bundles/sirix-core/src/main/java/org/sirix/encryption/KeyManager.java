@@ -9,8 +9,8 @@ import com.sleepycat.persist.model.Entity;
 import com.sleepycat.persist.model.PrimaryKey;
 
 /**
- * This class represents the key manager model holding all key data for a user
- * comprising the initial keys and all TEKs a user owns.
+ * This class represents the key manager model holding all key data for a user comprising the
+ * initial keys and all TEKs a user owns.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -43,13 +43,10 @@ public class KeyManager {
 	/**
 	 * Constructor for building an new key manager instance.
 	 * 
-	 * @param paramUser
-	 *          user.
-	 * @param paramInitial
-	 *          map of all key trails.
+	 * @param paramUser user.
+	 * @param paramInitial map of all key trails.
 	 */
-	public KeyManager(final String paramUser,
-			final Map<Long, List<Long>> paramInitial) {
+	public KeyManager(final String paramUser, final Map<Long, List<Long>> paramInitial) {
 		this.mUser = paramUser;
 		this.mInitialKeys = paramInitial;
 		this.mTekKeys = new LinkedList<Long>();
@@ -88,8 +85,7 @@ public class KeyManager {
 	/**
 	 * Add a new key trail to the map.
 	 * 
-	 * @param paramTrail
-	 *          new key trail.
+	 * @param paramTrail new key trail.
 	 */
 	public final void addInitialKeyTrail(final List<Long> paramTrail) {
 		mInitialKeys.put(paramTrail.get(0), paramTrail);
@@ -111,8 +107,7 @@ public class KeyManager {
 	/**
 	 * Adds a new TEK to users TEK list.
 	 * 
-	 * @param paramTek
-	 *          new TEK to add.
+	 * @param paramTek new TEK to add.
 	 */
 	public final void addTEK(final long paramTek) {
 		mTekKeys.add(paramTek);

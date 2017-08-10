@@ -16,18 +16,17 @@ public final class PageCache implements Cache<PageReference, Page> {
 	private final com.google.common.cache.Cache<PageReference, Page> mPageCache;
 
 	public PageCache() {
-		RemovalListener<PageReference, Page> removalListener = new RemovalListener<PageReference, Page>() {
-			@Override
-			public void onRemoval(
-					final RemovalNotification<PageReference, Page> removal) {
-				removal.getKey().setPage(null);
-			}
-		};
+		RemovalListener<PageReference, Page> removalListener =
+				new RemovalListener<PageReference, Page>() {
+					@Override
+					public void onRemoval(final RemovalNotification<PageReference, Page> removal) {
+						removal.getKey().setPage(null);
+					}
+				};
 
-		mPageCache = CacheBuilder.newBuilder().maximumSize(1000)
-				.expireAfterWrite(5000, TimeUnit.SECONDS)
-				.expireAfterAccess(5000, TimeUnit.SECONDS)
-				.removalListener(removalListener).build();
+		mPageCache =
+				CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(5000, TimeUnit.SECONDS)
+						.expireAfterAccess(5000, TimeUnit.SECONDS).removalListener(removalListener).build();
 	}
 
 	@Override
@@ -56,8 +55,7 @@ public final class PageCache implements Cache<PageReference, Page> {
 	}
 
 	@Override
-	public ImmutableMap<PageReference, Page> getAll(
-			Iterable<? extends PageReference> keys) {
+	public ImmutableMap<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
 		return mPageCache.getAllPresent(keys);
 	}
 
@@ -67,6 +65,5 @@ public final class PageCache implements Cache<PageReference, Page> {
 	}
 
 	@Override
-	public void close() {
-	}
+	public void close() {}
 }

@@ -38,19 +38,14 @@ public final class CASFilter implements Filter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 *
-	 * @param rtx
-	 *          transaction this filter is bound to
-	 * @param paths
-	 *          paths to match
-	 * @param key
-	 *          the atomic key to filter
-	 * @param mode
-	 *          the search mode to apply
-	 * @param pcrCollector
-	 *          the path class record collector
+	 * @param rtx transaction this filter is bound to
+	 * @param paths paths to match
+	 * @param key the atomic key to filter
+	 * @param mode the search mode to apply
+	 * @param pcrCollector the path class record collector
 	 */
-	public CASFilter(final Set<Path<QNm>> paths, final Atomic key,
-			final SearchMode mode, final PCRCollector pcrCollector) {
+	public CASFilter(final Set<Path<QNm>> paths, final Atomic key, final SearchMode mode,
+			final PCRCollector pcrCollector) {
 		mPaths = requireNonNull(paths);
 		mPathFilter = new PathFilter(mPaths, pcrCollector);
 		mKey = requireNonNull(key);
@@ -76,18 +71,15 @@ public final class CASFilter implements Filter {
 	/**
 	 * Filter the node.
 	 *
-	 * @param node
-	 *          node to filter
+	 * @param node node to filter
 	 * @return {@code true} if the node has been filtered, {@code false} otherwise
 	 */
 	@Override
-	public <K extends Comparable<? super K>> boolean filter(
-			final AVLNode<K, NodeReferences> node) {
+	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
 		final K key = node.getKey();
 		if (key instanceof CASValue) {
 			final CASValue casValue = (CASValue) key;
-			if (mPathFilter.filter(node)
-					&& mMode.compare(mKey, casValue.getAtomicValue()) == 0) {
+			if (mPathFilter.filter(node) && mMode.compare(mKey, casValue.getAtomicValue()) == 0) {
 				return true;
 			}
 		}

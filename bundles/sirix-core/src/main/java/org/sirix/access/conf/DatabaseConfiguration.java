@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.access.conf;
@@ -48,8 +42,8 @@ import com.google.gson.stream.JsonWriter;
  * <h1>Database Configuration</h1>
  *
  * <p>
- * Represents a configuration of a database. Includes all settings which have to
- * be made during the creation of the database.
+ * Represents a configuration of a database. Includes all settings which have to be made during the
+ * creation of the database.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz
@@ -57,8 +51,8 @@ import com.google.gson.stream.JsonWriter;
 public final class DatabaseConfiguration {
 
 	/**
-	 * Paths for a {@link org.DatabaseImpl.Database}. Each
-	 * {@link org.DatabaseImpl.Database} has the same folder layout.
+	 * Paths for a {@link org.Database.Database}. Each {@link org.Database.Database} has the same
+	 * folder layout.
 	 */
 	public enum Paths {
 
@@ -80,10 +74,8 @@ public final class DatabaseConfiguration {
 		/**
 		 * Constructor.
 		 *
-		 * @param file
-		 *          to be set
-		 * @param isFolder
-		 *          determines if the file is a folder instead
+		 * @param file to be set
+		 * @param isFolder determines if the file is a folder instead
 		 */
 		private Paths(final File file, final boolean isFolder) {
 			mFile = checkNotNull(file);
@@ -111,18 +103,16 @@ public final class DatabaseConfiguration {
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
 		 *
-		 * @param file
-		 *          to be checked
-		 * @return -1 if less folders are there, 0 if the structure is equal to the
-		 *         one expected, 1 if the structure has more folders
+		 * @param file to be checked
+		 * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
+		 *         the structure has more folders
 		 */
 		public static int compareStructure(final File file) {
 			checkNotNull(file);
 			int existing = 0;
 			for (final Paths paths : values()) {
 				final File currentFile = new File(file, paths.getFile().getName());
-				if (currentFile.exists()
-						&& !Paths.LOCK.getFile().getName().equals(currentFile.getName())) {
+				if (currentFile.exists() && !Paths.LOCK.getFile().getName().equals(currentFile.getName())) {
 					existing++;
 				}
 			}
@@ -147,8 +137,7 @@ public final class DatabaseConfiguration {
 	/**
 	 * Constructor with the path to be set.
 	 *
-	 * @param file
-	 *          file to be set
+	 * @param file file to be set
 	 */
 	public DatabaseConfiguration(final File file) {
 		mBinaryVersion = BINARY;
@@ -158,8 +147,7 @@ public final class DatabaseConfiguration {
 	/**
 	 * Set unique maximum resource ID.
 	 *
-	 * @param id
-	 *          maximum resource ID
+	 * @param id maximum resource ID
 	 * @return this {@link DatabaseConfiguration} reference
 	 */
 	public DatabaseConfiguration setMaximumResourceID(final long id) {
@@ -188,8 +176,8 @@ public final class DatabaseConfiguration {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("File", mFile)
-				.add("Binary Version", mBinaryVersion).toString();
+		return MoreObjects.toStringHelper(this).add("File", mFile).add("Binary Version", mBinaryVersion)
+				.toString();
 	}
 
 	@Override
@@ -219,13 +207,10 @@ public final class DatabaseConfiguration {
 	/**
 	 * Serializing a {@link DatabaseConfiguration} to a json file.
 	 *
-	 * @param config
-	 *          to be serialized
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @param config to be serialized
+	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static void serialize(final DatabaseConfiguration config)
-			throws SirixIOException {
+	public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
 		try (final FileWriter fileWriter = new FileWriter(config.getConfigFile());
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
 			jsonWriter.beginObject();
@@ -241,17 +226,14 @@ public final class DatabaseConfiguration {
 	/**
 	 * Generate a DatabaseConfiguration out of a file.
 	 *
-	 * @param file
-	 *          where the DatabaseConfiguration lies in as json
+	 * @param file where the DatabaseConfiguration lies in as json
 	 * @return a new {@link DatabaseConfiguration} class
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static DatabaseConfiguration deserialize(final File file)
-			throws SirixIOException {
+	public static DatabaseConfiguration deserialize(final File file) throws SirixIOException {
 		try (
-				final FileReader fileReader = new FileReader(
-						new File(file, Paths.CONFIGBINARY.getFile().getName()));
+				final FileReader fileReader =
+						new FileReader(new File(file, Paths.CONFIGBINARY.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
 			final String fileName = jsonReader.nextName();

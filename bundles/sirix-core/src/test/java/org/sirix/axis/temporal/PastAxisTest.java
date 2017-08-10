@@ -7,7 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
@@ -33,7 +33,7 @@ public final class PastAxisTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		DocumentCreater.createVersioned(Holder.generateWtx().getWtx());
+		DocumentCreater.createVersioned(Holder.generateWtx().getWriter());
 		holder = Holder.generateRtx();
 	}
 
@@ -45,14 +45,14 @@ public final class PastAxisTest {
 
 	@Test
 	public void testPastOrSelfAxis() throws SirixException {
-		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
-		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
-		final NodeReadTrx thirdRtx = holder.getRtx();
+		final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
+		final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
+		final XdmNodeReadTrx thirdRtx = holder.getReader();
 
-		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+		new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(thirdRtx, secondRtx, firstRtx), null) {
 			@Override
-			protected Iterator<NodeReadTrx> newTargetIterator() {
+			protected Iterator<XdmNodeReadTrx> newTargetIterator() {
 				return new PastAxis(thirdRtx, IncludeSelf.YES);
 			}
 		}.test();
@@ -60,14 +60,14 @@ public final class PastAxisTest {
 
 	@Test
 	public void testPastAxis() throws SirixException {
-		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
-		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
-		final NodeReadTrx thirdRtx = holder.getRtx();
+		final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
+		final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
+		final XdmNodeReadTrx thirdRtx = holder.getReader();
 
-		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+		new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(secondRtx, firstRtx), null) {
 			@Override
-			protected Iterator<NodeReadTrx> newTargetIterator() {
+			protected Iterator<XdmNodeReadTrx> newTargetIterator() {
 				return new PastAxis(thirdRtx);
 			}
 		}.test();

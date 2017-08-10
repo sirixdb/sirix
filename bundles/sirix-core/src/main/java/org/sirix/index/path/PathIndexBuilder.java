@@ -31,22 +31,20 @@ import org.slf4j.LoggerFactory;
 
 final class PathIndexBuilder extends AbstractVisitor {
 
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(PathIndexBuilder.class));
+	private static final LogWrapper LOGGER =
+			new LogWrapper(LoggerFactory.getLogger(PathIndexBuilder.class));
 
 	private final Set<Path<QNm>> mPaths;
 	private final PathSummaryReader mPathSummaryReader;
 
 	private final AVLTreeWriter<Long, NodeReferences> mAVLTreeWriter;
 
-	PathIndexBuilder(
-			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	PathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDef.getPaths());
 		assert indexDef.getType() == IndexType.PATH;
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
-				indexDef.getType(), indexDef.getID());
+		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDef.getType(), indexDef.getID());
 	}
 
 	@Override
@@ -62,10 +60,8 @@ final class PathIndexBuilder extends AbstractVisitor {
 	private VisitResult process(final ImmutableNameNode node) {
 		try {
 			final long PCR = node.getPathNodeKey();
-			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)
-					|| mPaths.isEmpty()) {
-				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(PCR,
-						SearchMode.EQUAL);
+			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR) || mPaths.isEmpty()) {
+				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(PCR, SearchMode.EQUAL);
 				if (textReferences.isPresent()) {
 					setNodeReferences(node, textReferences.get(), PCR);
 				} else {
@@ -79,11 +75,9 @@ final class PathIndexBuilder extends AbstractVisitor {
 
 	}
 
-	private void setNodeReferences(final ImmutableNode node,
-			final NodeReferences references, final long pathNodeKey)
-			throws SirixIOException {
-		mAVLTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()),
-				MoveCursor.NO_MOVE);
+	private void setNodeReferences(final ImmutableNode node, final NodeReferences references,
+			final long pathNodeKey) throws SirixIOException {
+		mAVLTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
 	}
 
 }

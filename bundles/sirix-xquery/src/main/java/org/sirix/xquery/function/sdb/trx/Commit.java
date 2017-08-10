@@ -8,8 +8,8 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
@@ -19,12 +19,11 @@ import org.sirix.xquery.node.DBNode;
  * revision number. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:commit($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:commit($doc as xs:node) as xs:int</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class Commit extends AbstractFunction {
 
@@ -34,7 +33,7 @@ public final class Commit extends AbstractFunction {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *          the name of the function
 	 * @param signature
@@ -49,21 +48,21 @@ public final class Commit extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		if (doc.getTrx() instanceof NodeWriteTrx) {
-			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
+		if (doc.getTrx() instanceof XdmNodeWriteTrx) {
+			final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
 			wtx.commit();
 			return new Int64(revision);
 		} else {
-			final Session session = doc.getTrx().getSession();
-			final NodeWriteTrx wtx;
-			if (session.getAvailableNodeWriteTrx() == 0) {
-				wtx = session.getNodeWriteTrx().get();
+			final ResourceManager manager = doc.getTrx().getResourceManager();
+			final XdmNodeWriteTrx wtx;
+			if (manager.getAvailableNodeWriteTrx() == 0) {
+				wtx = manager.getNodeWriteTrx().get();
 			} else {
-			  wtx = session.beginNodeWriteTrx();
+				wtx = manager.beginNodeWriteTrx();
 			}
 			final int revision = doc.getTrx().getRevisionNumber();
-			if (revision < session.getMostRecentRevisionNumber()) {
+			if (revision < manager.getMostRecentRevisionNumber()) {
 				wtx.revertTo(doc.getTrx().getRevisionNumber());
 			}
 			wtx.commit();

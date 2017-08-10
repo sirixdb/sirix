@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.access;
@@ -37,8 +31,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -47,9 +41,9 @@ import org.sirix.utils.DocumentCreater;
 
 /**
  * Test the {@link PathSummaryReader}.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  *         TODO: Provide a method for all assertions with parameters.
  */
 public class PathSummaryTest {
@@ -57,15 +51,15 @@ public class PathSummaryTest {
 	/** {@link Holder} reference. */
 	private Holder holder;
 
-	/** {@link IsummaryWriteTrx} implementation. */
-	private NodeWriteTrx mWtx;
+	/** {@link XdmNodeWriteTrx} implementation. */
+	private XdmNodeWriteTrx wtx;
 
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		holder = Holder.generatePathSummarySession();
-		mWtx = holder.getSession().beginNodeWriteTrx();
-		DocumentCreater.create(mWtx);
+		holder = Holder.generatePathSummary();
+		wtx = holder.getResourceManager().beginNodeWriteTrx();
+		DocumentCreater.create(wtx);
 	}
 
 	@After
@@ -76,24 +70,22 @@ public class PathSummaryTest {
 
 	/**
 	 * Test insert on test document.
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testInsert() throws SirixException {
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testInsertHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testInsertHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testInsertHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testInsertHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -161,30 +153,28 @@ public class PathSummaryTest {
 
 	/**
 	 * Test delete on test document.
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testDelete() throws SirixException {
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testInsertHelper(pathSummary);
-		mWtx.commit();
-		mWtx.moveTo(9);
-		mWtx.remove();
-		pathSummary = mWtx.getPathSummary();
+		wtx.commit();
+		wtx.moveTo(9);
+		wtx.remove();
+		pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testDeleteHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testDeleteHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testDeleteHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testDeleteHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -245,28 +235,25 @@ public class PathSummaryTest {
 	}
 
 	/**
-	 * Test setQNm on test document (does not find a corresponding path summary
-	 * after rename).
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 * Test setQNm on test document (does not find a corresponding path summary after rename).
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testSetQNmFirst() throws SirixException {
-		mWtx.moveTo(9);
-		mWtx.setName(new QNm("foo"));
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(9);
+		wtx.setName(new QNm("foo"));
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNmFirstHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testSetQNmFirstHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testSetQNmFirstHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testSetQNmFirstHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -361,29 +348,26 @@ public class PathSummaryTest {
 	}
 
 	/**
-	 * Test setQNm on test document (finds a corresponding path summary after
-	 * rename).
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 * Test setQNm on test document (finds a corresponding path summary after rename).
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testSetQNmSecond() throws SirixException {
-		mWtx.moveTo(9);
-		mWtx.setName(new QNm("d"));
-		mWtx.setName(new QNm("b"));
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(9);
+		wtx.setName(new QNm("d"));
+		wtx.setName(new QNm("b"));
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNmSecondHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testSetQNmSecondHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testSetQNmSecondHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testSetQNmSecondHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -456,30 +440,28 @@ public class PathSummaryTest {
 	}
 
 	/**
-	 * Test setQNm on test document (finds no corresponding path summary after
-	 * rename -- after references dropped to 0).
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 * Test setQNm on test document (finds no corresponding path summary after rename -- after
+	 * references dropped to 0).
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testSetQNmThird() throws SirixException {
-		mWtx.moveTo(9);
-		mWtx.setName(new QNm("d"));
-		mWtx.moveTo(5);
-		mWtx.setName(new QNm("t"));
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(9);
+		wtx.setName(new QNm("d"));
+		wtx.moveTo(5);
+		wtx.setName(new QNm("t"));
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNmThirdHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testSetQNmThirdHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testSetQNmThirdHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testSetQNmThirdHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -574,30 +556,28 @@ public class PathSummaryTest {
 	}
 
 	/**
-	 * Test setQNm on test document (finds no corresponding path summary after
-	 * rename -- after references dropped to 0).
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails
+	 * Test setQNm on test document (finds no corresponding path summary after rename -- after
+	 * references dropped to 0).
+	 *
+	 * @throws SirixException if Sirix fails
 	 */
 	@Test
 	public void testSetQNmFourth() throws SirixException {
-		mWtx.moveTo(1);
-		mWtx.insertElementAsFirstChild(new QNm("b"));
-		mWtx.moveTo(5);
-		mWtx.setName(new QNm("d"));
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(1);
+		wtx.insertElementAsFirstChild(new QNm("b"));
+		wtx.moveTo(5);
+		wtx.setName(new QNm("d"));
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNmFourthHelper(pathSummary);
-		mWtx.commit();
-		mWtx.close();
-		pathSummary = holder.getSession().openPathSummary();
+		wtx.commit();
+		wtx.close();
+		pathSummary = holder.getResourceManager().openPathSummary();
 		testSetQNmFourthHelper(pathSummary);
 		pathSummary.close();
 	}
 
-	private void testSetQNmFourthHelper(final PathSummaryReader pSummary)
-			throws SirixException {
+	private void testSetQNmFourthHelper(final PathSummaryReader pSummary) throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
@@ -693,38 +673,37 @@ public class PathSummaryTest {
 
 	@Test
 	public void testFirstMoveToFirstChild() throws SirixException {
-		mWtx.moveTo(5);
-		mWtx.moveSubtreeToFirstChild(9);
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(5);
+		wtx.moveSubtreeToFirstChild(9);
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
-		mWtx.commit();
-		mWtx.close();
-		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+		wtx.commit();
+		wtx.close();
+		final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
 		rtx.close();
 	}
 
 	@Test
 	public void testSecondMoveToFirstChild() throws SirixException {
-		mWtx.moveTo(9);
-		mWtx.insertElementAsFirstChild(new QNm("foo"));
-		mWtx.insertElementAsFirstChild(new QNm("bar"));
-		PathSummaryReader pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(9);
+		wtx.insertElementAsFirstChild(new QNm("foo"));
+		wtx.insertElementAsFirstChild(new QNm("bar"));
+		PathSummaryReader pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
-		mWtx.moveTo(5);
-		mWtx.moveSubtreeToRightSibling(9);
-		pathSummary = mWtx.getPathSummary();
+		wtx.moveTo(5);
+		wtx.moveSubtreeToRightSibling(9);
+		pathSummary = wtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
-		mWtx.commit();
-		mWtx.close();
-		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+		wtx.commit();
+		wtx.close();
+		final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
 		rtx.close();
 	}
 
 	/**
 	 * Get the next summary.
-	 * 
-	 * @param axis
-	 *          the axis to use
+	 *
+	 * @param axis the axis to use
 	 * @return the next path summary
 	 */
 	private PathSummaryReader next(final Axis axis) {

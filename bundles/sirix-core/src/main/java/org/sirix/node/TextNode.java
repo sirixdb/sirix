@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node;
@@ -53,8 +47,7 @@ import com.google.common.base.Objects;
  * Node representing a text node.
  * </p>
  */
-public final class TextNode extends AbstractStructForwardingNode implements
-		ValueNode {
+public final class TextNode extends AbstractStructForwardingNode implements ValueNode {
 
 	/** Delegate for common value node information. */
 	private final ValNodeDelegate mValDel;
@@ -68,15 +61,11 @@ public final class TextNode extends AbstractStructForwardingNode implements
 	/**
 	 * Constructor for TextNode.
 	 *
-	 * @param pDel
-	 *          delegate for {@link Node} implementation
-	 * @param valDel
-	 *          delegate for {@link ValueNode} implementation
-	 * @param structDel
-	 *          delegate for {@link StructNode} implementation
+	 * @param pDel delegate for {@link Node} implementation
+	 * @param valDel delegate for {@link ValueNode} implementation
+	 * @param structDel delegate for {@link StructNode} implementation
 	 */
-	public TextNode(final ValNodeDelegate valDel,
-			final StructNodeDelegate structDel) {
+	public TextNode(final ValNodeDelegate valDel, final StructNodeDelegate structDel) {
 		mStructNodeDel = checkNotNull(structDel);
 		mValDel = checkNotNull(valDel);
 	}
@@ -149,8 +138,7 @@ public final class TextNode extends AbstractStructForwardingNode implements
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof TextNode) {
 			final TextNode other = (TextNode) obj;
-			return Objects.equal(mStructNodeDel.getNodeDelegate(),
-					other.getNodeDelegate())
+			return Objects.equal(mStructNodeDel.getNodeDelegate(), other.getNodeDelegate())
 					&& mValDel.equals(other.mValDel);
 		}
 		return false;
@@ -158,10 +146,8 @@ public final class TextNode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("node delegate", mStructNodeDel.getNodeDelegate())
-				.add("struct delegate", mStructNodeDel).add("value delegate", mValDel)
-				.toString();
+		return MoreObjects.toStringHelper(this).add("node delegate", mStructNodeDel.getNodeDelegate())
+				.add("struct delegate", mStructNodeDel).add("value delegate", mValDel).toString();
 	}
 
 	public ValNodeDelegate getValNodeDelegate() {

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix;
 
@@ -32,149 +26,146 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.Transaction;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**
- * Generating a standard resource within the {@link PATHS#PATH1} path. It also
- * generates a standard resource defined within {@link TestHelper#RESOURCE}.
- * 
+ * Generating a standard resource within the {@link PATHS#PATH1} path. It also generates a standard
+ * resource defined within {@link TestHelper#RESOURCE}.
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class Holder {
 
 	/** {@link Database} implementation. */
 	private Database mDatabase;
 
-	/** {@link Session} implementation. */
-	private Session mSession;
+	/** {@link ResourceManager} implementation. */
+	private ResourceManager mResMgr;
 
-	/** {@link NodeReadTrx} implementation. */
-	private NodeReadTrx mRtx;
+	/** {@link XdmNodeReadTrx} implementation. */
+	private XdmNodeReadTrx mReader;
 
-	/** {@link NodeWriteTrx} implementation. */
-	private NodeWriteTrx mWtx;
+	/** {@link XdmNodeWriteTrx} implementation. */
+	private XdmNodeWriteTrx mWriter;
+
+	private Transaction mTrx;
 
 	/**
-	 * Generate a session with deweyIDs for resources.
-	 * 
+	 * Generate a resource with deweyIDs for resources and open a resource.
+	 *
 	 * @return this holder instance
-	 * @throws SirixException
-	 *           if an error occurs
+	 * @throws SirixException if an error occurs
 	 */
-	public static Holder generateDeweyIDSession() throws SirixException {
+	public static Holder generateDeweyIDResourceMgr() throws SirixException {
 		final File file = PATHS.PATH1.getFile();
 		final DatabaseConfiguration config = new DatabaseConfiguration(file);
 		if (!file.exists()) {
 			Databases.createDatabase(config);
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
-		database
-				.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-						PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build());
+		database.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
+						.useDeweyIDs(true).build());
+		final ResourceManager resourceManager = database
+				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 		final Holder holder = new Holder();
 		holder.setDatabase(database);
-		holder.setSession(session);
+		holder.setResourceManager(resourceManager);
 		return holder;
 	}
 
 	/**
-	 * Generate a session with deweyIDs for resources.
-	 * 
+	 * Generate a resource with a path summary.
+	 *
 	 * @return this holder instance
-	 * @throws SirixException
-	 *           if an error occurs
+	 * @throws SirixException if an error occurs
 	 */
-	public static Holder generatePathSummarySession() throws SirixException {
+	public static Holder generatePathSummary() throws SirixException {
 		final File file = PATHS.PATH1.getFile();
 		final DatabaseConfiguration config = new DatabaseConfiguration(file);
 		if (!file.exists()) {
 			Databases.createDatabase(config);
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
-		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true)
-				.build());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build());
+		database.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
+						.buildPathSummary(true).build());
+		final ResourceManager resourceManager = database
+				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 		final Holder holder = new Holder();
 		holder.setDatabase(database);
-		holder.setSession(session);
+		holder.setResourceManager(resourceManager);
 		return holder;
 	}
 
 	/**
-	 * Generate a session.
-	 * 
+	 * Open a resource manager.
+	 *
 	 * @return this holder instance
-	 * @throws SirixException
-	 *           if an error occurs
+	 * @throws SirixException if an error occurs
 	 */
-	public static Holder generateSession() throws SirixException {
+	public static Holder openResourceManager() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build());
+		final ResourceManager session = database
+				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 		final Holder holder = new Holder();
 		holder.setDatabase(database);
-		holder.setSession(session);
+		holder.setResourceManager(session);
 		return holder;
 	}
 
 	/**
-	 * Generate a {@link NodeWriteTrx}.
-	 * 
+	 * Generate a {@link XdmNodeReaderWriter}.
+	 *
 	 * @return this holder instance
-	 * @throws SirixException
-	 *           if an error occurs
+	 * @throws SirixException if an error occurs
 	 */
 	public static Holder generateWtx() throws SirixException {
-		final Holder holder = generateSession();
-		final NodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
-		holder.setWtx(wtx);
+		final Holder holder = openResourceManager();
+		final XdmNodeWriteTrx writer = holder.mResMgr.beginNodeWriteTrx();
+		holder.setWriter(writer);
 		return holder;
 	}
 
 	/**
-	 * Generate a {@link NodeReadTrx}.
-	 * 
+	 * Generate a {@link XdmNodeReadTrx}.
+	 *
 	 * @return this holder instance
-	 * @throws SirixException
-	 *           if an error occurs
+	 * @throws SirixException if an error occurs
 	 */
 	public static Holder generateRtx() throws SirixException {
-		final Holder holder = generateSession();
-		final NodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
-		holder.setRtx(rtx);
+		final Holder holder = openResourceManager();
+		final XdmNodeReadTrx reader = holder.mResMgr.beginNodeReadTrx();
+		holder.setReader(reader);
 		return holder;
 	}
 
 	/**
 	 * Close the database, session, read transaction and/or write transaction.
-	 * 
-	 * @throws SirixException
-	 *           if an error occurs
+	 *
+	 * @throws SirixException if an error occurs
 	 */
 	public void close() throws SirixException {
-		if (mRtx != null && !mRtx.isClosed()) {
-			mRtx.close();
+		if (mReader != null && !mReader.isClosed()) {
+			mReader.close();
 		}
-		if (mWtx != null && !mWtx.isClosed()) {
-			mWtx.rollback();
-			mWtx.close();
+		if (mWriter != null && !mWriter.isClosed()) {
+			mWriter.rollback();
+			mWriter.close();
 		}
-		if (mSession != null && !mSession.isClosed()) {
-			mSession.close();
+		if (mResMgr != null && !mResMgr.isClosed()) {
+			mResMgr.close();
+		}
+		if (mTrx != null) {
+			mTrx.close();
 		}
 		if (mDatabase != null) {
 			mDatabase.close();
@@ -183,7 +174,7 @@ public class Holder {
 
 	/**
 	 * Get the {@link Database} handle.
-	 * 
+	 *
 	 * @return {@link Database} handle
 	 */
 	public Database getDatabase() {
@@ -191,67 +182,67 @@ public class Holder {
 	}
 
 	/**
-	 * Get the {@link Session} handle.
-	 * 
-	 * @return {@link Session} handle
+	 * Get the {@link ResourceManager} handle.
+	 *
+	 * @return {@link ResourceManager} handle
 	 */
-	public Session getSession() {
-		return mSession;
+	public ResourceManager getResourceManager() {
+		return mResMgr;
 	}
 
 	/**
-	 * Get the {@link NodeReadTrx} handle.
-	 * 
-	 * @return {@link NodeReadTrx} handle
+	 * Get the {@link XdmNodeReadTrx} handle.
+	 *
+	 * @return {@link XdmNodeReadTrx} handle
 	 */
-	public NodeReadTrx getRtx() {
-		return mRtx;
+	public XdmNodeReadTrx getReader() {
+		return mReader;
+	}
+
+	public Transaction getTrx() {
+		return mTrx;
 	}
 
 	/**
-	 * Get the {@link NodeWriteTrx} handle.
-	 * 
-	 * @return {@link NodeWriteTrx} handle
+	 * Get the {@link XdmNodeWriteTrx} handle.
+	 *
+	 * @return {@link XdmNodeWriteTrx} handle
 	 */
-	public NodeWriteTrx getWtx() {
-		return mWtx;
+	public XdmNodeWriteTrx getWriter() {
+		return mWriter;
 	}
 
 	/**
-	 * Set the working {@link NodeWriteTrx}.
-	 * 
-	 * @param pWtx
-	 *          {@link NodeWriteTrx} instance
+	 * Set the working {@link XdmNodeReaderWriter}.
+	 *
+	 * @param writer {@link XdmNodeReaderWriter} instance
 	 */
-	private void setWtx(final NodeWriteTrx pWtx) {
-		mWtx = pWtx;
+	private void setWriter(final XdmNodeWriteTrx writer) {
+		mWriter = writer;
 	}
 
 	/**
-	 * Set the working {@link NodeReadTrx}.
-	 * 
-	 * @param pRtx
-	 *          {@link NodeReadTrx} instance
+	 * Set the working {@link XdmNodeReadTrx}.
+	 *
+	 * @param pRtx {@link XdmNodeReadTrx} instance
 	 */
-	private void setRtx(final NodeReadTrx pRtx) {
-		mRtx = pRtx;
+	private void setReader(final XdmNodeReadTrx pRtx) {
+		mReader = pRtx;
 	}
 
 	/**
-	 * Set the working {@link Session}.
-	 * 
-	 * @param pRtx
-	 *          {@link NodeReadTrx} instance
+	 * Set the working {@link ResourceManager}.
+	 *
+	 * @param pRtx {@link XdmNodeReadTrx} instance
 	 */
-	private void setSession(final Session pSession) {
-		mSession = pSession;
+	private void setResourceManager(final ResourceManager pSession) {
+		mResMgr = pSession;
 	}
 
 	/**
 	 * Set the working {@link Database}.
-	 * 
-	 * @param pRtx
-	 *          {@link Database} instance
+	 *
+	 * @param pRtx {@link Database} instance
 	 */
 	private void setDatabase(final Database pDatabase) {
 		mDatabase = pDatabase;

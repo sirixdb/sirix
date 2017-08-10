@@ -20,8 +20,8 @@ public final class IndirectPageLogKey {
 	private PageKind mPageKind;
 	private int mIndex;
 
-	public IndirectPageLogKey(final PageKind pageKind, final int index,
-			final int level, final @Nonnegative int offset) {
+	public IndirectPageLogKey(final PageKind pageKind, final int index, final int level,
+			final @Nonnegative int offset) {
 		assert level >= -1;
 		assert offset >= 0;
 		assert pageKind != null;
@@ -56,16 +56,15 @@ public final class IndirectPageLogKey {
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof IndirectPageLogKey) {
 			final IndirectPageLogKey other = (IndirectPageLogKey) obj;
-			return mPageKind == other.mPageKind && mIndex == other.mIndex
-					&& mLevel == other.mLevel && mOffset == other.mOffset;
+			return mPageKind == other.mPageKind && mIndex == other.mIndex && mLevel == other.mLevel
+					&& mOffset == other.mOffset;
 		}
 		return false;
 	}
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("pageKind", mPageKind)
-				.add("index", mIndex).add("level", mLevel).add("offset", mOffset)
-				.toString();
+		return MoreObjects.toStringHelper(this).add("pageKind", mPageKind).add("index", mIndex)
+				.add("level", mLevel).add("offset", mOffset).toString();
 	}
 }

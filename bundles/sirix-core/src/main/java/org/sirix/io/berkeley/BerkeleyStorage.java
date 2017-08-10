@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.io.berkeley;
@@ -32,7 +26,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
@@ -53,8 +47,8 @@ import com.sleepycat.je.OperationStatus;
 /**
  * Factory class to build up {@link Reader}/{@link Writer} instances for Sirix.
  * 
- * After all this class is implemented as a Singleton to hold one
- * {@link BerkeleyStorage} per {@link SessionConfiguration}.
+ * After all this class is implemented as a Singleton to hold one {@link BerkeleyStorage} per
+ * {@link ResourceManagerConfiguration}.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
@@ -62,8 +56,8 @@ import com.sleepycat.je.OperationStatus;
 public final class BerkeleyStorage implements Storage {
 
 	/** Binding for {@link Long}. */
-	public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding
-			.getPrimitiveBinding(Long.class);
+	public static final TupleBinding<Long> DATAINFO_VAL_B =
+			TupleBinding.getPrimitiveBinding(Long.class);
 
 	/**
 	 * Name for the database.
@@ -86,19 +80,13 @@ public final class BerkeleyStorage implements Storage {
 	/**
 	 * Constructor.
 	 * 
-	 * @param file
-	 *          the file associated with the database
-	 * @param handler
-	 *          the byte handler pipeline
-	 * @param resourceConfig
-	 *          the resource configuration
-	 * @throws SirixIOException
-	 *           if something odd happens while database-connection
-	 * @throws NullPointerException
-	 *           if {@code pFile} is {@code null}
+	 * @param file the file associated with the database
+	 * @param handler the byte handler pipeline
+	 * @param resourceConfig the resource configuration
+	 * @throws SirixIOException if something odd happens while database-connection
+	 * @throws NullPointerException if {@code pFile} is {@code null}
 	 */
-	public BerkeleyStorage(final ResourceConfiguration resourceConfig)
-			throws SirixIOException {
+	public BerkeleyStorage(final ResourceConfiguration resourceConfig) throws SirixIOException {
 		final File repoFile = new File(checkNotNull(resourceConfig.mPath),
 				ResourceConfiguration.Paths.DATA.getFile().getName());
 		if (!repoFile.exists()) {
@@ -110,9 +98,8 @@ public final class BerkeleyStorage implements Storage {
 		final DatabaseConfig conf = generateDBConf();
 		final EnvironmentConfig config = generateEnvConf();
 
-		if (repoFile.listFiles().length == 0
-				|| (repoFile.listFiles().length == 1 && "sirix.data".equals(repoFile
-						.listFiles()[0].getName()))) {
+		if (repoFile.listFiles().length == 0 || (repoFile.listFiles().length == 1
+				&& "sirix.data".equals(repoFile.listFiles()[0].getName()))) {
 			conf.setAllowCreate(true);
 			config.setAllowCreate(true);
 		}
@@ -158,8 +145,7 @@ public final class BerkeleyStorage implements Storage {
 			final Reader reader = new BerkeleyReader(mEnv, mDatabase, mByteHandler);
 			TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
-			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
-					LockMode.DEFAULT);
+			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
 			if (status == OperationStatus.SUCCESS) {
 				returnVal = true;
 			}

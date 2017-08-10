@@ -19,11 +19,10 @@ import org.sirix.page.PageReference;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
-		extends Page {
+public interface KeyValuePage<K extends Comparable<? super K>, V extends Record> extends Page {
 	/**
-	 * Entry set of all nodes in the page. Changes to the set are reflected in the
-	 * internal data structure
+	 * Entry set of all nodes in the page. Changes to the set are reflected in the internal data
+	 * structure
 	 *
 	 * @return an entry set
 	 */
@@ -46,35 +45,29 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	/**
 	 * Get value with the specified key.
 	 *
-	 * @param key
-	 *          the key
+	 * @param key the key
 	 * @return value with given key, or {@code null} if not present
 	 */
 	V getValue(K key);
 
 	/**
-	 * Store or overwrite a single entry. The implementation must make sure if the
-	 * key must be permitted, the value or none.
+	 * Store or overwrite a single entry. The implementation must make sure if the key must be
+	 * permitted, the value or none.
 	 *
-	 * @param key
-	 *          key to store
-	 * @param value
-	 *          value to store
+	 * @param key key to store
+	 * @param value value to store
 	 */
 	void setEntry(K key, @Nonnull V value);
 
 	Set<Entry<K, PageReference>> referenceEntrySet();
 
 	/**
-	 * Store or overwrite a single reference associated with a key for overlong
-	 * entries. That is entries which are larger than a predefined threshold are
-	 * written to OverflowPages and thus are just referenced and not deserialized
-	 * during the deserialization of a page.
+	 * Store or overwrite a single reference associated with a key for overlong entries. That is
+	 * entries which are larger than a predefined threshold are written to OverflowPages and thus are
+	 * just referenced and not deserialized during the deserialization of a page.
 	 *
-	 * @param key
-	 *          key to store
-	 * @param reference
-	 *          reference to store
+	 * @param key key to store
+	 * @param reference reference to store
 	 */
 	void setPageReference(K key, @Nonnull PageReference reference);
 
@@ -83,18 +76,14 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	/**
 	 * Create a new instance.
 	 *
-	 * @param recordPageKey
-	 *          the record page key
-	 * @param pageKind
-	 *          the kind of page (in which subtree it is (NODEPAGE,
-	 *          PATHSUMMARYPAGE, TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE))
-	 * @param pageReadTrx
-	 *          transaction to read pages
+	 * @param recordPageKey the record page key
+	 * @param pageKind the kind of page (in which subtree it is (NODEPAGE, PATHSUMMARYPAGE,
+	 *        TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE))
+	 * @param pageReadTrx transaction to read pages
 	 * @return a new {@link KeyValuePage} instance
 	 */
 	<C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-			@Nonnull PageKind pageKind,
-			@Nonnull Optional<PageReference> previousPageRef,
+			@Nonnull PageKind pageKind, @Nonnull Optional<PageReference> previousPageRef,
 			@Nonnull PageReadTrx pageReadTrx);
 
 	/**
@@ -119,11 +108,9 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	int size();
 
 	/**
-	 * Get the optional {@link PageReference} pointing to the previous version of
-	 * the page
+	 * Get the optional {@link PageReference} pointing to the previous version of the page
 	 *
-	 * @return optional {@link PageReference} pointing to the previous version of
-	 *         the page
+	 * @return optional {@link PageReference} pointing to the previous version of the page
 	 */
 	Optional<PageReference> getPreviousReference();
 }

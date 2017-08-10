@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -18,19 +18,19 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class ProcessFileSystemAttributes implements Visitor<NodeWriteTrx> {
+public class ProcessFileSystemAttributes implements Visitor<XdmNodeWriteTrx> {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(ProcessFileSystemAttributes.class));
 
 	@Override
-	public void processDirectory(final NodeWriteTrx transaction, final Path dir,
+	public void processDirectory(final XdmNodeWriteTrx transaction, final Path dir,
 			final Optional<BasicFileAttributes> attrs) {
 	}
 
 	@Override
-	public void processFile(final NodeWriteTrx trx, Path path,
+	public void processFile(final XdmNodeWriteTrx trx, Path path,
 			final Optional<BasicFileAttributes> attrs) {
 		if (Files.exists(path)) {
 			final String file = path.getFileName().toString();

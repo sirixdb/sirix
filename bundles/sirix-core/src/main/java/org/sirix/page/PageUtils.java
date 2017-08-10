@@ -34,50 +34,43 @@ public final class PageUtils {
 	/**
 	 * Create the initial tree structure.
 	 *
-	 * @param reference
-	 *          reference from revision root
-	 * @param pageKind
-	 *          the page kind
+	 * @param reference reference from revision root
+	 * @param pageKind the page kind
 	 */
 	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTree(
-			@Nonnull PageReference reference, final PageKind pageKind,
-			final int index, final PageWriteTrx<K, V, S> pageWriteTrx) {
+			@Nonnull PageReference reference, final PageKind pageKind, final int index,
+			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.
-		final int[] levelPageCountExp = pageWriteTrx.getUberPage().getPageCountExp(
-				pageKind);
+		final int[] levelPageCountExp = pageWriteTrx.getUberPage().getPageCountExp(pageKind);
 
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage();
-			final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, index,
-					i, 0);
+			final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, index, i, 0);
 			reference.setLogKey(logKey);
 			pageWriteTrx.putPageIntoCache(logKey, page);
 			reference = page.getReference(0);
 		}
 
 		// Create new record page.
-		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-				Optional.<PageReference> empty(), pageWriteTrx);
+		final UnorderedKeyValuePage ndp =
+				new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
+						Optional.<PageReference>empty(), pageWriteTrx);
 		ndp.setDirty(true);
 		reference.setKeyValuePageKey(0);
-		reference.setLogKey(new IndirectPageLogKey(pageKind, index,
-				levelPageCountExp.length, 0));
+		reference.setLogKey(new IndirectPageLogKey(pageKind, index, levelPageCountExp.length, 0));
 
 		// Create a {@link DocumentRootNode}.
-		final Optional<SirixDeweyID> id = pageWriteTrx.getSession()
-				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
-				.newRootID()) : Optional.<SirixDeweyID> empty();
-		final NodeDelegate nodeDel = new NodeDelegate(
-				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
+		final Optional<SirixDeweyID> id = pageWriteTrx.getSession().getResourceConfig().mDeweyIDsStored
+				? Optional.of(SirixDeweyID.newRootID())
+				: Optional.<SirixDeweyID>empty();
+		final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
+				id);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
 		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0, index,

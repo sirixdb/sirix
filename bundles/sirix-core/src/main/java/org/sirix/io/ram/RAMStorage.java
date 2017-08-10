@@ -1,5 +1,6 @@
 package org.sirix.io.ram;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -13,13 +14,14 @@ import org.sirix.io.Storage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
+import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
 
 /**
  * In memory storage.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class RAMStorage implements Storage {
 
@@ -28,6 +30,8 @@ public final class RAMStorage implements Storage {
 
 	/** Mapping pageKey to the page. */
 	private final Map<Long, Page> mResourceStorage;
+
+	private final Map<Integer, Long> mUberPageKey = Collections.singletonMap(-1, 0l);
 
 	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mHandler;
@@ -43,9 +47,8 @@ public final class RAMStorage implements Storage {
 
 	/**
 	 * Constructor
-	 * 
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} reference
+	 *
+	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
 	public RAMStorage(final ResourceConfiguration resourceConfig) {
 		mStorage = new ConcurrentHashMap<String, Map<Long, Page>>();
@@ -74,8 +77,7 @@ public final class RAMStorage implements Storage {
 	}
 
 	@Override
-	public void close() throws SirixIOException {
-	}
+	public void close() throws SirixIOException {}
 
 	@Override
 	public ByteHandlePipeline getByteHandler() {
@@ -89,6 +91,7 @@ public final class RAMStorage implements Storage {
 
 	/** Provides RAM access. */
 	public class RAMAccess implements Writer {
+
 		@Override
 		public Page read(long key, @Nullable PageReadTrx pageReadTrx) {
 			return mResourceStorage.get(key);
@@ -96,7 +99,7 @@ public final class RAMStorage implements Storage {
 
 		@Override
 		public PageReference readUberPageReference() {
-			final Page page = mResourceStorage.get(new Long(-1));
+			final Page page = mResourceStorage.get(mUberPageKey.get(-1));
 			final PageReference uberPageReference = new PageReference();
 			uberPageReference.setKey(-1);
 			uberPageReference.setPage(page);
@@ -104,23 +107,46 @@ public final class RAMStorage implements Storage {
 		}
 
 		@Override
-		public void write(final PageReference pageReference)
-				throws SirixIOException {
+		public Writer write(final PageReference pageReference) throws SirixIOException {
 			final Page page = pageReference.getPage();
 			pageReference.setKey(mPageKey);
 			mResourceStorage.put(mPageKey++, page);
+			return this;
 		}
 
 		@Override
-		public void writeUberPageReference(final PageReference pageReference)
+		public Writer writeUberPageReference(final PageReference pageReference)
 				throws SirixIOException {
 			final Page page = pageReference.getPage();
-			pageReference.setKey(-1);
-			mResourceStorage.put(-1l, page);
+			pageReference.setKey(mPageKey);
+			mResourceStorage.put(mPageKey, page);
+			mUberPageKey.put(-1, mPageKey++);
+			return this;
 		}
 
 		@Override
-		public void close() throws SirixIOException {
+		public void close() throws SirixIOException {}
+
+		@Override
+		public Writer truncateTo(int revision) {
+			PageReference uberPageReference = readUberPageReference();
+			UberPage uberPage = (UberPage) uberPageReference.getPage();
+
+			while (uberPage.getRevisionNumber() != revision) {
+				mResourceStorage.remove(uberPageReference.getKey());
+				final Long previousUberPageKey = uberPage.getPreviousUberPageKey();
+				uberPage = (UberPage) read(previousUberPageKey, null);
+				uberPageReference = new PageReference();
+				uberPageReference.setKey(previousUberPageKey);
+
+				if (uberPage.getRevisionNumber() == revision) {
+					mResourceStorage.put(previousUberPageKey, uberPage);
+					mUberPageKey.put(-1, previousUberPageKey);
+					break;
+				}
+			}
+
+			return this;
 		}
 	}
 }

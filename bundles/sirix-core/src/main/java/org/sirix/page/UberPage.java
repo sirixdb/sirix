@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.page;
@@ -61,8 +55,7 @@ public final class UberPage extends AbstractForwardingPage {
 	private final int mRevisionCount;
 
 	/**
-	 * {@code true} if this uber page is the uber page of a fresh sirix file,
-	 * {@code false} otherwise.
+	 * {@code true} if this uber page is the uber page of a fresh sirix file, {@code false} otherwise.
 	 */
 	private boolean mBootstrap;
 
@@ -75,80 +68,62 @@ public final class UberPage extends AbstractForwardingPage {
 	/** The current most recent revision */
 	private final int mRevision;
 
-	/** The number of indexes. */
-	private int mIndexes;
+	private long mPreviousUberPageKey;
 
 	/**
 	 * Create uber page.
 	 *
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} reference
+	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
 	public UberPage() {
 		mDelegate = new PageDelegate(1);
 		mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
+		mPreviousUberPageKey = -1;
 	}
 
 	/**
 	 * Read uber page.
 	 *
-	 * @param pIn
-	 *          input bytes
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} reference
+	 * @param pIn input bytes
+	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
 	protected UberPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(1, in);
 		mRevisionCount = in.readInt();
+		if (in.readBoolean())
+			mPreviousUberPageKey = in.readLong();
 		mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
 		mBootstrap = false;
 		mRootPage = null;
+		mPreviousUberPageKey = -1;
 	}
 
 	/**
 	 * Clone constructor.
 	 *
-	 * @param commitedUberPage
-	 *          page to clone
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} reference
+	 * @param commitedUberPage page to clone
+	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final UberPage commitedUberPage) {
-		mDelegate = new PageDelegate(commitedUberPage);
-		if (commitedUberPage.isBootstrap()) {
-			mRevision = commitedUberPage.mRevision;
-			mRevisionCount = commitedUberPage.mRevisionCount;
-			mBootstrap = commitedUberPage.mBootstrap;
-			mRootPage = commitedUberPage.mRootPage;
-			mIndexes = commitedUberPage.mIndexes;
+	public UberPage(final UberPage committedUberPage) {
+		mDelegate = new PageDelegate(checkNotNull(committedUberPage));
+		mPreviousUberPageKey = committedUberPage.getPreviousUberPageKey();
+		if (committedUberPage.isBootstrap()) {
+			mRevision = committedUberPage.mRevision;
+			mRevisionCount = committedUberPage.mRevisionCount;
+			mBootstrap = committedUberPage.mBootstrap;
+			mRootPage = committedUberPage.mRootPage;
 		} else {
-			mRevision = commitedUberPage.mRevision + 1;
-			mRevisionCount = commitedUberPage.mRevisionCount + 1;
+			mRevision = committedUberPage.mRevision + 1;
+			mRevisionCount = committedUberPage.mRevisionCount + 1;
 			mBootstrap = false;
 			mRootPage = null;
-			mIndexes = commitedUberPage.mIndexes;
 		}
 	}
 
-	/**
-	 * Increment the number of stored indexes by one.
-	 *
-	 * @return this {@code UberPage} reference
-	 */
-	public UberPage incrementIndexCount() {
-		mIndexes++;
-		return this;
-	}
-
-	/**
-	 * Get the number of stored indexes.
-	 *
-	 * @return number of stored indexes
-	 */
-	public int getIndexCount() {
-		return mIndexes;
+	public long getPreviousUberPageKey() {
+		return mPreviousUberPageKey;
 	}
 
 	/**
@@ -181,8 +156,7 @@ public final class UberPage extends AbstractForwardingPage {
 	/**
 	 * Flag to indicate whether this uber page is the first ever.
 	 *
-	 * @return {@code true} if this uber page is the first one of sirix,
-	 *         {@code false} otherwise
+	 * @return {@code true} if this uber page is the first one of sirix, {@code false} otherwise
 	 */
 	public boolean isBootstrap() {
 		return mBootstrap;
@@ -190,15 +164,18 @@ public final class UberPage extends AbstractForwardingPage {
 
 	@Override
 	public void serialize(final DataOutput out) throws IOException {
-		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevisionCount);
+		out.writeBoolean(!mBootstrap);
+		if (!mBootstrap) {
+			out.writeLong(mPreviousUberPageKey);
+		}
+		mBootstrap = false;
 	}
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("forwarding page", super.toString())
+		return MoreObjects.toStringHelper(this).add("forwarding page", super.toString())
 				.add("revisionCount", mRevisionCount)
 				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
 				.add("isBootstrap", mBootstrap).toString();
@@ -218,10 +195,8 @@ public final class UberPage extends AbstractForwardingPage {
 	/**
 	 * Create revision tree.
 	 *
-	 * @param pageReadTrx
-	 *          {@link PageReadTrx} instance
-	 * @param revisionRoot
-	 *          {@link RevisionRootPage} instance
+	 * @param pageReadTrx {@link PageReadTrx} instance
+	 * @param revisionRoot {@link RevisionRootPage} instance
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createRevisionTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
@@ -231,8 +206,7 @@ public final class UberPage extends AbstractForwardingPage {
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE,
-					-1, i, 0), page);
+			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1, i, 0), page);
 		}
 
 		mRootPage = new RevisionRootPage();
@@ -243,8 +217,7 @@ public final class UberPage extends AbstractForwardingPage {
 	/**
 	 * Get the page count exponent for the given page.
 	 *
-	 * @param pageKind
-	 *          page to lookup the exponent in the constant definition
+	 * @param pageKind page to lookup the exponent in the constant definition
 	 * @return page count exponent
 	 */
 	public int[] getPageCountExp(final PageKind pageKind) {

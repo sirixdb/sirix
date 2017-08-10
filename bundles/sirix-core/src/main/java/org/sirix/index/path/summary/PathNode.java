@@ -50,21 +50,14 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	/**
 	 * Constructor.
 	 *
-	 * @param nodeDel
-	 *          {@link NodeDelegate} instance
-	 * @param structNodeDel
-	 *          {@link StructNodeDelegate} instance
-	 * @param nameNodeDel
-	 *          {@link NameNodeDelegate} instance
-	 * @param kind
-	 *          kind of node to index
-	 * @param references
-	 *          number of references to this path node
-	 * @param level
-	 *          level of this path node
+	 * @param nodeDel {@link NodeDelegate} instance
+	 * @param structNodeDel {@link StructNodeDelegate} instance
+	 * @param nameNodeDel {@link NameNodeDelegate} instance
+	 * @param kind kind of node to index
+	 * @param references number of references to this path node
+	 * @param level level of this path node
 	 */
-	public PathNode(final NodeDelegate nodeDel,
-			@Nonnull final StructNodeDelegate structNodeDel,
+	public PathNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
 			@Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind,
 			@Nonnegative final int references, @Nonnegative final int level) {
 		mNodeDel = checkNotNull(nodeDel);
@@ -79,8 +72,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	/**
 	 * Get the path up to the root path node.
 	 *
-	 * @param reader
-	 *          {@link PathSummaryReader} instance
+	 * @param reader {@link PathSummaryReader} instance
 	 * @return path up to the root
 	 */
 	public Path<QNm> getPath(final PathSummaryReader reader) {
@@ -127,8 +119,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	/**
 	 * Set the reference count.
 	 *
-	 * @param references
-	 *          number of references
+	 * @param references number of references
 	 */
 	public void setReferenceCount(final @Nonnegative int references) {
 		checkArgument(references > 0, "pReferences must be > 0!");
@@ -238,9 +229,8 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this).add("node delegate", mNodeDel)
-				.add("struct delegate", mStructNodeDel)
-				.add("name delegate", mNameNodeDel).add("references", mReferences)
-				.add("kind", mKind).add("level", mLevel).toString();
+				.add("struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
+				.add("references", mReferences).add("kind", mKind).add("level", mLevel).toString();
 	}
 
 	@Override

@@ -29,7 +29,7 @@ public class AVLTreeTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		holder = Holder.generateSession();
+		holder = Holder.openResourceManager();
 	}
 
 	@After
@@ -74,8 +74,7 @@ public class AVLTreeTest {
 		// .getTextValueIndex();
 	}
 
-	private void check(final Optional<NodeReferences> barRefs,
-			final Set<Long> keys) {
+	private void check(final Optional<NodeReferences> barRefs, final Set<Long> keys) {
 		assertTrue(barRefs.isPresent());
 		assertEquals(keys, barRefs.get().getNodeKeys());
 	}

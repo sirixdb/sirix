@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.diff;
@@ -35,7 +29,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.HashKind;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixException;
 
 /**
@@ -54,8 +48,7 @@ public final class DiffFactory {
 		SAME,
 
 		/**
-		 * Nodes are the same (including subtrees), internally used for
-		 * optimizations.
+		 * Nodes are the same (including subtrees), internally used for optimizations.
 		 */
 		SAMEHASH,
 
@@ -85,8 +78,7 @@ public final class DiffFactory {
 	}
 
 	/**
-	 * Determines if an optimized diff calculation should be done, which is
-	 * faster.
+	 * Determines if an optimized diff calculation should be done, which is faster.
 	 */
 	public enum DiffOptimized {
 		/** Normal diff. */
@@ -107,8 +99,7 @@ public final class DiffFactory {
 		},
 
 		/**
-		 * Structural diff (doesn't recognize differences in namespace and attribute
-		 * nodes.
+		 * Structural diff (doesn't recognize differences in namespace and attribute nodes.
 		 */
 		STRUCTURAL {
 			@Override
@@ -120,10 +111,8 @@ public final class DiffFactory {
 		/**
 		 * Invoke diff.
 		 * 
-		 * @param pBuilder
-		 *          {@link Builder} reference
-		 * @throws SirixException
-		 *           if anything while diffing goes wrong related to sirix
+		 * @param pBuilder {@link Builder} reference
+		 * @throws SirixException if anything while diffing goes wrong related to sirix
 		 */
 		abstract void invoke(final Builder pBuilder) throws SirixException;
 	}
@@ -131,29 +120,24 @@ public final class DiffFactory {
 	/**
 	 * Create a new {@link Builder} instance.
 	 * 
-	 * @param session
-	 *          the {@link Session} to use
-	 * @param newRev
-	 *          new revision to compare
-	 * @param oldRev
-	 *          old revision to compare
-	 * @param diffKind
-	 *          kind of diff (optimized or not)
-	 * @param observers
-	 *          {@link Set} of observers
+	 * @param session the {@link ResourceManager} to use
+	 * @param newRev new revision to compare
+	 * @param oldRev old revision to compare
+	 * @param diffKind kind of diff (optimized or not)
+	 * @param observers {@link Set} of observers
 	 * @return new {@link Builder} instance
 	 */
-	public static Builder builder(final Session session,
-			final @Nonnegative int newRev, final @Nonnegative int oldRev,
-			final DiffOptimized diffKind, final Set<DiffObserver> observers) {
+	public static Builder builder(final ResourceManager session, final @Nonnegative int newRev,
+			final @Nonnegative int oldRev, final DiffOptimized diffKind,
+			final Set<DiffObserver> observers) {
 		return new Builder(session, newRev, oldRev, diffKind, observers);
 	}
 
 	/** Builder to simplify static methods. */
 	public static final class Builder {
 
-		/** {@link Session} reference. */
-		final Session mSession;
+		/** {@link ResourceManager} reference. */
+		final ResourceManager mSession;
 
 		/** Start key of new revision. */
 		transient long mNewStartKey;
@@ -191,18 +175,13 @@ public final class DiffFactory {
 		/**
 		 * Constructor.
 		 * 
-		 * @param session
-		 *          the {@link Session} to use
-		 * @param newRev
-		 *          new revision to compare
-		 * @param oldRev
-		 *          old revision to compare
-		 * @param diffKind
-		 *          kind of diff (optimized or not)
-		 * @param observers
-		 *          {@link Set} of observers
+		 * @param session the {@link ResourceManager} to use
+		 * @param newRev new revision to compare
+		 * @param oldRev old revision to compare
+		 * @param diffKind kind of diff (optimized or not)
+		 * @param observers {@link Set} of observers
 		 */
-		public Builder(final Session session, final @Nonnegative int newRev,
+		public Builder(final ResourceManager session, final @Nonnegative int newRev,
 				final @Nonnegative int oldRev, final DiffOptimized diffKind,
 				final Set<DiffObserver> observers) {
 			mSession = checkNotNull(session);
@@ -217,8 +196,7 @@ public final class DiffFactory {
 		/**
 		 * Set to true if the algorithm is used by the GUI, otherwise false.
 		 * 
-		 * @param isGUI
-		 *          determines if the algorithm is used by the GUI or not
+		 * @param isGUI determines if the algorithm is used by the GUI or not
 		 * @return this builder
 		 */
 		public Builder setIsGUI(final boolean isGUI) {
@@ -229,8 +207,7 @@ public final class DiffFactory {
 		/**
 		 * Set start node key in old revision.
 		 * 
-		 * @param oldKey
-		 *          start node key in old revision
+		 * @param oldKey start node key in old revision
 		 * @return this builder
 		 */
 		public Builder setOldStartKey(final @Nonnegative long oldKey) {
@@ -242,8 +219,7 @@ public final class DiffFactory {
 		/**
 		 * Set start node key in new revision.
 		 * 
-		 * @param pNewKey
-		 *          start node key in new revision
+		 * @param pNewKey start node key in new revision
 		 * @return this builder
 		 */
 		public Builder setNewStartKey(final @Nonnegative long newKey) {
@@ -255,8 +231,7 @@ public final class DiffFactory {
 		/**
 		 * Set new depth.
 		 * 
-		 * @param newDepth
-		 *          depth of "root" node in new revision
+		 * @param newDepth depth of "root" node in new revision
 		 * @return this builder
 		 */
 		public Builder setNewDepth(final @Nonnegative int newDepth) {
@@ -268,8 +243,7 @@ public final class DiffFactory {
 		/**
 		 * Set old depth.
 		 * 
-		 * @param oldDepth
-		 *          depth of "root" node in old revision
+		 * @param oldDepth depth of "root" node in old revision
 		 * @return this builder
 		 */
 		public Builder setOldDepth(final int oldDepth) {
@@ -281,8 +255,7 @@ public final class DiffFactory {
 		/**
 		 * Set kind of diff-algorithm.
 		 * 
-		 * @param pDiffAlgorithm
-		 *          {@link DiffAlgorithm} instance
+		 * @param pDiffAlgorithm {@link DiffAlgorithm} instance
 		 * 
 		 * @return this builder
 		 */
@@ -292,11 +265,9 @@ public final class DiffFactory {
 		}
 
 		/**
-		 * Set kind of hash. <strong>Must be the same as used for the database
-		 * creation</strong>.
+		 * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
 		 * 
-		 * @param kind
-		 *          {@link HashKind} instance
+		 * @param kind {@link HashKind} instance
 		 * @return this builder
 		 */
 		public Builder setHashKind(final HashKind kind) {
@@ -316,20 +287,17 @@ public final class DiffFactory {
 	/**
 	 * Do a full diff.
 	 * 
-	 * @param builder
-	 *          {@link Builder} reference
+	 * @param builder {@link Builder} reference
 	 * @throws SirixException
 	 */
-	public static synchronized void invokeFullDiff(final Builder builder)
-			throws SirixException {
+	public static synchronized void invokeFullDiff(final Builder builder) throws SirixException {
 		DiffAlgorithm.FULL.invoke(builder);
 	}
 
 	/**
 	 * Do a structural diff.
 	 * 
-	 * @param builder
-	 *          {@link Builder} reference
+	 * @param builder {@link Builder} reference
 	 * @throws SirixException
 	 */
 	public static synchronized void invokeStructuralDiff(final Builder builder)

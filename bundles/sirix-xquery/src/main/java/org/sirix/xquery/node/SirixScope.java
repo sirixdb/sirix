@@ -6,8 +6,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -19,8 +19,8 @@ import org.sirix.settings.Fixed;
  */
 public final class SirixScope implements Scope {
 
-	/** Sirix {@link NodeReadTrx}. */
-	private final NodeReadTrx mRtx;
+	/** Sirix {@link XdmNodeReadTrx}. */
+	private final XdmNodeReadTrx mRtx;
 
 	/**
 	 * Constructor.
@@ -64,8 +64,8 @@ public final class SirixScope implements Scope {
 	@Override
 	public void addPrefix(final String prefix, final String uri)
 			throws DocumentException {
-		if (mRtx instanceof NodeWriteTrx) {
-			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
+		if (mRtx instanceof XdmNodeWriteTrx) {
+			final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) mRtx;
 			try {
 				wtx.insertNamespace(new QNm(uri, prefix, ""));
 			} catch (final SirixException e) {

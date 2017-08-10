@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.serialize;
@@ -46,7 +40,7 @@ import javax.xml.stream.events.XMLEvent;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
@@ -67,8 +61,7 @@ import org.sirix.utils.XMLToken;
 public final class StAXSerializer implements XMLEventReader {
 
 	/**
-	 * Determines if start tags have to be closed, thus if end tags have to be
-	 * emitted.
+	 * Determines if start tags have to be closed, thus if end tags have to be emitted.
 	 */
 	private boolean mCloseElements;
 
@@ -94,18 +87,17 @@ public final class StAXSerializer implements XMLEventReader {
 	private final Deque<Long> mStack;
 
 	/**
-	 * Determines if the cursor has to move back after empty elements or go up in
-	 * the tree (used in getElementText().
+	 * Determines if the cursor has to move back after empty elements or go up in the tree (used in
+	 * getElementText().
 	 */
 	private boolean mToLastKey;
 
 	/**
-	 * Last emitted key (start tags, text... except end tags; used in
-	 * getElementText()).
+	 * Last emitted key (start tags, text... except end tags; used in getElementText()).
 	 */
 	private long mLastKey;
 
-	/** Determines if {@link NodeReadTrx} should be closed afterwards. */
+	/** Determines if {@link XdmNodeReadTrx} should be closed afterwards. */
 	private boolean mCloseRtx;
 
 	/** First call. */
@@ -115,8 +107,7 @@ public final class StAXSerializer implements XMLEventReader {
 	private boolean mEmitEndDocument;
 
 	/**
-	 * Determines if the serializer must emit a new element in the next call to
-	 * nextEvent.
+	 * Determines if the serializer must emit a new element in the next call to nextEvent.
 	 */
 	private boolean mHasNext;
 
@@ -130,30 +121,23 @@ public final class StAXSerializer implements XMLEventReader {
 	private boolean mCalledHasNext;
 
 	/**
-	 * Initialize XMLStreamReader implementation with transaction. The cursor
-	 * points to the node the XMLStreamReader starts to read. Do not serialize the
-	 * tank ids.
+	 * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
+	 * XMLStreamReader starts to read. Do not serialize the tank ids.
 	 * 
-	 * @param pAxis
-	 *          {@link NodeReadTrx} which is used to iterate over and generate
-	 *          StAX events
+	 * @param pAxis {@link XdmNodeReadTrx} which is used to iterate over and generate StAX events
 	 */
-	public StAXSerializer(final NodeReadTrx rtx) {
+	public StAXSerializer(final XdmNodeReadTrx rtx) {
 		this(rtx, true);
 	}
 
 	/**
-	 * Initialize XMLStreamReader implementation with transaction. The cursor
-	 * points to the node the XMLStreamReader starts to read. Do not serialize the
-	 * tank ids.
+	 * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
+	 * XMLStreamReader starts to read. Do not serialize the tank ids.
 	 * 
-	 * @param pAxis
-	 *          {@link pRtx} which is used to iterate over and generate StAX
-	 *          events
-	 * @param pCloseRtx
-	 *          Determines if rtx should be closed afterwards.
+	 * @param pAxis {@link pRtx} which is used to iterate over and generate StAX events
+	 * @param pCloseRtx Determines if rtx should be closed afterwards.
 	 */
-	public StAXSerializer(final NodeReadTrx pRtx, final boolean pCloseRtx) {
+	public StAXSerializer(final XdmNodeReadTrx pRtx, final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
 		mCloseRtx = pCloseRtx;
@@ -168,50 +152,46 @@ public final class StAXSerializer implements XMLEventReader {
 	/**
 	 * Emit end tag.
 	 * 
-	 * @param rtx
-	 *          Sirix reading transaction {@link NodeReadTrx}
+	 * @param rtx Sirix reading transaction {@link XdmNodeReadTrx}
 	 */
-	private void emitEndTag(final NodeReadTrx rtx) {
+	private void emitEndTag(final XdmNodeReadTrx rtx) {
 		final long nodeKey = rtx.getNodeKey();
 		final QNm qName = rtx.getName();
 		mEvent = mFac.createEndElement(
-				new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
-						.getPrefix()), new NamespaceIterator(rtx));
+				new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
+				new NamespaceIterator(rtx));
 		rtx.moveTo(nodeKey);
 	}
 
 	/**
 	 * Emit a node.
 	 * 
-	 * @param rtx
-	 *          Sirix reading transaction {@link NodeReadTrx}
+	 * @param rtx Sirix reading transaction {@link XdmNodeReadTrx}
 	 */
-	private void emitNode(final NodeReadTrx rtx) {
+	private void emitNode(final XdmNodeReadTrx rtx) {
 		switch (rtx.getKind()) {
-		case DOCUMENT:
-			mEvent = mFac.createStartDocument();
-			break;
-		case ELEMENT:
-			final long key = rtx.getNodeKey();
-			final QNm qName = rtx.getName();
-			mEvent = mFac.createStartElement(
-					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
-							.getPrefix()), new AttributeIterator(rtx), new NamespaceIterator(
-							rtx));
-			rtx.moveTo(key);
-			break;
-		case TEXT:
-			mEvent = mFac.createCharacters(XMLToken.escapeContent(rtx.getValue()));
-			break;
-		case COMMENT:
-			mEvent = mFac.createComment(XMLToken.escapeContent(rtx.getValue()));
-			break;
-		case PROCESSING_INSTRUCTION:
-			mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalName(),
-					rtx.getValue());
-			break;
-		default:
-			throw new IllegalStateException("Kind not known!");
+			case DOCUMENT:
+				mEvent = mFac.createStartDocument();
+				break;
+			case ELEMENT:
+				final long key = rtx.getNodeKey();
+				final QNm qName = rtx.getName();
+				mEvent = mFac.createStartElement(
+						new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
+						new AttributeIterator(rtx), new NamespaceIterator(rtx));
+				rtx.moveTo(key);
+				break;
+			case TEXT:
+				mEvent = mFac.createCharacters(XMLToken.escapeContent(rtx.getValue()));
+				break;
+			case COMMENT:
+				mEvent = mFac.createComment(XMLToken.escapeContent(rtx.getValue()));
+				break;
+			case PROCESSING_INSTRUCTION:
+				mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalName(), rtx.getValue());
+				break;
+			default:
+				throw new IllegalStateException("Kind not known!");
 		}
 	}
 
@@ -224,13 +204,12 @@ public final class StAXSerializer implements XMLEventReader {
 
 	@Override
 	public String getElementText() throws XMLStreamException {
-		final NodeReadTrx rtx = mAxis.getTrx();
+		final XdmNodeReadTrx rtx = mAxis.getTrx();
 		final long nodeKey = rtx.getNodeKey();
 
 		/*
-		 * The cursor has to move back (once) after determining, that a closing tag
-		 * would be the next event (precond: closeElement and either goBack or goUp
-		 * is true).
+		 * The cursor has to move back (once) after determining, that a closing tag would be the next
+		 * event (precond: closeElement and either goBack or goUp is true).
 		 */
 		if (mCloseElements && mToLastKey) {
 			rtx.moveTo(mLastKey);
@@ -238,11 +217,9 @@ public final class StAXSerializer implements XMLEventReader {
 
 		if (mEvent.getEventType() != XMLStreamConstants.START_ELEMENT) {
 			rtx.moveTo(nodeKey);
-			throw new XMLStreamException(
-					"getElementText() only can be called on a start element");
+			throw new XMLStreamException("getElementText() only can be called on a start element");
 		}
-		final FilterAxis textFilterAxis = new FilterAxis(new DescendantAxis(rtx),
-				new TextFilter(rtx));
+		final FilterAxis textFilterAxis = new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
 		final StringBuilder strBuilder = new StringBuilder();
 
 		while (textFilterAxis.hasNext()) {
@@ -265,8 +242,8 @@ public final class StAXSerializer implements XMLEventReader {
 
 		if (!mStack.isEmpty() && (mCloseElements || mCloseElementsEmitted)) {
 			/*
-			 * mAxis.hasNext() can't be used in this case, because it would iterate to
-			 * the next node but at first all end-tags have to be emitted.
+			 * mAxis.hasNext() can't be used in this case, because it would iterate to the next node but
+			 * at first all end-tags have to be emitted.
 			 */
 			retVal = true;
 		} else {
@@ -294,8 +271,7 @@ public final class StAXSerializer implements XMLEventReader {
 
 				if (mNextTag) {
 					if (mAxis.getTrx().getKind() != Kind.ELEMENT) {
-						throw new XMLStreamException(
-								"The next tag isn't a start- or end-tag!");
+						throw new XMLStreamException("The next tag isn't a start- or end-tag!");
 					}
 					mNextTag = false;
 				}
@@ -323,7 +299,7 @@ public final class StAXSerializer implements XMLEventReader {
 	@Override
 	public XMLEvent peek() throws XMLStreamException {
 		final long currNodeKey = mAxis.getTrx().getNodeKey();
-		final NodeReadTrx rtx = mAxis.getTrx();
+		final XdmNodeReadTrx rtx = mAxis.getTrx();
 		try {
 			if (!mHasNext && mEmitEndDocument) {
 				mEvent = mFac.createEndDocument();
@@ -392,36 +368,32 @@ public final class StAXSerializer implements XMLEventReader {
 	/**
 	 * Determines if a node or an end element has to be emitted.
 	 * 
-	 * @param pNodeKind
-	 *          the node kind
-	 * @throws IOException
-	 *           if any I/O error occurred
+	 * @param pNodeKind the node kind
+	 * @throws IOException if any I/O error occurred
 	 */
 	private void processNode(final Kind pNodeKind) throws IOException {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
-		case ELEMENT:
-			emitEndTag(mAxis.getTrx());
-			break;
-		case PROCESSING_INSTRUCTION:
-		case COMMENT:
-		case TEXT:
-			emitNode(mAxis.getTrx());
-			break;
-		default:
-			// Do nothing.
+			case ELEMENT:
+				emitEndTag(mAxis.getTrx());
+				break;
+			case PROCESSING_INSTRUCTION:
+			case COMMENT:
+			case TEXT:
+				emitNode(mAxis.getTrx());
+				break;
+			default:
+				// Do nothing.
 		}
 	}
 
 	/**
 	 * Move to node and emit it.
 	 * 
-	 * @param rtx
-	 *          Read Transaction.
-	 * @throws IOException
-	 *           if any I/O error occurred
+	 * @param rtx Read Transaction.
+	 * @throws IOException if any I/O error occurred
 	 */
-	private void emit(final NodeReadTrx rtx) throws IOException {
+	private void emit(final XdmNodeReadTrx rtx) throws IOException {
 		assert rtx != null;
 		// Emit pending end elements.
 		if (mCloseElements) {
@@ -459,9 +431,9 @@ public final class StAXSerializer implements XMLEventReader {
 	}
 
 	/**
-	 * Move to next node in tree either in case of a right sibling of an empty
-	 * element or if no further child and no right sibling can be found, so that
-	 * the next node is in the following axis.
+	 * Move to next node in tree either in case of a right sibling of an empty element or if no
+	 * further child and no right sibling can be found, so that the next node is in the following
+	 * axis.
 	 */
 	private void moveToNextNode() {
 		mToLastKey = true;
@@ -477,9 +449,9 @@ public final class StAXSerializer implements XMLEventReader {
 	private static final class AttributeIterator implements Iterator<Attribute> {
 
 		/**
-		 * {@link NodeReadTrx} implementation.
+		 * {@link XdmNodeReadTrx} implementation.
 		 */
-		private final NodeReadTrx mRtx;
+		private final XdmNodeReadTrx mRtx;
 
 		/** Number of attribute nodes. */
 		private final int mAttCount;
@@ -496,10 +468,9 @@ public final class StAXSerializer implements XMLEventReader {
 		/**
 		 * Constructor.
 		 * 
-		 * @param rtx
-		 *          reference implementing the {@link NodeReadTrx} interface
+		 * @param rtx reference implementing the {@link XdmNodeReadTrx} interface
 		 */
-		public AttributeIterator(final NodeReadTrx rtx) {
+		public AttributeIterator(final XdmNodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 			mNodeKey = mRtx.getNodeKey();
 			mIndex = 0;
@@ -531,8 +502,7 @@ public final class StAXSerializer implements XMLEventReader {
 			final String value = XMLToken.escapeAttribute(mRtx.getValue());
 			mRtx.moveTo(mNodeKey);
 			return mFac.createAttribute(
-					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
-							.getPrefix()), value);
+					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
 		}
 
 		@Override
@@ -547,9 +517,9 @@ public final class StAXSerializer implements XMLEventReader {
 	private static final class NamespaceIterator implements Iterator<Namespace> {
 
 		/**
-		 * Sirix {@link NodeReadTrx}.
+		 * Sirix {@link XdmNodeReadTrx}.
 		 */
-		private final NodeReadTrx mRtx;
+		private final XdmNodeReadTrx mRtx;
 
 		/** Number of namespace nodes. */
 		private final int mNamespCount;
@@ -566,10 +536,9 @@ public final class StAXSerializer implements XMLEventReader {
 		/**
 		 * Constructor.
 		 * 
-		 * @param rtx
-		 *          reference implementing the {@link NodeReadTrx} interface
+		 * @param rtx reference implementing the {@link XdmNodeReadTrx} interface
 		 */
-		public NamespaceIterator(final NodeReadTrx rtx) {
+		public NamespaceIterator(final XdmNodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 			mNodeKey = mRtx.getNodeKey();
 			mIndex = 0;

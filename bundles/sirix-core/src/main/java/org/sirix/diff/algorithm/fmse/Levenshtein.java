@@ -1,40 +1,30 @@
 /**
- * SimMetrics - SimMetrics is a java library of Similarity or Distance
- * Metrics, e.g. Levenshtein Distance, that provide float based similarity
- * measures between String Data. All metrics return consistant measures
- * rather than unbounded similarity scores.
+ * SimMetrics - SimMetrics is a java library of Similarity or Distance Metrics, e.g. Levenshtein
+ * Distance, that provide float based similarity measures between String Data. All metrics return
+ * consistant measures rather than unbounded similarity scores.
  * 
  * Copyright (C) 2005 Sam Chapman - Open Source Release v1.1
  * 
- * Please Feel free to contact me about this library, I would appreciate
- * knowing quickly what you wish to use it for and any criticisms/comments
- * upon the SimMetric library.
+ * Please Feel free to contact me about this library, I would appreciate knowing quickly what you
+ * wish to use it for and any criticisms/comments upon the SimMetric library.
  * 
- * email: s.chapman@dcs.shef.ac.uk
- * www: http://www.dcs.shef.ac.uk/~sam/
- * www: http://www.dcs.shef.ac.uk/~sam/stringmetrics.html
+ * email: s.chapman@dcs.shef.ac.uk www: http://www.dcs.shef.ac.uk/~sam/ www:
+ * http://www.dcs.shef.ac.uk/~sam/stringmetrics.html
  * 
- * address: Sam Chapman,
- * Department of Computer Science,
- * University of Sheffield,
- * Sheffield,
- * S. Yorks,
- * S1 4DP
- * United Kingdom,
+ * address: Sam Chapman, Department of Computer Science, University of Sheffield, Sheffield, S.
+ * Yorks, S1 4DP United Kingdom,
  * 
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify it under the terms of the
+ * GNU General Public License as published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
  * 
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
- * for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+ * even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
  * 
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ * You should have received a copy of the GNU General Public License along with this program; if
+ * not, write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+ * 02111-1307 USA
  */
 
 package org.sirix.diff.algorithm.fmse;
@@ -51,8 +41,8 @@ import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
  * 
  * Date: 24-Mar-2004 Time: 10:54:06
  * 
- * @author Sam Chapman <a href="http://www.dcs.shef.ac.uk/~sam/">Website</a>, <a
- *         href="mailto:sam@dcs.shef.ac.uk">Email</a>.
+ * @author Sam Chapman <a href="http://www.dcs.shef.ac.uk/~sam/">Website</a>,
+ *         <a href="mailto:sam@dcs.shef.ac.uk">Email</a>.
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class Levenshtein {
@@ -90,19 +80,14 @@ public final class Levenshtein {
 	}
 
 	/**
-	 * Get the estimated time in milliseconds it takes to perform a similarity
-	 * timing.
+	 * Get the estimated time in milliseconds it takes to perform a similarity timing.
 	 * 
-	 * @param pFirst
-	 *          first string
-	 * @param pSecond
-	 *          second string
+	 * @param pFirst first string
+	 * @param pSecond second string
 	 * 
-	 * @return the estimated time in milliseconds taken to perform the similarity
-	 *         measure
+	 * @return the estimated time in milliseconds taken to perform the similarity measure
 	 */
-	public float getSimilarityTimingEstimated(final String pFirst,
-			@Nonnull final String pSecond) {
+	public float getSimilarityTimingEstimated(final String pFirst, @Nonnull final String pSecond) {
 		// timed millisecond times with string lengths from 1 + 50 each increment
 		// 0 0.31 1.12 2.4 4.41 6.77 11.28 14.5 24.33 31.29 43.6 51 54.5 67.67 68 78
 		// 88.67 101.5 109 117.5
@@ -115,20 +100,15 @@ public final class Levenshtein {
 	}
 
 	/**
-	 * Gets the similarity of the two strings using levenstein distance if string
-	 * lengths are between {@link Levenshtein#MIN} and {@link Levenshtein#MAX}.
-	 * Otherwise string equality is used whereas {@code 0} is returned if the
-	 * strings aren't equal and {@code 1} if they are equal.
+	 * Gets the similarity of the two strings using levenstein distance if string lengths are between
+	 * {@link Levenshtein#MIN} and {@link Levenshtein#MAX}. Otherwise string equality is used whereas
+	 * {@code 0} is returned if the strings aren't equal and {@code 1} if they are equal.
 	 * 
-	 * @param pFirst
-	 *          first string
-	 * @param pSecond
-	 *          second string
-	 * @return a value between {@code 0} and {@code 1}. {@code 0} denotes that the
-	 *         strings are completely different, {@code 1} denotes that the
-	 *         strings are equal
-	 * @throws NullPointerException
-	 *           if {@code pFirst} or {@code pSecond} is {@code null}
+	 * @param pFirst first string
+	 * @param pSecond second string
+	 * @return a value between {@code 0} and {@code 1}. {@code 0} denotes that the strings are
+	 *         completely different, {@code 1} denotes that the strings are equal
+	 * @throws NullPointerException if {@code pFirst} or {@code pSecond} is {@code null}
 	 */
 	public float getSimilarity(final String pFirst, @Nonnull final String pSecond) {
 		checkNotNull(pFirst);
@@ -139,8 +119,7 @@ public final class Levenshtein {
 
 		final int firstLength = pFirst.length();
 		final int secondLength = pSecond.length();
-		if (firstLength > MAX | secondLength > MAX | firstLength < MIN
-				| secondLength < MIN) {
+		if (firstLength > MAX | secondLength > MAX | firstLength < MIN | secondLength < MIN) {
 			if (pFirst.equals(pSecond)) {
 				return 1f;
 			} else {
@@ -154,8 +133,7 @@ public final class Levenshtein {
 		// ================================================
 
 		// Get the max possible levenshtein distance score for string.
-		final float maxLen = firstLength > secondLength ? firstLength
-				: secondLength;
+		final float maxLen = firstLength > secondLength ? firstLength : secondLength;
 
 		// Actual / possible levenshtein distance to get 0-1 range.
 		final float norm = 1f - (levenshteinDistance / maxLen);
@@ -167,9 +145,8 @@ public final class Levenshtein {
 	/**
 	 * Implements the levenstein distance function.
 	 * 
-	 * Copy character from string1 over to string2 (cost 0) Delete a character in
-	 * string1 (cost 1) Insert a character in string2 (cost 1) Substitute one
-	 * character for another (cost 1)
+	 * Copy character from string1 over to string2 (cost 0) Delete a character in string1 (cost 1)
+	 * Insert a character in string2 (cost 1) Substitute one character for another (cost 1)
 	 * 
 	 * <pre>
 	 * D(i - 1, j - 1) + d(si, tj) // subst/copy D(i,j) = min D(i-1,j)+1 //insert
@@ -180,10 +157,8 @@ public final class Levenshtein {
 	 * d(i,j) is a function whereby d(c,d)=0 if c=d, 1 else.
 	 * </pre>
 	 * 
-	 * @param s
-	 *          first string
-	 * @param t
-	 *          second string to compare
+	 * @param s first string
+	 * @param t second string to compare
 	 * @return the levenstein distance between given strings
 	 */
 	private float getUnNormalisedSimilarity(final String s, final String t) {
@@ -234,12 +209,9 @@ public final class Levenshtein {
 	/**
 	 * Get the minimum of three numbers.
 	 * 
-	 * @param x
-	 *          first number
-	 * @param y
-	 *          second number
-	 * @param z
-	 *          third number
+	 * @param x first number
+	 * @param y second number
+	 * @param z third number
 	 * @return the {@code minimum} of the three specified numbers
 	 */
 	private static float min3(final float x, final float y, final float z) {

@@ -19,8 +19,7 @@ import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
 /**
- * Class for parsing the initial given right tree and storing all data into the
- * databases.
+ * Class for parsing the initial given right tree and storing all data into the databases.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -29,9 +28,8 @@ public class EncryptionTreeParser extends DefaultHandler {
 	/**
 	 * Path of initial right tree XML file.
 	 */
-	private static final String FILENAME = "src" + File.separator + "test"
-			+ File.separator + "resources" + File.separator
-			+ "righttreestructure.xml";
+	private static final String FILENAME = "src" + File.separator + "test" + File.separator
+			+ "resources" + File.separator + "righttreestructure.xml";
 
 	/**
 	 * Instance for {@link KeySelectorDatabase}.
@@ -79,23 +77,20 @@ public class EncryptionTreeParser extends DefaultHandler {
 	private final List<String> mUsers = new ArrayList<String>();
 
 	/**
-	 * Just a helper map for user that has parent that hasn't been parsed and
-	 * written to the database yet.
+	 * Just a helper map for user that has parent that hasn't been parsed and written to the database
+	 * yet.
 	 */
 	private final Map<Long, List<String>> mUserParents = new HashMap<Long, List<String>>();
 
 	/**
 	 * Start tree parsing process.
 	 * 
-	 * @param selDb
-	 *          key selector database instance.
-	 * @param matDb
-	 *          keying material database instance.
-	 * @param manDb
-	 *          key manager database instance.
+	 * @param selDb key selector database instance.
+	 * @param matDb keying material database instance.
+	 * @param manDb key manager database instance.
 	 */
-	public final void init(final KeySelectorDatabase selDb,
-			final KeyMaterialDatabase matDb, final KeyManagerDatabase manDb) {
+	public final void init(final KeySelectorDatabase selDb, final KeyMaterialDatabase matDb,
+			final KeyManagerDatabase manDb) {
 
 		mSelectorDb = selDb;
 		mMaterialDb = matDb;
@@ -117,9 +112,8 @@ public class EncryptionTreeParser extends DefaultHandler {
 	 * {@inheritDoc}
 	 */
 	@Override
-	public final void startElement(final String namespaceURI,
-			final String localName, final String qName, final Attributes atts)
-			throws SAXException {
+	public final void startElement(final String namespaceURI, final String localName,
+			final String qName, final Attributes atts) throws SAXException {
 
 		final String mNodeName = atts.getValue(0);
 		final String mNodeType = atts.getValue(1);
@@ -142,9 +136,9 @@ public class EncryptionTreeParser extends DefaultHandler {
 
 			mSelectorDb.putPersistent(mSelector);
 
-			final KeyingMaterial mMaterial = new KeyingMaterial(mSelector.getKeyId(),
-					mSelector.getRevision(), mSelector.getVersion(),
-					new NodeEncryption().generateSecretKey());
+			final KeyingMaterial mMaterial =
+					new KeyingMaterial(mSelector.getKeyId(), mSelector.getRevision(), mSelector.getVersion(),
+							new NodeEncryption().generateSecretKey());
 			mMaterialDb.putPersistent(mMaterial);
 
 			if (atts.getValue(1).equals(mTypeUser)) {
@@ -175,9 +169,8 @@ public class EncryptionTreeParser extends DefaultHandler {
 	 * {@inheritDoc}
 	 */
 	@Override
-	public final void endElement(final String namespaceURI,
-			final String localName, final String qName) throws SAXException {
-	}
+	public final void endElement(final String namespaceURI, final String localName,
+			final String qName) throws SAXException {}
 
 	/**
 	 * {@inheritDoc}
@@ -248,8 +241,7 @@ public class EncryptionTreeParser extends DefaultHandler {
 						final List<Long> mKeyTrail = mKeyTrails.get(mParentKey);
 
 						// get parent id from parent
-						List<Long> mParentList = mSelectorDb.getPersistent(mParentKey)
-								.getParents();
+						List<Long> mParentList = mSelectorDb.getPersistent(mParentKey).getParents();
 
 						while (mParentList.size() != 0) {
 							if (mParentList.size() > 1) {

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath;
@@ -49,10 +43,9 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>AtomicValue</h1>
  * <p>
- * An item represents either an atomic value or a node. An atomic value is a
- * value in the value space of an atomic type, as defined in <a
- * href="http://www.w3.org/TR/xmlschema11-2/">XMLSchema 1.1</a>. (Definition:
- * Atomic types are anyAtomicType and all types derived from it.)
+ * An item represents either an atomic value or a node. An atomic value is a value in the value
+ * space of an atomic type, as defined in <a href="http://www.w3.org/TR/xmlschema11-2/">XMLSchema
+ * 1.1</a>. (Definition: Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
 public final class AtomicValue implements Node, ValueNode {
@@ -64,18 +57,16 @@ public final class AtomicValue implements Node, ValueNode {
 	private int mType;
 
 	/**
-	 * The item's key. In case of an Atomic value this is always a negative to
-	 * make them distinguishable from nodes.
+	 * The item's key. In case of an Atomic value this is always a negative to make them
+	 * distinguishable from nodes.
 	 */
 	private long mItemKey;
 
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param value
-	 *          the value of the Item
-	 * @param type
-	 *          the item's type
+	 * @param value the value of the Item
+	 * @param type the item's type
 	 */
 	public AtomicValue(final byte[] value, final int type) {
 		mValue = checkNotNull(value);
@@ -85,8 +76,7 @@ public final class AtomicValue implements Node, ValueNode {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pValue
-	 *          the value of the Item
+	 * @param pValue the value of the Item
 	 */
 	public AtomicValue(final boolean pValue) {
 		mValue = TypedValue.getBytes(Boolean.toString(pValue));
@@ -96,10 +86,8 @@ public final class AtomicValue implements Node, ValueNode {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pValue
-	 *          the value of the Item
-	 * @param pType
-	 *          the item's type
+	 * @param pValue the value of the Item
+	 * @param pType the item's type
 	 */
 	public AtomicValue(final Number pValue, final Type pType) {
 
@@ -110,10 +98,8 @@ public final class AtomicValue implements Node, ValueNode {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pValue
-	 *          the value of the Item
-	 * @param pType
-	 *          the item's type
+	 * @param pValue the value of the Item
+	 * @param pType the item's type
 	 */
 	public AtomicValue(final String pValue, @Nonnull final Type pType) {
 		mValue = TypedValue.getBytes(pValue);
@@ -123,8 +109,7 @@ public final class AtomicValue implements Node, ValueNode {
 	/**
 	 * Set node key.
 	 * 
-	 * @param pItemKey
-	 *          unique item key
+	 * @param pItemKey unique item key
 	 */
 	public void setNodeKey(final long pItemKey) {
 		mItemKey = pItemKey;

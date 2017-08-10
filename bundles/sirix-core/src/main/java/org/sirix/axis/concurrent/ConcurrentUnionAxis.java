@@ -1,34 +1,28 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.axis.concurrent;
 
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -36,11 +30,10 @@ import org.sirix.service.xml.xpath.EXPathError;
 /**
  * <h1>ConcurrentUnionAxis</h1>
  * <p>
- * Computes concurrently and returns a union of two operands. This axis takes
- * two node sequences as operands and returns a sequence containing all the
- * items that occur in either of the operands. A union of two sequences may lead
- * to a sequence containing duplicates. These duplicates are removed by the
- * concept of .... Additionally this guarantees the document order.
+ * Computes concurrently and returns a union of two operands. This axis takes two node sequences as
+ * operands and returns a sequence containing all the items that occur in either of the operands. A
+ * union of two sequences may lead to a sequence containing duplicates. These duplicates are removed
+ * by the concept of .... Additionally this guarantees the document order.
  * </p>
  */
 public final class ConcurrentUnionAxis extends AbstractAxis {
@@ -63,18 +56,13 @@ public final class ConcurrentUnionAxis extends AbstractAxis {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param rtx
-	 *          exclusive (immutable) trx to iterate with
-	 * @param operand1
-	 *          first operand
-	 * @param operand2
-	 *          second operand
-	 * @throws NullPointerException
-	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
-	 *           {@code null}
+	 * @param rtx exclusive (immutable) trx to iterate with
+	 * @param operand1 first operand
+	 * @param operand2 second operand
+	 * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
+	 *         {@code null}
 	 */
-	public ConcurrentUnionAxis(final NodeReadTrx rtx, final Axis operand1,
-			final Axis operand2) {
+	public ConcurrentUnionAxis(final XdmNodeReadTrx rtx, final Axis operand1, final Axis operand2) {
 		super(rtx);
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);

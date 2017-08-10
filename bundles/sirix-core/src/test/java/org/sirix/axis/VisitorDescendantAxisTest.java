@@ -8,7 +8,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
@@ -38,57 +38,54 @@ public class VisitorDescendantAxisTest {
 
 	@Test
 	public void testIterateVisitor() throws SirixException {
-		final NodeReadTrx rtx = holder.getRtx();
+		final XdmNodeReadTrx rtx = holder.getReader();
 
 		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(),
-				new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(),
+				new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveToDocumentRoot();
 				return VisitorDescendantAxis.newBuilder(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(),
-				new long[] { 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(),
+				new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(1L);
 				return VisitorDescendantAxis.newBuilder(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(9L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] { 11L, 12L });
-		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(11L, 12L), null) {
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(),
+				new long[] {11L, 12L});
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L),
+				null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(9L);
 				return VisitorDescendantAxis.newBuilder(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(13L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {});
-		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				Collections.emptyList(), null) {
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {});
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.emptyList(),
+				null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(13L);
 				return VisitorDescendantAxis.newBuilder(rtx).build();
 			}
@@ -97,61 +94,57 @@ public class VisitorDescendantAxisTest {
 
 	@Test
 	public void testIterateIncludingSelfVisitor() throws SirixException {
-		final NodeReadTrx rtx = holder.getRtx();
+		final XdmNodeReadTrx rtx = holder.getReader();
 		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).includeSelf().build(),
-				new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L,
-						6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx).includeSelf().build(),
+				new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
+						12L, 13L});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L,
-						5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+				ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L,
+						11L, 12L, 13L),
 				null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveToDocumentRoot();
 				return VisitorDescendantAxis.newBuilder(rtx).includeSelf().build();
 			}
 		}.test();
 
 		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(
-				new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-				new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
+				new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(1L);
 				return VisitorDescendantAxis.newBuilder(rtx).includeSelf().build();
 			}
 		}.test();
 
 		rtx.moveTo(9L);
-		AbsAxisTest.testIAxisConventions(
-				new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-				new long[] { 9L, 11L, 12L });
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
+				new long[] {9L, 11L, 12L});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(9L, 11L, 12L), null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(9L);
 				return VisitorDescendantAxis.newBuilder(rtx).includeSelf().build();
 			}
 		}.test();
 
 		rtx.moveTo(13L);
-		AbsAxisTest.testIAxisConventions(
-				new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-				new long[] { 13L });
-		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(13L), null) {
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
+				new long[] {13L});
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L),
+				null) {
 			@Override
 			protected Iterator<Long> newTargetIterator() {
-				final NodeReadTrx rtx = holder.getRtx();
+				final XdmNodeReadTrx rtx = holder.getReader();
 				rtx.moveTo(13L);
 				return VisitorDescendantAxis.newBuilder(rtx).includeSelf().build();
 			}

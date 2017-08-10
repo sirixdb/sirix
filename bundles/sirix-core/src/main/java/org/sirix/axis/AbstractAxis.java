@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.axis;
@@ -36,7 +30,7 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
 
@@ -46,11 +40,11 @@ import com.google.common.base.MoreObjects;
  * <h1>AbstractAxis</h1>
  *
  * <p>
- * Provide standard Java iterator capability compatible with the new enhanced
- * for loop available since Java 5.
+ * Provide standard Java iterator capability compatible with the new enhanced for loop available
+ * since Java 5.
  *
- * Override the "template method" {@code nextKey()} to implement an axis. Return
- * {@code done()} if the axis has no more "elements".
+ * Override the "template method" {@code nextKey()} to implement an axis. Return {@code done()} if
+ * the axis has no more "elements".
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -58,7 +52,7 @@ import com.google.common.base.MoreObjects;
 public abstract class AbstractAxis implements Axis {
 
 	/** Iterate over transaction exclusive to this step. */
-	protected final NodeReadTrx mRtx;
+	protected final XdmNodeReadTrx mRtx;
 
 	/** Key of next node. */
 	private long mKey;
@@ -90,12 +84,10 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Bind axis step to transaction.
 	 *
-	 * @param rtx
-	 *          transaction to operate with
-	 * @throws NullPointerException
-	 *           if {@code paramRtx} is {@code null}
+	 * @param rtx transaction to operate with
+	 * @throws NullPointerException if {@code paramRtx} is {@code null}
 	 */
-	public AbstractAxis(final NodeReadTrx rtx) {
+	public AbstractAxis(final XdmNodeReadTrx rtx) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = IncludeSelf.NO;
 		reset(rtx.getNodeKey());
@@ -104,14 +96,11 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Bind axis step to transaction.
 	 *
-	 * @param rtx
-	 *          transaction to operate with
-	 * @param includeSelf
-	 *          determines if self is included
-	 * @throws NullPointerException
-	 *           if {@code rtx} or {@code includeSelf} is {@code null}
+	 * @param rtx transaction to operate with
+	 * @param includeSelf determines if self is included
+	 * @throws NullPointerException if {@code rtx} or {@code includeSelf} is {@code null}
 	 */
-	public AbstractAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
+	public AbstractAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = checkNotNull(includeSelf);
 		reset(rtx.getNodeKey());
@@ -123,10 +112,9 @@ public abstract class AbstractAxis implements Axis {
 	}
 
 	/**
-	 * Signals that axis traversal is done, that is {@code hasNext()} must return
-	 * false. Is callable from subclasses which implement {@link #nextKey()} to
-	 * signal that the axis-traversal is done and {@link #hasNext()} must return
-	 * false.
+	 * Signals that axis traversal is done, that is {@code hasNext()} must return false. Is callable
+	 * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done
+	 * and {@link #hasNext()} must return false.
 	 *
 	 * @return null node key to indicate that the travesal is done
 	 */
@@ -138,13 +126,13 @@ public abstract class AbstractAxis implements Axis {
 	 * {@inheritDoc}
 	 *
 	 * <p>
-	 * During the last call to {@code hasNext()}, that is {@code hasNext()}
-	 * returns false, the transaction is reset to the start key.
+	 * During the last call to {@code hasNext()}, that is {@code hasNext()} returns false, the
+	 * transaction is reset to the start key.
 	 * </p>
 	 *
 	 * <p>
-	 * <strong>Implementors must implement {@code nextKey()} instead which is a
-	 * template method called from this {@code hasNext()} method.</strong>
+	 * <strong>Implementors must implement {@code nextKey()} instead which is a template method called
+	 * from this {@code hasNext()} method.</strong>
 	 * </p>
 	 */
 	@Override
@@ -192,40 +180,35 @@ public abstract class AbstractAxis implements Axis {
 	}
 
 	/**
-	 * Returns the next node key. <strong>Note:</strong> the implementation must
-	 * either call {@link #done()} when there are no elements left in the
-	 * iteration or return the node key
+	 * Returns the next node key. <strong>Note:</strong> the implementation must either call
+	 * {@link #done()} when there are no elements left in the iteration or return the node key
 	 * {@code EFixed.NULL_NODE.getStandardProperty()}.
 	 *
 	 * <p>
-	 * The initial invocation of {@link #hasNext()} or {@link #next()} calls this
-	 * method, as does the first invocation of {@code hasNext} or {@code next}
-	 * following each successful call to {@code next}. Once the implementation
-	 * either invokes {@link #done()}, returns
-	 * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception,
-	 * {@code nextKey()} is guaranteed to never be called again.
+	 * The initial invocation of {@link #hasNext()} or {@link #next()} calls this method, as does the
+	 * first invocation of {@code hasNext} or {@code next} following each successful call to
+	 * {@code next}. Once the implementation either invokes {@link #done()}, returns
+	 * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception, {@code nextKey()} is
+	 * guaranteed to never be called again.
 	 * </p>
 	 *
 	 * <p>
-	 * If this method throws an exception, it will propagate outward to the
-	 * {@code hasNext} or {@code next} invocation that invoked this method. Any
-	 * further attempts to use the iterator will result in an
-	 * {@link IllegalStateException}.
+	 * If this method throws an exception, it will propagate outward to the {@code hasNext} or
+	 * {@code next} invocation that invoked this method. Any further attempts to use the iterator will
+	 * result in an {@link IllegalStateException}.
 	 * </p>
 	 *
 	 * <p>
-	 * The implementation of this method may not invoke the {@code hasNext},
-	 * {@code next}, or {@link #peek()} methods on this instance; if it does, an
-	 * {@code IllegalStateException} will result.
+	 * The implementation of this method may not invoke the {@code hasNext}, {@code next}, or
+	 * {@link #peek()} methods on this instance; if it does, an {@code IllegalStateException} will
+	 * result.
 	 * </p>
 	 *
 	 * @return the next node key
-	 * @throws RuntimeException
-	 *           if any unrecoverable error happens. This exception will propagate
-	 *           outward to the {@code hasNext()}, {@code next()}, or
-	 *           {@code peek()} invocation that invoked this method. Any further
-	 *           attempts to use the iterator will result in an
-	 *           {@link IllegalStateException}.
+	 * @throws RuntimeException if any unrecoverable error happens. This exception will propagate
+	 *         outward to the {@code hasNext()}, {@code next()}, or {@code peek()} invocation that
+	 *         invoked this method. Any further attempts to use the iterator will result in an
+	 *         {@link IllegalStateException}.
 	 */
 	protected abstract long nextKey();
 
@@ -258,8 +241,7 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 *
-	 * @param nodeKey
-	 *          the nodekey where the reset should occur to
+	 * @param nodeKey the nodekey where the reset should occur to
 	 */
 	@Override
 	public void reset(@Nonnegative final long nodeKey) {
@@ -269,21 +251,20 @@ public abstract class AbstractAxis implements Axis {
 	}
 
 	/**
-	 * Get current {@link NodeReadTrx}.
+	 * Get current {@link XdmNodeReadTrx}.
 	 *
-	 * @return the {@link NodeReadTrx} used
+	 * @return the {@link XdmNodeReadTrx} used
 	 */
 	@Override
-	public NodeReadTrx getTrx() {
+	public XdmNodeReadTrx getTrx() {
 		return mRtx;
 	}
 
 	/**
-	 * Make sure the transaction points to the node it started with. This must be
-	 * called just before {@code hasNext() == false}.
+	 * Make sure the transaction points to the node it started with. This must be called just before
+	 * {@code hasNext() == false}.
 	 *
-	 * @return key of node where transaction was before the first call of
-	 *         {@code hasNext()}
+	 * @return key of node where transaction was before the first call of {@code hasNext()}
 	 */
 	private final long resetToStartKey() {
 		// No check because of IAxis Convention 4.
@@ -292,11 +273,10 @@ public abstract class AbstractAxis implements Axis {
 	}
 
 	/**
-	 * Make sure the transaction points to the node after the last hasNext(). This
-	 * must be called first in hasNext().
+	 * Make sure the transaction points to the node after the last hasNext(). This must be called
+	 * first in hasNext().
 	 *
-	 * @return key of node where transaction was after the last call of
-	 *         {@code hasNext()}
+	 * @return key of node where transaction was after the last call of {@code hasNext()}
 	 */
 	private final long resetToLastKey() {
 		// No check because of IAxis Convention 4.
@@ -325,8 +305,7 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Implements a simple foreach-method.
 	 *
-	 * @param visitor
-	 *          {@link IVisitor} implementation
+	 * @param visitor {@link IVisitor} implementation
 	 */
 	@Override
 	public final void foreach(final Visitor visitor) {

@@ -12,33 +12,33 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.fs.HierarchyFileVisitor.Builder;
 
 import com.google.common.base.Optional;
 
 /**
- * Parses a directory in the file system and creates a sirix {@IDatabase
- * } with an initial revision.
- * 
+ * Parses a directory in the file system and creates a sirix {@link Database}
+ * with an initial revision.
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 @Nonnull
 public class FileHierarchyWalker {
 
 	/**
 	 * Parse a directory and create a simple XML representation.
-	 * 
-	 * @param pPath
+	 *
+	 * @param path
 	 *          path to directory from which to shredder all content into sirix
-	 * @param pDatabase
+	 * @param database
 	 *          sirix {@IDatabase} to shred into
-	 * @param pVisitor
+	 * @param visitor
 	 *          an optional visitor
 	 * @throws SirixException
 	 *           if any sirix operation fails
@@ -47,27 +47,29 @@ public class FileHierarchyWalker {
 	 * @throws NullPointerException
 	 *           if one of the arguments is {@code null}
 	 */
-	public static Map<Path, org.sirix.fs.Path> parseDir(final Path pPath,
-			final Database pDatabase, Optional<Visitor<NodeWriteTrx>> pVisitor)
+	public static Map<Path, org.sirix.fs.Path> parseDir(final Path path,
+			final Database database, Optional<Visitor<XdmNodeWriteTrx>> visitor)
 			throws SirixException, IOException {
-		checkNotNull(pVisitor);
-		final Path path = checkNotNull(pPath);
-		final Session session = checkNotNull(pDatabase).getSession(
-				new SessionConfiguration.Builder("shredded").build());
-		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		final Builder builder = new Builder(wtx);
-		if (pVisitor.isPresent()) {
-			builder.setVisitor(pVisitor.get());
+		checkNotNull(visitor);
+		checkNotNull(path);
+		try (
+				final ResourceManager resource = checkNotNull(database)
+						.getResourceManager(
+								new ResourceManagerConfiguration.Builder("shredded").build());
+				final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+			final Builder builder = new Builder(wtx);
+			if (visitor.isPresent()) {
+				builder.setVisitor(visitor.get());
+			}
+			Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
+			try (final HierarchyFileVisitor fileVisitor = HierarchyFileVisitor
+					.getInstance(builder)) {
+				Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS),
+						Integer.MAX_VALUE, fileVisitor);
+				index = fileVisitor.getIndex();
+			}
+
+			return index;
 		}
-		Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
-		try (final HierarchyFileVisitor visitor = HierarchyFileVisitor
-				.getInstance(builder)) {
-			Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS),
-					Integer.MAX_VALUE, visitor);
-			index = visitor.getIndex();
-		}
-		wtx.close();
-		session.close();
-		return index;
 	}
 }

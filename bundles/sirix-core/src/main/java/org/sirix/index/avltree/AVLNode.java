@@ -22,8 +22,8 @@ import com.google.common.base.Objects;
  *
  * @author Johannes Lichtenberger
  */
-public final class AVLNode<K extends Comparable<? super K>, V> extends
-		AbstractForwardingNode implements MutableAVLNode<K, V> {
+public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractForwardingNode
+		implements MutableAVLNode<K, V> {
 	/** Key token. */
 	private K mKey;
 
@@ -45,10 +45,8 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 	/**
 	 * Constructor.
 	 *
-	 * @param pToken
-	 *          token
-	 * @param pParent
-	 *          id of the parent node
+	 * @param pToken token
+	 * @param pParent id of the parent node
 	 */
 	public AVLNode(final K key, final V value, final NodeDelegate delegate) {
 		mKey = checkNotNull(key);
@@ -88,8 +86,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 	/**
 	 * Flag which determines if node is changed.
 	 *
-	 * @return {@code true} if it has been changed in memory, {@code false}
-	 *         otherwise
+	 * @return {@code true} if it has been changed in memory, {@code false} otherwise
 	 */
 	@Override
 	public boolean isChanged() {
@@ -146,8 +143,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 		if (obj instanceof AVLNode) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<K, V> other = (AVLNode<K, V>) obj;
-			return this.mNodeDelegate.getNodeKey() == other.mNodeDelegate
-					.getNodeKey();
+			return this.mNodeDelegate.getNodeKey() == other.mNodeDelegate.getNodeKey();
 		}
 		return false;
 	}
@@ -155,9 +151,8 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this).add("node delegate", mNodeDelegate)
-				.add("left child", mLeft).add("right child", mRight)
-				.add("changed", mChanged).add("key", mKey).add("value", mValue)
-				.toString();
+				.add("left child", mLeft).add("right child", mRight).add("changed", mChanged)
+				.add("key", mKey).add("value", mValue).toString();
 	}
 
 	@Override

@@ -32,8 +32,7 @@ public final class NodeReferences implements References {
 	/**
 	 * Constructor.
 	 *
-	 * @param nodeKeys
-	 *          node keys
+	 * @param nodeKeys node keys
 	 */
 	public NodeReferences(final Set<Long> nodeKeys) {
 		mNodeKeys = nodeKeys;

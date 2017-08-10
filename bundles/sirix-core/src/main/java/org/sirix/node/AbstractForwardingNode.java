@@ -16,12 +16,10 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractForwardingNode extends ForwardingObject implements
-		Node {
+public abstract class AbstractForwardingNode extends ForwardingObject implements Node {
 
 	/** Constructor for use by subclasses. */
-	protected AbstractForwardingNode() {
-	}
+	protected AbstractForwardingNode() {}
 
 	@Override
 	protected abstract NodeDelegate delegate();

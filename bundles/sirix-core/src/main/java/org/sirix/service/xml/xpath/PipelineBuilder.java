@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath;
@@ -37,7 +31,7 @@ import java.util.Stack;
 
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.ForAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PredicateFilterAxis;
@@ -110,16 +104,14 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Ends an expression. This means that the currently used pipeline stack will
-	 * be emptied and the singleExpressions that were on the stack are combined by
-	 * a sequence expression, which is lated added to the next pipeline stack.
+	 * Ends an expression. This means that the currently used pipeline stack will be emptied and the
+	 * singleExpressions that were on the stack are combined by a sequence expression, which is lated
+	 * added to the next pipeline stack.
 	 * 
-	 * @param mTransaction
-	 *          transaction to operate on
-	 * @param mNum
-	 *          number of singleExpressions that will be added to the sequence
+	 * @param mTransaction transaction to operate on
+	 * @param mNum number of singleExpressions that will be added to the sequence
 	 */
-	public void finishExpr(final NodeReadTrx mTransaction, final int mNum) {
+	public void finishExpr(final XdmNodeReadTrx mTransaction, final int mNum) {
 
 		// all singleExpression that are on the stack will be combined in the
 		// sequence, so the number of singleExpressions in the sequence and the
@@ -127,8 +119,7 @@ public final class PipelineBuilder {
 		// of the stack containing these SingleExpressions have to be the same.
 		if (getPipeStack().size() != mNum) {
 			// this should never happen
-			throw new IllegalStateException(
-					"The query has not been processed correctly");
+			throw new IllegalStateException("The query has not been processed correctly");
 		}
 		int no = mNum;
 
@@ -168,8 +159,7 @@ public final class PipelineBuilder {
 			}
 
 			final Axis iAxis;
-			if (mExprStack.size() == 1 && getPipeStack().size() == 1
-					&& getExpression().getSize() == 0) {
+			if (mExprStack.size() == 1 && getPipeStack().size() == 1 && getExpression().getSize() == 0) {
 				iAxis = new SequenceAxis(mTransaction, axis);
 			} else {
 				iAxis = axis[0];
@@ -183,9 +173,9 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Adds a new single expression to the pipeline. This is done by adding a
-	 * complete new chain to the stack because the new single expression has
-	 * nothing in common with the previous expressions.
+	 * Adds a new single expression to the pipeline. This is done by adding a complete new chain to
+	 * the stack because the new single expression has nothing in common with the previous
+	 * expressions.
 	 */
 	public void addExpressionSingle() {
 
@@ -197,8 +187,8 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Returns the current pipeline. If there is no existing pipeline, a new one
-	 * is generated and returned.
+	 * Returns the current pipeline. If there is no existing pipeline, a new one is generated and
+	 * returned.
 	 * 
 	 * @return a reference to the currently used pipeline.
 	 */
@@ -208,14 +198,12 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Adds a for expression to the pipeline. In case the for expression has more
-	 * then one for condition, the for expression is converted to a nested for
-	 * expression with only one for condition each, see the following example: for
-	 * $a in /a, $b in /b, $c in /c return /d is converted to for $a in /a return
-	 * for $b in /b return for $c in /c return /d
+	 * Adds a for expression to the pipeline. In case the for expression has more then one for
+	 * condition, the for expression is converted to a nested for expression with only one for
+	 * condition each, see the following example: for $a in /a, $b in /b, $c in /c return /d is
+	 * converted to for $a in /a return for $b in /b return for $c in /c return /d
 	 * 
-	 * @param mForConditionNum
-	 *          Number of all for conditions of the expression
+	 * @param mForConditionNum Number of all for conditions of the expression
 	 */
 	public void addForExpression(final int mForConditionNum) {
 
@@ -237,14 +225,13 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a if expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
+	 * @param mTransaction Transaction to operate with.
 	 */
-	public void addIfExpression(final NodeReadTrx mTransaction) {
+	public void addIfExpression(final XdmNodeReadTrx mTransaction) {
 
 		assert getPipeStack().size() >= 3;
 
-		final NodeReadTrx rtx = mTransaction;
+		final XdmNodeReadTrx rtx = mTransaction;
 
 		final Axis elseExpr = getPipeStack().pop().getExpr();
 		final Axis thenExpr = getPipeStack().pop().getExpr();
@@ -260,24 +247,21 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a comparison expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mComp
-	 *          Comparator type.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mComp Comparator type.
 	 */
-	public void addCompExpression(final NodeReadTrx mTransaction,
-			final String mComp) {
+	public void addCompExpression(final XdmNodeReadTrx mTransaction, final String mComp) {
 
 		assert getPipeStack().size() >= 2;
 
-		final NodeReadTrx rtx = mTransaction;
+		final XdmNodeReadTrx rtx = mTransaction;
 
 		final Axis paramOperandTwo = getPipeStack().pop().getExpr();
 		final Axis paramOperandOne = getPipeStack().pop().getExpr();
 
 		final CompKind kind = CompKind.fromString(mComp);
-		final Axis axis = AbstractComparator.getComparator(rtx, paramOperandOne,
-				paramOperandTwo, kind, mComp);
+		final Axis axis =
+				AbstractComparator.getComparator(rtx, paramOperandOne, paramOperandTwo, kind, mComp);
 
 		// // TODO: use typeswitch of JAVA 7
 		// if (mComp.equals("eq")) {
@@ -343,17 +327,14 @@ public final class PipelineBuilder {
 	/**
 	 * Adds an operator expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mOperator
-	 *          Operator type.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mOperator Operator type.
 	 */
-	public void addOperatorExpression(final NodeReadTrx mTransaction,
-			final String mOperator) {
+	public void addOperatorExpression(final XdmNodeReadTrx mTransaction, final String mOperator) {
 
 		assert getPipeStack().size() >= 1;
 
-		final NodeReadTrx rtx = mTransaction;
+		final XdmNodeReadTrx rtx = mTransaction;
 
 		final Axis mOperand2 = getPipeStack().pop().getExpr();
 
@@ -391,10 +372,9 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a union expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
+	 * @param mTransaction Transaction to operate with.
 	 */
-	public void addUnionExpression(final NodeReadTrx mTransaction) {
+	public void addUnionExpression(final XdmNodeReadTrx mTransaction) {
 
 		assert getPipeStack().size() >= 2;
 
@@ -403,18 +383,16 @@ public final class PipelineBuilder {
 		if (getPipeStack().empty() || getExpression().getSize() != 0) {
 			addExpressionSingle();
 		}
-		getExpression().add(
-				new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1,
-						mOperand2)));
+		getExpression()
+				.add(new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1, mOperand2)));
 	}
 
 	/**
 	 * Adds a and expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
+	 * @param mTransaction Transaction to operate with.
 	 */
-	public void addAndExpression(final NodeReadTrx mTransaction) {
+	public void addAndExpression(final XdmNodeReadTrx mTransaction) {
 		assert getPipeStack().size() >= 2;
 
 		final Axis mOperand2 = getPipeStack().pop().getExpr();
@@ -428,10 +406,9 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a or expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
+	 * @param mTransaction Transaction to operate with.
 	 */
-	public void addOrExpression(final NodeReadTrx mTransaction) {
+	public void addOrExpression(final XdmNodeReadTrx mTransaction) {
 
 		assert getPipeStack().size() >= 2;
 
@@ -447,23 +424,20 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a intersect or a exception expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mIsIntersect
-	 *          true, if expression is an intersection
+	 * @param mTransaction Transaction to operate with.
+	 * @param mIsIntersect true, if expression is an intersection
 	 */
-	public void addIntExcExpression(final NodeReadTrx mTransaction,
-			final boolean mIsIntersect) {
+	public void addIntExcExpression(final XdmNodeReadTrx mTransaction, final boolean mIsIntersect) {
 
 		assert getPipeStack().size() >= 2;
 
-		final NodeReadTrx rtx = mTransaction;
+		final XdmNodeReadTrx rtx = mTransaction;
 
 		final Axis mOperand2 = getPipeStack().pop().getExpr();
 		final Axis mOperand1 = getPipeStack().pop().getExpr();
 
-		final Axis axis = mIsIntersect ? new IntersectAxis(rtx, mOperand1,
-				mOperand2) : new ExceptAxis(rtx, mOperand1, mOperand2);
+		final Axis axis = mIsIntersect ? new IntersectAxis(rtx, mOperand1, mOperand2)
+				: new ExceptAxis(rtx, mOperand1, mOperand2);
 
 		if (getPipeStack().empty() || getExpression().getSize() != 0) {
 			addExpressionSingle();
@@ -474,12 +448,10 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a literal expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mItemKey
-	 *          key of the literal expression.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mItemKey key of the literal expression.
 	 */
-	public void addLiteral(final NodeReadTrx mTransaction, final int mItemKey) {
+	public void addLiteral(final XdmNodeReadTrx mTransaction, final int mItemKey) {
 		// addExpressionSingle();
 		getExpression().add(new LiteralExpr(mTransaction, mItemKey));
 	}
@@ -487,8 +459,7 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a step to the pipeline.
 	 * 
-	 * @param axis
-	 *          the axis step to add to the pipeline.
+	 * @param axis the axis step to add to the pipeline.
 	 */
 	public void addStep(final Axis axis) {
 		getExpression().add(axis);
@@ -497,18 +468,15 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a step to the pipeline.
 	 * 
-	 * @param axis
-	 *          the axis step to add to the pipeline.
-	 * @param mFilter
-	 *          the node test to add to the pipeline.
+	 * @param axis the axis step to add to the pipeline.
+	 * @param mFilter the node test to add to the pipeline.
 	 */
 	public void addStep(final Axis axis, final Filter mFilter) {
 		getExpression().add(new FilterAxis(axis, mFilter));
 	}
 
 	/**
-	 * Returns a queue of all pipelines build so far and empties the pipeline
-	 * stack.
+	 * Returns a queue of all pipelines build so far and empties the pipeline stack.
 	 * 
 	 * @return all build pipelines
 	 */
@@ -527,10 +495,9 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a predicate to the pipeline.
 	 * 
-	 * @param pRtx
-	 *          transaction to operate with
+	 * @param pRtx transaction to operate with
 	 */
-	public void addPredicate(final NodeReadTrx pRtx) {
+	public void addPredicate(final XdmNodeReadTrx pRtx) {
 		assert getPipeStack().size() >= 2;
 
 		final Axis predicate = getPipeStack().pop().getExpr();
@@ -539,13 +506,10 @@ public final class PipelineBuilder {
 			predicate.hasNext();
 			// if is numeric literal -> abbrev for position()
 			final int type = pRtx.getTypeKey();
-			if (type == pRtx.keyForName("xs:integer")
-					|| type == pRtx.keyForName("xs:double")
-					|| type == pRtx.keyForName("xs:float")
-					|| type == pRtx.keyForName("xs:decimal")) {
+			if (type == pRtx.keyForName("xs:integer") || type == pRtx.keyForName("xs:double")
+					|| type == pRtx.keyForName("xs:float") || type == pRtx.keyForName("xs:decimal")) {
 
-				throw new IllegalStateException(
-						"function fn:position() is not implemented yet.");
+				throw new IllegalStateException("function fn:position() is not implemented yet.");
 
 				// getExpression().add(
 				// new PosFilter(transaction, (int)
@@ -576,18 +540,14 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Adds a SomeExpression or an EveryExpression to the pipeline, depending on
-	 * the parameter isSome.
+	 * Adds a SomeExpression or an EveryExpression to the pipeline, depending on the parameter isSome.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mIsSome
-	 *          defines whether a some- or an EveryExpression is used.
-	 * @param mVarNum
-	 *          number of binding variables
+	 * @param mTransaction Transaction to operate with.
+	 * @param mIsSome defines whether a some- or an EveryExpression is used.
+	 * @param mVarNum number of binding variables
 	 */
-	public void addQuantifierExpr(final NodeReadTrx mTransaction,
-			final boolean mIsSome, final int mVarNum) {
+	public void addQuantifierExpr(final XdmNodeReadTrx mTransaction, final boolean mIsSome,
+			final int mVarNum) {
 
 		assert getPipeStack().size() >= (mVarNum + 1);
 
@@ -612,13 +572,10 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a castable expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mSingleType
-	 *          single type the context item will be casted to.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mSingleType single type the context item will be casted to.
 	 */
-	public void addCastableExpr(final NodeReadTrx mTransaction,
-			final SingleType mSingleType) {
+	public void addCastableExpr(final XdmNodeReadTrx mTransaction, final SingleType mSingleType) {
 
 		assert getPipeStack().size() >= 1;
 
@@ -635,10 +592,9 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a range expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
+	 * @param mTransaction Transaction to operate with.
 	 */
-	public void addRangeExpr(final NodeReadTrx mTransaction) {
+	public void addRangeExpr(final XdmNodeReadTrx mTransaction) {
 
 		assert getPipeStack().size() >= 2;
 
@@ -656,13 +612,10 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a cast expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mSingleType
-	 *          single type the context item will be casted to.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mSingleType single type the context item will be casted to.
 	 */
-	public void addCastExpr(final NodeReadTrx mTransaction,
-			final SingleType mSingleType) {
+	public void addCastExpr(final XdmNodeReadTrx mTransaction, final SingleType mSingleType) {
 
 		assert getPipeStack().size() >= 1;
 
@@ -679,12 +632,10 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a instance of expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mSequenceType
-	 *          sequence type the context item should match.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mSequenceType sequence type the context item should match.
 	 */
-	public void addInstanceOfExpr(final NodeReadTrx mTransaction,
+	public void addInstanceOfExpr(final XdmNodeReadTrx mTransaction,
 			final SequenceType mSequenceType) {
 
 		assert getPipeStack().size() >= 1;
@@ -702,29 +653,23 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a treat as expression to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mSequenceType
-	 *          sequence type the context item will be treated as.
+	 * @param mTransaction Transaction to operate with.
+	 * @param mSequenceType sequence type the context item will be treated as.
 	 */
-	public void addTreatExpr(final NodeReadTrx mTransaction,
-			final SequenceType mSequenceType) {
+	public void addTreatExpr(final XdmNodeReadTrx mTransaction, final SequenceType mSequenceType) {
 
 		throw new IllegalStateException("the Treat expression is not supported yet");
 
 	}
 
 	/**
-	 * Adds a variable expression to the pipeline. Adds the expression that will
-	 * evaluate the results the variable holds.
+	 * Adds a variable expression to the pipeline. Adds the expression that will evaluate the results
+	 * the variable holds.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mVarName
-	 *          name of the variable
+	 * @param mTransaction Transaction to operate with.
+	 * @param mVarName name of the variable
 	 */
-	public void addVariableExpr(final NodeReadTrx mTransaction,
-			final String mVarName) {
+	public void addVariableExpr(final XdmNodeReadTrx mTransaction, final String mVarName) {
 
 		assert getPipeStack().size() >= 1;
 
@@ -742,17 +687,13 @@ public final class PipelineBuilder {
 	/**
 	 * Adds a function to the pipeline.
 	 * 
-	 * @param mTransaction
-	 *          Transaction to operate with.
-	 * @param mFuncName
-	 *          The name of the function
-	 * @param mNum
-	 *          The number of arguments that are passed to the function
-	 * @throws SirixXPathException
-	 *           if function can't be added
+	 * @param mTransaction Transaction to operate with.
+	 * @param mFuncName The name of the function
+	 * @param mNum The number of arguments that are passed to the function
+	 * @throws SirixXPathException if function can't be added
 	 */
-	public void addFunction(final NodeReadTrx mTransaction,
-			final String mFuncName, final int mNum) throws SirixXPathException {
+	public void addFunction(final XdmNodeReadTrx mTransaction, final String mFuncName, final int mNum)
+			throws SirixXPathException {
 
 		assert getPipeStack().size() >= mNum;
 
@@ -778,14 +719,13 @@ public final class PipelineBuilder {
 		final Integer returnType = mTransaction.keyForName(func.getReturnType());
 
 		// parameter types of the function's constructor
-		final Class<?>[] paramTypes = { NodeReadTrx.class, List.class,
-				Integer.TYPE, Integer.TYPE, Integer.TYPE };
+		final Class<?>[] paramTypes =
+				{XdmNodeReadTrx.class, List.class, Integer.TYPE, Integer.TYPE, Integer.TYPE};
 
 		try {
 			// instantiate function class with right constructor
 			final Constructor<?> cons = function.getConstructor(paramTypes);
-			final Axis axis = (Axis) cons.newInstance(mTransaction, args, min, max,
-					returnType);
+			final Axis axis = (Axis) cons.newInstance(mTransaction, args, min, max, returnType);
 
 			if (getPipeStack().empty() || getExpression().getSize() != 0) {
 				addExpressionSingle();
@@ -807,16 +747,13 @@ public final class PipelineBuilder {
 	}
 
 	/**
-	 * Adds a VarRefExpr to the pipeline. This Expression holds a reference to the
-	 * current context item of the specified variable.
+	 * Adds a VarRefExpr to the pipeline. This Expression holds a reference to the current context
+	 * item of the specified variable.
 	 * 
-	 * @param mTransaction
-	 *          the transaction to operate on.
-	 * @param mVarName
-	 *          the name of the variable
+	 * @param mTransaction the transaction to operate on.
+	 * @param mVarName the name of the variable
 	 */
-	public void addVarRefExpr(final NodeReadTrx mTransaction,
-			final String mVarName) {
+	public void addVarRefExpr(final XdmNodeReadTrx mTransaction, final String mVarName) {
 
 		final VariableAxis axis = (VariableAxis) mVarRefMap.get(mVarName);
 		if (axis != null) {
@@ -832,8 +769,8 @@ public final class PipelineBuilder {
 	 */
 	@Override
 	public String toString() {
-		return new StringBuilder("Expression Stack: ").append(this.mExprStack)
-				.append("\nHashMap: ").append(this.mVarRefMap).toString();
+		return new StringBuilder("Expression Stack: ").append(this.mExprStack).append("\nHashMap: ")
+				.append(this.mVarRefMap).toString();
 	}
 
 }

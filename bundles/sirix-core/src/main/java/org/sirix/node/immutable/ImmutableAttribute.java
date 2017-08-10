@@ -24,8 +24,7 @@ import org.sirix.settings.Constants;
  * @author Johannes Lichtenberger
  * 
  */
-public final class ImmutableAttribute implements ImmutableValueNode,
-		ImmutableNameNode {
+public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNameNode {
 
 	/** Mutable {@link AttributeNode}. */
 	private final AttributeNode mNode;
@@ -33,8 +32,7 @@ public final class ImmutableAttribute implements ImmutableValueNode,
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          mutable {@link AttributeNode}
+	 * @param node mutable {@link AttributeNode}
 	 */
 	private ImmutableAttribute(final AttributeNode node) {
 		mNode = checkNotNull(node);
@@ -43,8 +41,7 @@ public final class ImmutableAttribute implements ImmutableValueNode,
 	/**
 	 * Get an immutable attribute node.
 	 * 
-	 * @param node
-	 *          the {@link AttributeNode} which should be immutable
+	 * @param node the {@link AttributeNode} which should be immutable
 	 * @return an immutable instance
 	 */
 	public static ImmutableAttribute of(final AttributeNode node) {
@@ -148,7 +145,6 @@ public final class ImmutableAttribute implements ImmutableValueNode,
 
 	@Override
 	public String getValue() {
-		return new String(((ValueNode) mNode).getRawValue(),
-				Constants.DEFAULT_ENCODING);
+		return new String(((ValueNode) mNode).getRawValue(), Constants.DEFAULT_ENCODING);
 	}
 }

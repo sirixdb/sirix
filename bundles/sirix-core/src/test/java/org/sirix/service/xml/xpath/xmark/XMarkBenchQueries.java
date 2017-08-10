@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath.xmark;
@@ -41,7 +35,8 @@ public class XMarkBenchQueries {
 	/*
 	 * Queries and expected results for factor 0.01; XML file with size 1MB
 	 */
-	private final String Q1_Fac001 = "for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
+	private final String Q1_Fac001 =
+			"for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
 	private final String R1_Fac001 = "Klemens Pelz";
 
 	private final String Q2_Fac001 = "";
@@ -53,7 +48,8 @@ public class XMarkBenchQueries {
 	private final String Q4_Fac001 = "";
 	private final String R4_Fac001 = "";
 
-	private final String Q5_Fac001 = "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
+	private final String Q5_Fac001 =
+			"fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
 	private final String R5_Fac001 = "75";
 
 	private final String Q6_Fac001 = "for $b in //site/regions return fn:count($b//item)";
@@ -103,7 +99,8 @@ public class XMarkBenchQueries {
 	private final String R20_Fac001 = "";
 
 	// own queries
-	private final String Q21_Fac001 = "/site/regions/*/item[@id=\"item0\"]/description//keyword/text()";
+	private final String Q21_Fac001 =
+			"/site/regions/*/item[@id=\"item0\"]/description//keyword/text()";
 	private final String R21_Fac001 = "officer embrace such fears distinction attires";
 
 	// private final String Q22_Fac001 =
@@ -117,7 +114,8 @@ public class XMarkBenchQueries {
 	/*
 	 * Queries and expected results for factor 0.1; XML file with size 10MB
 	 */
-	private final String Q1_Fac01 = "for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
+	private final String Q1_Fac01 =
+			"for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
 	private final String R1_Fac01 = "Krishna Merle";
 
 	private final String Q2_Fac01 = "";
@@ -129,7 +127,8 @@ public class XMarkBenchQueries {
 	private final String Q4_Fac01 = "";
 	private final String R4_Fac01 = "";
 
-	private final String Q5_Fac01 = "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
+	private final String Q5_Fac01 =
+			"fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
 	private final String R5_Fac01 = "670";
 
 	private final String Q6_Fac01 = "for $b in //site/regions return fn:count($b//item)";
@@ -179,13 +178,15 @@ public class XMarkBenchQueries {
 	private final String R20_Fac01 = "";
 
 	// own queries
-	private final String Q21_Fac01 = "/site/regions/*/item[@id=\"item0\"]/description//keyword/text()";
+	private final String Q21_Fac01 =
+			"/site/regions/*/item[@id=\"item0\"]/description//keyword/text()";
 	private final String R21_Fac01 = "officer embrace such fears distinction attires";
 
 	/*
 	 * Queries for factor 1.0; XML file with size 100 MB
 	 */
-	private final String Q1_Fac1 = "for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
+	private final String Q1_Fac1 =
+			"for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
 	private final String R1_Fac1 = "Kasidit Treweek";
 
 	private final String Q2_Fac1 = "";
@@ -197,7 +198,8 @@ public class XMarkBenchQueries {
 	private final String Q4_Fac1 = "";
 	private final String R4_Fac1 = "";
 
-	private final String Q5_Fac1 = "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
+	private final String Q5_Fac1 =
+			"fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
 	private final String R5_Fac1 = "6539";
 
 	private final String Q6_Fac1 = "for $b in //site/regions return fn:count($b//item)";
@@ -253,7 +255,8 @@ public class XMarkBenchQueries {
 	/*
 	 * Queries for factor 10.0; XML file with size 1000 MB
 	 */
-	private final String Q1_Fac10 = "for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
+	private final String Q1_Fac10 =
+			"for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
 	private final String R1_Fac10 = "Waldo Birch";
 
 	private final String Q2_Fac10 = "";
@@ -265,7 +268,8 @@ public class XMarkBenchQueries {
 	private final String Q4_Fac10 = "";
 	private final String R4_Fac10 = "";
 
-	private final String Q5_Fac10 = "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
+	private final String Q5_Fac10 =
+			"fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
 	private final String R5_Fac10 = "65851";
 
 	private final String Q6_Fac10 = "for $b in //site/regions return fn:count($b//item)";
@@ -317,10 +321,8 @@ public class XMarkBenchQueries {
 	/**
 	 * Return the query by query number and factor
 	 * 
-	 * @param queryNr
-	 *          XMark query number.
-	 * @param factor
-	 *          Factor of XML size.
+	 * @param queryNr XMark query number.
+	 * @param factor Factor of XML size.
 	 * @return query Query by number and factor.
 	 */
 	public String getQuery(final int queryNr, final String factor) {
@@ -339,8 +341,7 @@ public class XMarkBenchQueries {
 			fac = "10";
 		} else {
 			try {
-				throw new SirixIOException(
-						"XMark Benchmarking query factor does not exist!");
+				throw new SirixIOException("XMark Benchmarking query factor does not exist!");
 			} catch (final SirixIOException mExp) {
 				mExp.printStackTrace();
 			}
@@ -349,8 +350,7 @@ public class XMarkBenchQueries {
 
 		String queryValue = null;
 		try {
-			final Field privateStringField = XMarkBenchQueries.class
-					.getDeclaredField(sb.toString());
+			final Field privateStringField = XMarkBenchQueries.class.getDeclaredField(sb.toString());
 			privateStringField.setAccessible(true);
 			queryValue = (String) privateStringField.get(this);
 
@@ -363,10 +363,8 @@ public class XMarkBenchQueries {
 	/**
 	 * Return the result by query number and factor
 	 * 
-	 * @param queryNr
-	 *          XMark query number.
-	 * @param factor
-	 *          Factor of XML size.
+	 * @param queryNr XMark query number.
+	 * @param factor Factor of XML size.
 	 * @return result Query by number and factor.
 	 */
 	public String getResult(final int queryNr, final String factor) {
@@ -385,8 +383,7 @@ public class XMarkBenchQueries {
 			fac = "10";
 		} else {
 			try {
-				throw new SirixIOException(
-						"XMark Benchmarking result factor does not exist!");
+				throw new SirixIOException("XMark Benchmarking result factor does not exist!");
 			} catch (final SirixIOException mExp) {
 				mExp.printStackTrace();
 			}
@@ -395,8 +392,7 @@ public class XMarkBenchQueries {
 
 		String resultValue = null;
 		try {
-			final Field privateStringField = XMarkBenchQueries.class
-					.getDeclaredField(sb.toString());
+			final Field privateStringField = XMarkBenchQueries.class.getDeclaredField(sb.toString());
 			privateStringField.setAccessible(true);
 			resultValue = (String) privateStringField.get(this);
 

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.axis.visitor;
@@ -35,7 +29,7 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
@@ -50,15 +44,13 @@ import com.google.common.base.Optional;
  * <h1>VisitorDescendantAxis</h1>
  * 
  * <p>
- * Iterate over all descendants of any structural kind starting at a given node
- * by it's unique node key. The currently located node is optionally included.
- * Furthermore a {@link Visitor} is usable to guide the traversal and do
- * whatever you like with the node kind, which is selected by the given
- * {@link NodeReadTrx} transaction.
+ * Iterate over all descendants of any structural kind starting at a given node by it's unique node
+ * key. The currently located node is optionally included. Furthermore a {@link Visitor} is usable
+ * to guide the traversal and do whatever you like with the node kind, which is selected by the
+ * given {@link XdmNodeReadTrx} transaction.
  * </p>
  * <p>
- * Note that it is faster to use the standard {@link DescendantAxis} if no
- * visitor is specified.
+ * Note that it is faster to use the standard {@link DescendantAxis} if no visitor is specified.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -77,11 +69,10 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	/**
 	 * Get a new builder instance.
 	 * 
-	 * @param rtx
-	 *          the {@link NodeReadTrx} to iterate with
+	 * @param rtx the {@link XdmNodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final NodeReadTrx rtx) {
+	public static Builder newBuilder(final XdmNodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 
@@ -91,8 +82,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 		/** Optional visitor. */
 		private Optional<? extends Visitor> mVisitor = Optional.absent();
 
-		/** Sirix {@link NodeReadTrx}. */
-		private final NodeReadTrx mRtx;
+		/** Sirix {@link XdmNodeReadTrx}. */
+		private final XdmNodeReadTrx mRtx;
 
 		/** Determines if current node should be included or not. */
 		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
@@ -100,18 +91,16 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 		/**
 		 * Constructor.
 		 * 
-		 * @param rtx
-		 *          Sirix {@link NodeCursor}
+		 * @param rtx Sirix {@link NodeCursor}
 		 */
-		public Builder(final NodeReadTrx rtx) {
+		public Builder(final XdmNodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 		}
 
 		/**
 		 * Set include self option.
 		 * 
-		 * @param pIncludeSelf
-		 *          include self
+		 * @param pIncludeSelf include self
 		 * @return this builder instance
 		 */
 		public Builder includeSelf() {
@@ -122,8 +111,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 		/**
 		 * Set visitor.
 		 * 
-		 * @param visitor
-		 *          the visitor
+		 * @param visitor the visitor
 		 * @return this builder instance
 		 */
 		public Builder visitor(final Optional<? extends Visitor> visitor) {
@@ -144,8 +132,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param builder
-	 *          the builder to construct a new instance
+	 * @param builder the builder to construct a new instance
 	 */
 	private VisitorDescendantAxis(final Builder builder) {
 		super(builder.mRtx, builder.mIncludeSelf);
@@ -173,33 +160,31 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		}
 
-		final NodeReadTrx rtx = getTrx();
+		final XdmNodeReadTrx rtx = getTrx();
 
 		// Determines if first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
-			return isSelfIncluded() == IncludeSelf.YES ? rtx.getNodeKey() : rtx
-					.getFirstChildKey();
+			return isSelfIncluded() == IncludeSelf.YES ? rtx.getNodeKey() : rtx.getFirstChildKey();
 		}
 
 		// If visitor is present and the the righ sibling stack must be adapted.
-		if (result.isPresent()
-				&& result.get() == LocalVisitResult.SKIPSUBTREEPOPSTACK) {
+		if (result.isPresent() && result.get() == LocalVisitResult.SKIPSUBTREEPOPSTACK) {
 			mRightSiblingKeyStack.pop();
 		}
 
 		// If visitor is present and result is not
 		// EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
 		// not present.
-		if ((result.isPresent() && result.get() != VisitResultType.SKIPSUBTREE && result
-				.get() != LocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
+		if ((result.isPresent() && result.get() != VisitResultType.SKIPSUBTREE
+				&& result.get() != LocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
 			// Always follow first child if there is one.
 			if (rtx.hasFirstChild()) {
 				final long key = rtx.getFirstChildKey();
 				final long rightSiblNodeKey = rtx.getRightSiblingKey();
 				if (rtx.hasRightSibling()
-						&& (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack
-								.isEmpty() && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
+						&& (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack.isEmpty()
+								&& mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
 					mRightSiblingKeyStack.push(rightSiblNodeKey);
 				}
 				return key;
@@ -229,13 +214,11 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	/**
 	 * Determines if next node is not a right sibling of the current node.
 	 * 
-	 * @param currKey
-	 *          node key of current node
+	 * @param currKey node key of current node
 	 */
-	private long hasNextNode(final @Nonnegative long nextKey,
-			final @Nonnegative long currKey) {
+	private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
 		// Fail if the subtree is finished.
-		final NodeReadTrx rtx = getTrx();
+		final XdmNodeReadTrx rtx = getTrx();
 		rtx.moveTo(nextKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
 			return Fixed.NULL_NODE_KEY.getStandardProperty();

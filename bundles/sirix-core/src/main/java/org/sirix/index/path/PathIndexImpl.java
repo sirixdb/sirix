@@ -38,21 +38,19 @@ public final class PathIndexImpl implements PathIndex<Long, NodeReferences> {
 	}
 
 	@Override
-	public Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final PathFilter filter) {
-		final AVLTreeReader<Long, NodeReferences> reader = AVLTreeReader
-				.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
+	public Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+			final PathFilter filter) {
+		final AVLTreeReader<Long, NodeReferences> reader =
+				AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
 
 		if (filter.getPCRs().size() == 1) {
-			final Optional<NodeReferences> optionalNodeReferences = reader.get(filter
-					.getPCRs().iterator().next(), SearchMode.EQUAL);
-			return Iterators.forArray(optionalNodeReferences
-					.orElse(new NodeReferences()));
+			final Optional<NodeReferences> optionalNodeReferences =
+					reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);
+			return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
 		} else {
-			final Iterator<AVLNode<Long, NodeReferences>> iter = reader.new AVLNodeIterator(
-					Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-			final Set<Filter> setFilter = filter == null ? ImmutableSet.of()
-					: ImmutableSet.of(filter);
+			final Iterator<AVLNode<Long, NodeReferences>> iter =
+					reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+			final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
 
 			return new IndexFilterAxis<Long>(iter, setFilter);
 		}

@@ -28,8 +28,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          {@link TextNode} to wrap
+	 * @param node {@link TextNode} to wrap
 	 */
 	private ImmutableText(final TextNode node) {
 		mNode = checkNotNull(node);
@@ -38,8 +37,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	/**
 	 * Get an immutable text node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link TextNode} to wrap
+	 * @param node the mutable {@link TextNode} to wrap
 	 * @return immutable text node instance
 	 */
 	public static ImmutableText of(final TextNode node) {

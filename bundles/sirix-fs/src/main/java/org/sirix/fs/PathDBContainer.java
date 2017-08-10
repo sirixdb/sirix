@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.Database;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
 
 import com.google.common.base.Objects;
 
@@ -15,7 +15,7 @@ import com.google.common.base.Objects;
  * Container for {@code {@link Path}/{@link Database} combinations. Note that
  * it may be refined to {@code
  * 
- * @link IDatabase}/{@link Session}/{@link IResource} later on.
+ * @link IDatabase}/{@link ResourceManager}/{@link IResource} later on.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 

@@ -14,12 +14,11 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractStructForwardingNode extends
-		AbstractForwardingNode implements StructNode {
+public abstract class AbstractStructForwardingNode extends AbstractForwardingNode
+		implements StructNode {
 
 	/** Constructor for use by subclasses. */
-	protected AbstractStructForwardingNode() {
-	}
+	protected AbstractStructForwardingNode() {}
 
 	/** {@link StructNodeDelegate} instance. */
 	protected abstract StructNodeDelegate structDelegate();
@@ -115,8 +114,7 @@ public abstract class AbstractStructForwardingNode extends
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("nodeDelegate", super.toString())
+		return MoreObjects.toStringHelper(this).add("nodeDelegate", super.toString())
 				.add("structDelegate", structDelegate().toString()).toString();
 	}
 

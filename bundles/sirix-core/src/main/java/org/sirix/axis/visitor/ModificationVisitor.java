@@ -10,7 +10,7 @@ import javax.xml.stream.XMLStreamException;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.AbstractVisitor;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.axis.DescendantAxis;
@@ -23,8 +23,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * Visitor implementation for use with the {@link VisitorDescendantAxis} to
- * modify nodes.
+ * Visitor implementation for use with the {@link VisitorDescendantAxis} to modify nodes.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -32,14 +31,14 @@ import org.slf4j.LoggerFactory;
 public final class ModificationVisitor extends AbstractVisitor {
 
 	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER = new LogWrapper(
-			LoggerFactory.getLogger(ModificationVisitor.class));
+	private static final LogWrapper LOGWRAPPER =
+			new LogWrapper(LoggerFactory.getLogger(ModificationVisitor.class));
 
 	/** Determines the modify rate. */
 	private static final int MODIFY_EVERY = 1111;
 
-	/** Sirix {@link NodeWriteTrx}. */
-	private final NodeWriteTrx mWtx;
+	/** Sirix {@link XdmNodeWriteTrx}. */
+	private final XdmNodeWriteTrx mWtx;
 
 	/** Random number generator. */
 	private final Random mRandom = new Random();
@@ -53,12 +52,10 @@ public final class ModificationVisitor extends AbstractVisitor {
 	/**
 	 * Constructor.
 	 * 
-	 * @param wtx
-	 *          sirix {@link NodeWriteTrx}
-	 * @param startKey
-	 *          start key
+	 * @param wtx sirix {@link XdmNodeWriteTrx}
+	 * @param startKey start key
 	 */
-	public ModificationVisitor(final NodeWriteTrx wtx, final long startKey) {
+	public ModificationVisitor(final XdmNodeWriteTrx wtx, final long startKey) {
 		mWtx = checkNotNull(wtx);
 		checkArgument(startKey >= 0, "start key must be >= 0!");
 		mStartKey = startKey;
@@ -71,11 +68,9 @@ public final class ModificationVisitor extends AbstractVisitor {
 	}
 
 	/**
-	 * Process a node, that is decide if it has to be deleted and move
-	 * accordingly.
+	 * Process a node, that is decide if it has to be deleted and move accordingly.
 	 * 
-	 * @param pNode
-	 *          the node to check
+	 * @param pNode the node to check
 	 * @return the appropriate {@link VisitResultType} value
 	 */
 	private VisitResult processNode(final ImmutableNode node) {
@@ -93,14 +88,12 @@ public final class ModificationVisitor extends AbstractVisitor {
 	}
 
 	/**
-	 * Determines if a node must be modified. If yes, it is deleted and
-	 * {@code true} is returned. If it must not be deleted {@code false} is
-	 * returned. The transaction is moved accordingly in case of a
-	 * remove-operation such that the {@link DescendantAxis} can move to the next
-	 * node after a delete occurred.
+	 * Determines if a node must be modified. If yes, it is deleted and {@code true} is returned. If
+	 * it must not be deleted {@code false} is returned. The transaction is moved accordingly in case
+	 * of a remove-operation such that the {@link DescendantAxis} can move to the next node after a
+	 * delete occurred.
 	 * 
-	 * @param node
-	 *          the node to check and possibly delete
+	 * @param node the node to check and possibly delete
 	 * @return {@code true} if node has been deleted, {@code false} otherwise
 	 */
 	private VisitResult modify(final ImmutableNode node) {
@@ -110,25 +103,25 @@ public final class ModificationVisitor extends AbstractVisitor {
 
 			try {
 				switch (mRandom.nextInt(4)) {
-				case 0:
-					final QNm insert = new QNm("testInsert");
-					final long key = mWtx.getNodeKey();
-					mWtx.insertElementAsLeftSibling(insert);
-					boolean moved = mWtx.moveTo(key).hasMoved();
-					assert moved;
-					return VisitResultType.CONTINUE;
-				case 1:
-					if (mWtx.getKind() == Kind.TEXT) {
-						mWtx.setValue("testUpdate");
-					} else if (mWtx.getKind() == Kind.ELEMENT) {
-						mWtx.setName(new QNm("testUpdate"));
-					}
-					return VisitResultType.CONTINUE;
-				case 2:
-					return delete();
-				case 3:
-					mWtx.replaceNode("<foo/>");
-					return VisitResultType.CONTINUE;
+					case 0:
+						final QNm insert = new QNm("testInsert");
+						final long key = mWtx.getNodeKey();
+						mWtx.insertElementAsLeftSibling(insert);
+						boolean moved = mWtx.moveTo(key).hasMoved();
+						assert moved;
+						return VisitResultType.CONTINUE;
+					case 1:
+						if (mWtx.getKind() == Kind.TEXT) {
+							mWtx.setValue("testUpdate");
+						} else if (mWtx.getKind() == Kind.ELEMENT) {
+							mWtx.setName(new QNm("testUpdate"));
+						}
+						return VisitResultType.CONTINUE;
+					case 2:
+						return delete();
+					case 3:
+						mWtx.replaceNode("<foo/>");
+						return VisitResultType.CONTINUE;
 				}
 			} catch (final SirixException | IOException | XMLStreamException e) {
 				LOGWRAPPER.error(e.getMessage(), e);
@@ -146,8 +139,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 		try {
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
-			if (mWtx.getLeftSiblingKind() == Kind.TEXT
-					&& mWtx.getRightSiblingKind() == Kind.TEXT) {
+			if (mWtx.getLeftSiblingKind() == Kind.TEXT && mWtx.getRightSiblingKind() == Kind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);
@@ -177,8 +169,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 			// Case: Has right sibl. and left sibl.
 			if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
 				final long rightSiblKey = mWtx.getRightSiblingKey();
-				final long rightRightSiblKey = mWtx.moveToRightSibling().get()
-						.getRightSiblingKey();
+				final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
 				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {

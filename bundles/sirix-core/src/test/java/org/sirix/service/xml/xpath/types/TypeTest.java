@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath.types;
@@ -38,11 +32,10 @@ import org.sirix.exception.SirixXPathException;
 
 public class TypeTest {
 
-	Type anyType, anySimpleType, anyAtomicType, untypedAtomic, untyped, string,
-			duration, dateTime, time, date, yearMonth, month, monthDay, year, day,
-			bool, base64, hex, anyURI, notation, floatT, doubleT, integerT, longT,
-			intT, qName, pDecimal, decimal, shortT, byteT, nPosInt, posInt,
-			unsignedLong, name, token, language;
+	Type anyType, anySimpleType, anyAtomicType, untypedAtomic, untyped, string, duration, dateTime,
+			time, date, yearMonth, month, monthDay, year, day, bool, base64, hex, anyURI, notation,
+			floatT, doubleT, integerT, longT, intT, qName, pDecimal, decimal, shortT, byteT, nPosInt,
+			posInt, unsignedLong, name, token, language;
 
 	@Before
 	public void setUp() throws Exception {
@@ -88,10 +81,8 @@ public class TypeTest {
 	@Test
 	public final void testGetLeastCommonType() {
 		assertEquals(Type.getLeastCommonType(anyType, string), Type.ANY_TYPE);
-		assertEquals(Type.getLeastCommonType(anyAtomicType, string),
-				Type.ANY_ATOMIC_TYPE);
-		assertEquals(Type.getLeastCommonType(integerT, string),
-				Type.ANY_ATOMIC_TYPE);
+		assertEquals(Type.getLeastCommonType(anyAtomicType, string), Type.ANY_ATOMIC_TYPE);
+		assertEquals(Type.getLeastCommonType(integerT, string), Type.ANY_ATOMIC_TYPE);
 		assertEquals(Type.getLeastCommonType(nPosInt, string), Type.ANY_ATOMIC_TYPE);
 		assertEquals(Type.getLeastCommonType(shortT, decimal), Type.DECIMAL);
 		assertEquals(Type.getLeastCommonType(name, token), Type.TOKEN);
@@ -320,8 +311,7 @@ public class TypeTest {
 	@Test
 	public final void testFacets() {
 		assertEquals(true, string.facetIsSatisfiedBy("hallo welt!"));
-		assertEquals(true,
-				string.facetIsSatisfiedBy("r7321741237r8gruqewfgducnb2138"));
+		assertEquals(true, string.facetIsSatisfiedBy("r7321741237r8gruqewfgducnb2138"));
 		assertEquals(true, string.facetIsSatisfiedBy("-12.E24"));
 		assertEquals(true, string.facetIsSatisfiedBy("&%)=1"));
 		assertEquals(true, string.facetIsSatisfiedBy("\""));
@@ -360,8 +350,7 @@ public class TypeTest {
 			string.isCastableTo(Type.INTEGER, "hallo welt!");
 			fail();
 		} catch (final SirixXPathException exc) {
-			assertThat(
-					exc.getMessage(),
+			assertThat(exc.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
 							+ "typedoes not match a required type as specified by the matching rules."));
 		}
@@ -369,17 +358,15 @@ public class TypeTest {
 			string.isCastableTo(Type.BOOLEAN, "13");
 			fail();
 		} catch (final SirixXPathException exc) {
-			assertThat(
-					exc.getMessage(),
+			assertThat(exc.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
 							+ "typedoes not match a required type as specified by the matching rules."));
 		}
 		try {
 			string.isCastableTo(Type.NOTATION, "\"");
 		} catch (final SirixXPathException exc) {
-			assertThat(exc.getMessage(),
-					is("err:XPST0080 Target type of a cast or castable expression "
-							+ "must not be xs:NOTATION or xs:anyAtomicType."));
+			assertThat(exc.getMessage(), is("err:XPST0080 Target type of a cast or castable expression "
+					+ "must not be xs:NOTATION or xs:anyAtomicType."));
 		}
 		assertEquals(true, integerT.isCastableTo(Type.DOUBLE, "12345"));
 		assertEquals(true, integerT.isCastableTo(Type.FLOAT, "-12345"));

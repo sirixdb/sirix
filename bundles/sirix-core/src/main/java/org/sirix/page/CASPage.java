@@ -1,30 +1,24 @@
 package org.sirix.page;
 
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -67,8 +61,7 @@ public final class CASPage extends AbstractForwardingPage {
 	/**
 	 * Get indirect page reference.
 	 *
-	 * @param index
-	 *          the offset of the indirect page, that is the index number
+	 * @param index the offset of the indirect page, that is the index number
 	 * @return indirect page reference
 	 */
 	public PageReference getIndirectPageReference(int index) {
@@ -78,8 +71,7 @@ public final class CASPage extends AbstractForwardingPage {
 	/**
 	 * Read meta page.
 	 *
-	 * @param in
-	 *          input bytes to read from
+	 * @param in input bytes to read from
 	 */
 	protected CASPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
@@ -92,8 +84,7 @@ public final class CASPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("mDelegate", mDelegate)
-				.toString();
+		return MoreObjects.toStringHelper(this).add("mDelegate", mDelegate).toString();
 	}
 
 	@Override
@@ -110,10 +101,8 @@ public final class CASPage extends AbstractForwardingPage {
 	/**
 	 * Initialize CAS index tree.
 	 *
-	 * @param pageReadTrx
-	 *          {@link PageReadTrx} instance
-	 * @param index
-	 *          the index number
+	 * @param pageReadTrx {@link PageReadTrx} instance
+	 * @param index the index number
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createCASIndexTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
@@ -142,8 +131,7 @@ public final class CASPage extends AbstractForwardingPage {
 	/**
 	 * Get the maximum node key of the specified index by its index number.
 	 *
-	 * @param indexNo
-	 *          the index number
+	 * @param indexNo the index number
 	 * @return the maximum node key stored
 	 */
 	public long getMaxNodeKey(final int indexNo) {

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix.diff.algorithm.fmse;
 
@@ -48,21 +42,16 @@ public final class Util {
 	}
 
 	/**
-	 * Longest common subsequence algorithm. cf. E. Myers. An O(ND) difference
-	 * algorithm and its variations. Algorithmica, 1(2): 251-266, 1986
+	 * Longest common subsequence algorithm. cf. E. Myers. An O(ND) difference algorithm and its
+	 * variations. Algorithmica, 1(2): 251-266, 1986
 	 * 
-	 * @param first
-	 *          first list
-	 * @param second
-	 *          second list
-	 * @param pCmp
-	 *          function to compare the items in both lists (equality)
-	 * @return lcs, the items in the pairs are equal and taken from list x and
-	 *         list y.
+	 * @param first first list
+	 * @param second second list
+	 * @param pCmp function to compare the items in both lists (equality)
+	 * @return lcs, the items in the pairs are equal and taken from list x and list y.
 	 */
-	public static <T> List<Pair<T, T>> longestCommonSubsequence(
-			@Nonnull final List<T> first, @Nonnull final List<T> second,
-			@Nonnull final Comparator<T> pCmp) {
+	public static <T> List<Pair<T, T>> longestCommonSubsequence(@Nonnull final List<T> first,
+			@Nonnull final List<T> second, @Nonnull final Comparator<T> pCmp) {
 
 		if (first == null || second == null) {
 			return new ArrayList<>();
@@ -113,13 +102,11 @@ public final class Util {
 	}
 
 	/**
-	 * Calculates the similarity of two strings. This is done by comparing the
-	 * frequency of each character occurs in both strings.
+	 * Calculates the similarity of two strings. This is done by comparing the frequency of each
+	 * character occurs in both strings.
 	 * 
-	 * @param first
-	 *          first string
-	 * @param second
-	 *          second string
+	 * @param first first string
+	 * @param second second string
 	 * @return similarity of a and b, a value in [0, 1]
 	 */
 	public static float quickRatio(final String first, final String second) {

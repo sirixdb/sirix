@@ -17,8 +17,7 @@ public class NotMoved extends Move<NodeCursor> {
 	static final NotMoved INSTANCE = new NotMoved();
 
 	/** Private constructor. */
-	private NotMoved() {
-	}
+	private NotMoved() {}
 
 	@Override
 	public boolean hasMoved() {
@@ -27,8 +26,7 @@ public class NotMoved extends Move<NodeCursor> {
 
 	@Override
 	public NodeCursor get() {
-		throw new NoSuchElementException(
-				"NotMoved.get() cannot be called on an absent value");
+		throw new NoSuchElementException("NotMoved.get() cannot be called on an absent value");
 	}
 
 	@Override

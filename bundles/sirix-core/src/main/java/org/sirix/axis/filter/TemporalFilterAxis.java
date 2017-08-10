@@ -1,7 +1,7 @@
 package org.sirix.axis.filter;
 
 import org.sirix.api.Filter;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -21,15 +21,12 @@ public final class TemporalFilterAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param axis
-	 *          axis to iterate over
-	 * @param firstAxisTest
-	 *          test to perform for each node found with axis
-	 * @param axisTest
-	 *          tests to perform for each node found with axis
+	 * @param axis axis to iterate over
+	 * @param firstAxisTest test to perform for each node found with axis
+	 * @param axisTest tests to perform for each node found with axis
 	 */
-	public TemporalFilterAxis(final AbstractTemporalAxis axis,
-			final Filter firstAxisTest, final Filter... axisTest) {
+	public TemporalFilterAxis(final AbstractTemporalAxis axis, final Filter firstAxisTest,
+			final Filter... axisTest) {
 		mAxis = axis;
 		final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;
 		mAxisFilter = new Filter[length];
@@ -40,9 +37,9 @@ public final class TemporalFilterAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	protected NodeReadTrx computeNext() {
+	protected XdmNodeReadTrx computeNext() {
 		while (mAxis.hasNext()) {
-			final NodeReadTrx rtx = mAxis.next();
+			final XdmNodeReadTrx rtx = mAxis.next();
 			boolean filterResult = true;
 			for (final Filter filter : mAxisFilter) {
 				filter.setTrx(rtx);
@@ -68,7 +65,7 @@ public final class TemporalFilterAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	public NodeReadTrx getTrx() {
+	public XdmNodeReadTrx getTrx() {
 		return mAxis.getTrx();
 	}
 }

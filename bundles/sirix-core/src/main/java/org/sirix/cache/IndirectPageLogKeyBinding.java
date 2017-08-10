@@ -13,12 +13,11 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * @author Johannes Lichtenberger
  * 
  */
-public final class IndirectPageLogKeyBinding extends
-		TupleBinding<IndirectPageLogKey> {
+public final class IndirectPageLogKeyBinding extends TupleBinding<IndirectPageLogKey> {
 	@Override
 	public IndirectPageLogKey entryToObject(final TupleInput in) {
-		return new IndirectPageLogKey(PageKind.getKind(in.readByte()),
-				in.readInt(), in.readInt(), in.readInt());
+		return new IndirectPageLogKey(PageKind.getKind(in.readByte()), in.readInt(), in.readInt(),
+				in.readInt());
 	}
 
 	@Override

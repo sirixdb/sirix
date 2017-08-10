@@ -5,8 +5,7 @@ import org.sirix.node.interfaces.Node;
 /**
  * Immutable AVLNode.
  */
-public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends
-		Node {
+public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends Node {
 
 	/**
 	 * Key to be indexed.
@@ -25,8 +24,7 @@ public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends
 	/**
 	 * Flag which determines if node is changed.
 	 * 
-	 * @return {@code true} if it has been changed in memory, {@code false}
-	 *         otherwise
+	 * @return {@code true} if it has been changed in memory, {@code false} otherwise
 	 */
 	public boolean isChanged();
 

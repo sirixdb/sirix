@@ -18,8 +18,7 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ComparisonChain;
 
 /**
- * Value representing a text value, attribute value, element QName or any other
- * byte encoded value.
+ * Value representing a text value, attribute value, element QName or any other byte encoded value.
  *
  * @author Johannes Lichtenberger
  *
@@ -27,8 +26,7 @@ import com.google.common.collect.ComparisonChain;
 public final class CASValue implements Comparable<CASValue> {
 
 	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(CASValue.class));
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASValue.class));
 
 	/** Atomic value. */
 	private final Atomic mValue;
@@ -42,15 +40,11 @@ public final class CASValue implements Comparable<CASValue> {
 	/**
 	 * Constructor.
 	 *
-	 * @param value
-	 *          the String value in bytes
-	 * @param nodeKey
-	 *          the unique node-key
-	 * @param pathNodeKey
-	 *          the path node-key
+	 * @param value the String value in bytes
+	 * @param nodeKey the unique node-key
+	 * @param pathNodeKey the path node-key
 	 */
-	public CASValue(final Atomic value, final Type type,
-			final @Nonnegative long pathNodeKey) {
+	public CASValue(final Atomic value, final Type type, final @Nonnegative long pathNodeKey) {
 		mValue = checkNotNull(value);
 		mType = checkNotNull(type);
 		mType.atomicCode();
@@ -92,8 +86,7 @@ public final class CASValue implements Comparable<CASValue> {
 		} catch (final QueryException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
-		return ComparisonChain.start()
-				.compare(mPathNodeKey, otherValue.mPathNodeKey)
+		return ComparisonChain.start().compare(mPathNodeKey, otherValue.mPathNodeKey)
 				.compare(thisAtomic, otherAtomic).result();
 	}
 
@@ -106,8 +99,7 @@ public final class CASValue implements Comparable<CASValue> {
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof CASValue) {
 			final CASValue otherValue = (CASValue) obj;
-			return Objects.equal(otherValue.mValue, mValue)
-					&& Objects.equal(otherValue.mType, mType)
+			return Objects.equal(otherValue.mValue, mValue) && Objects.equal(otherValue.mType, mType)
 					&& otherValue.mPathNodeKey == mPathNodeKey;
 		}
 		return false;
@@ -124,8 +116,8 @@ public final class CASValue implements Comparable<CASValue> {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("value", mValue)
-				.add("pathNodeKey", mPathNodeKey).toString();
+		return MoreObjects.toStringHelper(this).add("value", mValue).add("pathNodeKey", mPathNodeKey)
+				.toString();
 	}
 
 	public Type getType() {

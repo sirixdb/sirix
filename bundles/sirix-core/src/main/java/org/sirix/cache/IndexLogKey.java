@@ -22,12 +22,9 @@ public final class IndexLogKey {
 	/**
 	 * Constructor.
 	 *
-	 * @param pageKind
-	 *          the page kind (kind of the index)
-	 * @param recordPageKey
-	 *          the record page key
-	 * @param index
-	 *          the index number
+	 * @param pageKind the page kind (kind of the index)
+	 * @param recordPageKey the record page key
+	 * @param index the index number
 	 */
 	public IndexLogKey(final long recordPageKey, final @Nonnegative int index) {
 		assert recordPageKey >= -1;
@@ -60,7 +57,7 @@ public final class IndexLogKey {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("recordPageKey", mRecordPageKey).add("index", mIndex).toString();
+		return MoreObjects.toStringHelper(this).add("recordPageKey", mRecordPageKey)
+				.add("index", mIndex).toString();
 	}
 }

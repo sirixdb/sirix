@@ -25,8 +25,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  *
  */
-public final class CommentNode extends AbstractStructForwardingNode implements
-		ValueNode {
+public final class CommentNode extends AbstractStructForwardingNode implements ValueNode {
 
 	/** {@link StructNodeDelegate} reference. */
 	private final StructNodeDelegate mStructNodeDel;
@@ -40,15 +39,11 @@ public final class CommentNode extends AbstractStructForwardingNode implements
 	/**
 	 * Constructor for TextNode.
 	 *
-	 * @param pDel
-	 *          delegate for {@link Node} implementation
-	 * @param valDel
-	 *          delegate for {@link ValueNode} implementation
-	 * @param structDel
-	 *          delegate for {@link StructNode} implementation
+	 * @param pDel delegate for {@link Node} implementation
+	 * @param valDel delegate for {@link ValueNode} implementation
+	 * @param structDel delegate for {@link StructNode} implementation
 	 */
-	public CommentNode(final ValNodeDelegate valDel,
-			final StructNodeDelegate structDel) {
+	public CommentNode(final ValNodeDelegate valDel, final StructNodeDelegate structDel) {
 		mStructNodeDel = checkNotNull(structDel);
 		mValDel = checkNotNull(valDel);
 	}
@@ -121,8 +116,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof CommentNode) {
 			final CommentNode other = (CommentNode) obj;
-			return Objects.equal(mStructNodeDel.getNodeDelegate(),
-					other.getNodeDelegate())
+			return Objects.equal(mStructNodeDel.getNodeDelegate(), other.getNodeDelegate())
 					&& mValDel.equals(other.mValDel);
 		}
 		return false;
@@ -130,8 +124,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("node delegate", mStructNodeDel.getNodeDelegate())
+		return MoreObjects.toStringHelper(this).add("node delegate", mStructNodeDel.getNodeDelegate())
 				.add("value delegate", mValDel).toString();
 	}
 

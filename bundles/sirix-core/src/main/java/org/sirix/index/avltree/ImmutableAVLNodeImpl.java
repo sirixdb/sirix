@@ -12,10 +12,8 @@ import org.sirix.node.delegates.NodeDelegate;
  * 
  * @author Johannes Lichtenberger
  * 
- * @param <K>
- *          key which has to be comparable (implement Comparable interface)
- * @param <V>
- *          value
+ * @param <K> key which has to be comparable (implement Comparable interface)
+ * @param <V> value
  */
 public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
 		extends AbstractForwardingNode implements ImmutableAVLNode<K, V> {
@@ -26,8 +24,7 @@ public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
 	/**
 	 * Constructor.
 	 * 
-	 * @param node
-	 *          {@link AVLNode} to wrap.
+	 * @param node {@link AVLNode} to wrap.
 	 */
 	public ImmutableAVLNodeImpl(final AVLNode<K, V> node) {
 		assert node != null;

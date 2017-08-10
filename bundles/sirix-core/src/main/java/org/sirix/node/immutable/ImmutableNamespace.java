@@ -29,8 +29,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          {@link NamespaceNode} to wrap
+	 * @param node {@link NamespaceNode} to wrap
 	 */
 	private ImmutableNamespace(final NamespaceNode node) {
 		mNode = checkNotNull(node);
@@ -39,8 +38,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	/**
 	 * Get an immutable namespace node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link NamespaceNode} to wrap
+	 * @param node the mutable {@link NamespaceNode} to wrap
 	 * @return immutable namespace node instance
 	 */
 	public static ImmutableNamespace of(final NamespaceNode node) {
