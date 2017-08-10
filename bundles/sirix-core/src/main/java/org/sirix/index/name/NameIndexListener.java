@@ -29,52 +29,49 @@ final class NameIndexListener implements ChangeListener {
 	private final Set<QNm> mExcludes;
 	private final AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
 
-	public NameIndexListener(
-			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	public NameIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final IndexDef indexDefinition) {
 		mIncludes = checkNotNull(indexDefinition.getIncluded());
 		mExcludes = checkNotNull(indexDefinition.getExcluded());
 		assert indexDefinition.getType() == IndexType.NAME;
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
-				indexDefinition.getType(), indexDefinition.getID());
+		mAVLTreeWriter =
+				AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
 	}
 
 	@Override
-	public void listen(ChangeType type, @Nonnull ImmutableNode node,
-			long pathNodeKey) throws SirixIOException {
+	public void listen(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey)
+			throws SirixIOException {
 		if (node instanceof NameNode) {
 			final NameNode nameNode = (NameNode) node;
 			final QNm name = nameNode.getName();
 			final boolean included = (mIncludes.isEmpty() || mIncludes.contains(name));
-			final boolean excluded = (!mExcludes.isEmpty() && mExcludes
-					.contains(name));
+			final boolean excluded = (!mExcludes.isEmpty() && mExcludes.contains(name));
 
 			if (!included || excluded) {
 				return;
 			}
 
 			switch (type) {
-			case INSERT:
-				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
-						name, SearchMode.EQUAL);
-				if (textReferences.isPresent()) {
-					setNodeReferences(node, textReferences.get(), name);
-				} else {
-					setNodeReferences(node, new NodeReferences(), name);
-				}
-				break;
-			case DELETE:
-				mAVLTreeWriter.remove(name, node.getNodeKey());
-				break;
-			default:
+				case INSERT:
+					final Optional<NodeReferences> textReferences =
+							mAVLTreeWriter.get(name, SearchMode.EQUAL);
+					if (textReferences.isPresent()) {
+						setNodeReferences(node, textReferences.get(), name);
+					} else {
+						setNodeReferences(node, new NodeReferences(), name);
+					}
+					break;
+				case DELETE:
+					mAVLTreeWriter.remove(name, node.getNodeKey());
+					break;
+				default:
 			}
 		}
 	}
 
-	private void setNodeReferences(final ImmutableNode node,
-			final NodeReferences references, final QNm name) throws SirixIOException {
-		mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()),
-				MoveCursor.NO_MOVE);
+	private void setNodeReferences(final ImmutableNode node, final NodeReferences references,
+			final QNm name) throws SirixIOException {
+		mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
 	}
 
 }

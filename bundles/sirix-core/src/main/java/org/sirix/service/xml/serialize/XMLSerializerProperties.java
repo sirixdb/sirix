@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.serialize;
@@ -51,8 +45,8 @@ import org.slf4j.LoggerFactory;
 public final class XMLSerializerProperties {
 
 	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(XMLSerializerProperties.class));
+	private static final LogWrapper LOGGER =
+			new LogWrapper(LoggerFactory.getLogger(XMLSerializerProperties.class));
 
 	// ============== Class constants. =================
 
@@ -65,19 +59,19 @@ public final class XMLSerializerProperties {
 	// ============ Shredding constants. ===============
 
 	/** Serialize TT-ID: yes/no. */
-	public static final Object[] S_ID = { "serialize-id", NO };
+	public static final Object[] S_ID = {"serialize-id", NO};
 
 	/** Serialization parameter: yes/no. */
-	public static final Object[] S_INDENT = { "indent", NO };
+	public static final Object[] S_INDENT = {"indent", NO};
 
 	/** Specific serialization parameter: number of spaces to indent. */
-	public static final Object[] S_INDENT_SPACES = { "indent-spaces", 2 };
+	public static final Object[] S_INDENT_SPACES = {"indent-spaces", 2};
 
 	/** Serialize REST: yes/no. */
-	public static final Object[] S_REST = { "serialize-rest", NO };
+	public static final Object[] S_REST = {"serialize-rest", NO};
 
 	/** Serialize XML declaration: yes/no. */
-	public static final Object[] S_XMLDECL = { "xmldecl", NO };
+	public static final Object[] S_XMLDECL = {"xmldecl", NO};
 
 	/** Property file. */
 	private String mFilePath;
@@ -119,13 +113,12 @@ public final class XMLSerializerProperties {
 	 * </ul>
 	 * 
 	 * <p>
-	 * Note that currently all properties have to be set. If specific key/value
-	 * pairs are specified more than once the last values are preserved, so the
-	 * default values are overridden by user specified values.
+	 * Note that currently all properties have to be set. If specific key/value pairs are specified
+	 * more than once the last values are preserved, so the default values are overridden by user
+	 * specified values.
 	 * </p>
 	 * 
-	 * @param filePath
-	 *          path to properties file
+	 * @param filePath path to properties file
 	 * @return ConcurrentMap which holds property key/values.
 	 */
 	public ConcurrentMap<String, Object> readProps(final String filePath) {
@@ -136,10 +129,8 @@ public final class XMLSerializerProperties {
 
 		try {
 			// Read and parse file.
-			final BufferedReader buffReader = new BufferedReader(new FileReader(
-					mFilePath));
-			for (String line = buffReader.readLine(); line != null; line = buffReader
-					.readLine()) {
+			final BufferedReader buffReader = new BufferedReader(new FileReader(mFilePath));
+			for (String line = buffReader.readLine(); line != null; line = buffReader.readLine()) {
 				line = line.trim();
 				if (line.isEmpty()) {
 					continue;
@@ -147,8 +138,7 @@ public final class XMLSerializerProperties {
 
 				final int equals = line.indexOf('=');
 				if (equals < 0) {
-					LOGGER
-							.error("Properties file has no '=' sign in line -- parsing error!");
+					LOGGER.error("Properties file has no '=' sign in line -- parsing error!");
 				}
 
 				final String key = line.substring(0, equals).toUpperCase();

@@ -24,8 +24,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	/**
 	 * Copy constructor.
 	 * 
-	 * @param pipeline
-	 *          pipeline to copy
+	 * @param pipeline pipeline to copy
 	 */
 	public ByteHandlePipeline(final ByteHandlePipeline pipeline) {
 		mParts = new ArrayList<>(pipeline.mParts.size());
@@ -38,8 +37,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	 * 
 	 * Constructor.
 	 * 
-	 * @param parts
-	 *          to be stored, Order is important!
+	 * @param parts to be stored, Order is important!
 	 */
 	public ByteHandlePipeline(final ByteHandler... parts) {
 		mParts = new ArrayList<>();
@@ -49,8 +47,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public OutputStream serialize(final OutputStream toSerialize)
-			throws IOException {
+	public OutputStream serialize(final OutputStream toSerialize) throws IOException {
 		OutputStream pipeData = toSerialize;
 		for (final ByteHandler part : mParts) {
 			pipeData = part.serialize(pipeData);
@@ -59,8 +56,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public InputStream deserialize(final InputStream toDeserialize)
-			throws IOException {
+	public InputStream deserialize(final InputStream toDeserialize) throws IOException {
 		InputStream pipeData = toDeserialize;
 		for (final ByteHandler part : mParts) {
 			pipeData = part.deserialize(pipeData);

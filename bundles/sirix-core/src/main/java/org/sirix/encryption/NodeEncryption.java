@@ -1,17 +1,16 @@
 /**
  * Copyright (c) 2011, Distributed Systems Group, University of Konstanz
  * 
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * Permission to use, copy, modify, and/or distribute this software for any purpose with or without
+ * fee is hereby granted, provided that the above copyright notice and this permission notice appear
+ * in all copies.
  * 
- * THE SOFTWARE IS PROVIDED AS IS AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED AS IS AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+ * SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+ * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+ * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
+ * OF THIS SOFTWARE.
  * 
  */
 package org.sirix.encryption;
@@ -51,19 +50,16 @@ public class NodeEncryption {
 	/**
 	 * Encrypt a node.
 	 * 
-	 * @param bytesToEncrypt
-	 *          bytes to encrypt.
+	 * @param bytesToEncrypt bytes to encrypt.
 	 * 
-	 * @param rawSKey
-	 *          Secret key for encryption.
+	 * @param rawSKey Secret key for encryption.
 	 * @return encrypted node as byte array.
 	 */
 	public static final synchronized byte[] encrypt(final byte[] bytesToEncrypt,
 			final byte[] rawSKey) {
 
 		// restore secret key from byte array
-		final SecretKeySpec restoredSKey = new SecretKeySpec(rawSKey,
-				ENCRYPTION_TYPE);
+		final SecretKeySpec restoredSKey = new SecretKeySpec(rawSKey, ENCRYPTION_TYPE);
 
 		// initialize secret key specifications and cipher
 		final IvParameterSpec ivParams = new IvParameterSpec(rawSKey);
@@ -84,19 +80,16 @@ public class NodeEncryption {
 	/**
 	 * Decrypt a node.
 	 * 
-	 * @param bytesToDecrypt
-	 *          Byte array to decrypt.
+	 * @param bytesToDecrypt Byte array to decrypt.
 	 * 
-	 * @param rawSKey
-	 *          Secret key for decryption.
+	 * @param rawSKey Secret key for decryption.
 	 * @return Original byte array of node.
 	 */
 	public static final synchronized byte[] decrypt(final byte[] bytesToDecrypt,
 			final byte[] rawSKey) {
 
 		// restore secret key from byte array
-		final SecretKeySpec restoredSKey = new SecretKeySpec(rawSKey,
-				ENCRYPTION_TYPE);
+		final SecretKeySpec restoredSKey = new SecretKeySpec(rawSKey, ENCRYPTION_TYPE);
 
 		final Cipher cipher;
 		byte[] decrypted = null;
@@ -136,8 +129,7 @@ public class NodeEncryption {
 	/**
 	 * Converting an integer value to byte array.
 	 * 
-	 * @param mIntVal
-	 *          Integer value to convert.
+	 * @param mIntVal Integer value to convert.
 	 * @return Byte array of integer value.
 	 */
 	public final byte[] intToByteArray(final int mIntVal) {
@@ -154,8 +146,7 @@ public class NodeEncryption {
 	/**
 	 * Converting a Long value to byte array.
 	 * 
-	 * @param mLongVal
-	 *          Long value to convert.
+	 * @param mLongVal Long value to convert.
 	 * @return Byte array of long value.
 	 */
 	public final byte[] longToByteArray(final long mLongVal) {
@@ -176,14 +167,12 @@ public class NodeEncryption {
 	/**
 	 * Converting a byte array to integer.
 	 * 
-	 * @param mByteArray
-	 *          Byte array to convert.
+	 * @param mByteArray Byte array to convert.
 	 * @return converted integer value.
 	 */
 	public final int byteArrayToInt(final byte[] mByteArray) {
-		final int mConvInt = ((mByteArray[0] & 0xff) << 24)
-				| ((mByteArray[1] & 0xff) << 16) | ((mByteArray[2] & 0xff) << 8)
-				| (mByteArray[3] & 0xff);
+		final int mConvInt = ((mByteArray[0] & 0xff) << 24) | ((mByteArray[1] & 0xff) << 16)
+				| ((mByteArray[2] & 0xff) << 8) | (mByteArray[3] & 0xff);
 
 		return mConvInt;
 	}
@@ -191,18 +180,15 @@ public class NodeEncryption {
 	/**
 	 * Converting a byte array to long.
 	 * 
-	 * @param mByteArray
-	 *          Byte array to convert.
+	 * @param mByteArray Byte array to convert.
 	 * @return converted long value.
 	 */
 	public final long byteArrayToLong(final byte[] mByteArray) {
-		final long mConvLong = ((long) (mByteArray[0] & 0xff) << 56)
-				| ((long) (mByteArray[1] & 0xff) << 48)
-				| ((long) (mByteArray[2] & 0xff) << 40)
-				| ((long) (mByteArray[3] & 0xff) << 32)
-				| ((long) (mByteArray[4] & 0xff) << 24)
-				| ((long) (mByteArray[5] & 0xff) << 16)
-				| ((long) (mByteArray[6] & 0xff) << 8) | (mByteArray[7] & 0xff);
+		final long mConvLong =
+				((long) (mByteArray[0] & 0xff) << 56) | ((long) (mByteArray[1] & 0xff) << 48)
+						| ((long) (mByteArray[2] & 0xff) << 40) | ((long) (mByteArray[3] & 0xff) << 32)
+						| ((long) (mByteArray[4] & 0xff) << 24) | ((long) (mByteArray[5] & 0xff) << 16)
+						| ((long) (mByteArray[6] & 0xff) << 8) | (mByteArray[7] & 0xff);
 
 		return mConvLong;
 	}

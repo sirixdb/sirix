@@ -22,7 +22,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.cas.CASFilterRange;
@@ -60,8 +60,8 @@ public final class ScanCASIndexRange extends AbstractFunction {
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
 		final DBNode doc = (DBNode) args[0];
-		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession().getRtxIndexController(
+		final XdmNodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getResourceManager().getRtxIndexController(
 				rtx.getRevisionNumber());
 
 		if (controller == null) {
@@ -77,13 +77,13 @@ public final class ScanCASIndexRange extends AbstractFunction {
 		if (indexDef == null) {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
 					"Index no %s for collection %s and document %s not found.", idx, doc
-							.getCollection().getName(), doc.getTrx().getSession()
+							.getCollection().getName(), doc.getTrx().getResourceManager()
 							.getResourceConfig().getResource().getName());
 		}
 		if (indexDef.getType() != IndexType.CAS) {
 			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
 					"Index no %s for collection %s and document %s is not a CAS index.",
-					idx, doc.getCollection().getName(), doc.getTrx().getSession()
+					idx, doc.getCollection().getName(), doc.getTrx().getResourceManager()
 							.getResourceConfig().getResource().getName());
 		}
 

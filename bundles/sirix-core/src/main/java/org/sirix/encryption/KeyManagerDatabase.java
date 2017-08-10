@@ -16,8 +16,8 @@ import com.sleepycat.persist.PrimaryIndex;
 import com.sleepycat.persist.StoreConfig;
 
 /**
- * Berkeley implementation of a persistent key manager database. That means that
- * all data is stored in this database and it is never removed.
+ * Berkeley implementation of a persistent key manager database. That means that all data is stored
+ * in this database and it is never removed.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -41,8 +41,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
 	 * 
-	 * @param paramFile
-	 *          the place where the berkeley db is stored.
+	 * @param paramFile the place where the berkeley db is stored.
 	 */
 	public KeyManagerDatabase(final File paramFile) {
 		super(paramFile);
@@ -100,15 +99,14 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 	/**
 	 * Putting a {@link KeyManager} into the database with a corresponding user.
 	 * 
-	 * @param entity
-	 *          key manager instance to get information for storage.
+	 * @param entity key manager instance to get information for storage.
 	 */
 	public final void putPersistent(final KeyManager entity) {
 		PrimaryIndex<String, KeyManager> primaryIndex;
 		try {
 			primaryIndex =
 
-			mStore.getPrimaryIndex(String.class, KeyManager.class);
+					mStore.getPrimaryIndex(String.class, KeyManager.class);
 
 			primaryIndex.put(entity);
 
@@ -121,8 +119,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 	/**
 	 * Getting a {@link KeyManager} related to a given user.
 	 * 
-	 * @param paramUser
-	 *          user for getting related key manager.
+	 * @param paramUser user for getting related key manager.
 	 * @return key manager instance.
 	 */
 	public final KeyManager getPersistent(final String paramUser) {
@@ -131,7 +128,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 		try {
 			primaryIndex =
 
-			mStore.getPrimaryIndex(String.class, KeyManager.class);
+					mStore.getPrimaryIndex(String.class, KeyManager.class);
 
 			entity = primaryIndex.get(paramUser);
 
@@ -144,8 +141,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 	/**
 	 * Deletes an entry from storage.
 	 * 
-	 * @param paramKey
-	 *          primary key of entry to delete.
+	 * @param paramKey primary key of entry to delete.
 	 * @return status whether deletion was successful or not.
 	 */
 	public final boolean deleteEntry(final String paramKey) {
@@ -173,7 +169,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 		try {
 			primaryIndex =
 
-			mStore.getPrimaryIndex(String.class, KeyManager.class);
+					mStore.getPrimaryIndex(String.class, KeyManager.class);
 
 			counter = primaryIndex.count();
 
@@ -194,7 +190,7 @@ public class KeyManagerDatabase extends AbstractKeyDatabase {
 		try {
 			primaryIndex =
 
-			mStore.getPrimaryIndex(String.class, KeyManager.class);
+					mStore.getPrimaryIndex(String.class, KeyManager.class);
 
 			sMap = primaryIndex.sortedMap();
 

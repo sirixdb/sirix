@@ -39,17 +39,14 @@ public final class PathFilter implements Filter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 *
-	 * @param rtx
-	 *          transaction this filter is bound to
-	 * @param paths
-	 *          paths to match
-	 * @param pcrCollector
-	 *          path class record collector
+	 * @param rtx transaction this filter is bound to
+	 * @param paths paths to match
+	 * @param pcrCollector path class record collector
 	 */
 	public PathFilter(final Set<Path<QNm>> paths, final PCRCollector pcrCollector) {
 		mPaths = requireNonNull(paths, "The paths must not be null.");
-		mPCRCollector = requireNonNull(pcrCollector,
-				"The path class record collector must not be null.");
+		mPCRCollector =
+				requireNonNull(pcrCollector, "The path class record collector must not be null.");
 		mGenericPath = mPaths.isEmpty();
 		final PCRValue pcrValue = mPCRCollector.getPCRsForPaths(mPaths);
 		mMaxKnownPCR = pcrValue.getMaxPCR();
@@ -67,13 +64,11 @@ public final class PathFilter implements Filter {
 	/**
 	 * Filter the node.
 	 *
-	 * @param node
-	 *          node to filter
+	 * @param node node to filter
 	 * @return {@code true} if the node has been filtered, {@code false} otherwise
 	 */
 	@Override
-	public <K extends Comparable<? super K>> boolean filter(
-			final AVLNode<K, NodeReferences> node) {
+	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
 		if (mGenericPath) {
 			return true;
 		}

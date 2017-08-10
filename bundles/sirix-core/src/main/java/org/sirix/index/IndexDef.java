@@ -57,14 +57,12 @@ public final class IndexDef implements Materializable {
 
 	private Set<QNm> mIncluded = new HashSet<>();
 
-	public IndexDef() {
-	}
+	public IndexDef() {}
 
 	/**
 	 * Name index.
 	 */
-	IndexDef(final Set<QNm> included, final Set<QNm> excluded,
-			final int indexDefNo) {
+	IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo) {
 		mType = IndexType.NAME;
 		mIncluded.addAll(included);
 		mExcluded.addAll(excluded);
@@ -155,8 +153,7 @@ public final class IndexDef implements Materializable {
 		QNm name = root.getName();
 
 		if (!name.equals(INDEX_TAG)) {
-			throw new DocumentException("Expected tag '%s' but found '%s'",
-					INDEX_TAG, name);
+			throw new DocumentException("Expected tag '%s' but found '%s'", INDEX_TAG, name);
 		}
 
 		Node<?> attribute;

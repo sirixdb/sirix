@@ -12,8 +12,7 @@ import org.sirix.cache.KeyCache;
 import org.sirix.exception.SirixEncryptionException;
 
 /**
- * Singleton class holding and handling all necessary operations and data for
- * encryption process.
+ * Singleton class holding and handling all necessary operations and data for encryption process.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -56,31 +55,29 @@ public final class EncryptionHandler {
 	private static KeyCache mKeyCache;
 
 	/**
-	 * Instance of helper class NodeEncryption that provides operations for
-	 * en-/decryption.
+	 * Instance of helper class NodeEncryption that provides operations for en-/decryption.
 	 */
 	private static NodeEncryption mNodeEncrypt;
 
 	/**
 	 * Store path of berkley key selector db.
 	 */
-	private static final File SEL_STORE = new File(new StringBuilder(
-			File.separator).append("tmp").append(File.separator).append("tnk")
-			.append(File.separator).append("selectordb").toString());
+	private static final File SEL_STORE = new File(new StringBuilder(File.separator).append("tmp")
+			.append(File.separator).append("tnk").append(File.separator).append("selectordb").toString());
 
 	/**
 	 * Store path of berkley keying material db.
 	 */
-	private static final File MAT_STORE = new File(new StringBuilder(
-			File.separator).append("tmp").append(File.separator).append("tnk")
-			.append(File.separator).append("secretmaterialdb").toString());
+	private static final File MAT_STORE =
+			new File(new StringBuilder(File.separator).append("tmp").append(File.separator).append("tnk")
+					.append(File.separator).append("secretmaterialdb").toString());
 
 	/**
 	 * Store path of berkley key manager db.
 	 */
-	private static final File MAN_STORE = new File(new StringBuilder(
-			File.separator).append("tmp").append(File.separator).append("tnk")
-			.append(File.separator).append("keymanagerdb").toString());
+	private static final File MAN_STORE =
+			new File(new StringBuilder(File.separator).append("tmp").append(File.separator).append("tnk")
+					.append(File.separator).append("keymanagerdb").toString());
 
 	/**
 	 * Constructor of singleton class that initiates all needed instances.
@@ -105,9 +102,8 @@ public final class EncryptionHandler {
 	}
 
 	/**
-	 * Initiates all needed instances comprising Berkeley DBs and key cache.
-	 * Additionally it initiates parsing of initial right tree and setup of
-	 * Berkeley DBs.
+	 * Initiates all needed instances comprising Berkeley DBs and key cache. Additionally it initiates
+	 * parsing of initial right tree and setup of Berkeley DBs.
 	 */
 	private void init() {
 		mSelectorDb = new KeySelectorDatabase(SEL_STORE);
@@ -122,12 +118,9 @@ public final class EncryptionHandler {
 	/**
 	 * Invoked when a new user joining a group.
 	 * 
-	 * @param paramUser
-	 *          new user name joining a group.
-	 * @param paramGroup
-	 *          name of goup the user joins.
-	 * @throws SirixEncryptionException
-	 *           Exception occurred during joining process.
+	 * @param paramUser new user name joining a group.
+	 * @param paramGroup name of goup the user joins.
+	 * @throws SirixEncryptionException Exception occurred during joining process.
 	 */
 	public void joinGroup(final String paramUser, final String paramGroup)
 			throws SirixEncryptionException {
@@ -163,12 +156,10 @@ public final class EncryptionHandler {
 						final List<Long> mMaterialKeys = new LinkedList<Long>();
 
 						for (int i = 0; i < mKeyTrail.size(); i++) {
-							final KeySelector mSel = mSelectorDb.getPersistent(mKeyTrail
-									.get(i));
+							final KeySelector mSel = mSelectorDb.getPersistent(mKeyTrail.get(i));
 							mSel.increaseRevision();
 							mSelectorDb.putPersistent(mSel);
-							final long mMatKey = mMaterialDb
-									.putPersistent(newMaterialInstance(mSel));
+							final long mMatKey = mMaterialDb.putPersistent(newMaterialInstance(mSel));
 							mMaterialKeys.add(mMatKey);
 						}
 
@@ -185,14 +176,12 @@ public final class EncryptionHandler {
 						transmitKEK(paramUser, mTek);
 
 					} else {
-						throw new SirixEncryptionException(
-								"User is already member of this group!");
+						throw new SirixEncryptionException("User is already member of this group!");
 					}
 				} else {
 					// user does not exist yet. create user and its keying
 					// material and add group id to its parent list.
-					final KeySelector mSelector = new KeySelector(paramUser,
-							EntityType.USER);
+					final KeySelector mSelector = new KeySelector(paramUser, EntityType.USER);
 					mSelector.addParent(mGroupId);
 					mSelectorDb.putPersistent(mSelector);
 					mMaterialDb.putPersistent(newMaterialInstance(mSelector));
@@ -203,12 +192,10 @@ public final class EncryptionHandler {
 					final List<Long> mMaterialKeys = new LinkedList<Long>();
 
 					for (int i = 0; i < mKeyTrail.size(); i++) {
-						final KeySelector mSel = mSelectorDb
-								.getPersistent(mKeyTrail.get(i));
+						final KeySelector mSel = mSelectorDb.getPersistent(mKeyTrail.get(i));
 						mSel.increaseRevision();
 						mSelectorDb.putPersistent(mSel);
-						final long mMatKey = mMaterialDb
-								.putPersistent(newMaterialInstance(mSel));
+						final long mMatKey = mMaterialDb.putPersistent(newMaterialInstance(mSel));
 						mMaterialKeys.add(mMatKey);
 						System.out.println("MatKey: " + mMatKey);
 					}
@@ -236,10 +223,8 @@ public final class EncryptionHandler {
 	/**
 	 * Invoked when a new user leaving a group.
 	 * 
-	 * @param paramUser
-	 *          user name leaving a group.
-	 * @param paramGroup
-	 *          name of goup the user leaves.
+	 * @param paramUser user name leaving a group.
+	 * @param paramGroup name of goup the user leaves.
 	 */
 	public void leaveGroup(final String paramUser, final String paramGroup) {
 		try {
@@ -253,8 +238,7 @@ public final class EncryptionHandler {
 
 				while (iter.hasNext()) {
 					final KeySelector mSelector = mSelMap.get(iter.next());
-					if (mSelector.getName().equals(paramUser)
-							&& mSelector.getParents().contains(mGroupId)) {
+					if (mSelector.getName().equals(paramUser) && mSelector.getParents().contains(mGroupId)) {
 						userGroupCheck = true;
 					}
 				}
@@ -267,15 +251,12 @@ public final class EncryptionHandler {
 					final Map<String, byte[]> mSecretList = new HashMap<String, byte[]>();
 
 					for (int i = 0; i < mKeyTrail.size(); i++) {
-						final KeySelector mSel = mSelectorDb
-								.getPersistent(mKeyTrail.get(i));
+						final KeySelector mSel = mSelectorDb.getPersistent(mKeyTrail.get(i));
 						mSel.increaseVersion();
 						mSelectorDb.putPersistent(mSel);
-						final long newMatKey = mMaterialDb
-								.putPersistent(newMaterialInstance(mSel));
+						final long newMatKey = mMaterialDb.putPersistent(newMaterialInstance(mSel));
 						mMaterialList.put(mSel.getName(), newMatKey);
-						mSecretList.put(mSel.getName(), mMaterialDb
-								.getPersistent(newMatKey).getSecretKey());
+						mSecretList.put(mSel.getName(), mMaterialDb.getPersistent(newMatKey).getSecretKey());
 					}
 
 					LinkedList<Long> mUserCache;
@@ -296,18 +277,15 @@ public final class EncryptionHandler {
 						List<Long> mInitialKeyList = null;
 
 						// key manager instance of user.
-						final KeyManager mManager = mManagerDb.getPersistent(mUsers
-								.get(userIter.next()));
+						final KeyManager mManager = mManagerDb.getPersistent(mUsers.get(userIter.next()));
 
 						// initial key lists of user.
-						final Map<Long, List<Long>> mInitialKeyLists = mManager
-								.getInitialKeys();
+						final Map<Long, List<Long>> mInitialKeyLists = mManager.getInitialKeys();
 
 						final Iterator managerIter = mInitialKeyLists.keySet().iterator();
 
 						while (managerIter.hasNext()) {
-							final KeyingMaterial mMaterial = mMaterialDb
-									.getPersistent((Long) managerIter.next());
+							final KeyingMaterial mMaterial = mMaterialDb.getPersistent((Long) managerIter.next());
 
 							if (mUserKeyTrail.get(0) == mMaterial.getSelectorKey()) {
 								mInitialKeyList = mInitialKeyLists.get(managerIter.next());
@@ -325,22 +303,20 @@ public final class EncryptionHandler {
 								byte[] mChildSKey = null;
 								// find secret key from material db to encrypt parent
 								for (int j = 0; j < mInitialKeyList.size(); j++) {
-									final KeyingMaterial mMaterial = mMaterialDb
-											.getPersistent(mInitialKeyList.get(j));
+									final KeyingMaterial mMaterial =
+											mMaterialDb.getPersistent(mInitialKeyList.get(j));
 									if (mMaterial.getSelectorKey() == mChildKey) {
 										mChildSKey = mMaterial.getSecretKey();
 									}
 								}
 
 								// encrypt parent with child's secret key and store it
-								final String mParentName = mSelectorDb
-										.getPersistent(mParentkey).getName();
+								final String mParentName = mSelectorDb.getPersistent(mParentkey).getName();
 								final byte[] mParentSKey = mSecretList.get(mParentName);
 								final long mMatKey = mMaterialList.get(mParentName);
 
 								new NodeEncryption();
-								final byte[] mEncryptedSKey = NodeEncryption.encrypt(
-										mParentSKey, mChildSKey);
+								final byte[] mEncryptedSKey = NodeEncryption.encrypt(mParentSKey, mChildSKey);
 								KeyingMaterial mMaterial = mMaterialDb.getPersistent(mMatKey);
 								mMaterial.setSecretKey(mEncryptedSKey);
 								mMaterialDb.putPersistent(mMaterial);
@@ -359,8 +335,7 @@ public final class EncryptionHandler {
 					removeUser(paramUser, mGroupId);
 
 				} else {
-					throw new SirixEncryptionException(
-							"User is not member of given group!");
+					throw new SirixEncryptionException("User is not member of given group!");
 				}
 
 			} else {
@@ -377,8 +352,7 @@ public final class EncryptionHandler {
 	/**
 	 * Checks whether a node exists or not.
 	 * 
-	 * @param paramNodeName
-	 *          node name.
+	 * @param paramNodeName node name.
 	 * @return node existence.
 	 */
 	private boolean nodeExists(final String paramNodeName) {
@@ -397,8 +371,7 @@ public final class EncryptionHandler {
 	/**
 	 * Returns selector node id by given node name.
 	 * 
-	 * @param paramNodeName
-	 *          node name for what the id should found.
+	 * @param paramNodeName node name for what the id should found.
 	 * @return selector node id.
 	 */
 	private long getNodeIdByName(final String paramNodeName) {
@@ -417,16 +390,14 @@ public final class EncryptionHandler {
 	/**
 	 * Returns the complete key trail from leave to root.
 	 * 
-	 * @param paramGroupKey
-	 *          Node key of leave.
+	 * @param paramGroupKey Node key of leave.
 	 * 
 	 * @return List of key trail.
 	 */
 	private List<Long> getKeyTrail(final long paramGroupKey) {
 		final List<Long> mKeyTrail = new LinkedList<Long>();
 		mKeyTrail.add(paramGroupKey);
-		List<Long> mParentList = mSelectorDb.getPersistent(paramGroupKey)
-				.getParents();
+		List<Long> mParentList = mSelectorDb.getPersistent(paramGroupKey).getParents();
 
 		while (mParentList.size() != 0) {
 			final long newParent = mParentList.get(0);
@@ -437,14 +408,11 @@ public final class EncryptionHandler {
 	}
 
 	/**
-	 * Transmits a new KEK to all users into a hierarchy except the one that has
-	 * joined or left.
+	 * Transmits a new KEK to all users into a hierarchy except the one that has joined or left.
 	 * 
-	 * @param paramUser
-	 *          User that has joined or left.
+	 * @param paramUser User that has joined or left.
 	 * 
-	 * @param paramTEK
-	 *          New TEK to be transmitted to the users.
+	 * @param paramTEK New TEK to be transmitted to the users.
 	 */
 	private void transmitKEK(final String paramUser, final long paramTEK) {
 		final Map<Long, String> mUsers = getAllUsers();
@@ -501,8 +469,8 @@ public final class EncryptionHandler {
 	}
 
 	/**
-	 * Prints all stored information of KeySelector, KeyingMaterial and KeyManager
-	 * database. This method is just for testing issues.
+	 * Prints all stored information of KeySelector, KeyingMaterial and KeyManager database. This
+	 * method is just for testing issues.
 	 */
 	public void print() {
 
@@ -522,10 +490,9 @@ public final class EncryptionHandler {
 				mParentsString.append("#" + mParentsList.get(k));
 			}
 
-			System.out.println("Node: " + mSelector.getKeyId() + " "
-					+ mSelector.getName() + " " + mSelector.getType() + " "
-					+ mParentsString.toString() + " " + mSelector.getRevision() + " "
-					+ mSelector.getVersion());
+			System.out.println("Node: " + mSelector.getKeyId() + " " + mSelector.getName() + " "
+					+ mSelector.getType() + " " + mParentsString.toString() + " " + mSelector.getRevision()
+					+ " " + mSelector.getVersion());
 		}
 
 		/**
@@ -540,8 +507,8 @@ public final class EncryptionHandler {
 			final KeyingMaterial mMaterial = mMatMap.get(iter.next());
 
 			System.out.println("Material " + mMaterial.getMaterialKey() + ": "
-					+ mMaterial.getSelectorKey() + " " + mMaterial.getRevsion() + " "
-					+ mMaterial.getVersion() + " " + mMaterial.getSecretKey());
+					+ mMaterial.getSelectorKey() + " " + mMaterial.getRevsion() + " " + mMaterial.getVersion()
+					+ " " + mMaterial.getSecretKey());
 		}
 
 		/**
@@ -558,8 +525,7 @@ public final class EncryptionHandler {
 			String user = (String) iter.next();
 			System.out.println("Initial key trails of " + user);
 
-			Map<Long, List<Long>> mKeyTrails = mManagerDb.getPersistent(user)
-					.getInitialKeys();
+			Map<Long, List<Long>> mKeyTrails = mManagerDb.getPersistent(user).getInitialKeys();
 
 			// iterate through all key trails of user
 			Iterator innerIter = mKeyTrails.keySet().iterator();
@@ -601,8 +567,7 @@ public final class EncryptionHandler {
 	/**
 	 * Returns keying material by a given id.
 	 * 
-	 * @param paramKey
-	 *          unquie key material id.
+	 * @param paramKey unquie key material id.
 	 * @return instance of KeyingMaterial.
 	 */
 	public KeyingMaterial getKeyMaterial(final long paramKey) {
@@ -680,15 +645,14 @@ public final class EncryptionHandler {
 	}
 
 	public KeyingMaterial newMaterialInstance(final KeySelector paramSel) {
-		return new KeyingMaterial(paramSel.getKeyId(), paramSel.getRevision(),
-				paramSel.getVersion(), new NodeEncryption().generateSecretKey());
+		return new KeyingMaterial(paramSel.getKeyId(), paramSel.getRevision(), paramSel.getVersion(),
+				new NodeEncryption().generateSecretKey());
 	}
 
 	/**
 	 * Deleting a storage recursive. Used for deleting a databases
 	 * 
-	 * @param paramFile
-	 *          which should be deleted included descendants
+	 * @param paramFile which should be deleted included descendants
 	 * @return true if delete is valid
 	 */
 	protected static boolean recursiveDelete(final File paramFile) {

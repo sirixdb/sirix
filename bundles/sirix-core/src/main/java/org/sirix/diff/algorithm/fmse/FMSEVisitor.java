@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix.diff.algorithm.fmse;
 
@@ -31,8 +25,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Map;
 
 import org.sirix.access.AbstractVisitor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -50,8 +44,8 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  */
 public final class FMSEVisitor extends AbstractVisitor {
 
-	/** {@link NodeReadTrx} reference. */
-	private final NodeReadTrx mRtx;
+	/** {@link XdmNodeReadTrx} reference. */
+	private final XdmNodeReadTrx mRtx;
 
 	/** Determines if nodes are in order. */
 	private final Map<Long, Boolean> mInOrder;
@@ -62,20 +56,14 @@ public final class FMSEVisitor extends AbstractVisitor {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pSession
-	 *          {@link Session} implementation
-	 * @param inOrder
-	 *          {@link Map} reference to track ordered nodes
-	 * @param descendants
-	 *          {@link Map} reference to track descendants per node
-	 * @throws SirixException
-	 *           if setting up sirix fails
-	 * @throws NullPointerException
-	 *           if one of the arguments is {@code null}
+	 * @param pSession {@link ResourceManager} implementation
+	 * @param inOrder {@link Map} reference to track ordered nodes
+	 * @param descendants {@link Map} reference to track descendants per node
+	 * @throws SirixException if setting up sirix fails
+	 * @throws NullPointerException if one of the arguments is {@code null}
 	 */
-	public FMSEVisitor(final NodeReadTrx readTransaction,
-			final Map<Long, Boolean> inOrder, final Map<Long, Long> descendants)
-			throws SirixException {
+	public FMSEVisitor(final XdmNodeReadTrx readTransaction, final Map<Long, Boolean> inOrder,
+			final Map<Long, Long> descendants) throws SirixException {
 		mRtx = checkNotNull(readTransaction);
 		mInOrder = checkNotNull(inOrder);
 		mDescendants = checkNotNull(descendants);
@@ -147,8 +135,7 @@ public final class FMSEVisitor extends AbstractVisitor {
 	/**
 	 * Visit a leaf node.
 	 * 
-	 * @param pNode
-	 *          the node to visit
+	 * @param pNode the node to visit
 	 * @return {@link VisitResultType} value to continue normally
 	 */
 	private VisitResultType visiLeafNode(final ImmutableNode pNode) {

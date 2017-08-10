@@ -8,7 +8,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -48,10 +48,10 @@ public final class GetPath extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		final NodeReadTrx rtx = doc.getTrx();
+		final XdmNodeReadTrx rtx = doc.getTrx();
 
-		if (rtx.getSession().getResourceConfig().mPathSummary) {
-			try (final PathSummaryReader pathSummaryReader = rtx.getSession()
+		if (rtx.getResourceManager().getResourceConfig().mPathSummary) {
+			try (final PathSummaryReader pathSummaryReader = rtx.getResourceManager()
 					.openPathSummary(rtx.getRevisionNumber())) {
 				pathSummaryReader.moveTo(rtx.getPathNodeKey());
 				return new Str(pathSummaryReader.getPathNode()

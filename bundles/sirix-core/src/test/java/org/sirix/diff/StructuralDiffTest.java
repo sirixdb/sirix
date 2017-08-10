@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.diff;
@@ -76,42 +70,39 @@ public final class StructuralDiffTest {
 	@Test
 	public void testStructuralDiffOptimizedFirst() throws Exception {
 		DiffTestHelper.setUpFirst(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyOptimizedStructuralDiffFirst(mObserver);
 	}
 
 	@Test
-	public void testStructuralDiffSecond() throws SirixException,
-			InterruptedException, IOException, XMLStreamException {
+	public void testStructuralDiffSecond()
+			throws SirixException, InterruptedException, IOException, XMLStreamException {
 		DiffTestHelper.setUpSecond(mHolder);
 		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.NO);
 		DiffTestHelper.verifyDiffSecond(mObserver);
 	}
 
 	@Test
-	public void testStructuralDiffOptimizedSecond() throws SirixException,
-			IOException, XMLStreamException, InterruptedException {
+	public void testStructuralDiffOptimizedSecond()
+			throws SirixException, IOException, XMLStreamException, InterruptedException {
 		DiffTestHelper.setUpSecond(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyOptimizedSecond(mObserver);
 	}
 
 	@Test
-	public void testStructuralDiffThird() throws SirixException, IOException,
-			XMLStreamException, InterruptedException {
+	public void testStructuralDiffThird()
+			throws SirixException, IOException, XMLStreamException, InterruptedException {
 		DiffTestHelper.setUpThird(mHolder);
 		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.NO);
 		DiffTestHelper.verifyDiffThird(mObserver);
 	}
 
 	@Test
-	public void testStructuralDiffOptimizedThird() throws SirixException,
-			IOException, XMLStreamException, InterruptedException {
+	public void testStructuralDiffOptimizedThird()
+			throws SirixException, IOException, XMLStreamException, InterruptedException {
 		DiffTestHelper.setUpThird(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyOptimizedThird(mObserver);
 	}
 
@@ -125,8 +116,7 @@ public final class StructuralDiffTest {
 	@Test
 	public void testStructuralDiffOptimizedFourth() throws Exception {
 		DiffTestHelper.setUpFourth(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyOptimizedFourth(mObserver);
 	}
 
@@ -140,8 +130,7 @@ public final class StructuralDiffTest {
 	@Test
 	public void testStructuralDiffOptimizedFifth() throws Exception {
 		DiffTestHelper.setUpFifth(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyDiffFifth(mObserver);
 	}
 
@@ -155,8 +144,7 @@ public final class StructuralDiffTest {
 	@Test
 	public void testStructuralDiffOptimizedSixth() throws Exception {
 		DiffTestHelper.setUpSixth(mHolder);
-		DiffTestHelper
-				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);
 		DiffTestHelper.verifyDiffSixth(mObserver);
 	}
 

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.page;
@@ -71,8 +65,8 @@ public final class NodePageTest {
 		TestHelper.closeEverything();
 		TestHelper.deleteEverything();
 		TestHelper.createTestDocument();
-		mHolder = Holder.generateDeweyIDSession();
-		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+		mHolder = Holder.generateDeweyIDResourceMgr();
+		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
 	}
 
 	@After
@@ -85,18 +79,15 @@ public final class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() throws IOException {
-		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L,
-				PageKind.RECORDPAGE, Optional.<PageReference> empty(), mPageReadTrx);
+		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE,
+				Optional.<PageReference>empty(), mPageReadTrx);
 		assertEquals(0L, page1.getPageKey());
 
-		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
-				Optional.of(SirixDeweyID.newRootID()));
-		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l,
-				3l, 1l, 0l);
+		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-		final ElementNode node1 = new ElementNode(strucDel, nameDel,
-				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
-				new ArrayList<Long>(), new QNm("a", "b", "c"));
+		final ElementNode node1 = new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+				HashBiMap.<Long, Long>create(), new ArrayList<Long>(), new QNm("a", "b", "c"));
 		node1.insertAttribute(88L, 100);
 		node1.insertAttribute(87L, 101);
 		node1.insertNamespace(99L);
@@ -127,7 +118,6 @@ public final class NodePageTest {
 		assertEquals(5, ((NameNode) page2.getValue(0l)).getURIKey());
 		assertEquals(6, ((NameNode) page2.getValue(0l)).getPrefixKey());
 		assertEquals(7, ((NameNode) page2.getValue(0l)).getLocalNameKey());
-		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
-				element.getTypeKey());
+		assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
 	}
 }

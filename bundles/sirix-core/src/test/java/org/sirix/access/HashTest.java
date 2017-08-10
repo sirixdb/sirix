@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.access;
@@ -38,10 +32,10 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -57,43 +51,43 @@ public class HashTest {
 
 	@Test
 	public void testPostorderInsertRemove() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testPostorderDeep() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testPostorderSetter() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testSetter(wtx);
 	}
 
 	@Test
 	public void testRollingInsertRemove() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testRollingDeep() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testRollingSetter() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testSetter(wtx);
 	}
 
 	/**
 	 * Inserting nodes and removing them.
-	 * 
+	 *
 	 * <pre>
 	 * -a (1)
 	 *  '-test (5)
@@ -105,13 +99,12 @@ public class HashTest {
 	 *  '-a (3(x))
 	 *    '-attr(4(x))
 	 * </pre>
-	 * 
+	 *
 	 * @param wtx
 	 * @throws TTException
 	 */
 	@Ignore
-	private void testHashTreeWithInsertAndRemove(final NodeWriteTrx wtx)
-			throws SirixException {
+	private void testHashTreeWithInsertAndRemove(final XdmNodeWriteTrx wtx) throws SirixException {
 
 		// inserting a element as root
 		wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -162,7 +155,7 @@ public class HashTest {
 	}
 
 	@Ignore
-	private void testDeepTree(final NodeWriteTrx wtx) throws SirixException {
+	private void testDeepTree(final XdmNodeWriteTrx wtx) throws SirixException {
 
 		wtx.insertElementAsFirstChild(new QNm(NAME1));
 		final long oldHash = wtx.getHash();
@@ -184,7 +177,7 @@ public class HashTest {
 	}
 
 	@Ignore
-	private void testSetter(final NodeWriteTrx wtx) throws SirixException {
+	private void testSetter(final XdmNodeWriteTrx wtx) throws SirixException {
 
 		// Testing node inheritance
 		wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -226,15 +219,13 @@ public class HashTest {
 		assertFalse(hashRoot4 == hashLeaf3);
 	}
 
-	private NodeWriteTrx createWtx(final HashKind kind) throws SirixException {
-		final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1
-				.getFile());
-		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final Session session = database
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build());
-		final NodeWriteTrx wTrx = session.beginNodeWriteTrx();
+	private XdmNodeWriteTrx createWtx(final HashKind kind) throws SirixException {
+		final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
+		database.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+		final ResourceManager manager = database
+				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+		final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
 		return wTrx;
 	}
 

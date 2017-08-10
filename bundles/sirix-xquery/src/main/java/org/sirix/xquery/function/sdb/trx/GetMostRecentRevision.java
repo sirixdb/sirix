@@ -46,6 +46,6 @@ public final class GetMostRecentRevision extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getSession().getMostRecentRevisionNumber());
+		return new Int32(doc.getTrx().getResourceManager().getMostRecentRevisionNumber());
 	}
 }

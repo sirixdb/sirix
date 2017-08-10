@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.page.delegates;
@@ -62,10 +56,8 @@ public class PageDelegate implements Page {
 	/**
 	 * Constructor to initialize instance.
 	 *
-	 * @param referenceCount
-	 *          number of references of page
-	 * @param revision
-	 *          revision number
+	 * @param referenceCount number of references of page
+	 * @param revision revision number
 	 */
 	public PageDelegate(final @Nonnegative int referenceCount) {
 		checkArgument(referenceCount >= 0);
@@ -79,15 +71,12 @@ public class PageDelegate implements Page {
 	/**
 	 * Constructor to initialize instance.
 	 *
-	 * @param referenceCount
-	 *          number of references of page
-	 * @param in
-	 *          input stream to read from
-	 * @throws IOException
-	 *           if the delegate couldn't be deserialized
+	 * @param referenceCount number of references of page
+	 * @param in input stream to read from
+	 * @throws IOException if the delegate couldn't be deserialized
 	 */
-	public PageDelegate(final @Nonnegative int referenceCount,
-			final DataInputStream in) throws IOException {
+	public PageDelegate(final @Nonnegative int referenceCount, final DataInputStream in)
+			throws IOException {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
 		mIsDirty = false;
@@ -100,10 +89,8 @@ public class PageDelegate implements Page {
 	/**
 	 * Constructor to initialize instance.
 	 *
-	 * @param commitedPage
-	 *          commited page
-	 * @param revision
-	 *          revision number
+	 * @param commitedPage commited page
+	 * @param revision revision number
 	 */
 	public PageDelegate(final Page commitedPage) {
 		mReferences = commitedPage.getReferences();
@@ -113,8 +100,7 @@ public class PageDelegate implements Page {
 	/**
 	 * Get page reference of given offset.
 	 *
-	 * @param offset
-	 *          offset of page reference
+	 * @param offset offset of page reference
 	 * @return {@link PageReference} at given offset
 	 */
 	@Override
@@ -128,15 +114,14 @@ public class PageDelegate implements Page {
 	/**
 	 * Recursively call commit on all referenced pages.
 	 *
-	 * @param pageWriteTransaction
-	 *          the page write transaction
+	 * @param pageWriteTransaction the page write transaction
 	 */
 	@Override
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		for (final PageReference reference : mReferences) {
-			if (!(reference.getLogKey() == null && reference.getPage() == null && reference
-					.getKey() == Constants.NULL_ID)) {
+			if (!(reference.getLogKey() == null && reference.getPage() == null
+					&& reference.getKey() == Constants.NULL_ID)) {
 				pageWriteTrx.commit(reference);
 			}
 		}
@@ -145,8 +130,7 @@ public class PageDelegate implements Page {
 	/**
 	 * Serialize page references into output.
 	 *
-	 * @param out
-	 *          output stream
+	 * @param out output stream
 	 */
 	@Override
 	public void serialize(final DataOutput out) throws IOException {

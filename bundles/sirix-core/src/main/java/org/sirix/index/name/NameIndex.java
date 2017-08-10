@@ -12,14 +12,11 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public interface NameIndex<K extends Comparable<? super K>, V extends References> {
 
-	NameIndexBuilder createBuilder(
-			PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	NameIndexBuilder createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			IndexDef indexDef);
 
-	NameIndexListener createListener(
-			PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	NameIndexListener createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			IndexDef indexDef);
 
-	Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef,
-			NameFilter filter);
+	Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef, NameFilter filter);
 }

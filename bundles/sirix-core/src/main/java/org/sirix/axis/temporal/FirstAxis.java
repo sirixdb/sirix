@@ -2,8 +2,8 @@ package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -14,14 +14,14 @@ import org.sirix.axis.AbstractTemporalAxis;
  */
 public final class FirstAxis extends AbstractTemporalAxis {
 
-	/** Sirix {@link Session}. */
-	private final Session mSession;
+	/** Sirix {@link ResourceManager}. */
+	private final ResourceManager mSession;
 
 	/** Node key to lookup and retrieve. */
 	private final long mNodeKey;
 
-	/** Sirix {@link NodeReadTrx}. */
-	private NodeReadTrx mRtx;
+	/** Sirix {@link XdmNodeReadTrx}. */
+	private XdmNodeReadTrx mRtx;
 
 	/** Determines if it's the first call. */
 	private boolean mFirst;
@@ -29,20 +29,19 @@ public final class FirstAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param rtx
-	 *          Sirix {@link NodeReadTrx}
+	 * @param rtx Sirix {@link XdmNodeReadTrx}
 	 */
-	public FirstAxis(final NodeReadTrx rtx) {
-		mSession = checkNotNull(rtx.getSession());
+	public FirstAxis(final XdmNodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getResourceManager());
 		mNodeKey = rtx.getNodeKey();
 		mFirst = true;
 	}
 
 	@Override
-	protected NodeReadTrx computeNext() {
+	protected XdmNodeReadTrx computeNext() {
 		if (mFirst) {
 			mFirst = false;
-				mRtx = mSession.beginNodeReadTrx(1);
+			mRtx = mSession.beginNodeReadTrx(1);
 			return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
 		} else {
 			return endOfData();
@@ -50,7 +49,7 @@ public final class FirstAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	public NodeReadTrx getTrx() {
+	public XdmNodeReadTrx getTrx() {
 		return mRtx;
 	}
 }

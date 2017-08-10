@@ -26,17 +26,16 @@ import com.google.common.io.ByteStreams;
 public class ByteHandlerTest {
 
 	/**
-	 * Test method for
-	 * {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and
-	 * for {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
+	 * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
+	 * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
 	 * 
 	 * @throws IOException
 	 * 
 	 * @throws TTByteHandleException
 	 */
 	@Test(dataProvider = "instantiateByteHandler")
-	public void testSerializeAndDeserialize(Class<ByteHandler> clazz,
-			ByteHandler[] handlers) throws SirixIOException, IOException {
+	public void testSerializeAndDeserialize(Class<ByteHandler> clazz, ByteHandler[] handlers)
+			throws SirixIOException, IOException {
 		for (final ByteHandler handler : handlers) {
 			final int datasize = 10000;
 			final byte[] bytes = TestHelper.generateRandomBytes(datasize);
@@ -54,8 +53,9 @@ public class ByteHandlerTest {
 			input.close();
 
 			final byte[] encoded = output.toByteArray();
-			assertFalse(new StringBuilder("Check for ").append(handler.getClass())
-					.append(" failed.").toString(), Arrays.equals(bytes, encoded));
+			assertFalse(
+					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+					Arrays.equals(bytes, encoded));
 
 			input = new ByteArrayInputStream(encoded);
 			InputStream handledInput = handler.deserialize(input);
@@ -67,29 +67,27 @@ public class ByteHandlerTest {
 			input.close();
 
 			final byte[] decoded = output.toByteArray();
-			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
-					.append(" failed.").toString(), Arrays.equals(bytes, decoded));
+			assertTrue(
+					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+					Arrays.equals(bytes, decoded));
 		}
 	}
 
 	/**
-	 * Providing different implementations of the {@link ByteHandler} as
-	 * Dataprovider to the test class.
+	 * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test
+	 * class.
 	 * 
 	 * @return different classes of the {@link ByteHandler}
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @throws SirixIOException if an I/O error occurs
 	 */
 	@DataProvider(name = "instantiateByteHandler")
 	public Object[][] instantiateByteHandler() throws SirixIOException {
-		Object[][] returnVal = { {
-				ByteHandler.class,
-				new ByteHandler[] { new Encryptor(), new DeflateCompressor(),
-						new SnappyCompressor(),
+		Object[][] returnVal = {{ByteHandler.class,
+				new ByteHandler[] {new Encryptor(), new DeflateCompressor(), new SnappyCompressor(),
 						new ByteHandlePipeline(new Encryptor(), new DeflateCompressor()),
 						new ByteHandlePipeline(new DeflateCompressor(), new Encryptor()),
 						new ByteHandlePipeline(new Encryptor(), new SnappyCompressor()),
-						new ByteHandlePipeline(new SnappyCompressor(), new Encryptor()), } } };
+						new ByteHandlePipeline(new SnappyCompressor(), new Encryptor()),}}};
 		return returnVal;
 	}
 

@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
@@ -26,17 +26,15 @@ public final class Databases {
 	private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
 
 	/**
-	 * Creating a database. This includes loading the database configuration,
-	 * building up the structure and preparing everything for login.
+	 * Creating a database. This includes loading the database configuration, building up the
+	 * structure and preparing everything for login.
 	 *
-	 * @param dbConfig
-	 *          config which is used for the database, including storage location
+	 * @param dbConfig config which is used for the database, including storage location
 	 * @return true if creation is valid, false otherwise
-	 * @throws SirixIOException
-	 *           if something odd happens within the creation process.
+	 * @throws SirixIOException if something odd happens within the creation process.
 	 */
-	public static synchronized boolean createDatabase(
-			final DatabaseConfiguration dbConfig) throws SirixIOException {
+	public static synchronized boolean createDatabase(final DatabaseConfiguration dbConfig)
+			throws SirixIOException {
 		boolean returnVal = true;
 		// if file is existing, skipping
 		if (dbConfig.getFile().exists()) {
@@ -45,17 +43,16 @@ public final class Databases {
 			returnVal = dbConfig.getFile().mkdirs();
 			if (returnVal) {
 				// creation of folder structure
-				for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
-						.values()) {
-					final File toCreate = new File(dbConfig.getFile(), paths.getFile()
-							.getName());
+				for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths.values()) {
+					final File toCreate = new File(dbConfig.getFile(), paths.getFile().getName());
 					if (paths.isFolder()) {
 						returnVal = toCreate.mkdir();
 					} else {
 						try {
-							returnVal = toCreate.getName().equals(
-									DatabaseConfiguration.Paths.LOCK.getFile().getName()) ? true
-									: toCreate.createNewFile();
+							returnVal =
+									toCreate.getName().equals(DatabaseConfiguration.Paths.LOCK.getFile().getName())
+											? true
+											: toCreate.createNewFile();
 						} catch (final IOException e) {
 							Files.recursiveRemove(dbConfig.getFile().toPath());
 							throw new SirixIOException(e);
@@ -79,16 +76,14 @@ public final class Databases {
 	}
 
 	/**
-	 * Truncate a database. This deletes all relevant data. All running sessions
-	 * must be closed beforehand.
+	 * Truncate a database. This deletes all relevant data. All running sessions must be closed
+	 * beforehand.
 	 *
-	 * @param dbConfig
-	 *          the database at this path should be deleted
-	 * @throws SirixIOException
-	 *           if Sirix fails to delete the database
+	 * @param dbConfig the database at this path should be deleted
+	 * @throws SirixIOException if Sirix fails to delete the database
 	 */
-	public static synchronized void truncateDatabase(
-			final DatabaseConfiguration dbConfig) throws SirixIOException {
+	public static synchronized void truncateDatabase(final DatabaseConfiguration dbConfig)
+			throws SirixIOException {
 		// check that database must be closed beforehand
 		if (!DATABASEMAP.containsKey(dbConfig.getFile())) {
 			// if file is existing and folder is a tt-dataplace, delete it
@@ -102,39 +97,31 @@ public final class Databases {
 	}
 
 	/**
-	 * Open database. A database can be opened only once (even across JVMs).
-	 * Afterwards a singleton instance bound to the {@link File} is returned.
+	 * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
+	 * instance bound to the {@link File} is returned.
 	 *
-	 * @param file
-	 *          determines where the database is located sessionConf a
-	 *          {@link SessionConfiguration} object to set up the session
+	 * @param file determines where the database is located sessionConf a
+	 *        {@link ResourceManagerConfiguration} object to set up the session
 	 * @return {@link Database} instance.
-	 * @throws SirixIOException
-	 *           if an I/O exception occurs
-	 * @throws SirixUsageException
-	 *           if Sirix is not used properly
-	 * @throws NullPointerException
-	 *           if {@code file} is {@code null}
+	 * @throws SirixIOException if an I/O exception occurs
+	 * @throws SirixUsageException if Sirix is not used properly
+	 * @throws NullPointerException if {@code file} is {@code null}
 	 */
 	public static synchronized Database openDatabase(final File file)
 			throws SirixUsageException, SirixIOException {
 		Objects.requireNonNull(file);
 		if (!file.exists()) {
 			throw new SirixUsageException(
-					"DB could not be opened (since it was not created?) at location",
-					file.toString());
+					"DB could not be opened (since it was not created?) at location", file.toString());
 		}
-		final DatabaseConfiguration config = DatabaseConfiguration
-				.deserialize(file);
+		final DatabaseConfiguration config = DatabaseConfiguration.deserialize(file);
 		if (config == null) {
 			throw new IllegalStateException("Configuration may not be null!");
 		}
-		final File lock = new File(file, DatabaseConfiguration.Paths.LOCK.getFile()
-				.getName());
-		final Database database = new DatabaseImpl(config);
+		final File lock = new File(file, DatabaseConfiguration.Paths.LOCK.getFile().getName());
+		final Database session = new DatabaseImpl(config);
 		if (lock.exists() && Databases.getDatabase(file) == null) {
-			throw new SirixUsageException(
-					"DB could not be opened (since it is in use by another JVM)",
+			throw new SirixUsageException("DB could not be opened (since it is in use by another JVM)",
 					file.toString());
 		} else {
 			try {
@@ -143,9 +130,9 @@ public final class Databases {
 				throw new SirixIOException(e.getCause());
 			}
 		}
-		final Database returnVal = Databases.putDatabase(file, database);
+		final Database returnVal = Databases.putSession(file, session);
 		if (returnVal == null) {
-			return database;
+			return session;
 		} else {
 			return returnVal;
 		}
@@ -154,24 +141,20 @@ public final class Databases {
 	/**
 	 * Determines if a database already exists.
 	 *
-	 * @param dbConfig
-	 *          database configuration
+	 * @param dbConfig database configuration
 	 * @return {@code true}, if database exists, {@code false} otherwise
 	 */
-	public static synchronized boolean existsDatabase(
-			final DatabaseConfiguration dbConfig) {
+	public static synchronized boolean existsDatabase(final DatabaseConfiguration dbConfig) {
 		return dbConfig.getFile().exists()
-				&& DatabaseConfiguration.Paths.compareStructure(dbConfig.getFile()) == 0 ? true
-				: false;
+				&& DatabaseConfiguration.Paths.compareStructure(dbConfig.getFile()) == 0 ? true : false;
 	}
 
 	/**
 	 * Package private method to get a database for a file.
 	 *
-	 * @param file
-	 *          database file to lookup
-	 * @return the database handle associated with the file or {@code null} if no
-	 *         database handle has been opened before for the specified file
+	 * @param file database file to lookup
+	 * @return the database handle associated with the file or {@code null} if no database handle has
+	 *         been opened before for the specified file
 	 */
 	static synchronized Database getDatabase(final File file) {
 		return DATABASEMAP.get(file);
@@ -180,23 +163,19 @@ public final class Databases {
 	/**
 	 * Package private method to put a file/database into the internal map.
 	 *
-	 * @param file
-	 *          database file to put into the map
-	 * @param database
-	 *          database handle to put into the map
-	 * @return the database handle associated with the file or {@code null} if no
-	 *         database handle has been opened before for the specified file
+	 * @param file database file to put into the map
+	 * @param database database handle to put into the map
+	 * @return the database handle associated with the file or {@code null} if no database handle has
+	 *         been opened before for the specified file
 	 */
-	static synchronized Database putDatabase(final File file,
-			final Database database) {
+	static synchronized Database putSession(final File file, final Database database) {
 		return DATABASEMAP.putIfAbsent(file, database);
 	}
 
 	/**
 	 * Package private method to remove a database.
 	 *
-	 * @param file
-	 *          database file to remove
+	 * @param file database file to remove
 	 */
 	static synchronized void removeDatabase(final File file) {
 		DATABASEMAP.remove(file);

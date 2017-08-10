@@ -26,8 +26,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          mutable {@link DocumentRootNode}
+	 * @param node mutable {@link DocumentRootNode}
 	 */
 	private ImmutableDocument(final DocumentRootNode node) {
 		mNode = checkNotNull(node);
@@ -36,8 +35,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	/**
 	 * Get an immutable document root node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link DocumentRootNode} to wrap
+	 * @param node the mutable {@link DocumentRootNode} to wrap
 	 * @return immutable document root node instance
 	 */
 	public static ImmutableDocument of(final DocumentRootNode node) {

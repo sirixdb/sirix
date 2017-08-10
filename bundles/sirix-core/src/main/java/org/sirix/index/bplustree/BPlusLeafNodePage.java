@@ -28,10 +28,8 @@ import com.google.common.io.ByteArrayDataInput;
  * 
  * @author Johannes Lichtenberger
  * 
- * @param <K>
- *          the key
- * @param <V>
- *          the value
+ * @param <K> the key
+ * @param <V> the value
  */
 public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record>
 		implements KeyValuePage<K, V> {
@@ -68,18 +66,13 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	/**
 	 * Create record page.
 	 * 
-	 * @param recordPageKey
-	 *          base key assigned to this node page
-	 * @param pageKind
-	 *          the kind of page (in which subtree it is)
-	 * @param pageReadTrx
-	 *          Sirix page reading transaction
-	 * @param kind
-	 *          determines if it's a leaf or inner node page
+	 * @param recordPageKey base key assigned to this node page
+	 * @param pageKind the kind of page (in which subtree it is)
+	 * @param pageReadTrx Sirix page reading transaction
+	 * @param kind determines if it's a leaf or inner node page
 	 */
-	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef,
-			final PageReadTrx pageReadTrx) {
+	public BPlusLeafNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
+			final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -97,18 +90,15 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	/**
 	 * Read node page.
 	 * 
-	 * @param in
-	 *          input bytes to read page from
-	 * @param pageReadTrx
-	 *          {@link 
+	 * @param in input bytes to read page from
+	 * @param pageReadTrx {@link
 	 */
-	protected BPlusLeafNodePage(final ByteArrayDataInput in,
-			final PageReadTrx pageReadTrx) {
+	protected BPlusLeafNodePage(final ByteArrayDataInput in, final PageReadTrx pageReadTrx) {
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
-		final RecordPersistenter persistenter = pageReadTrx.getSession()
-				.getResourceConfig().mPersistenter;
+		final RecordPersistenter persistenter =
+				pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
 			// @SuppressWarnings("unchecked")
@@ -136,19 +126,18 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		out.writeLong(mRecordPageKey);
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
-		final RecordPersistenter persistenter = mPageReadTrx.getSession()
-				.getResourceConfig().mPersistenter;
+		final RecordPersistenter persistenter =
+				mPageReadTrx.getSession().getResourceConfig().mPersistenter;
 		for (final Map.Entry<K, V> node : mRecords.entrySet()) {
 			// persistenter.serialize(out, node.getKey(), mPageReadTrx);
 			// persistenter.serialize(out, node.getValue(), mPageReadTrx);
 		}
 	}
 
-	private void serializePointer(final Optional<PageReference> page,
-			final DataOutput out) throws IOException {
+	private void serializePointer(final Optional<PageReference> page, final DataOutput out)
+			throws IOException {
 		if (page.isPresent()) {
-			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
-					: true);
+			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false : true);
 		} else {
 			out.writeBoolean(false);
 		}
@@ -161,8 +150,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	@Override
 	public <KE extends Comparable<? super KE>, VA extends Record, S extends KeyValuePage<KE, VA>> void commit(
-			PageWriteTrx<KE, VA, S> pageWriteTrx) {
-	}
+			PageWriteTrx<KE, VA, S> pageWriteTrx) {}
 
 	@Override
 	public PageReference getReference(@Nonnegative int offset) {
@@ -207,12 +195,10 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final PageKind pageKind,
-			final Optional<PageReference> previousPageRef,
+	public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
+			final PageKind pageKind, final Optional<PageReference> previousPageRef,
 			final PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind,
-				previousPageRef, pageReadTrx);
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
 	}
 
 	@Override

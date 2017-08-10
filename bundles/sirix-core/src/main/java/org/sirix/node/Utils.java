@@ -12,13 +12,10 @@ public final class Utils {
 	/**
 	 * Store a "compressed" variable-length long value.
 	 * 
-	 * @param output
-	 *          {@link ByteArrayDataOutput} reference
-	 * @param value
-	 *          long value
+	 * @param output {@link ByteArrayDataOutput} reference
+	 * @param value long value
 	 */
-	public static final void putVarLong(final DataOutput output, long value)
-			throws IOException {
+	public static final void putVarLong(final DataOutput output, long value) throws IOException {
 		while ((value & ~0x7F) != 0) {
 			output.write(((byte) ((value & 0x7f) | 0x80)));
 			value >>>= 7;
@@ -29,8 +26,7 @@ public final class Utils {
 	/**
 	 * Get a "compressed" variable-length long value.
 	 * 
-	 * @param input
-	 *          {@link ByteArrayDataInput} reference
+	 * @param input {@link ByteArrayDataInput} reference
 	 * @return long value
 	 */
 	public static final long getVarLong(final DataInput input) throws IOException {

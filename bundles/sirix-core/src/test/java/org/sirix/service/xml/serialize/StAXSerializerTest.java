@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.serialize;
@@ -49,13 +43,13 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
 /**
  * Test StAXSerializer.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz.
  */
 public class StAXSerializerTest {
@@ -80,11 +74,11 @@ public class StAXSerializerTest {
 	public void testStAXSerializer() {
 		try {
 			final ByteArrayOutputStream out = new ByteArrayOutputStream();
-			final XMLSerializer xmlSerializer = new XMLSerializerBuilder(
-					holder.getSession(), out).emitXMLDeclaration().build();
+			final XMLSerializer xmlSerializer =
+					new XMLSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
 			xmlSerializer.call();
 
-			final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+			final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
 			StAXSerializer serializer = new StAXSerializer(rtx);
 			final StringBuilder strBuilder = new StringBuilder();
 			boolean isEmptyElement = false;
@@ -93,31 +87,30 @@ public class StAXSerializerTest {
 				XMLEvent event = serializer.nextEvent();
 
 				switch (event.getEventType()) {
-				case XMLStreamConstants.START_DOCUMENT:
-					strBuilder
-							.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-					break;
-				case XMLStreamConstants.START_ELEMENT:
-					emitElement(event, strBuilder);
+					case XMLStreamConstants.START_DOCUMENT:
+						strBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+						break;
+					case XMLStreamConstants.START_ELEMENT:
+						emitElement(event, strBuilder);
 
-					if (serializer.peek().getEventType() == XMLStreamConstants.END_ELEMENT) {
-						strBuilder.append("/>");
-						isEmptyElement = true;
-					} else {
-						strBuilder.append('>');
-					}
-					break;
-				case XMLStreamConstants.END_ELEMENT:
-					if (isEmptyElement) {
-						isEmptyElement = false;
-					} else {
-						emitQName(true, event, strBuilder);
-						strBuilder.append('>');
-					}
-					break;
-				case XMLStreamConstants.CHARACTERS:
-					strBuilder.append(((Characters) event).getData());
-					break;
+						if (serializer.peek().getEventType() == XMLStreamConstants.END_ELEMENT) {
+							strBuilder.append("/>");
+							isEmptyElement = true;
+						} else {
+							strBuilder.append('>');
+						}
+						break;
+					case XMLStreamConstants.END_ELEMENT:
+						if (isEmptyElement) {
+							isEmptyElement = false;
+						} else {
+							emitQName(true, event, strBuilder);
+							strBuilder.append('>');
+						}
+						break;
+					case XMLStreamConstants.CHARACTERS:
+						strBuilder.append(((Characters) event).getData());
+						break;
 				}
 			}
 
@@ -125,9 +118,9 @@ public class StAXSerializerTest {
 
 			// Check getElementText().
 			// ========================================================
-			holder.getRtx().moveToDocumentRoot();
-			holder.getRtx().moveToFirstChild();
-			serializer = new StAXSerializer(holder.getRtx());
+			holder.getReader().moveToDocumentRoot();
+			holder.getReader().moveToFirstChild();
+			serializer = new StAXSerializer(holder.getReader());
 			String elemText = null;
 
 			// <p:a>
@@ -205,11 +198,10 @@ public class StAXSerializerTest {
 	}
 
 	/**
-	 * Checks for an XMLStreamException if the current event isn't a start tag.
-	 * Used for testing getElementText().
-	 * 
-	 * @param serializer
-	 *          {@link StAXSerializer}
+	 * Checks for an XMLStreamException if the current event isn't a start tag. Used for testing
+	 * getElementText().
+	 *
+	 * @param serializer {@link StAXSerializer}
 	 */
 	private void checkForException(final StAXSerializer serializer) {
 		String elemText = "";
@@ -226,11 +218,9 @@ public class StAXSerializerTest {
 
 	/**
 	 * Emit an element.
-	 * 
-	 * @param event
-	 *          {@link XMLEvent}, either a start tag or an end tag.
-	 * @param strBuilder
-	 *          String builder to build the string representation.
+	 *
+	 * @param event {@link XMLEvent}, either a start tag or an end tag.
+	 * @param strBuilder String builder to build the string representation.
 	 */
 	@Ignore
 	private void emitElement(final XMLEvent event, final StringBuilder strBuilder) {
@@ -243,11 +233,10 @@ public class StAXSerializerTest {
 				final Namespace namespace = (Namespace) it.next();
 
 				if ("".equals(namespace.getPrefix())) {
-					strBuilder.append(" xmlns=\"").append(namespace.getNamespaceURI())
-							.append("\"");
+					strBuilder.append(" xmlns=\"").append(namespace.getNamespaceURI()).append("\"");
 				} else {
-					strBuilder.append(" xmlns:").append(namespace.getPrefix())
-							.append("=\"").append(namespace.getNamespaceURI()).append("\"");
+					strBuilder.append(" xmlns:").append(namespace.getPrefix()).append("=\"")
+							.append(namespace.getNamespaceURI()).append("\"");
 				}
 			}
 
@@ -262,13 +251,10 @@ public class StAXSerializerTest {
 
 	/**
 	 * Emit a qualified name.
-	 * 
-	 * @param event
-	 *          {@link XMLEvent}, either a start tag or an end tag.
-	 * @param strBuilder
-	 *          String builder to build the string representation.
-	 * @param isElem
-	 *          Determines if it is an element or an attribute.
+	 *
+	 * @param event {@link XMLEvent}, either a start tag or an end tag.
+	 * @param strBuilder String builder to build the string representation.
+	 * @param isElem Determines if it is an element or an attribute.
 	 */
 	@Ignore
 	private void emitQName(final boolean isElem, final XMLEvent event,
@@ -293,8 +279,7 @@ public class StAXSerializerTest {
 		if (qName.getPrefix() == null || "".equals(qName.getPrefix())) {
 			strBuilder.append(qName.getLocalPart());
 		} else {
-			strBuilder.append(qName.getPrefix()).append(':')
-					.append(qName.getLocalPart());
+			strBuilder.append(qName.getPrefix()).append(':').append(qName.getLocalPart());
 		}
 	}
 }

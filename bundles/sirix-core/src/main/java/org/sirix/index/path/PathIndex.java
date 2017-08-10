@@ -11,14 +11,11 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public interface PathIndex<K extends Comparable<? super K>, V extends References> {
-	PathIndexBuilder createBuilder(
-			PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	PathIndexBuilder createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-	PathIndexListener createListener(
-			PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	PathIndexListener createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-	Iterator<V> openIndex(PageReadTrx pageRtx, IndexDef indexDef,
-			PathFilter filter);
+	Iterator<V> openIndex(PageReadTrx pageRtx, IndexDef indexDef, PathFilter filter);
 }

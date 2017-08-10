@@ -31,22 +31,20 @@ public final class Encryptor implements ByteHandler {
 	private final Key mKey;
 
 	/** 128bit key. */
-	private static final byte[] KEYVALUE = new byte[] { 'k', 'k', 'k', 'k', 'k',
-			'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k' };
+	private static final byte[] KEYVALUE =
+			new byte[] {'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k'};
 
 	/**
 	 * Constructor.
 	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @throws SirixIOException if an I/O error occurs
 	 */
 	public Encryptor() {
 		mKey = new SecretKeySpec(KEYVALUE, ALGORITHM);
 	}
 
 	@Override
-	public OutputStream serialize(final OutputStream toSerialize)
-			throws IOException {
+	public OutputStream serialize(final OutputStream toSerialize) throws IOException {
 		try {
 			final Cipher cipher = Cipher.getInstance(ALGORITHM);
 			cipher.init(Cipher.ENCRYPT_MODE, mKey);
@@ -57,8 +55,7 @@ public final class Encryptor implements ByteHandler {
 	}
 
 	@Override
-	public InputStream deserialize(final InputStream toDeserialize)
-			throws IOException {
+	public InputStream deserialize(final InputStream toDeserialize) throws IOException {
 		try {
 			final Cipher cipher = Cipher.getInstance(ALGORITHM);
 			cipher.init(Cipher.DECRYPT_MODE, mKey);

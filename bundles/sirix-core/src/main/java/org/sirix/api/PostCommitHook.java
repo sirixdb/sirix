@@ -12,10 +12,8 @@ public interface PostCommitHook {
 	/**
 	 * Post commit hook. Called after a revision has been commited.
 	 * 
-	 * @param rtx
-	 *          Sirix {@link NodeReadTrx}
-	 * @throws NullPointerException
-	 *           if {@code rtx} is {@code null}
+	 * @param rtx Sirix {@link XdmNodeReadTrx}
+	 * @throws NullPointerException if {@code rtx} is {@code null}
 	 */
-	void postCommit(final NodeReadTrx rtx);
+	void postCommit(final XdmNodeReadTrx rtx);
 }

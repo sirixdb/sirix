@@ -2,15 +2,14 @@ package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
- * Retrieve a node by node key in all revisions. In each revision a
- * {@link NodeReadTrx} is opened which is moved to the node with the given node
- * key if it exists. Otherwise the iterator has no more elements (the
- * {@link NodeReadTrx} moved to the node by it's node key).
+ * Retrieve a node by node key in all revisions. In each revision a {@link XdmNodeReadTrx} is opened
+ * which is moved to the node with the given node key if it exists. Otherwise the iterator has no
+ * more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
  * 
  * @author Johannes Lichtenberger
  * 
@@ -20,29 +19,28 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	/** The revision number. */
 	private int mRevision;
 
-	/** Sirix {@link Session}. */
-	private final Session mSession;
+	/** Sirix {@link ResourceManager}. */
+	private final ResourceManager mSession;
 
 	/** Node key to lookup and retrieve. */
 	private long mNodeKey;
 
-	/** Sirix {@link NodeReadTrx}. */
-	private NodeReadTrx mRtx;
+	/** Sirix {@link XdmNodeReadTrx}. */
+	private XdmNodeReadTrx mRtx;
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param rtx
-	 *          Sirix {@link NodeReadTrx}
+	 * @param rtx Sirix {@link XdmNodeReadTrx}
 	 */
-	public AllTimeAxis(final NodeReadTrx rtx) {
-		mSession = checkNotNull(rtx.getSession());
+	public AllTimeAxis(final XdmNodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getResourceManager());
 		mRevision = 1;
 		mNodeKey = rtx.getNodeKey();
 	}
 
 	@Override
-	protected NodeReadTrx computeNext() {
+	protected XdmNodeReadTrx computeNext() {
 		if (mRevision <= mSession.getMostRecentRevisionNumber()) {
 			mRtx = mSession.beginNodeReadTrx(mRevision++);
 			return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
@@ -52,7 +50,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	}
 
 	@Override
-	public NodeReadTrx getTrx() {
+	public XdmNodeReadTrx getTrx() {
 		return mRtx;
 	}
 }

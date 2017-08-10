@@ -38,21 +38,19 @@ public final class NameIndexImpl implements NameIndex<QNm, NodeReferences> {
 	}
 
 	@Override
-	public Iterator<NodeReferences> openIndex(PageReadTrx pageRtx,
-			IndexDef indexDef, NameFilter filter) {
-		final AVLTreeReader<QNm, NodeReferences> reader = AVLTreeReader
-				.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
+	public Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef,
+			NameFilter filter) {
+		final AVLTreeReader<QNm, NodeReferences> reader =
+				AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
 
 		if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
-			final Optional<NodeReferences> optionalNodeReferences = reader.get(filter
-					.getIncludes().iterator().next(), SearchMode.EQUAL);
-			return Iterators.forArray(optionalNodeReferences
-					.orElse(new NodeReferences()));
+			final Optional<NodeReferences> optionalNodeReferences =
+					reader.get(filter.getIncludes().iterator().next(), SearchMode.EQUAL);
+			return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
 		} else {
-			final Iterator<AVLNode<QNm, NodeReferences>> iter = reader.new AVLNodeIterator(
-					Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-			final Set<Filter> setFilter = filter == null ? ImmutableSet.of()
-					: ImmutableSet.of(filter);
+			final Iterator<AVLNode<QNm, NodeReferences>> iter =
+					reader.new AVLNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+			final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
 
 			return new IndexFilterAxis<QNm>(iter, setFilter);
 		}

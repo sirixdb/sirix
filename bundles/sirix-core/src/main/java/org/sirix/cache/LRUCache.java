@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.cache;
@@ -41,9 +35,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 
 /**
- * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible
- * second cache as a second layer for example for storing data in a persistent
- * way.
+ * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible second cache as a
+ * second layer for example for storing data in a persistent way.
  *
  * @author Sebastian Graf, University of Konstanz
  */
@@ -67,9 +60,8 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	/**
 	 * Creates a new LRU cache.
 	 *
-	 * @param secondCache
-	 *          the reference to the second {@link Cache} where the data is stored
-	 *          when it gets removed from the first one.
+	 * @param secondCache the reference to the second {@link Cache} where the data is stored when it
+	 *        gets removed from the first one.
 	 */
 	public LRUCache(final Cache<K, V> secondCache) {
 		// Assertion instead of checkNotNull(...).
@@ -105,10 +97,9 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 * Retrieves an entry from the cache.<br>
 	 * The retrieved entry becomes the MRU (most recently used) entry.
 	 *
-	 * @param key
-	 *          the key whose associated value is to be returned.
-	 * @return the value associated to this key, or {@code null} if no value with
-	 *         this key exists in the cache
+	 * @param key the key whose associated value is to be returned.
+	 * @return the value associated to this key, or {@code null} if no value with this key exists in
+	 *         the cache
 	 */
 	@Override
 	public V get(final K key) {
@@ -121,13 +112,11 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 	/**
 	 *
-	 * Adds an entry to this cache. If the cache is full, the LRU (least recently
-	 * used) entry is dropped.
+	 * Adds an entry to this cache. If the cache is full, the LRU (least recently used) entry is
+	 * dropped.
 	 *
-	 * @param key
-	 *          the key with which the specified value is to be associated
-	 * @param value
-	 *          a value to be associated with the specified key
+	 * @param key the key with which the specified value is to be associated
+	 * @param value a value to be associated with the specified key
 	 */
 	@Override
 	public void put(final K key, final V value) {

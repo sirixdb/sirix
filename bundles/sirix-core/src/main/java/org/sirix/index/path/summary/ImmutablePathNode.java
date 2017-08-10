@@ -20,8 +20,7 @@ import org.sirix.node.interfaces.immutable.ImmutableStructNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutablePathNode implements ImmutableNameNode,
-		ImmutableStructNode {
+public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode {
 
 	/** {@link PathNode} instance. */
 	private final PathNode mNode;
@@ -29,8 +28,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	/**
 	 * Private constructor.
 	 * 
-	 * @param node
-	 *          the mutable path node
+	 * @param node the mutable path node
 	 */
 	public ImmutablePathNode(final PathNode node) {
 		mNode = node;
@@ -39,8 +37,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	/**
 	 * Get an immutable path node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link PathNode} to wrap
+	 * @param node the mutable {@link PathNode} to wrap
 	 * @return immutable path node instance
 	 */
 	public static ImmutableNode of(final PathNode node) {

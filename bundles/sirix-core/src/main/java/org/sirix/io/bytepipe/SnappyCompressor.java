@@ -16,14 +16,12 @@ import org.xerial.snappy.SnappyOutputStream;
 public final class SnappyCompressor implements ByteHandler {
 
 	@Override
-	public OutputStream serialize(final OutputStream toSerialize)
-			throws IOException {
+	public OutputStream serialize(final OutputStream toSerialize) throws IOException {
 		return new SnappyOutputStream(toSerialize);
 	}
 
 	@Override
-	public InputStream deserialize(final InputStream toDeserialize)
-			throws IOException {
+	public InputStream deserialize(final InputStream toDeserialize) throws IOException {
 		return new SnappyInputStream(toDeserialize);
 	}
 

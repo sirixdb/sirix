@@ -7,14 +7,12 @@ import java.util.NoSuchElementException;
 import org.sirix.api.NodeCursor;
 
 /**
- * Determines if the {@link NodeCursor} moved to a node or not. Based on the
- * idea of providing a wrapper just like in Google Guava's {@link Optional}
- * class.
+ * Determines if the {@link NodeCursor} moved to a node or not. Based on the idea of providing a
+ * wrapper just like in Google Guava's {@link Optional} class.
  *
  * @author Johannes Lichtenberger
  *
- * @param <T>
- *          type parameter, the cursor
+ * @param <T> type parameter, the cursor
  */
 public abstract class Move<T extends NodeCursor> {
 	/**
@@ -43,8 +41,7 @@ public abstract class Move<T extends NodeCursor> {
 	 * Get the cursor reference.
 	 *
 	 * @return cursor reference
-	 * @throws NoSuchElementException
-	 *           if the cursor couldn't be moved
+	 * @throws NoSuchElementException if the cursor couldn't be moved
 	 */
 	public abstract T get();
 }

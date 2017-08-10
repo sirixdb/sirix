@@ -7,8 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * An LRU cache, based on <code>LinkedHashMap</code> holding last key changes
- * for a user.
+ * An LRU cache, based on <code>LinkedHashMap</code> holding last key changes for a user.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -32,8 +31,7 @@ public final class KeyCache {
 			private static final long serialVersionUID = 1;
 
 			@Override
-			protected boolean removeEldestEntry(
-					final Map.Entry<String, List<Long>> mEldest) {
+			protected boolean removeEldestEntry(final Map.Entry<String, List<Long>> mEldest) {
 				boolean returnVal = false;
 				if (size() > CACHE_CAPACITY) {
 					returnVal = true;
@@ -46,8 +44,7 @@ public final class KeyCache {
 	/**
 	 * Returns the stored <code>LinkedList</code> of corresponding user.
 	 * 
-	 * @param user
-	 *          User key.
+	 * @param user User key.
 	 * @return linked list of user.
 	 */
 	public final List<Long> get(final String user) {
@@ -56,13 +53,11 @@ public final class KeyCache {
 	}
 
 	/**
-	 * Stores a new entry in cache consisting of a user name as key and a linked
-	 * list for storing node keys as value.
+	 * Stores a new entry in cache consisting of a user name as key and a linked list for storing node
+	 * keys as value.
 	 * 
-	 * @param user
-	 *          user name as key.
-	 * @param list
-	 *          linked list as values.
+	 * @param user user name as key.
+	 * @param list linked list as values.
 	 */
 	public final void put(final String user, final List<Long> list) {
 
@@ -86,8 +81,7 @@ public final class KeyCache {
 	}
 
 	/**
-	 * Returns a <code>Collection</code> that contains a copy of all cache
-	 * entries.
+	 * Returns a <code>Collection</code> that contains a copy of all cache entries.
 	 * 
 	 * @return a <code>Collection</code> with a copy of the cache content.
 	 */

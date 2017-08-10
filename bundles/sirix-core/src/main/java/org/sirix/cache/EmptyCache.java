@@ -8,12 +8,10 @@ import com.google.common.collect.ImmutableMap;
 
 public class EmptyCache<K, V> implements Cache<K, V> {
 
-	public EmptyCache() {
-	}
+	public EmptyCache() {}
 
 	@Override
-	public void clear() {
-	}
+	public void clear() {}
 
 	@Override
 	public V get(K key) {
@@ -21,8 +19,7 @@ public class EmptyCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void put(K key, @Nonnull V value) {
-	}
+	public void put(K key, @Nonnull V value) {}
 
 	@Override
 	public ImmutableMap<K, V> getAll(Iterable<? extends K> keys) {
@@ -30,19 +27,15 @@ public class EmptyCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void putAll(Map<? extends K, ? extends V> map) {
-	}
+	public void putAll(Map<? extends K, ? extends V> map) {}
 
 	@Override
-	public void toSecondCache() {
-	}
+	public void toSecondCache() {}
 
 	@Override
-	public void remove(K key) {
-	}
+	public void remove(K key) {}
 
 	@Override
-	public void close() {
-	}
+	public void close() {}
 
 }

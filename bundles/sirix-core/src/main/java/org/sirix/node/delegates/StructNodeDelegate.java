@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix.node.delegates;
 
@@ -41,18 +35,16 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * Delegate method for all nodes building up the structure. That means that all
- * nodes representing trees in Sirix are represented by an instance of the
- * interface {@link StructNode} namely containing the position of all related
- * siblings, the first-child and all nodes defined by the {@link NodeDelegate}
- * as well.
+ * Delegate method for all nodes building up the structure. That means that all nodes representing
+ * trees in Sirix are represented by an instance of the interface {@link StructNode} namely
+ * containing the position of all related siblings, the first-child and all nodes defined by the
+ * {@link NodeDelegate} as well.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public class StructNodeDelegate extends AbstractForwardingNode implements
-		StructNode {
+public class StructNodeDelegate extends AbstractForwardingNode implements StructNode {
 
 	/** Pointer to the first child of the current node. */
 	private long mFirstChild;
@@ -75,24 +67,16 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 	/**
 	 * Constructor.
 	 *
-	 * @param del
-	 *          {@link NodeDelegate} instance
-	 * @param firstChild
-	 *          first child key
-	 * @param rightSib
-	 *          right sibling key
-	 * @param leftSib
-	 *          left sibling key
-	 * @param childCount
-	 *          number of children of the node
-	 * @param descendantCount
-	 *          number of descendants of the node
-	 * @param pSiblingPos
-	 *          sibling position
+	 * @param del {@link NodeDelegate} instance
+	 * @param firstChild first child key
+	 * @param rightSib right sibling key
+	 * @param leftSib left sibling key
+	 * @param childCount number of children of the node
+	 * @param descendantCount number of descendants of the node
+	 * @param pSiblingPos sibling position
 	 */
-	public StructNodeDelegate(final NodeDelegate del, final long firstChild,
-			final long rightSib, final long leftSib,
-			final @Nonnegative long childCount,
+	public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib,
+			final long leftSib, final @Nonnegative long childCount,
 			final @Nonnegative long descendantCount) {
 		assert childCount >= 0 : "childCount must be >= 0!";
 		assert descendantCount >= 0 : "descendantCount must be >= 0!";
@@ -177,8 +161,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling,
-				mRightSibling, mDescendantCount);
+		return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling,
+				mDescendantCount);
 	}
 
 	@Override
@@ -197,12 +181,10 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this)
-				.add("first child", getFirstChildKey())
-				.add("left sib", getLeftSiblingKey())
-				.add("right sib", getRightSiblingKey())
-				.add("child count", getChildCount())
-				.add("descendant count", getDescendantCount()).toString();
+		return MoreObjects.toStringHelper(this).add("first child", getFirstChildKey())
+				.add("left sib", getLeftSiblingKey()).add("right sib", getRightSiblingKey())
+				.add("child count", getChildCount()).add("descendant count", getDescendantCount())
+				.toString();
 	}
 
 	@Override

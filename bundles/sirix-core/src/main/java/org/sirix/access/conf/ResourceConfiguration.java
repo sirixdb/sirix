@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix.access.conf;
 
@@ -41,7 +35,7 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.HashKind;
-import org.sirix.access.SessionImpl;
+import org.sirix.access.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
@@ -60,10 +54,9 @@ import com.google.gson.stream.JsonWriter;
  * <h1>ResourceConfiguration</h1>
  *
  * <p>
- * Holds the settings for a resource which acts as a base for session that can
- * not change. This includes all settings which are persistent. Each
- * {@link ResourceConfiguration} is furthermore bound to one fixed database
- * denoted by a related {@link DatabaseConfiguration}.
+ * Holds the settings for a resource which acts as a base for session that can not change. This
+ * includes all settings which are persistent. Each {@link ResourceConfiguration} is furthermore
+ * bound to one fixed database denoted by a related {@link DatabaseConfiguration}.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz
@@ -72,14 +65,14 @@ import com.google.gson.stream.JsonWriter;
 public final class ResourceConfiguration {
 
 	/**
-	 * Paths for a {@link SessionImpl}. Each resource has the same folder layout.
+	 * Paths for a {@link XdmResourceManager}. Each resource has the same folder layout.
 	 */
 	public enum Paths {
 
 		/** Folder for storage of data. */
 		DATA(new File("data"), true),
 
-		/** Folder for transaction log. */
+		/** Folder for the transaction log. */
 		TRANSACTION_LOG(new File("log"), true),
 
 		/** File to store the resource settings. */
@@ -97,10 +90,8 @@ public final class ResourceConfiguration {
 		/**
 		 * Constructor.
 		 *
-		 * @param file
-		 *          the file
-		 * @param isFolder
-		 *          determines if the file denotes a filer or not
+		 * @param file the file
+		 * @param isFolder determines if the file denotes a filer or not
 		 */
 		private Paths(final File file, final boolean isFolder) {
 			mFile = file;
@@ -128,12 +119,10 @@ public final class ResourceConfiguration {
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
 		 *
-		 * @param file
-		 *          to be checked
-		 * @return -1 if less folders are there, 0 if the structure is equal to the
-		 *         one expected, 1 if the structure has more folders
-		 * @throws NullPointerException
-		 *           if {@code pFile} is {@code null}
+		 * @param file to be checked
+		 * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
+		 *         the structure has more folders
+		 * @throws NullPointerException if {@code pFile} is {@code null}
 		 */
 		public static int compareStructure(final File file) {
 			int existing = 0;
@@ -165,8 +154,8 @@ public final class ResourceConfiguration {
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenterImpl();
 
-	/** Number of concurrent exclusive write transactions. */
-	public static final int MAX_WRITE_TRANSACTIONS = 1;
+	/** Number of concurrent exclusive read/write transactions. */
+	public static final int MAX_READ_WRITE_TRANSACTIONS = 1;
 
 	/** Number of concurrent read transactions. */
 	public static final int MAX_READ_TRANSACTIONS = 512;
@@ -198,7 +187,9 @@ public final class ResourceConfiguration {
 	/** Determines if text-compression should be used or not (default is true). */
 	public final boolean mCompression;
 
-	/** Determines if a path summary should be build and kept up to date or not. */
+	/**
+	 * Determines if a path summary should be build and kept up to date or not.
+	 */
 	public final boolean mPathSummary;
 
 	/** Persistents records / commonly nodes. */
@@ -215,24 +206,19 @@ public final class ResourceConfiguration {
 	/**
 	 * Get a new builder instance.
 	 *
-	 * @param resource
-	 *          the name of the resource
-	 * @param config
-	 *          the related {@link DatabaseConfiguration}
-	 * @throws NullPointerException
-	 *           if {@code resource} or {@code config} is {@code null}
+	 * @param resource the name of the resource
+	 * @param config the related {@link DatabaseConfiguration}
+	 * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final String resource,
-			final DatabaseConfiguration config) {
+	public static Builder newBuilder(final String resource, final DatabaseConfiguration config) {
 		return new Builder(resource, config);
 	}
 
 	/**
 	 * Convenience constructor using the standard settings.
 	 *
-	 * @param builder
-	 *          {@link Builder} reference
+	 * @param builder {@link Builder} reference
 	 */
 	private ResourceConfiguration(final ResourceConfiguration.Builder builder) {
 		mStorage = builder.mType;
@@ -244,8 +230,8 @@ public final class ResourceConfiguration {
 		mCompression = builder.mCompression;
 		mPathSummary = builder.mPathSummary;
 		mDeweyIDsStored = builder.mUseDeweyIDs;
-		mPath = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()),
+		mPath = new File(
+				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				builder.mResource);
 		mPersistenter = builder.mPersistenter;
 	}
@@ -253,8 +239,7 @@ public final class ResourceConfiguration {
 	/**
 	 * Set a unique ID.
 	 *
-	 * @param id
-	 *          the ID to set
+	 * @param id the ID to set
 	 * @return this instance
 	 */
 	public ResourceConfiguration setID(final @Nonnegative long id) {
@@ -274,8 +259,7 @@ public final class ResourceConfiguration {
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mStorage, mRevisionKind, mHashKind, mPath,
-				mDBConfig);
+		return Objects.hashCode(mStorage, mRevisionKind, mHashKind, mPath, mDBConfig);
 	}
 
 	@Override
@@ -284,8 +268,7 @@ public final class ResourceConfiguration {
 			final ResourceConfiguration other = (ResourceConfiguration) obj;
 			return Objects.equal(mStorage, other.mStorage)
 					&& Objects.equal(mRevisionKind, other.mRevisionKind)
-					&& Objects.equal(mHashKind, other.mHashKind)
-					&& Objects.equal(mPath, other.mPath)
+					&& Objects.equal(mHashKind, other.mHashKind) && Objects.equal(mPath, other.mPath)
 					&& Objects.equal(mDBConfig, other.mDBConfig);
 		} else {
 			return false;
@@ -294,9 +277,8 @@ public final class ResourceConfiguration {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("Resource", mPath)
-				.add("Type", mStorage).add("Revision", mRevisionKind)
-				.add("HashKind", mHashKind).toString();
+		return MoreObjects.toStringHelper(this).add("Resource", mPath).add("Type", mStorage)
+				.add("Revision", mRevisionKind).add("HashKind", mHashKind).toString();
 	}
 
 	/**
@@ -320,21 +302,17 @@ public final class ResourceConfiguration {
 	/**
 	 * JSON names.
 	 */
-	private static final String[] JSONNAMES = { "revisioning",
-			"revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-			"storageKind", "hashKind", "compression", "pathSummary", "resourceID",
-			"deweyIDsStored", "persistenter" };
+	private static final String[] JSONNAMES = {"revisioning", "revisioningClass",
+			"numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "compression",
+			"pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
 
 	/**
 	 * Serialize the configuration.
 	 *
-	 * @param config
-	 *          configuration to serialize
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @param config configuration to serialize
+	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static void serialize(final ResourceConfiguration config)
-			throws SirixIOException {
+	public static void serialize(final ResourceConfiguration config) throws SirixIOException {
 		final File configFile = config.getConfigFile();
 		try (final FileWriter fileWriter = new FileWriter(configFile);
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
@@ -366,8 +344,7 @@ public final class ResourceConfiguration {
 			// Dewey IDs stored or not.
 			jsonWriter.name(JSONNAMES[9]).value(config.mDeweyIDsStored);
 			// Persistenter.
-			jsonWriter.name(JSONNAMES[10]).value(
-					config.mPersistenter.getClass().getName());
+			jsonWriter.name(JSONNAMES[10]).value(config.mPersistenter.getClass().getName());
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
@@ -378,20 +355,15 @@ public final class ResourceConfiguration {
 	}
 
 	/**
-	 * Deserializing a Resource configuration from a JSON-file from the persistent
-	 * storage.
+	 * Deserializing a Resource configuration from a JSON-file from the persistent storage.
 	 *
-	 * @param file
-	 *          where the resource lies in.
+	 * @param file where the resource lies in.
 	 * @return a complete {@link ResourceConfiguration} instance
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static ResourceConfiguration deserialize(final File file)
-			throws SirixIOException {
+	public static ResourceConfiguration deserialize(final File file) throws SirixIOException {
 		try {
-			final File configFiler = new File(file, Paths.CONFIG_BINARY.getFile()
-					.getName());
+			final File configFiler = new File(file, Paths.CONFIG_BINARY.getFile().getName());
 			final FileReader fileReader = new FileReader(configFiler);
 			final JsonReader jsonReader = new JsonReader(fileReader);
 			jsonReader.beginObject();
@@ -401,8 +373,7 @@ public final class ResourceConfiguration {
 			jsonReader.beginObject();
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[1]);
-			final Versioning revisioning = Versioning
-					.valueOf(jsonReader.nextString());
+			final Versioning revisioning = Versioning.valueOf(jsonReader.nextString());
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[2]);
 			final int revisionToRestore = jsonReader.nextInt();
@@ -418,8 +389,8 @@ public final class ResourceConfiguration {
 				handlerList.add((ByteHandler) handlerCons.newInstance());
 			}
 			jsonReader.endArray();
-			final ByteHandlePipeline pipeline = new ByteHandlePipeline(
-					handlerList.toArray(new ByteHandler[handlerList.size()]));
+			final ByteHandlePipeline pipeline =
+					new ByteHandlePipeline(handlerList.toArray(new ByteHandler[handlerList.size()]));
 			// Storage type.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[4]);
@@ -446,33 +417,29 @@ public final class ResourceConfiguration {
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[10]);
 			final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
-			final Constructor<?> persistenterConstr = persistenterClazz
-					.getConstructors()[0];
-			final RecordPersistenter persistenter = (RecordPersistenter) persistenterConstr
-					.newInstance();
+			final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
+			final RecordPersistenter persistenter = (RecordPersistenter) persistenterConstr.newInstance();
 			jsonReader.endObject();
 			jsonReader.close();
 			fileReader.close();
 
 			// Deserialize database config.
-			final DatabaseConfiguration dbConfig = DatabaseConfiguration
-					.deserialize(file.getParentFile().getParentFile());
+			final DatabaseConfiguration dbConfig =
+					DatabaseConfiguration.deserialize(file.getParentFile().getParentFile());
 
 			// Builder.
-			final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(
-					file.getName(), dbConfig);
-			builder.byteHandlerPipeline(pipeline).hashKind(hashing)
-					.versioningApproach(revisioning)
-					.revisionsToRestore(revisionToRestore).storageType(storage)
-					.persistenter(persistenter).useTextCompression(compression)
-					.buildPathSummary(pathSummary).useDeweyIDs(deweyIDsStored);
+			final ResourceConfiguration.Builder builder =
+					new ResourceConfiguration.Builder(file.getName(), dbConfig);
+			builder.byteHandlerPipeline(pipeline).hashKind(hashing).versioningApproach(revisioning)
+					.revisionsToRestore(revisionToRestore).storageType(storage).persistenter(persistenter)
+					.useTextCompression(compression).buildPathSummary(pathSummary)
+					.useDeweyIDs(deweyIDsStored);
 
 			// Deserialized instance.
 			final ResourceConfiguration config = new ResourceConfiguration(builder);
 			return config.setID(ID);
 		} catch (IOException | ClassNotFoundException | IllegalArgumentException
-				| InstantiationException | IllegalAccessException
-				| InvocationTargetException e) {
+				| InstantiationException | IllegalAccessException | InvocationTargetException e) {
 			throw new SirixIOException(e);
 		}
 	}
@@ -503,7 +470,9 @@ public final class ResourceConfiguration {
 		/** Resource for this session. */
 		private final DatabaseConfiguration mDBConfig;
 
-		/** Determines if text-compression should be used or not (default is true). */
+		/**
+		 * Determines if text-compression should be used or not (default is true).
+		 */
 		private boolean mCompression;
 
 		/** Byte handler pipeline. */
@@ -518,12 +487,9 @@ public final class ResourceConfiguration {
 		/**
 		 * Constructor, setting the mandatory fields.
 		 *
-		 * @param resource
-		 *          the name of the resource
-		 * @param config
-		 *          the related {@link DatabaseConfiguration}
-		 * @throws NullPointerException
-		 *           if {@code resource} or {@code config} is {@code null}
+		 * @param resource the name of the resource
+		 * @param config the related {@link DatabaseConfiguration}
+		 * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
 		 */
 		public Builder(final String resource, final DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
@@ -535,8 +501,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the storage type.
 		 *
-		 * @param type
-		 *          storage type to use
+		 * @param type storage type to use
 		 * @return reference to the builder object
 		 */
 		public Builder storageType(final StorageType type) {
@@ -552,8 +517,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the versioning algorithm to use.
 		 *
-		 * @param versioning
-		 *          versioning algorithm to use
+		 * @param versioning versioning algorithm to use
 		 * @return reference to the builder object
 		 */
 		public Builder versioningApproach(final Versioning versioning) {
@@ -564,8 +528,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the hash kind to use for the nodes.
 		 *
-		 * @param hashKind
-		 *          hash kind to use
+		 * @param hashKind hash kind to use
 		 * @return reference to the builder object
 		 */
 		public Builder hashKind(final HashKind hashKind) {
@@ -576,8 +539,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the byte handler pipeline.
 		 *
-		 * @param byteHandler
-		 *          byte handler pipeline
+		 * @param byteHandler byte handler pipeline
 		 * @return reference to the builder object
 		 */
 		public Builder byteHandlerPipeline(final ByteHandlePipeline byteHandler) {
@@ -588,8 +550,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the number of revisions to restore after the last full dump.
 		 *
-		 * @param revisionsToRestore
-		 *          number of versions to restore
+		 * @param revisionsToRestore number of versions to restore
 		 * @return reference to the builder object
 		 */
 		public Builder revisionsToRestore(final @Nonnegative int revisionsToRestore) {
@@ -611,8 +572,7 @@ public final class ResourceConfiguration {
 		/**
 		 * Determines if text-compression should be used or not.
 		 *
-		 * @param compression
-		 *          use text compression or not (default: yes)
+		 * @param compression use text compression or not (default: yes)
 		 * @return reference to the builder object
 		 */
 		public Builder useTextCompression(boolean useTextCompression) {
@@ -632,9 +592,8 @@ public final class ResourceConfiguration {
 
 		@Override
 		public String toString() {
-			return MoreObjects.toStringHelper(this).add("Type", mType)
-					.add("RevisionKind", mRevisionKind).add("HashKind", mHashKind)
-					.toString();
+			return MoreObjects.toStringHelper(this).add("Type", mType).add("RevisionKind", mRevisionKind)
+					.add("HashKind", mHashKind).toString();
 		}
 
 		/**

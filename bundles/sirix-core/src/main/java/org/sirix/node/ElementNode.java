@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node;
@@ -58,8 +52,7 @@ import com.google.common.collect.BiMap;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ElementNode extends AbstractStructForwardingNode implements
-		NameNode {
+public final class ElementNode extends AbstractStructForwardingNode implements NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;
@@ -82,22 +75,16 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Constructor
 	 *
-	 * @param structDel
-	 *          {@link StructNodeDelegate} to be set
-	 * @param nameDel
-	 *          {@link NameNodeDelegate} to be set
-	 * @param attributeKeys
-	 *          list of attribute keys
-	 * @param attributes
-	 *          attribute nameKey / nodeKey mapping in both directions
-	 * @param namespaceKeys
-	 *          keys of namespaces to be set
+	 * @param structDel {@link StructNodeDelegate} to be set
+	 * @param nameDel {@link NameNodeDelegate} to be set
+	 * @param attributeKeys list of attribute keys
+	 * @param attributes attribute nameKey / nodeKey mapping in both directions
+	 * @param namespaceKeys keys of namespaces to be set
 	 * @param
 	 */
-	public ElementNode(final StructNodeDelegate structDel,
-			final NameNodeDelegate nameDel, final List<Long> attributeKeys,
-			final BiMap<Long, Long> attributes, final List<Long> namespaceKeys,
-			final QNm qNm) {
+	public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
+			final List<Long> attributeKeys, final BiMap<Long, Long> attributes,
+			final List<Long> namespaceKeys, final QNm qNm) {
 		assert structDel != null;
 		mStructNodeDel = structDel;
 		assert nameDel != null;
@@ -124,8 +111,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Getting the attribute key for an given index.
 	 *
-	 * @param index
-	 *          index of the attribute
+	 * @param index index of the attribute
 	 * @return the attribute key
 	 */
 	public long getAttributeKey(final @Nonnegative int index) {
@@ -138,25 +124,21 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Getting the attribute key by name (from the dictionary).
 	 *
-	 * @param name
-	 *          the attribute-name to lookup
+	 * @param name the attribute-name to lookup
 	 * @return the attribute key associated with the name
 	 */
 	public Optional<Long> getAttributeKeyByName(final QNm name) {
-		final int prefixIndex = name.getPrefix() != null
-				&& !name.getPrefix().isEmpty() ? NamePageHash
-				.generateHashForString(name.getPrefix()) : -1;
-		final int localNameIndex = NamePageHash.generateHashForString(name
-				.getLocalName());
-		return Optional.ofNullable(mAttributes
-				.get((long) (prefixIndex + localNameIndex)));
+		final int prefixIndex = name.getPrefix() != null && !name.getPrefix().isEmpty()
+				? NamePageHash.generateHashForString(name.getPrefix())
+				: -1;
+		final int localNameIndex = NamePageHash.generateHashForString(name.getLocalName());
+		return Optional.ofNullable(mAttributes.get((long) (prefixIndex + localNameIndex)));
 	}
 
 	/**
 	 * Get name key (prefixKey+localNameKey) by node key.
 	 *
-	 * @param key
-	 *          node key
+	 * @param key node key
 	 * @return optional name key
 	 */
 	public Optional<Long> getAttributeNameKey(final @Nonnegative long key) {
@@ -166,13 +148,10 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Inserting an attribute.
 	 *
-	 * @param attrKey
-	 *          the new attribute key
-	 * @param nameIndex
-	 *          index mapping to name string
+	 * @param attrKey the new attribute key
+	 * @param nameIndex index mapping to name string
 	 */
-	public void insertAttribute(final @Nonnegative long attrKey,
-			final long nameIndex) {
+	public void insertAttribute(final @Nonnegative long attrKey, final long nameIndex) {
 		mAttributeKeys.add(attrKey);
 		mAttributes.put(nameIndex, attrKey);
 	}
@@ -180,8 +159,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Removing an attribute.
 	 *
-	 * @param attrKey
-	 *          the key of the attribute to be removed@Nonnegative@Nonnegative
+	 * @param attrKey the key of the attribute to be removed@Nonnegative@Nonnegative
 	 */
 	public void removeAttribute(final @Nonnegative long attrKey) {
 		mAttributeKeys.remove(attrKey);
@@ -200,8 +178,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Getting the namespace key for a given index.
 	 *
-	 * @param namespaceKey
-	 *          index of the namespace
+	 * @param namespaceKey index of the namespace
 	 * @return the namespace key
 	 */
 	public long getNamespaceKey(final @Nonnegative int namespaceKey) {
@@ -214,8 +191,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Inserting a namespace.
 	 *
-	 * @param namespaceKey
-	 *          new namespace key
+	 * @param namespaceKey new namespace key
 	 */
 	public void insertNamespace(final long namespaceKey) {
 		mNamespaceKeys.add(namespaceKey);
@@ -224,8 +200,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/**
 	 * Removing a namepsace.
 	 *
-	 * @param namespaceKey
-	 *          the key of the namespace to be removed
+	 * @param namespaceKey the key of the namespace to be removed
 	 */
 	public void removeNamespace(final long namespaceKey) {
 		mNamespaceKeys.remove(namespaceKey);
@@ -269,8 +244,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this).add("nameDelegate", mNameDel)
-				.add("nameSpaceKeys", mNamespaceKeys)
-				.add("attributeKeys", mAttributeKeys)
+				.add("nameSpaceKeys", mNamespaceKeys).add("attributeKeys", mAttributeKeys)
 				.add("structDelegate", mStructNodeDel).toString();
 	}
 
@@ -288,8 +262,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	public boolean equals(final Object obj) {
 		if (obj instanceof ElementNode) {
 			final ElementNode other = (ElementNode) obj;
-			return Objects.equal(delegate(), other.delegate())
-					&& Objects.equal(mNameDel, other.mNameDel);
+			return Objects.equal(delegate(), other.delegate()) && Objects.equal(mNameDel, other.mNameDel);
 		}
 		return false;
 	}

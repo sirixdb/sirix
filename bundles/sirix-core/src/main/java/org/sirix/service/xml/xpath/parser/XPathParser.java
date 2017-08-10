@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.xpath.parser;
@@ -32,7 +26,7 @@ import java.util.NoSuchElementException;
 
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
@@ -74,19 +68,17 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>XPath Parser</h1>
  * <p>
- * Parses the given XPath query and starts the execution of the XPath request.
- * The given query is send to the scanner that categorizes the symbols by
- * creating tokens. The parser receives this tokens, checks the grammar
- * according to the EBNF given on <a
- * href="http://www.w3.org/TR/xquery-xpath-parsing/">
- * http://www.w3.org/TR/xquery-xpath-parsing/</a>.Then it constitutes the query
- * execution chain.
+ * Parses the given XPath query and starts the execution of the XPath request. The given query is
+ * send to the scanner that categorizes the symbols by creating tokens. The parser receives this
+ * tokens, checks the grammar according to the EBNF given on
+ * <a href="http://www.w3.org/TR/xquery-xpath-parsing/">
+ * http://www.w3.org/TR/xquery-xpath-parsing/</a>.Then it constitutes the query execution chain.
  * </p>
  */
 public final class XPathParser {
 
 	/** IReadTransaction to access the nodes. Is needed for filters and axes. */
-	private final NodeReadTrx mRTX;
+	private final XdmNodeReadTrx mRTX;
 
 	/** Scanner that scans the symbols of the query and returns them as tokens. */
 	private final XPathScanner mScanner;
@@ -95,20 +87,17 @@ public final class XPathParser {
 	private XPathToken mToken;
 
 	/**
-	 * Builds the chain of nested IAxis that evaluate the query in a pipeline
-	 * manner.
+	 * Builds the chain of nested IAxis that evaluate the query in a pipeline manner.
 	 */
 	private final PipelineBuilder mPipeBuilder;
 
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param rtx
-	 *          The transaction.
-	 * @param mQuery
-	 *          The query to process.
+	 * @param rtx The transaction.
+	 * @param mQuery The query to process.
 	 */
-	public XPathParser(final NodeReadTrx rtx, final String mQuery) {
+	public XPathParser(final XdmNodeReadTrx rtx, final String mQuery) {
 
 		mRTX = rtx;
 		mScanner = new XPathScanner(mQuery);
@@ -133,8 +122,7 @@ public final class XPathParser {
 
 		// after the parsing of the expression no token must be left
 		if (mToken.getType() != TokenType.END) {
-			throw new IllegalStateException(
-					"The query has not been processed completely.");
+			throw new IllegalStateException("The query has not been processed completely.");
 		}
 	}
 
@@ -205,11 +193,10 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule SimpleForClause according to the following production
-	 * rule:
+	 * Parses the the rule SimpleForClause according to the following production rule:
 	 * <p>
-	 * [5] SimpleForClause ::= <"for" "$"> VarName "in" ExprSingle ("," "$"
-	 * VarName "in" ExprSingle)* .
+	 * [5] SimpleForClause ::= <"for" "$"> VarName "in" ExprSingle ("," "$" VarName "in" ExprSingle)*
+	 * .
 	 * </p>
 	 * 
 	 * @return returns the number of for-conditions
@@ -241,11 +228,10 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule QuantifiedExpr according to the following production
-	 * rule:
+	 * Parses the the rule QuantifiedExpr according to the following production rule:
 	 * <p>
-	 * [6] QuantifiedExpr ::= (<"some" "$"> | <"every" "$">) VarName "in"
-	 * ExprSingle ("," "$" VarName "in" ExprSingle)* "satisfies" ExprSingle .
+	 * [6] QuantifiedExpr ::= (<"some" "$"> | <"every" "$">) VarName "in" ExprSingle ("," "$" VarName
+	 * "in" ExprSingle)* "satisfies" ExprSingle .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -358,11 +344,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule ComparisionExpr according to the following production
-	 * rule:
+	 * Parses the the rule ComparisionExpr according to the following production rule:
 	 * <p>
-	 * [10] ComparisonExpr ::= RangeExpr ( (ValueComp | GeneralComp | NodeComp)
-	 * RangeExpr )? .
+	 * [10] ComparisonExpr ::= RangeExpr ( (ValueComp | GeneralComp | NodeComp) RangeExpr )? .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -386,9 +370,8 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Indicates whether the current token is a comparison operator, or not. *
-	 * Parses the the rule NodeComp [24], ValueComp [23] and GeneralComp [22]
-	 * according to the following production rule:
+	 * Indicates whether the current token is a comparison operator, or not. * Parses the the rule
+	 * NodeComp [24], ValueComp [23] and GeneralComp [22] according to the following production rule:
 	 * <p>
 	 * [22] GeneralComp ::= * "=" | "!=" | "<" | "<=" | * ">" | ">=" .
 	 * </p>
@@ -399,23 +382,18 @@ public final class XPathParser {
 	 * [24] NodeComp ::= "is" | "<<" | ">>" .
 	 * </p>
 	 * <p>
-	 * [22-24] Comp ::= "=" | "!=" | "<" | "<=" | ">" | ">=" |"eq" | "ne" | "lt" |
-	 * "le" | "gt" | "ge" | "is" | "<<" | ">>" .
+	 * [22-24] Comp ::= "=" | "!=" | "<" | "<=" | ">" | ">=" |"eq" | "ne" | "lt" | "le" | "gt" | "ge"
+	 * | "is" | "<<" | ">>" .
 	 * </p>
 	 * 
 	 * @return true, if the current token is a comparison operator.
 	 */
 	private boolean isComp() {
 
-		return is(TokenType.L_SHIFT, true)
-				|| is(TokenType.R_SHIFT, true)
-				|| is(TokenType.EQ, true)
-				|| is(TokenType.N_EQ, true)
-				|| is(TokenType.COMP, true)
-				|| mToken.getType() == TokenType.TEXT
-				&& (is("ne", true) || is("eq", true) || is("lt", true)
-						|| is("le", true) || is("gt", true) || is("ge", true) || is("is",
-							true));
+		return is(TokenType.L_SHIFT, true) || is(TokenType.R_SHIFT, true) || is(TokenType.EQ, true)
+				|| is(TokenType.N_EQ, true) || is(TokenType.COMP, true)
+				|| mToken.getType() == TokenType.TEXT && (is("ne", true) || is("eq", true) || is("lt", true)
+						|| is("le", true) || is("gt", true) || is("ge", true) || is("is", true));
 	}
 
 	/**
@@ -440,8 +418,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule AdditiveExpr according to the following production
-	 * rule:
+	 * Parses the the rule AdditiveExpr according to the following production rule:
 	 * <p>
 	 * [12] AdditiveExpr ::= MultiplicativeExpr(("+" | "-") MultiplicativeExpr)* .
 	 * </p>
@@ -473,11 +450,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule MultiplicativeExpr according to the following
-	 * production rule:
+	 * Parses the the rule MultiplicativeExpr according to the following production rule:
 	 * <p>
-	 * [13] MultiplicativeExpr ::= UnionExpr ( ("*" | "div" | "idiv" | "mod")
-	 * UnionExpr )* .
+	 * [13] MultiplicativeExpr ::= UnionExpr ( ("*" | "div" | "idiv" | "mod") UnionExpr )* .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -508,8 +483,7 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule UnionExpr according to the following production rule:
 	 * <p>
-	 * [14] UnionExpr ::= IntersectExceptExpr ( ("union" | "|")
-	 * IntersectExceptExpr )* .
+	 * [14] UnionExpr ::= IntersectExceptExpr ( ("union" | "|") IntersectExceptExpr )* .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -532,11 +506,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule IntersectExceptExpr according to the following
-	 * production rule:
+	 * Parses the the rule IntersectExceptExpr according to the following production rule:
 	 * <p>
-	 * [15] IntersectExceptExpr ::= InstanceofExpr ( ("intersect" | * "except")
-	 * InstanceofExpr )* .
+	 * [15] IntersectExceptExpr ::= InstanceofExpr ( ("intersect" | * "except") InstanceofExpr )* .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -562,8 +534,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule InstanceOfExpr according to the following production
-	 * rule:
+	 * Parses the the rule InstanceOfExpr according to the following production rule:
 	 * <p>
 	 * [16] InstanceofExpr ::= TreatExpr ( <"instance" "of"> SequenceType )?.
 	 * </p>
@@ -599,8 +570,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule CastableExpr according to the following production
-	 * rule:
+	 * Parses the the rule CastableExpr according to the following production rule:
 	 * <p>
 	 * [18] CastableExpr ::= CastExpr ( <"castable" "as"> SingleType )? .
 	 * </p>
@@ -690,8 +660,7 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule PathExpr according to the following production rule:
 	 * <p>
-	 * [25] PathExpr ::= ("/" RelativePathExpr?) | ("//" RelativePathExpr) |
-	 * RelativePathExpr .
+	 * [25] PathExpr ::= ("/" RelativePathExpr?) | ("//" RelativePathExpr) | RelativePathExpr .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -727,8 +696,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule RelativePathExpr according to the following production
-	 * rule:
+	 * Parses the the rule RelativePathExpr according to the following production rule:
 	 * <p>
 	 * [26] RelativePathExpr ::= StepExpr (("/" | "//") StepExpr)* .
 	 * </p>
@@ -738,8 +706,7 @@ public final class XPathParser {
 	private void parseRelativePathExpr() throws SirixXPathException {
 		parseStepExpr();
 
-		while (mToken.getType() == TokenType.SLASH
-				|| mToken.getType() == TokenType.DESC_STEP) {
+		while (mToken.getType() == TokenType.SLASH || mToken.getType() == TokenType.DESC_STEP) {
 			if (is(TokenType.DESC_STEP, true)) {
 				final Axis axis = new DescendantAxis(getTransaction(), IncludeSelf.YES);
 				mPipeBuilder.addStep(axis);
@@ -772,31 +739,28 @@ public final class XPathParser {
 	 */
 	private boolean isFilterExpr() {
 		final TokenType type = mToken.getType();
-		return type == TokenType.DOLLAR || type == TokenType.POINT
-				|| type == TokenType.OPEN_BR || isFunctionCall() || isLiteral();
+		return type == TokenType.DOLLAR || type == TokenType.POINT || type == TokenType.OPEN_BR
+				|| isFunctionCall() || isLiteral();
 	}
 
 	/**
-	 * The current token is part of a function call, if it is followed by a open
-	 * braces (current token is name of the function), or is followed by a colon
-	 * that is followed by a name an a open braces (current token is prefix of the
-	 * function name.).
+	 * The current token is part of a function call, if it is followed by a open braces (current token
+	 * is name of the function), or is followed by a colon that is followed by a name an a open braces
+	 * (current token is prefix of the function name.).
 	 * 
 	 * @return true, if the current token is part of a function call
 	 */
 	private boolean isFunctionCall() {
 
-		return mToken.getType() == TokenType.TEXT
-				&& (!isReservedKeyword())
-				&& (mScanner.lookUpTokens(1).getType() == TokenType.OPEN_BR || (mScanner
-						.lookUpTokens(1).getType() == TokenType.COLON && mScanner
-						.lookUpTokens(3).getType() == TokenType.OPEN_BR));
+		return mToken.getType() == TokenType.TEXT && (!isReservedKeyword())
+				&& (mScanner.lookUpTokens(1).getType() == TokenType.OPEN_BR
+						|| (mScanner.lookUpTokens(1).getType() == TokenType.COLON
+								&& mScanner.lookUpTokens(3).getType() == TokenType.OPEN_BR));
 	}
 
 	/**
-	 * Although XPath is supposed to have no reserved words, some keywords are not
-	 * allowed as function names in an unprefixed form because expression syntax
-	 * takes precedence.
+	 * Although XPath is supposed to have no reserved words, some keywords are not allowed as function
+	 * names in an unprefixed form because expression syntax takes precedence.
 	 * 
 	 * @return true if the token is one of the reserved words of XPath 2.0
 	 */
@@ -853,9 +817,9 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule ForwardAxis according to the following production rule:
 	 * <p>
-	 * [30] ForwardAxis ::= <"child" "::"> | <"descendant" "::"> | <"attribute"
-	 * "::"> | <"self" "::"> | <"descendant-or-self" "::"> | <"following-sibling"
-	 * "::"> | <"following" "::"> | <"namespace" "::"> .
+	 * [30] ForwardAxis ::= <"child" "::"> | <"descendant" "::"> | <"attribute" "::"> | <"self" "::">
+	 * | <"descendant-or-self" "::"> | <"following-sibling" "::"> | <"following" "::"> | <"namespace"
+	 * "::"> .
 	 * </p>
 	 * 
 	 * @return axis
@@ -896,18 +860,14 @@ public final class XPathParser {
 	private boolean isForwardAxis() {
 
 		final String content = mToken.getContent();
-		return (mToken.getType() == TokenType.TEXT && ("child".equals(content) || ("descendant"
-				.equals(content)
-				|| "descendant-or-self".equals(content)
-				|| "attribute".equals(content)
-				|| "self".equals(content)
-				|| "following".equals(content) || "following-sibling".equals(content) || "namespace"
-					.equals(content))));
+		return (mToken.getType() == TokenType.TEXT && ("child".equals(content)
+				|| ("descendant".equals(content) || "descendant-or-self".equals(content)
+						|| "attribute".equals(content) || "self".equals(content) || "following".equals(content)
+						|| "following-sibling".equals(content) || "namespace".equals(content))));
 	}
 
 	/**
-	 * Parses the the rule AbrevForwardStep according to the following production
-	 * rule:
+	 * Parses the the rule AbrevForwardStep according to the following production rule:
 	 * <p>
 	 * [31] AbbrevForwardStep ::= "@"? NodeTest .
 	 * </p>
@@ -959,9 +919,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule ReverceAxis according to the following production rule:
-	 * [33] ReverseAxis ::= <"parent" "::"> | <"ancestor" "::"> |
-	 * <"preceding-sibling" "::">|<"preceding" "::">|<"ancestor-or-self" "::"> .
+	 * Parses the the rule ReverceAxis according to the following production rule: [33] ReverseAxis
+	 * ::= <"parent" "::"> | <"ancestor" "::"> | <"preceding-sibling" "::">|<"preceding"
+	 * "::">|<"ancestor-or-self" "::"> .
 	 * 
 	 * @return axis
 	 */
@@ -998,8 +958,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule AbbrevReverceStep according to the following production
-	 * rule:
+	 * Parses the the rule AbbrevReverceStep according to the following production rule:
 	 * <p>
 	 * [34] AbbrevReverseStep ::= ".." .
 	 * </p>
@@ -1020,11 +979,9 @@ public final class XPathParser {
 		final TokenType type = mToken.getType();
 		final String content = mToken.getContent();
 
-		return (type == TokenType.PARENT || (type == TokenType.TEXT && ("parent"
-				.equals(content)
-				|| "ancestor".equals(content)
-				|| "preceding".equals(content) || "preceding-sibling".equals(content) || "ancestor-or-self"
-					.equals(content))));
+		return (type == TokenType.PARENT || (type == TokenType.TEXT
+				&& ("parent".equals(content) || "ancestor".equals(content) || "preceding".equals(content)
+						|| "preceding-sibling".equals(content) || "ancestor-or-self".equals(content))));
 	}
 
 	/**
@@ -1052,8 +1009,7 @@ public final class XPathParser {
 	 * [36] NameTest ::= QName | Wildcard .
 	 * </p>
 	 * 
-	 * @param mIsAtt
-	 *          Attribute
+	 * @param mIsAtt Attribute
 	 * @return filter
 	 */
 	private Filter parseNameTest(final boolean mIsAtt) {
@@ -1069,15 +1025,14 @@ public final class XPathParser {
 	}
 
 	/**
-	 * @return true, if has the structure of a name test containing a wildcard
-	 *         ("*" | < NCName ":" "*" > | < "*" ":" NCName >)
+	 * @return true, if has the structure of a name test containing a wildcard ("*" | < NCName ":" "*"
+	 *         > | < "*" ":" NCName >)
 	 */
 	private boolean isWildcardNameTest() {
 
-		return mToken.getType() == TokenType.STAR
-				|| (mToken.getType() == TokenType.TEXT
-						&& mScanner.lookUpTokens(1).getType() == TokenType.COLON && mScanner
-						.lookUpTokens(2).getType() == TokenType.STAR);
+		return mToken.getType() == TokenType.STAR || (mToken.getType() == TokenType.TEXT
+				&& mScanner.lookUpTokens(1).getType() == TokenType.COLON
+				&& mScanner.lookUpTokens(2).getType() == TokenType.STAR);
 	}
 
 	/**
@@ -1086,8 +1041,7 @@ public final class XPathParser {
 	 * [37] Wildcard ::= "*" | < NCName ":" "*" > | < "*" ":" NCName > .
 	 * <p>
 	 * 
-	 * @param pIsAtt
-	 *          Attribute
+	 * @param pIsAtt Attribute
 	 * @return filter
 	 */
 	private Filter parseWildcard(final boolean pIsAtt) {
@@ -1099,7 +1053,7 @@ public final class XPathParser {
 				isName = EType.LOCALNAME; // < "*" ":" NCName > .
 			} else {
 				return pIsAtt // "*"
-				? new AttributeFilter(getTransaction())
+						? new AttributeFilter(getTransaction())
 						: new ElementFilter(getTransaction());
 			}
 		}
@@ -1127,8 +1081,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule PredicateList according to the following production
-	 * rule:
+	 * Parses the the rule PredicateList according to the following production rule:
 	 * <p>
 	 * [39] PredicateList ::= Predicate* .
 	 * </p>
@@ -1148,8 +1101,8 @@ public final class XPathParser {
 	 * [40] Predicate ::= "[" Expr "]" .
 	 * </p>
 	 * <p>
-	 * The whole predicate expression is build as a separate expression chain and
-	 * is then inserted to the main expression chain by a predicate filter.
+	 * The whole predicate expression is build as a separate expression chain and is then inserted to
+	 * the main expression chain by a predicate filter.
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -1170,8 +1123,7 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule PrimaryExpr according to the following production rule:
 	 * <p>
-	 * [41] PrimaryExpr ::= Literal | VarRef | ParenthesizedExpr | ContextItemExpr
-	 * | FunctionCall .
+	 * [41] PrimaryExpr ::= Literal | VarRef | ParenthesizedExpr | ContextItemExpr | FunctionCall .
 	 * </p>
 	 * 
 	 * @throws SirixXPathException
@@ -1189,10 +1141,8 @@ public final class XPathParser {
 		} else if (!isReservedKeyword()) {
 			parseFunctionCall();
 		} else {
-			throw new IllegalStateException("Found wrong token '"
-					+ mToken.getContent() + "'. "
-					+ " Token should be either a literal, a variable,"
-					+ "a '(', a '.' or a function call.");
+			throw new IllegalStateException("Found wrong token '" + mToken.getContent() + "'. "
+					+ " Token should be either a literal, a variable," + "a '(', a '.' or a function call.");
 		}
 	}
 
@@ -1202,7 +1152,8 @@ public final class XPathParser {
 	private boolean isLiteral() {
 
 		final TokenType type = mToken.getType();
-		return (type == TokenType.SINGLE_QUOTE || type == TokenType.DBL_QUOTE || type == TokenType.VALUE);
+		return (type == TokenType.SINGLE_QUOTE || type == TokenType.DBL_QUOTE
+				|| type == TokenType.VALUE);
 	}
 
 	/**
@@ -1215,13 +1166,13 @@ public final class XPathParser {
 
 		int itemKey;
 
-		if (mToken.getType() == TokenType.VALUE
-				|| mToken.getType() == TokenType.POINT) {
+		if (mToken.getType() == TokenType.VALUE || mToken.getType() == TokenType.POINT) {
 			// is numeric literal
 			itemKey = parseNumericLiteral();
 		} else {
 			// is string literal
-			assert (mToken.getType() == TokenType.DBL_QUOTE || mToken.getType() == TokenType.SINGLE_QUOTE);
+			assert (mToken.getType() == TokenType.DBL_QUOTE
+					|| mToken.getType() == TokenType.SINGLE_QUOTE);
 			itemKey = parseStringLiteral();
 		}
 
@@ -1230,8 +1181,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule NumericLiteral according to the following production
-	 * rule:
+	 * Parses the the rule NumericLiteral according to the following production rule:
 	 * <p>
 	 * [43] NumericLiteral ::= IntegerLiteral | DecimalLiteral | DoubleLiteral .
 	 * </p>
@@ -1258,8 +1208,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule PatenthesizedExpr according to the following production
-	 * rule:
+	 * Parses the the rule PatenthesizedExpr according to the following production rule:
 	 * <p>
 	 * [45] ParenthesizedExpr ::= "(" Expr? ")" .
 	 * </p>
@@ -1277,8 +1226,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule ContextItemExpr according to the following production
-	 * rule:
+	 * Parses the the rule ContextItemExpr according to the following production rule:
 	 * <p>
 	 * [46] ContextItemExpr ::= "." .
 	 * </p>
@@ -1291,8 +1239,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule FunctionCall according to the following production
-	 * rule:
+	 * Parses the the rule FunctionCall according to the following production rule:
 	 * <p>
 	 * [47] FunctionCall ::= < QName "(" > (ExprSingle ("," ExprSingle)*)? ")" .
 	 * </p>
@@ -1338,8 +1285,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule SequenceType according to the following production
-	 * rule: [
+	 * Parses the the rule SequenceType according to the following production rule: [
 	 * <p>
 	 * 49] SequenceType ::= (ItemType OccurrenceIndicator?) | <"void" "(" ")"> .
 	 * </p>
@@ -1373,8 +1319,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule OccuranceIndicator according to the following
-	 * production rule:
+	 * Parses the the rule OccuranceIndicator according to the following production rule:
 	 * <p>
 	 * [50] OccurrenceIndicator ::= "?" | "*" | "+" .
 	 * </p>
@@ -1439,9 +1384,8 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule KindTest according to the following production rule:
 	 * <p>
-	 * [53] KindTest ::= DocumentCreater | ElementTest | AttributeTest |
-	 * SchemaElementTest | SchemaAttributeTest | PITest | CommentTest | TextTest |
-	 * AnyKindTest .
+	 * [53] KindTest ::= DocumentCreater | ElementTest | AttributeTest | SchemaElementTest |
+	 * SchemaAttributeTest | PITest | CommentTest | TextTest | AnyKindTest .
 	 * </p>
 	 * 
 	 * @return filter
@@ -1503,19 +1447,16 @@ public final class XPathParser {
 		// with a name like text:bla or node:bla, where text and node are the
 		// namespace prefixes.
 		return (("node".equals(content) || "attribute".equals(content)
-				|| "schema-attribute".equals(content)
-				|| "schema-element".equals(content) || "element".equals(content)
-				|| "text".equals(content) || "comment".equals(content)
-				|| "document-node".equals(content) || "processing-instruction"
-					.equals(content)) && mScanner.lookUpTokens(1).getType() == TokenType.OPEN_BR);
+				|| "schema-attribute".equals(content) || "schema-element".equals(content)
+				|| "element".equals(content) || "text".equals(content) || "comment".equals(content)
+				|| "document-node".equals(content) || "processing-instruction".equals(content))
+				&& mScanner.lookUpTokens(1).getType() == TokenType.OPEN_BR);
 	}
 
 	/**
-	 * Parses the the rule DocumentCreater according to the following production
-	 * rule:
+	 * Parses the the rule DocumentCreater according to the following production rule:
 	 * <p>
-	 * [55] DocumentCreater ::= <"document-node" "("> (ElementTest |
-	 * SchemaElementTest)? ")" .
+	 * [55] DocumentCreater ::= <"document-node" "("> (ElementTest | SchemaElementTest)? ")" .
 	 * <p>
 	 * 
 	 * @return filter
@@ -1577,8 +1518,7 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule PITest according to the following production rule:
 	 * <p>
-	 * [58] PITest ::= <"processing-instruction" "("> (NCName | StringLiteral)?
-	 * ")" .
+	 * [58] PITest ::= <"processing-instruction" "("> (NCName | StringLiteral)? ")" .
 	 * </p>
 	 * 
 	 * @return filter
@@ -1593,8 +1533,9 @@ public final class XPathParser {
 		if (!is(TokenType.CLOSE_BR, true)) {
 			String stringLiteral;
 			if (isQuote()) {
-				final byte[] param = ((ValueNode) getTransaction().getItemList()
-						.getItem(parseStringLiteral()).get()).getRawValue();
+				final byte[] param =
+						((ValueNode) getTransaction().getItemList().getItem(parseStringLiteral()).get())
+								.getRawValue();
 				stringLiteral = Arrays.toString(param);
 			} else {
 				stringLiteral = parseNCName();
@@ -1602,8 +1543,8 @@ public final class XPathParser {
 
 			consume(TokenType.CLOSE_BR, true);
 
-			filter = new NestedFilter(getTransaction(), filter, new NameFilter(
-					getTransaction(), stringLiteral));
+			filter = new NestedFilter(getTransaction(), filter,
+					new NameFilter(getTransaction(), stringLiteral));
 		}
 
 		return filter;
@@ -1619,11 +1560,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule AttributeTest according to the following production
-	 * rule:
+	 * Parses the the rule AttributeTest according to the following production rule:
 	 * <p>
-	 * [59] AttributeTest ::= <"attribute" "("> (AttribNameOrWildcard (","
-	 * TypeName)?)? ")" .
+	 * [59] AttributeTest ::= <"attribute" "("> (AttribNameOrWildcard ("," TypeName)?)? ")" .
 	 * </p>
 	 * 
 	 * @return filter
@@ -1639,16 +1578,15 @@ public final class XPathParser {
 			// add name filter
 			final String name = parseAttributeNameOrWildcard();
 			if (!name.equals("*")) {
-				filter = new NestedFilter(getTransaction(), filter, new NameFilter(
-						getTransaction(), name));
+				filter = new NestedFilter(getTransaction(), filter, new NameFilter(getTransaction(), name));
 			} // if it is '*', all attributes are accepted, so the normal
 				// attribute
 				// filter is sufficient
 
 			if (is(TokenType.COMMA, true)) {
 				// add type filter
-				filter = new NestedFilter(getTransaction(), filter, new TypeFilter(
-						getTransaction(), parseTypeName()));
+				filter = new NestedFilter(getTransaction(), filter,
+						new TypeFilter(getTransaction(), parseTypeName()));
 			}
 		}
 
@@ -1658,8 +1596,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule AttributeOrWildcard according to the following
-	 * production rule:
+	 * Parses the the rule AttributeOrWildcard according to the following production rule:
 	 * <p>
 	 * [60] AttribNameOrWildcard ::= AttributeName | "*" .
 	 * </p>
@@ -1680,11 +1617,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule SchemaAttributeTest according to the following
-	 * production rule:
+	 * Parses the the rule SchemaAttributeTest according to the following production rule:
 	 * <p>
-	 * [61] SchemaAttributeTest ::= <"schema-attribute" "("> AttributeDeclaration
-	 * ")" .
+	 * [61] SchemaAttributeTest ::= <"schema-attribute" "("> AttributeDeclaration ")" .
 	 * </p>
 	 * 
 	 * @return filter
@@ -1694,11 +1629,10 @@ public final class XPathParser {
 		consume("schema-attribute", true);
 		consume(TokenType.OPEN_BR, true);
 
-		final Filter filter = new SchemaAttributeFilter(getTransaction()/*
-																																		 * ,
-																																		 * parseAttributeDeclaration
-																																		 * ()
-																																		 */);
+		final Filter filter =
+				new SchemaAttributeFilter(getTransaction()/*
+																									 * , parseAttributeDeclaration ()
+																									 */);
 
 		consume(TokenType.CLOSE_BR, true);
 
@@ -1720,8 +1654,7 @@ public final class XPathParser {
 	/**
 	 * Parses the the rule ElementTest according to the following production rule:
 	 * <p>
-	 * [63] ElementTest ::= <"element" "("> (ElementNameOrWildcard ("," TypeName
-	 * "?"?)?)? ")" .
+	 * [63] ElementTest ::= <"element" "("> (ElementNameOrWildcard ("," TypeName "?"?)?)? ")" .
 	 * </p>
 	 * 
 	 * @return filter
@@ -1737,15 +1670,15 @@ public final class XPathParser {
 
 			final String mName = parseElementNameOrWildcard();
 			if (!mName.equals("*")) {
-				filter = new NestedFilter(getTransaction(), filter, new NameFilter(
-						getTransaction(), mName));
+				filter =
+						new NestedFilter(getTransaction(), filter, new NameFilter(getTransaction(), mName));
 			} // if it is '*', all elements are accepted, so the normal element
 				// filter is sufficient
 
 			if (is(TokenType.COMMA, true)) {
 
-				filter = new NestedFilter(getTransaction(), filter, new TypeFilter(
-						getTransaction(), parseTypeName()));
+				filter = new NestedFilter(getTransaction(), filter,
+						new TypeFilter(getTransaction(), parseTypeName()));
 
 				if (is(TokenType.INTERROGATION, true)) {
 					// TODO: Nilled property of node can be true or false.
@@ -1762,8 +1695,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule ElementNameOrWildcard according to the following
-	 * production rule:
+	 * Parses the the rule ElementNameOrWildcard according to the following production rule:
 	 * <p>
 	 * [64] ElementNameOrWildcard ::= ElementName | "*" .
 	 * </p>
@@ -1784,8 +1716,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule SchemaElementTest according to the following production
-	 * rule:
+	 * Parses the the rule SchemaElementTest according to the following production rule:
 	 * <p>
 	 * [65] SchemaElementTest ::= <"schema-element" "("> ElementDeclaration ")" .
 	 * </p>
@@ -1817,8 +1748,7 @@ public final class XPathParser {
 	// }
 
 	/**
-	 * Parses the the rule AttributeName according to the following production
-	 * rule:
+	 * Parses the the rule AttributeName according to the following production rule:
 	 * <p>
 	 * [67] AttributeName ::= QName .
 	 * </p>
@@ -1857,8 +1787,7 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule IntegerLiteral according to the following production
-	 * rule:
+	 * Parses the the rule IntegerLiteral according to the following production rule:
 	 * <p>
 	 * [70] IntegerLiteral ::= Digits => IntergerLiteral : Token.Value .
 	 * </p>
@@ -1894,21 +1823,19 @@ public final class XPathParser {
 
 		is(TokenType.SPACE, true);
 
-		final AtomicValue intLiteral = new AtomicValue(TypedValue.getBytes(value),
-				getTransaction().keyForName(type));
+		final AtomicValue intLiteral =
+				new AtomicValue(TypedValue.getBytes(value), getTransaction().keyForName(type));
 		return getTransaction().getItemList().addItem(intLiteral);
 	}
 
 	/**
-	 * Parses the the rule DecimalLiteral according to the following production
-	 * rule:
+	 * Parses the the rule DecimalLiteral according to the following production rule:
 	 * <p>
-	 * [71] DecimalLiteral ::= ("." Digits) | (Digits "." [0-9]*) =>
-	 * DecimalLiteral : ("." Token.VALUE) | (Token.VALUE "." Token.VALUE?) .
+	 * [71] DecimalLiteral ::= ("." Digits) | (Digits "." [0-9]*) => DecimalLiteral : ("."
+	 * Token.VALUE) | (Token.VALUE "." Token.VALUE?) .
 	 * </p>
 	 * 
-	 * @param mValue
-	 *          Value to Parse
+	 * @param mValue Value to Parse
 	 * @return dValue
 	 */
 	private String parseDecimalLiteral(final String mValue) {
@@ -1930,16 +1857,14 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule DoubleLiteral according to the following production
-	 * rule:
+	 * Parses the the rule DoubleLiteral according to the following production rule:
 	 * <p>
-	 * [72] DoubleLiteral ::= (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]?
-	 * Digits . DoubleLiteral : (("." Token.VALUE) | (Token.VALUE ("."
-	 * Token.VALUE?)?)) ("e" | "E") [+-]? Token.VALUE .
+	 * [72] DoubleLiteral ::= (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]? Digits .
+	 * DoubleLiteral : (("." Token.VALUE) | (Token.VALUE ("." Token.VALUE?)?)) ("e" | "E") [+-]?
+	 * Token.VALUE .
 	 * </p>
 	 * 
-	 * @param mValue
-	 *          Value to Parse
+	 * @param mValue Value to Parse
 	 * @return dValue
 	 * 
 	 */
@@ -1962,11 +1887,9 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Parses the the rule StringLiteral according to the following production
-	 * rule:
+	 * Parses the the rule StringLiteral according to the following production rule:
 	 * <p>
-	 * [73] StringLiteral ::= ('"' (('"' '"') | [^"])* '"') | ("'" (("'" "'") |
-	 * [^'])* "'" .
+	 * [73] StringLiteral ::= ('"' (('"' '"') | [^"])* '"') | ("'" (("'" "'") | [^'])* "'" .
 	 * </p>
 	 * 
 	 * @return parseStringLiteral
@@ -2007,9 +1930,8 @@ public final class XPathParser {
 
 		}
 
-		final AtomicValue mStringLiteral = new AtomicValue(
-				TypedValue.getBytes(mValue.toString()), getTransaction().keyForName(
-						"xs:string"));
+		final AtomicValue mStringLiteral = new AtomicValue(TypedValue.getBytes(mValue.toString()),
+				getTransaction().keyForName("xs:string"));
 		return (getTransaction().getItemList().addItem(mStringLiteral));
 	}
 
@@ -2027,15 +1949,14 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Specifies whether the current token is a multiplication operator.
-	 * Multiplication operators are: '*', 'div�, 'idiv' and 'mod'.
+	 * Specifies whether the current token is a multiplication operator. Multiplication operators are:
+	 * '*', 'div�, 'idiv' and 'mod'.
 	 * 
 	 * @return true, if current token is a multiplication operator
 	 */
 	private boolean isMultiplication() {
 
-		return (is(TokenType.STAR, true) || is("div", true) || is("idiv", true) || is(
-				"mod", true));
+		return (is(TokenType.STAR, true) || is("div", true) || is("idiv", true) || is("mod", true));
 
 	}
 
@@ -2098,61 +2019,52 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Consumes a token. Tests if it really has the expected type and if not
-	 * returns an error message. Otherwise gets a new token from the scanner. If
-	 * that new token is of type whitespace and the ignoreWhitespace parameter is
-	 * true, a new token is retrieved, until the current token is not of type
-	 * whitespace.
+	 * Consumes a token. Tests if it really has the expected type and if not returns an error message.
+	 * Otherwise gets a new token from the scanner. If that new token is of type whitespace and the
+	 * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
+	 * type whitespace.
 	 * 
-	 * @param mType
-	 *          the specified token type
-	 * @param mIgnoreWhitespace
-	 *          if true all new tokens with type whitespace are ignored and the
-	 *          next token is retrieved from the scanner
+	 * @param mType the specified token type
+	 * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
+	 *        token is retrieved from the scanner
 	 */
 	private void consume(final TokenType mType, final boolean mIgnoreWhitespace) {
 
 		if (!is(mType, mIgnoreWhitespace)) {
 			// error found by parser - stopping
-			throw new IllegalStateException("Wrong token after " + mScanner.begin()
-					+ " at position " + mScanner.getPos() + " found " + mToken.getType()
-					+ " expected " + mType + ".");
+			throw new IllegalStateException("Wrong token after " + mScanner.begin() + " at position "
+					+ mScanner.getPos() + " found " + mToken.getType() + " expected " + mType + ".");
 		}
 	}
 
 	/**
-	 * Consumes a token. Tests if it really has the expected name and if not
-	 * returns an error message. Otherwise gets a new token from the scanner. If
-	 * that new token is of type whitespace and the ignoreWhitespace parameter is
-	 * true, a new token is retrieved, until the current token is not of type
-	 * whitespace.
+	 * Consumes a token. Tests if it really has the expected name and if not returns an error message.
+	 * Otherwise gets a new token from the scanner. If that new token is of type whitespace and the
+	 * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
+	 * type whitespace.
 	 * 
-	 * @param mName
-	 *          the specified token content
-	 * @param mIgnoreWhitespace
-	 *          if true all new tokens with type whitespace are ignored and the
-	 *          next token is retrieved from the scanner
+	 * @param mName the specified token content
+	 * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
+	 *        token is retrieved from the scanner
 	 */
 	private void consume(final String mName, final boolean mIgnoreWhitespace) {
 
 		if (!is(mName, mIgnoreWhitespace)) {
 			// error found by parser - stopping
-			throw new IllegalStateException("Wrong token after " + mScanner.begin()
-					+ " found " + mToken.getContent() + ". Expected " + mName);
+			throw new IllegalStateException("Wrong token after " + mScanner.begin() + " found "
+					+ mToken.getContent() + ". Expected " + mName);
 		}
 	}
 
 	/**
-	 * Returns true or false if a token has the expected name. If the token has
-	 * the given name, it gets a new token from the scanner. If that new token is
-	 * of type whitespace and the ignoreWhitespace parameter is true, a new token
-	 * is retrieved, until the current token is not of type whitespace.
+	 * Returns true or false if a token has the expected name. If the token has the given name, it
+	 * gets a new token from the scanner. If that new token is of type whitespace and the
+	 * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
+	 * type whitespace.
 	 * 
-	 * @param mName
-	 *          the specified token content
-	 * @param mIgnoreWhitespace
-	 *          if true all new tokens with type whitespace are ignored and the
-	 *          next token is retrieved from the scanner
+	 * @param mName the specified token content
+	 * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
+	 *        token is retrieved from the scanner
 	 * @return is
 	 */
 	private boolean is(final String mName, final boolean mIgnoreWhitespace) {
@@ -2162,10 +2074,8 @@ public final class XPathParser {
 		}
 
 		if (mToken.getType() == TokenType.COMP || mToken.getType() == TokenType.EQ
-				|| mToken.getType() == TokenType.N_EQ
-				|| mToken.getType() == TokenType.PLUS
-				|| mToken.getType() == TokenType.MINUS
-				|| mToken.getType() == TokenType.STAR) {
+				|| mToken.getType() == TokenType.N_EQ || mToken.getType() == TokenType.PLUS
+				|| mToken.getType() == TokenType.MINUS || mToken.getType() == TokenType.STAR) {
 			return is(mToken.getType(), mIgnoreWhitespace);
 		} else {
 			return is(TokenType.TEXT, mIgnoreWhitespace);
@@ -2173,16 +2083,13 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Returns true or false if a token has the expected type. If so, a new token
-	 * is retrieved from the scanner. If that new token is of type whitespace and
-	 * the ignoreWhitespace parameter is true, a new token is retrieved, until the
-	 * current token is not of type whitespace.
+	 * Returns true or false if a token has the expected type. If so, a new token is retrieved from
+	 * the scanner. If that new token is of type whitespace and the ignoreWhitespace parameter is
+	 * true, a new token is retrieved, until the current token is not of type whitespace.
 	 * 
-	 * @param mType
-	 *          the specified token content
-	 * @param mIgnoreWhitespace
-	 *          if true all new tokens with type whitespace are ignored and the
-	 *          next token is retrieved from the scanner
+	 * @param mType the specified token content
+	 * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
+	 *        token is retrieved from the scanner
 	 * @return is
 	 */
 	private boolean is(final TokenType mType, final boolean mIgnoreWhitespace) {
@@ -2204,8 +2111,8 @@ public final class XPathParser {
 	}
 
 	/**
-	 * Returns a queue containing all pipelines (chains of nested axis and
-	 * filters) to execute the query.
+	 * Returns a queue containing all pipelines (chains of nested axis and filters) to execute the
+	 * query.
 	 * 
 	 * @return the query pipelines
 	 */
@@ -2218,7 +2125,7 @@ public final class XPathParser {
 	 * 
 	 * @return the current transaction
 	 */
-	private NodeReadTrx getTransaction() {
+	private XdmNodeReadTrx getTransaction() {
 		return mRTX;
 	}
 }

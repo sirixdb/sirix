@@ -11,7 +11,7 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.AbstractVisitor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -43,23 +43,23 @@ import org.slf4j.LoggerFactory;
  */
 final class CASIndexBuilder extends AbstractVisitor {
 
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(CASIndexBuilder.class));
+	private static final LogWrapper LOGGER =
+			new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-	private final NodeReadTrx mRtx;
+	private final XdmNodeReadTrx mRtx;
 	private final Set<Path<QNm>> mPaths;
 	private final PathSummaryReader mPathSummaryReader;
 	private final AVLTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
 	private final Type mType;
 
-	CASIndexBuilder(final NodeReadTrx rtx,
+	CASIndexBuilder(final XdmNodeReadTrx rtx,
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDefinition) {
 		mRtx = checkNotNull(rtx);
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDefinition.getPaths());
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
-				indexDefinition.getType(), indexDefinition.getID());
+		mAVLTreeWriter =
+				AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
 		mType = checkNotNull(indexDefinition.getContentType());
 	}
 
@@ -78,10 +78,8 @@ final class CASIndexBuilder extends AbstractVisitor {
 			if (node.getKind() == Kind.TEXT) {
 				mRtx.moveTo(node.getParentKey());
 			}
-			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode()
-					.getPathNodeKey();
-			if (mPaths.isEmpty()
-					|| mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
+			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode().getPathNodeKey();
+			if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
 				final Str strValue = new Str(((ImmutableValueNode) node).getValue());
 
 				boolean isOfType = false;
@@ -94,8 +92,8 @@ final class CASIndexBuilder extends AbstractVisitor {
 
 				if (isOfType) {
 					final CASValue value = new CASValue(strValue, mType, PCR);
-					final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
-							value, SearchMode.EQUAL);
+					final Optional<NodeReferences> textReferences =
+							mAVLTreeWriter.get(value, SearchMode.EQUAL);
 					if (textReferences.isPresent()) {
 						setNodeReferences(node, textReferences.get(), value);
 					} else {
@@ -110,11 +108,9 @@ final class CASIndexBuilder extends AbstractVisitor {
 		return VisitResultType.CONTINUE;
 	}
 
-	private void setNodeReferences(final ImmutableNode node,
-			final NodeReferences references, final CASValue value)
-			throws SirixIOException {
-		mAVLTreeWriter.index(value, references.addNodeKey(node.getNodeKey()),
-				MoveCursor.NO_MOVE);
+	private void setNodeReferences(final ImmutableNode node, final NodeReferences references,
+			final CASValue value) throws SirixIOException {
+		mAVLTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
 	}
 
 }

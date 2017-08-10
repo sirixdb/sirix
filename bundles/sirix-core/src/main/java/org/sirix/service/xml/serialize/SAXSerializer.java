@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.serialize;
@@ -39,10 +33,10 @@ import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -69,12 +63,10 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SAXSerializer extends AbstractSerializer implements
-		XMLReader {
+public final class SAXSerializer extends AbstractSerializer implements XMLReader {
 
 	/** {@link LogWrapper} reference. */
-	private final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(SAXSerializer.class));
+	private final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(SAXSerializer.class));
 
 	/** SAX content handler. */
 	private ContentHandler mContHandler;
@@ -82,52 +74,46 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          Sirix {@link Session}
-	 * @param handler
-	 *          SAX {@link ContentHandler}
-	 * @param revision
-	 *          revision to serialize
-	 * @param revisions
-	 *          further revisions to serialize
+	 * @param session Sirix {@link ResourceManager}
+	 * @param handler SAX {@link ContentHandler}
+	 * @param revision revision to serialize
+	 * @param revisions further revisions to serialize
 	 */
-	public SAXSerializer(final Session session, final ContentHandler handler,
+	public SAXSerializer(final ResourceManager session, final ContentHandler handler,
 			final @Nonnegative int revision, final int... revisions) {
 		super(session, revision, revisions);
 		mContHandler = handler;
 	}
 
 	@Override
-	protected void emitStartElement(final NodeReadTrx rtx) {
+	protected void emitStartElement(final XdmNodeReadTrx rtx) {
 		switch (rtx.getKind()) {
-		case DOCUMENT:
-			break;
-		case ELEMENT:
-			generateElement(rtx);
-			break;
-		case TEXT:
-			generateText(rtx);
-			break;
-		case COMMENT:
-			generateComment(rtx);
-			break;
-		case PROCESSING_INSTRUCTION:
-			generatePI(rtx);
-			break;
-		default:
-			throw new UnsupportedOperationException(
-					"Node kind not supported by sirix!");
+			case DOCUMENT:
+				break;
+			case ELEMENT:
+				generateElement(rtx);
+				break;
+			case TEXT:
+				generateText(rtx);
+				break;
+			case COMMENT:
+				generateComment(rtx);
+				break;
+			case PROCESSING_INSTRUCTION:
+				generatePI(rtx);
+				break;
+			default:
+				throw new UnsupportedOperationException("Node kind not supported by sirix!");
 		}
 	}
 
 	@Override
-	protected void emitEndElement(final NodeReadTrx rtx) {
+	protected void emitEndElement(final XdmNodeReadTrx rtx) {
 		final QNm qName = rtx.getName();
 		final String mURI = qName.getNamespaceURI();
 		try {
 			mContHandler.endPrefixMapping(qName.getPrefix());
-			mContHandler.endElement(mURI, qName.getLocalName(),
-					Utils.buildName(qName));
+			mContHandler.endElement(mURI, qName.getLocalName(), Utils.buildName(qName));
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
@@ -174,10 +160,9 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Generates a comment event.
 	 * 
-	 * @param rtx
-	 *          {@link NodeReadTrx} implementation
+	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
-	private void generateComment(final NodeReadTrx rtx) {
+	private void generateComment(final XdmNodeReadTrx rtx) {
 		try {
 			final char[] content = rtx.getValue().toCharArray();
 			mContHandler.characters(content, 0, content.length);
@@ -189,13 +174,11 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Generate a processing instruction event.
 	 * 
-	 * @param rtx
-	 *          {@link NodeReadTrx} implementation
+	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
-	private void generatePI(final NodeReadTrx rtx) {
+	private void generatePI(final XdmNodeReadTrx rtx) {
 		try {
-			mContHandler.processingInstruction(rtx.getName().getLocalName(),
-					rtx.getValue());
+			mContHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
@@ -204,10 +187,9 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Generate a start element event.
 	 * 
-	 * @param rtx
-	 *          {@link NodeReadTrx} implementation
+	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
-	private void generateElement(final NodeReadTrx rtx) {
+	private void generateElement(final XdmNodeReadTrx rtx) {
 		final AttributesImpl atts = new AttributesImpl();
 		final long key = rtx.getNodeKey();
 
@@ -216,14 +198,12 @@ public final class SAXSerializer extends AbstractSerializer implements
 			for (int i = 0, namesCount = rtx.getNamespaceCount(); i < namesCount; i++) {
 				rtx.moveToNamespace(i);
 				final QNm qName = rtx.getName();
-				mContHandler.startPrefixMapping(qName.getPrefix(),
-						qName.getNamespaceURI());
+				mContHandler.startPrefixMapping(qName.getPrefix(), qName.getNamespaceURI());
 				final String mURI = qName.getNamespaceURI();
 				if (qName.getPrefix() == null || qName.getPrefix().length() == 0) {
 					atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
 				} else {
-					atts.addAttribute(mURI, "xmlns",
-							"xmlns:" + rtx.getName().getPrefix(), "CDATA", mURI);
+					atts.addAttribute(mURI, "xmlns", "xmlns:" + rtx.getName().getPrefix(), "CDATA", mURI);
 				}
 				rtx.moveTo(key);
 			}
@@ -233,8 +213,8 @@ public final class SAXSerializer extends AbstractSerializer implements
 				rtx.moveToAttribute(i);
 				final QNm qName = rtx.getName();
 				final String mURI = qName.getNamespaceURI();
-				atts.addAttribute(mURI, qName.getLocalName(), Utils.buildName(qName),
-						rtx.getType(), rtx.getValue());
+				atts.addAttribute(mURI, qName.getLocalName(), Utils.buildName(qName), rtx.getType(),
+						rtx.getValue());
 				rtx.moveTo(key);
 			}
 
@@ -256,13 +236,12 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Generate a text event.
 	 * 
-	 * @param pRtx
-	 *          {@link NodeReadTrx} implementation
+	 * @param pRtx {@link XdmNodeReadTrx} implementation
 	 */
-	private void generateText(final NodeReadTrx pRtx) {
+	private void generateText(final XdmNodeReadTrx pRtx) {
 		try {
-			mContHandler.characters(XMLToken.escapeContent(pRtx.getValue())
-					.toCharArray(), 0, pRtx.getValue().length());
+			mContHandler.characters(XMLToken.escapeContent(pRtx.getValue()).toCharArray(), 0,
+					pRtx.getValue().length());
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
@@ -271,24 +250,19 @@ public final class SAXSerializer extends AbstractSerializer implements
 	/**
 	 * Main method.
 	 * 
-	 * @param args
-	 *          args[0] specifies the path to the TT-storage from which to
-	 *          generate SAX events.
-	 * @throws SirixException
-	 *           if any Sirix exception occurs
+	 * @param args args[0] specifies the path to the TT-storage from which to generate SAX events.
+	 * @throws SirixException if any Sirix exception occurs
 	 */
 	public static void main(final String... args) throws SirixException {
-		final DatabaseConfiguration config = new DatabaseConfiguration(new File(
-				args[0]));
+		final DatabaseConfiguration config = new DatabaseConfiguration(new File(args[0]));
 		Databases.createDatabase(config);
 		final Database database = Databases.openDatabase(new File(args[0]));
-		database.createResource(new ResourceConfiguration.Builder("shredded",
-				config).build());
-		try (final Session session = database
-				.getSession(new SessionConfiguration.Builder("shredded").build())) {
+		database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+		try (final ResourceManager session =
+				database.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build())) {
 			final DefaultHandler defHandler = new DefaultHandler();
-			final SAXSerializer serializer = new SAXSerializer(session, defHandler,
-					session.getMostRecentRevisionNumber());
+			final SAXSerializer serializer =
+					new SAXSerializer(session, defHandler, session.getMostRecentRevisionNumber());
 			serializer.call();
 		}
 	}
@@ -337,15 +311,15 @@ public final class SAXSerializer extends AbstractSerializer implements
 
 	/* Implements XMLReader method. */
 	@Override
-	public boolean getFeature(String name) throws SAXNotRecognizedException,
-			SAXNotSupportedException {
+	public boolean getFeature(String name)
+			throws SAXNotRecognizedException, SAXNotSupportedException {
 		throw new SAXNotSupportedException();
 	}
 
 	/* Implements XMLReader method. */
 	@Override
-	public Object getProperty(String name) throws SAXNotRecognizedException,
-			SAXNotSupportedException {
+	public Object getProperty(String name)
+			throws SAXNotRecognizedException, SAXNotSupportedException {
 		throw new SAXNotSupportedException();
 	}
 

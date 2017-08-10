@@ -16,8 +16,8 @@ import com.sleepycat.persist.PrimaryIndex;
 import com.sleepycat.persist.StoreConfig;
 
 /**
- * Berkeley implementation of a persistent key selector database. That means
- * that all data is stored in this database and it is never removed.
+ * Berkeley implementation of a persistent key selector database. That means that all data is stored
+ * in this database and it is never removed.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -41,8 +41,7 @@ public class KeySelectorDatabase extends AbstractKeyDatabase {
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
 	 * 
-	 * @param paramFile
-	 *          the place where the berkeley db is stored.
+	 * @param paramFile the place where the berkeley db is stored.
 	 */
 	public KeySelectorDatabase(final File paramFile) {
 		super(paramFile);
@@ -97,11 +96,9 @@ public class KeySelectorDatabase extends AbstractKeyDatabase {
 	}
 
 	/**
-	 * Putting a {@link KeySelector} into the database with a corresponding
-	 * selector key.
+	 * Putting a {@link KeySelector} into the database with a corresponding selector key.
 	 * 
-	 * @param entity
-	 *          key selector instance to put into database.
+	 * @param entity key selector instance to put into database.
 	 */
 	public final void putPersistent(final KeySelector entity) {
 		PrimaryIndex<Long, KeySelector> primaryIndex;
@@ -118,8 +115,7 @@ public class KeySelectorDatabase extends AbstractKeyDatabase {
 	/**
 	 * Getting a {@link KeyingSelector} related to a given selector key.
 	 * 
-	 * @param paramKey
-	 *          selector key for related key selector instance.
+	 * @param paramKey selector key for related key selector instance.
 	 * @return key selector instance.
 	 */
 	public final KeySelector getPersistent(final long paramKey) {
@@ -138,8 +134,7 @@ public class KeySelectorDatabase extends AbstractKeyDatabase {
 	/**
 	 * Deletes an entry from storage.
 	 * 
-	 * @param paramKey
-	 *          primary key of entry to delete.
+	 * @param paramKey primary key of entry to delete.
 	 * @return status whether deletion was successful or not.
 	 */
 	public final boolean deleteEntry(final long paramKey) {

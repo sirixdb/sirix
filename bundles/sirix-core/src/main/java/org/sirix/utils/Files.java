@@ -28,33 +28,27 @@ public final class Files {
 	/**
 	 * Recursively remove a directory.
 	 *
-	 * @param path
-	 *          {@link Path} to the directory
-	 * @param options
-	 *          {@link Set} of {@link FileVisitOption}s (currently only supports
-	 *          following {@code symlinks} or not).
-	 * @throws SirixIOException
-	 *           if any I/O operation fails
-	 * @throws NullPointerException
-	 *           if any of the arguments are {@code null}
+	 * @param path {@link Path} to the directory
+	 * @param options {@link Set} of {@link FileVisitOption}s (currently only supports following
+	 *        {@code symlinks} or not).
+	 * @throws SirixIOException if any I/O operation fails
+	 * @throws NullPointerException if any of the arguments are {@code null}
 	 */
-	public static void recursiveRemove(final Path path,
-			final Set<FileVisitOption> options) {
+	public static void recursiveRemove(final Path path, final Set<FileVisitOption> options) {
 		try {
 			if (java.nio.file.Files.exists(path)) {
-				java.nio.file.Files.walkFileTree(checkNotNull(path),
-						checkNotNull(options), Integer.MAX_VALUE,
-						new SimpleFileVisitor<Path>() {
+				java.nio.file.Files.walkFileTree(checkNotNull(path), checkNotNull(options),
+						Integer.MAX_VALUE, new SimpleFileVisitor<Path>() {
 							@Override
-							public FileVisitResult visitFile(final Path file,
-									final BasicFileAttributes attrs) throws IOException {
+							public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs)
+									throws IOException {
 								java.nio.file.Files.delete(file);
 								return FileVisitResult.CONTINUE;
 							}
 
 							@Override
-							public FileVisitResult postVisitDirectory(final Path dir,
-									final IOException exc) throws IOException {
+							public FileVisitResult postVisitDirectory(final Path dir, final IOException exc)
+									throws IOException {
 								if (exc == null) {
 									java.nio.file.Files.delete(dir);
 									return FileVisitResult.CONTINUE;
@@ -73,12 +67,9 @@ public final class Files {
 	/**
 	 * Recursively remove a directory. Doesn't follow symlinks.
 	 *
-	 * @param path
-	 *          {@link Path} to the directory
-	 * @throws SirixIOException
-	 *           if any I/O operation fails
-	 * @throws NullPointerException
-	 *           if any of the arguments are {@code null}
+	 * @param path {@link Path} to the directory
+	 * @throws SirixIOException if any I/O operation fails
+	 * @throws NullPointerException if any of the arguments are {@code null}
 	 */
 	public static void recursiveRemove(final Path path) {
 		recursiveRemove(path, EnumSet.noneOf(FileVisitOption.class));

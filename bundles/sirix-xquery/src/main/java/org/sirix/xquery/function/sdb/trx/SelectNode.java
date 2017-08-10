@@ -7,7 +7,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -48,7 +48,7 @@ public final class SelectNode extends AbstractFunction {
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
 		final DBNode node = ((DBNode) args[0]);
-		final NodeReadTrx rtx = node.getTrx();
+		final XdmNodeReadTrx rtx = node.getTrx();
 		final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
 		if (rtx.moveTo(nodeKey).hasMoved()) {

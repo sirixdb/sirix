@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.node;
@@ -52,8 +46,7 @@ import com.google.common.base.Objects;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbstractForwardingNode implements
-		ValueNode, NameNode {
+public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;
@@ -70,17 +63,13 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	/**
 	 * Creating an attribute.
 	 *
-	 * @param nodeDel
-	 *          {@link NodeDelegate} to be set
-	 * @param nodeDel
-	 *          {@link StructNodeDelegate} to be set
-	 * @param valDel
-	 *          {@link ValNodeDelegate} to be set
+	 * @param nodeDel {@link NodeDelegate} to be set
+	 * @param nodeDel {@link StructNodeDelegate} to be set
+	 * @param valDel {@link ValNodeDelegate} to be set
 	 *
 	 */
-	public AttributeNode(final NodeDelegate nodeDel,
-			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
-			final QNm qNm) {
+	public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+			final ValNodeDelegate valDel, final QNm qNm) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		mDel = nodeDel;
 		assert nameDel != null : "nameDel must not be null!";
@@ -103,8 +92,8 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("nameDel", mNameDel)
-				.add("valDel", mValDel).toString();
+		return MoreObjects.toStringHelper(this).add("nameDel", mNameDel).add("valDel", mValDel)
+				.toString();
 	}
 
 	@Override
@@ -156,8 +145,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof AttributeNode) {
 			final AttributeNode other = (AttributeNode) obj;
-			return Objects.equal(mNameDel, other.mNameDel)
-					&& Objects.equal(mValDel, other.mValDel);
+			return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
 		}
 		return false;
 	}

@@ -22,8 +22,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
 	/**
 	 * Constructor.
 	 * 
-	 * @param nodeDelegate
-	 *          node delegate
+	 * @param nodeDelegate node delegate
 	 */
 	public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
 		mDelegate = checkNotNull(nodeDelegate);

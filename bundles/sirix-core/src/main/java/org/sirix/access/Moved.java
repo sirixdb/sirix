@@ -13,8 +13,7 @@ import com.google.common.base.MoreObjects;
  *
  * @author Johannes Lichtenberger
  *
- * @param <T>
- *          the cursor instance
+ * @param <T> the cursor instance
  */
 public class Moved<T extends NodeCursor> extends Move<T> {
 
@@ -24,8 +23,7 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 	/**
 	 * Constructor.
 	 *
-	 * @param nodeCursor
-	 *          the cursor which has been moved
+	 * @param nodeCursor the cursor which has been moved
 	 */
 	public Moved(final T nodeCursor) {
 		mNodeCursor = checkNotNull(nodeCursor);
@@ -57,7 +55,6 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("cursor", mNodeCursor)
-				.toString();
+		return MoreObjects.toStringHelper(this).add("cursor", mNodeCursor).toString();
 	}
 }

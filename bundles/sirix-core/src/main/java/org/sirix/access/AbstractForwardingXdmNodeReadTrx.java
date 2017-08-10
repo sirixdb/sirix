@@ -8,12 +8,11 @@ import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.ItemList;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
@@ -25,19 +24,18 @@ import com.google.common.collect.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
-public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
-		implements NodeReadTrx {
+public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
+		implements XdmNodeReadTrx {
 
 	/** Constructor for use by subclasses. */
-	protected AbstractForwardingNodeReadTrx() {
-	}
+	protected AbstractForwardingXdmNodeReadTrx() {}
 
 	@Override
-	protected abstract NodeReadTrx delegate();
+	protected abstract XdmNodeReadTrx delegate();
 
 	@Override
 	public ItemList<AtomicValue> getItemList() {
@@ -80,13 +78,13 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Session getSession() {
-		return delegate().getSession();
+	public ResourceManager getResourceManager() {
+		return delegate().getResourceManager();
 	}
 
 	@Override
-	public long getTransactionID() {
-		return delegate().getTransactionID();
+	public long getId() {
+		return delegate().getId();
 	}
 
 	@Override
@@ -110,68 +108,67 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveTo(long key) {
+	public Move<? extends XdmNodeReadTrx> moveTo(long key) {
 		return delegate().moveTo(key);
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttribute(
-			final @Nonnegative int index) {
+	public Move<? extends XdmNodeReadTrx> moveToAttribute(final @Nonnegative int index) {
 		return delegate().moveToAttribute(index);
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttributeByName(final QNm name) {
+	public Move<? extends XdmNodeReadTrx> moveToAttributeByName(final QNm name) {
 		return delegate().moveToAttributeByName(name);
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToDocumentRoot() {
+	public Move<? extends XdmNodeReadTrx> moveToDocumentRoot() {
 		return delegate().moveToDocumentRoot();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToFirstChild() {
+	public Move<? extends XdmNodeReadTrx> moveToFirstChild() {
 		return delegate().moveToFirstChild();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToLeftSibling() {
+	public Move<? extends XdmNodeReadTrx> moveToLeftSibling() {
 		return delegate().moveToLeftSibling();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNamespace(@Nonnegative int index) {
+	public Move<? extends XdmNodeReadTrx> moveToNamespace(@Nonnegative int index) {
 		return delegate().moveToNamespace(index);
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNextFollowing() {
+	public Move<? extends XdmNodeReadTrx> moveToNextFollowing() {
 		return delegate().moveToNextFollowing();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToParent() {
+	public Move<? extends XdmNodeReadTrx> moveToParent() {
 		return delegate().moveToParent();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToRightSibling() {
+	public Move<? extends XdmNodeReadTrx> moveToRightSibling() {
 		return delegate().moveToRightSibling();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToLastChild() {
+	public Move<? extends XdmNodeReadTrx> moveToLastChild() {
 		return delegate().moveToLastChild();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToPrevious() {
+	public Move<? extends XdmNodeReadTrx> moveToPrevious() {
 		return delegate().moveToPrevious();
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNext() {
+	public Move<? extends XdmNodeReadTrx> moveToNext() {
 		return delegate().moveToNext();
 	}
 
@@ -185,10 +182,10 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 		return delegate().rawNameForKey(pKey);
 	}
 
-	@Override
-	public NodeReadTrx cloneInstance() throws SirixException {
-		return delegate().cloneInstance();
-	}
+	// @Override
+	// public XdmNodeReadTrx cloneInstance() throws SirixException {
+	// return delegate().cloneInstance();
+	// }
 
 	@Override
 	public int getNameCount(String name, @Nonnull Kind kind) {

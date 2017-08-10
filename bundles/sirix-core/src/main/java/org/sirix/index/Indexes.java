@@ -37,8 +37,7 @@ public final class Indexes implements Materializable {
 		return new HashSet<>(mIndexes);
 	}
 
-	public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo,
-			final IndexType type) {
+	public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo, final IndexType type) {
 		checkArgument(indexNo >= 0, "indexNo must be >= 0!");
 		for (final IndexDef sid : mIndexes) {
 			if (sid.getID() == indexNo && sid.getType() == type) {
@@ -52,8 +51,7 @@ public final class Indexes implements Materializable {
 	public synchronized void init(final Node<?> root) throws DocumentException {
 		final QNm name = root.getName();
 		if (!INDEXES_TAG.equals(name)) {
-			throw new DocumentException("Expected tag '%s' but found '%s'",
-					INDEXES_TAG, name);
+			throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
 		}
 
 		final Stream<? extends Node<?>> children = root.getChildren();
@@ -64,8 +62,8 @@ public final class Indexes implements Materializable {
 				QNm childName = child.getName();
 
 				if (!childName.equals(IndexDef.INDEX_TAG)) {
-					throw new DocumentException("Expected tag '%s' but found '%s'",
-							IndexDef.INDEX_TAG, childName);
+					throw new DocumentException("Expected tag '%s' but found '%s'", IndexDef.INDEX_TAG,
+							childName);
 				}
 
 				final IndexDef indexDefinition = new IndexDef();
@@ -104,8 +102,7 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findPathIndex(final Path<QNm> path)
-			throws DocumentException {
+	public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {
@@ -150,8 +147,7 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findNameIndex(final QNm... names)
-			throws DocumentException {
+	public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
 		out: for (final IndexDef index : mIndexes) {
 			if (index.isNameIndex()) {
 				final Set<QNm> incl = index.getIncluded();
@@ -162,8 +158,7 @@ public final class Indexes implements Materializable {
 				}
 
 				for (final QNm name : names) {
-					if (!incl.isEmpty() && !incl.contains(name) || !excl.isEmpty()
-							&& excl.contains(name)) {
+					if (!incl.isEmpty() && !incl.contains(name) || !excl.isEmpty() && excl.contains(name)) {
 						continue out;
 					}
 				}

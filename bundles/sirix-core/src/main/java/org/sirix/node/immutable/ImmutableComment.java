@@ -21,8 +21,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
  * @author Johannes Lichtenberger
  * 
  */
-public final class ImmutableComment implements ImmutableValueNode,
-		ImmutableStructNode {
+public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode {
 
 	/** Mutable {@link CommentNode}. */
 	private final CommentNode mNode;
@@ -30,8 +29,7 @@ public final class ImmutableComment implements ImmutableValueNode,
 	/**
 	 * Constructor.
 	 * 
-	 * @param node
-	 *          mutable {@link CommentNode}
+	 * @param node mutable {@link CommentNode}
 	 */
 	private ImmutableComment(final CommentNode node) {
 		mNode = checkNotNull(node);
@@ -40,8 +38,7 @@ public final class ImmutableComment implements ImmutableValueNode,
 	/**
 	 * Get an immutable comment node instance.
 	 * 
-	 * @param node
-	 *          the mutable {@link CommentNode} to wrap
+	 * @param node the mutable {@link CommentNode} to wrap
 	 * @return immutable comment node instance
 	 */
 	public static ImmutableComment of(final CommentNode node) {

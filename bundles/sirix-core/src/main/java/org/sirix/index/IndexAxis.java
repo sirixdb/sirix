@@ -10,8 +10,8 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 
 import com.google.common.collect.AbstractIterator;
 
-public final class IndexAxis<K extends Comparable<? super K>> extends
-		AbstractIterator<NodeReferences> {
+public final class IndexAxis<K extends Comparable<? super K>>
+		extends AbstractIterator<NodeReferences> {
 
 	private final Iterator<AVLNode<K, NodeReferences>> mIter;
 

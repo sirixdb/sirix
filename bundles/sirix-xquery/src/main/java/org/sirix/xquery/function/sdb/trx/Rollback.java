@@ -8,7 +8,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
@@ -48,8 +48,8 @@ public final class Rollback extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		if (doc.getTrx() instanceof NodeWriteTrx) {
-			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
+		if (doc.getTrx() instanceof XdmNodeWriteTrx) {
+			final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
 			wtx.rollback();
 			return new Int64(revision);

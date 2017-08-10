@@ -16,8 +16,8 @@ import com.sleepycat.persist.PrimaryIndex;
 import com.sleepycat.persist.StoreConfig;
 
 /**
- * Berkeley implementation of a persistent keying material database. That means
- * that all data is stored in this database and it is never removed.
+ * Berkeley implementation of a persistent keying material database. That means that all data is
+ * stored in this database and it is never removed.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -41,8 +41,7 @@ public class KeyMaterialDatabase extends AbstractKeyDatabase {
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
 	 * 
-	 * @param paramFile
-	 *          the place where the berkeley db is stored.
+	 * @param paramFile the place where the berkeley db is stored.
 	 */
 	public KeyMaterialDatabase(final File paramFile) {
 		super(paramFile);
@@ -100,8 +99,7 @@ public class KeyMaterialDatabase extends AbstractKeyDatabase {
 	/**
 	 * Putting a {@link KeyMaterial} into the database with a corresponding key.
 	 * 
-	 * @param paramSelect
-	 *          selector instance to get information of node.
+	 * @param paramSelect selector instance to get information of node.
 	 * @return generated unique material key of new keying material.
 	 */
 	public final long putPersistent(final KeyingMaterial paramMat) {
@@ -121,8 +119,7 @@ public class KeyMaterialDatabase extends AbstractKeyDatabase {
 	/**
 	 * Getting a {@link KeyingMaterial} related to a given material key.
 	 * 
-	 * @param paramKey
-	 *          material key for related keying material.
+	 * @param paramKey material key for related keying material.
 	 * @return keying material instance.
 	 */
 	public final KeyingMaterial getPersistent(final long paramKey) {
@@ -131,7 +128,7 @@ public class KeyMaterialDatabase extends AbstractKeyDatabase {
 		try {
 			primaryIndex =
 
-			mStore.getPrimaryIndex(Long.class, KeyingMaterial.class);
+					mStore.getPrimaryIndex(Long.class, KeyingMaterial.class);
 			entity = primaryIndex.get(paramKey);
 
 		} catch (final DatabaseException mDbExp) {
@@ -143,8 +140,7 @@ public class KeyMaterialDatabase extends AbstractKeyDatabase {
 	/**
 	 * Deletes an entry from storage.
 	 * 
-	 * @param paramKey
-	 *          primary key of entry to delete.
+	 * @param paramKey primary key of entry to delete.
 	 * @return status whether deletion was successful or not.
 	 */
 	public final boolean deleteEntry(final long paramKey) {

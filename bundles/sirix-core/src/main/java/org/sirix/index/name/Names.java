@@ -38,8 +38,7 @@ public final class Names {
 	/**
 	 * Constructor to build index of from a persistent storage.
 	 * 
-	 * @param in
-	 *          the persistent storage
+	 * @param in the persistent storage
 	 */
 	private Names(final DataInputStream in) throws IOException {
 		final int mapSize = in.readInt();
@@ -60,8 +59,7 @@ public final class Names {
 	/**
 	 * Serialize name-index.
 	 * 
-	 * @param out
-	 *          the persistent storage
+	 * @param out the persistent storage
 	 */
 	public void serialize(final DataOutput out) throws IOException {
 		out.writeInt(mNameMap.size());
@@ -79,8 +77,7 @@ public final class Names {
 	/**
 	 * Remove a name.
 	 * 
-	 * @param key
-	 *          the key to remove
+	 * @param key the key to remove
 	 */
 	public void removeName(final int key) {
 		final Integer prevValue = mCountNameMapping.get(key);
@@ -97,8 +94,7 @@ public final class Names {
 	/**
 	 * Get bytes representation of a string value in a map.
 	 * 
-	 * @param name
-	 *          the string representation
+	 * @param name the string representation
 	 * @return byte representation of a string value in a map
 	 */
 	private byte[] getBytes(final String name) {
@@ -108,10 +104,8 @@ public final class Names {
 	/**
 	 * Create name key given a name.
 	 * 
-	 * @param pKey
-	 *          key for given name
-	 * @param name
-	 *          name to create key for
+	 * @param pKey key for given name
+	 * @param name name to create key for
 	 */
 	public void setName(final int pKey, final String name) {
 		final Integer prevValue = mCountNameMapping.get(pKey);
@@ -126,8 +120,7 @@ public final class Names {
 	/**
 	 * Get the name for the key.
 	 * 
-	 * @param key
-	 *          the key to look up
+	 * @param key the key to look up
 	 * @return the string the key maps to, or {@code null} if no mapping exists
 	 */
 	public String getName(final int key) {
@@ -141,8 +134,7 @@ public final class Names {
 	/**
 	 * Get the number of nodes with the same name.
 	 * 
-	 * @param key
-	 *          the key to lookup
+	 * @param key the key to lookup
 	 * @return number of nodes with the same name
 	 */
 	public int getCount(final int key) {
@@ -156,8 +148,7 @@ public final class Names {
 	/**
 	 * Get the name for the key.
 	 * 
-	 * @param key
-	 *          the key to look up
+	 * @param key the key to look up
 	 * @return the byte-array representing the string the key maps to
 	 */
 	public byte[] getRawName(final int key) {
@@ -176,8 +167,7 @@ public final class Names {
 	/**
 	 * Clone an instance.
 	 * 
-	 * @param in
-	 *          input source, the persistent storage
+	 * @param in input source, the persistent storage
 	 * @return cloned index
 	 */
 	public static Names clone(final DataInputStream in) throws IOException {

@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 package org.sirix.axis;
 
@@ -34,7 +28,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnegative;
 
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -46,8 +40,7 @@ import org.sirix.node.Kind;
 public final class LevelOrderAxis extends AbstractAxis {
 
 	/**
-	 * Determines if structural or structural and non structural nodes should be
-	 * included.
+	 * Determines if structural or structural and non structural nodes should be included.
 	 */
 	private enum IncludeNodes {
 		/** Only structural nodes. */
@@ -61,8 +54,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 	private Deque<Long> mFirstChilds;
 
 	/**
-	 * Determines if {@code attribute-} and {@code namespace-} nodes should be
-	 * included or not.
+	 * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
 	 */
 	private IncludeNodes mIncludeNodes;
 
@@ -78,27 +70,25 @@ public final class LevelOrderAxis extends AbstractAxis {
 	/**
 	 * Get a new builder instance.
 	 * 
-	 * @param rtx
-	 *          the {@link NodeReadTrx} to iterate with
+	 * @param rtx the {@link XdmNodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final NodeReadTrx rtx) {
+	public static Builder newBuilder(final XdmNodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 
 	/** Builder. */
 	public static class Builder {
 		/**
-		 * Determines if {@code attribute-} and {@code namespace-} nodes should be
-		 * included or not.
+		 * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
 		 */
 		private IncludeNodes mIncludeNodes = IncludeNodes.STRUCTURAL;
 
 		/** Filter by level. */
 		private int mFilterLevel = Integer.MAX_VALUE;
 
-		/** Sirix {@link NodeReadTrx}. */
-		private NodeReadTrx mRtx;
+		/** Sirix {@link XdmNodeReadTrx}. */
+		private XdmNodeReadTrx mRtx;
 
 		/** Determines if current start node to traversal should be included or not. */
 		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
@@ -106,16 +96,14 @@ public final class LevelOrderAxis extends AbstractAxis {
 		/**
 		 * Constructor.
 		 * 
-		 * @param rtx
-		 *          Sirix {@link NodeReadTrx}
+		 * @param rtx Sirix {@link XdmNodeReadTrx}
 		 */
-		public Builder(final NodeReadTrx rtx) {
+		public Builder(final XdmNodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 		}
 
 		/**
-		 * Determines that non-structural nodes (attributes, namespaces) should be
-		 * taken into account.
+		 * Determines that non-structural nodes (attributes, namespaces) should be taken into account.
 		 * 
 		 * @return this builder instance
 		 */
@@ -137,8 +125,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 		/**
 		 * Determines the maximum level to filter.
 		 * 
-		 * @param filterLevel
-		 *          maximum level to filter nodes
+		 * @param filterLevel maximum level to filter nodes
 		 * @return this builder instance
 		 */
 		public Builder filterLevel(final @Nonnegative int filterLevel) {
@@ -160,8 +147,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param builder
-	 *          the builder reference
+	 * @param builder the builder reference
 	 */
 	private LevelOrderAxis(final Builder builder) {
 		super(builder.mRtx, builder.mIncludeSelf);
@@ -178,7 +164,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
 	@Override
 	protected long nextKey() {
-		final NodeReadTrx rtx = getTrx();
+		final XdmNodeReadTrx rtx = getTrx();
 		// Determines if it's the first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
@@ -244,9 +230,8 @@ public final class LevelOrderAxis extends AbstractAxis {
 
 	/** Process an element node. */
 	private void processElement() {
-		final NodeReadTrx rtx = (NodeReadTrx) getTrx();
-		if (rtx.getKind() == Kind.ELEMENT
-				&& mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
+		final XdmNodeReadTrx rtx = (XdmNodeReadTrx) getTrx();
+		if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
 			for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
 				rtx.moveToNamespace(i);
 				mFirstChilds.add(rtx.getNodeKey());

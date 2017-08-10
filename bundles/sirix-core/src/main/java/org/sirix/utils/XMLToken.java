@@ -11,8 +11,7 @@ import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 
 /**
- * This class provides convenience operations for XML-specific character
- * operations.
+ * This class provides convenience operations for XML-specific character operations.
  * 
  * @author BaseX Team 2005-11, BSD License
  * @author Christian Gruen
@@ -26,8 +25,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified character is a valid XML character.
 	 * 
-	 * @param ch
-	 *          the letter to be checked
+	 * @param ch the letter to be checked
 	 * @return result of comparison
 	 */
 	public static boolean valid(final int ch) {
@@ -36,41 +34,37 @@ public final class XMLToken {
 	}
 
 	/**
-	 * Checks if the specified character is a name start character, as required
-	 * e.g. by QName and NCName.
+	 * Checks if the specified character is a name start character, as required e.g. by QName and
+	 * NCName.
 	 * 
-	 * @param ch
-	 *          character
+	 * @param ch character
 	 * @return result of check
 	 */
 	public static boolean isNCStartChar(final int ch) {
-		return ch < 0x80 ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'
-				|| ch == '_' : ch < 0x300 ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
-				: ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
-						|| ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F
-						|| ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
-						|| ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD
-						|| ch >= 0x10000 && ch <= 0xEFFFF;
+		return ch < 0x80 ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch == '_'
+				: ch < 0x300 ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
+						: ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
+								|| ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F
+								|| ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
+								|| ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD
+								|| ch >= 0x10000 && ch <= 0xEFFFF;
 	}
 
 	/**
 	 * Checks if the specified character is an XML letter.
 	 * 
-	 * @param ch
-	 *          character
+	 * @param ch character
 	 * @return result of check
 	 */
 	public static boolean isNCChar(final int ch) {
-		return isNCStartChar(ch)
-				|| (ch < 0x100 ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7
-						: ch >= 0x300 && ch <= 0x36F || ch == 0x203F || ch == 0x2040);
+		return isNCStartChar(ch) || (ch < 0x100 ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7
+				: ch >= 0x300 && ch <= 0x36F || ch == 0x203F || ch == 0x2040);
 	}
 
 	/**
 	 * Checks if the specified character is an XML first-letter.
 	 * 
-	 * @param ch
-	 *          the letter to be checked
+	 * @param ch the letter to be checked
 	 * @return result of comparison
 	 */
 	public static boolean isStartChar(final int ch) {
@@ -80,8 +74,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified character is an XML letter.
 	 * 
-	 * @param ch
-	 *          the letter to be checked
+	 * @param ch the letter to be checked
 	 * @return result of comparison
 	 */
 	public static boolean isChar(final int ch) {
@@ -91,8 +84,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified token is a valid NCName.
 	 * 
-	 * @param v
-	 *          value to be checked
+	 * @param v value to be checked
 	 * @return result of check
 	 */
 	public static boolean isNCName(final byte[] v) {
@@ -103,8 +95,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified token is a valid name.
 	 * 
-	 * @param v
-	 *          value to be checked
+	 * @param v value to be checked
 	 * @return result of check
 	 */
 	public static boolean isName(final byte[] v) {
@@ -120,8 +111,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified token is a valid NMToken.
 	 * 
-	 * @param v
-	 *          value to be checked
+	 * @param v value to be checked
 	 * @return result of check
 	 */
 	public static boolean isNMToken(final byte[] v) {
@@ -135,8 +125,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified token is a valid QName.
 	 * 
-	 * @param val
-	 *          value to be checked
+	 * @param val value to be checked
 	 * @return result of check
 	 */
 	public static boolean isQName(final byte[] val) {
@@ -157,11 +146,9 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified token is a valid {@link QName}.
 	 * 
-	 * @param name
-	 *          {@link QName} reference to check
+	 * @param name {@link QName} reference to check
 	 * @return {@code true} if it's valid, {@code false} otherwise
-	 * @throws NullPointerException
-	 *           if {@code name} is {@code null}
+	 * @throws NullPointerException if {@code name} is {@code null}
 	 */
 	public static boolean isValidQName(final QNm name) {
 		final String localPart = checkNotNull(name).getLocalName();
@@ -181,10 +168,8 @@ public final class XMLToken {
 	/**
 	 * Determines if the provided {@code namespaceURI} is a valid {@code URI}.
 	 * 
-	 * @param namespaceURI
-	 *          the {@code URI} to check
-	 * @return {@code true} if {@code namespaceURI} is valid, {@code false}
-	 *         otherwise
+	 * @param namespaceURI the {@code URI} to check
+	 * @return {@code true} if {@code namespaceURI} is valid, {@code false} otherwise
 	 */
 	private boolean isUrl(final String namespaceURI) {
 		// NamespaceURI is never null.
@@ -197,14 +182,11 @@ public final class XMLToken {
 	}
 
 	/**
-	 * Returns the codepoint (unicode value) of the specified token, starting at
-	 * the specified position. Returns a unicode replacement character for invalid
-	 * values.
+	 * Returns the codepoint (unicode value) of the specified token, starting at the specified
+	 * position. Returns a unicode replacement character for invalid values.
 	 * 
-	 * @param token
-	 *          token
-	 * @param pos
-	 *          character position
+	 * @param token token
+	 * @param pos character position
 	 * @return current character
 	 */
 	public static int cp(final byte[] token, final int pos) {
@@ -221,20 +203,17 @@ public final class XMLToken {
 			return (v & 0x1F) << 6 | token[pos + 1] & 0x3F;
 		// 1110xxxx 10xxxxxx 10xxxxxx
 		if (vl == 3)
-			return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2]
-					& 0x3F;
+			return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2] & 0x3F;
 		// 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-		return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12
-				| (token[pos + 2] & 0x3F) << 6 | token[pos + 3] & 0x3F;
+		return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12 | (token[pos + 2] & 0x3F) << 6
+				| token[pos + 3] & 0x3F;
 	}
 
 	/**
 	 * Checks the specified token as an NCName.
 	 * 
-	 * @param v
-	 *          value to be checked
-	 * @param p
-	 *          start position
+	 * @param v value to be checked
+	 * @param p start position
 	 * @return end position
 	 */
 	private static int ncName(final byte[] v, final int p) {
@@ -250,8 +229,7 @@ public final class XMLToken {
 	/**
 	 * Returns the codepoint length of the specified byte.
 	 * 
-	 * @param first
-	 *          first character byte
+	 * @param first first character byte
 	 * @return character length
 	 */
 	public static int cl(final byte first) {
@@ -259,16 +237,13 @@ public final class XMLToken {
 	}
 
 	/*** Character lengths. */
-	private static final int[] CHLEN = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2,
-			2, 3, 4 };
+	private static final int[] CHLEN = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 4};
 
 	/**
 	 * Returns the codepoint length of the specified byte.
 	 * 
-	 * @param token
-	 *          token
-	 * @param pos
-	 *          character position
+	 * @param token token
+	 * @param pos character position
 	 * @return character length
 	 */
 	public static int cl(final byte[] token, final int pos) {
@@ -278,8 +253,7 @@ public final class XMLToken {
 	/**
 	 * Checks if the specified character is a digit (0 - 9).
 	 * 
-	 * @param ch
-	 *          the letter to be checked
+	 * @param ch the letter to be checked
 	 * @return result of comparison
 	 */
 	public static boolean digit(final int ch) {
@@ -289,34 +263,32 @@ public final class XMLToken {
 	/**
 	 * Escape characters not allowed in attribute values.
 	 * 
-	 * @param value
-	 *          the string value to escape
+	 * @param value the string value to escape
 	 * @return escaped value
-	 * @throws NullPointerException
-	 *           if {@code pValue} is {@code null}
+	 * @throws NullPointerException if {@code pValue} is {@code null}
 	 */
 	public static String escapeAttribute(final String value) {
 		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
 		for (final char i : value.toCharArray()) {
 			switch (i) {
-			case '&':
-				escape.append("&amp;");
-				break;
-			case '<':
-				escape.append("&lt;");
-				break;
-			case '>':
-				escape.append("&gt;");
-				break;
-			case '"':
-				escape.append("&quot;");
-				break;
-			case '\'':
-				escape.append("&apos;");
-				break;
-			default:
-				escape.append(i);
+				case '&':
+					escape.append("&amp;");
+					break;
+				case '<':
+					escape.append("&lt;");
+					break;
+				case '>':
+					escape.append("&gt;");
+					break;
+				case '"':
+					escape.append("&quot;");
+					break;
+				case '\'':
+					escape.append("&apos;");
+					break;
+				default:
+					escape.append(i);
 			}
 		}
 		return escape.toString();
@@ -325,28 +297,26 @@ public final class XMLToken {
 	/**
 	 * Escape characters not allowed text content.
 	 * 
-	 * @param value
-	 *          the string value to escape
+	 * @param value the string value to escape
 	 * @return escaped value
-	 * @throws NullPointerException
-	 *           if {@code pValue} is {@code null}
+	 * @throws NullPointerException if {@code pValue} is {@code null}
 	 */
 	public static String escapeContent(final String value) {
 		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
 		for (final char i : value.toCharArray()) {
 			switch (i) {
-			case '&':
-				escape.append("&amp;");
-				break;
-			case '<':
-				escape.append("&lt;");
-				break;
-			case '>':
-				escape.append("&gt;");
-				break;
-			default:
-				escape.append(i);
+				case '&':
+					escape.append("&amp;");
+					break;
+				case '<':
+					escape.append("&lt;");
+					break;
+				case '>':
+					escape.append("&gt;");
+					break;
+				default:
+					escape.append(i);
 			}
 		}
 		return escape.toString();

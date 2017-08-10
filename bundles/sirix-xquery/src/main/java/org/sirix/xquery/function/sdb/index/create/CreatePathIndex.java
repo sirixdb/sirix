@@ -15,8 +15,8 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.IndexController;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -68,11 +68,11 @@ public final class CreatePathIndex extends AbstractFunction {
 		}
 
 		final DBNode doc = ((DBNode) args[0]);
-		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession().getWtxIndexController(
+		final XdmNodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getResourceManager().getWtxIndexController(
 				rtx.getRevisionNumber() - 1);
 
-		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
+		if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}
 
@@ -81,7 +81,7 @@ public final class CreatePathIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
+		if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}
 
@@ -99,7 +99,7 @@ public final class CreatePathIndex extends AbstractFunction {
 				.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
 		try {
 			controller.createIndexes(ImmutableSet.of(idxDef),
-					(NodeWriteTrx) doc.getTrx());
+					(XdmNodeWriteTrx) doc.getTrx());
 		} catch (final SirixIOException e) {
 			throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
 		}

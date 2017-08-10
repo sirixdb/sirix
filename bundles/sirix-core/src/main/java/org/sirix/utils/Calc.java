@@ -112,8 +112,7 @@ public final class Calc {
 		if (len == 3) {
 			return ((b[0] & 0xFF) << 16) | ((b[1] & 0xFF) << 8) | b[2] & 0xFF;
 		}
-		return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8)
-				| b[3] & 0xFF;
+		return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8) | b[3] & 0xFF;
 	}
 
 	public static int toInt(byte[] b, int off, int len) {
@@ -124,44 +123,41 @@ public final class Calc {
 			return ((b[off++] & 0xFF) << 8) | b[off] & 0xFF;
 		}
 		if (len == 3) {
-			return ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8) | b[off++]
-					& 0xFF;
+			return ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8) | b[off++] & 0xFF;
 		}
-		return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16)
-				| ((b[off++] & 0xFF) << 8) | b[off] & 0xFF;
+		return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
+				| b[off] & 0xFF;
 	}
 
 	public static byte[] fromUIntVar(int i) {
 		if ((i & 0xFFFFFF00) == 0) {
-			return new byte[] { (byte) i };
+			return new byte[] {(byte) i};
 		}
 		if ((i & 0xFFFF0000) == 0) {
-			return new byte[] { (byte) ((i >> 8) & 0xFF), (byte) i };
+			return new byte[] {(byte) ((i >> 8) & 0xFF), (byte) i};
 		}
 		if ((i & 0xFF000000) == 0) {
-			return new byte[] { (byte) ((i >> 16) & 0xFF), (byte) ((i >> 8) & 0xFF),
-					(byte) i };
+			return new byte[] {(byte) ((i >> 16) & 0xFF), (byte) ((i >> 8) & 0xFF), (byte) i};
 		}
 		if (i < 0) {
 			throw new IllegalArgumentException(String.valueOf(i));
 		}
-		return new byte[] { (byte) ((i >> 24) & 0xFF), (byte) ((i >> 16) & 0xFF),
-				(byte) ((i >> 8) & 0xFF), (byte) i };
+		return new byte[] {(byte) ((i >> 24) & 0xFF), (byte) ((i >> 16) & 0xFF),
+				(byte) ((i >> 8) & 0xFF), (byte) i};
 	}
 
 	public static int toInt(byte[] b) {
-		return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8)
-				| b[3] & 0xFF;
+		return ((b[0] & 0xFF) << 24) | ((b[1] & 0xFF) << 16) | ((b[2] & 0xFF) << 8) | b[3] & 0xFF;
 	}
 
 	public static int toInt(byte[] b, int off) {
-		return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16)
-				| ((b[off++] & 0xFF) << 8) | b[off] & 0xFF;
+		return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
+				| b[off] & 0xFF;
 	}
 
 	public static byte[] fromInt(int i) {
-		return new byte[] { (byte) ((i >> 24) & 0xFF), (byte) ((i >> 16) & 0xFF),
-				(byte) ((i >> 8) & 0xFF), (byte) i };
+		return new byte[] {(byte) ((i >> 24) & 0xFF), (byte) ((i >> 16) & 0xFF),
+				(byte) ((i >> 8) & 0xFF), (byte) i};
 	}
 
 	public static void fromInt(int i, byte[] b, int off) {
@@ -173,9 +169,8 @@ public final class Calc {
 
 	public static long toLong(byte[] b) {
 		return ((((long) b[0] & 0xFF) << 56) | (((long) b[1] & 0xFF) << 48)
-				| (((long) b[2] & 0xFF) << 40) | (((long) b[3] & 0xFF) << 32)
-				| (((long) b[4] & 0xFF) << 24) | (((long) b[5] & 0xFF) << 16)
-				| (((long) b[6] & 0xFF) << 8) | ((long) b[7] & 0xFF));
+				| (((long) b[2] & 0xFF) << 40) | (((long) b[3] & 0xFF) << 32) | (((long) b[4] & 0xFF) << 24)
+				| (((long) b[5] & 0xFF) << 16) | (((long) b[6] & 0xFF) << 8) | ((long) b[7] & 0xFF));
 	}
 
 	public static long toLong(byte[] b, int off) {
@@ -186,10 +181,9 @@ public final class Calc {
 	}
 
 	public static byte[] fromLong(long i) {
-		return new byte[] { (byte) ((i >> 56) & 0xFF), (byte) ((i >> 48) & 0xFF),
-				(byte) ((i >> 40) & 0xFF), (byte) ((i >> 32) & 0xFF),
-				(byte) ((i >> 24) & 0xFF), (byte) ((i >> 16) & 0xFF),
-				(byte) ((i >> 8) & 0xFF), (byte) i };
+		return new byte[] {(byte) ((i >> 56) & 0xFF), (byte) ((i >> 48) & 0xFF),
+				(byte) ((i >> 40) & 0xFF), (byte) ((i >> 32) & 0xFF), (byte) ((i >> 24) & 0xFF),
+				(byte) ((i >> 16) & 0xFF), (byte) ((i >> 8) & 0xFF), (byte) i};
 	}
 
 	public static void fromLong(long i, byte[] b, int off) {
@@ -264,8 +258,7 @@ public final class Calc {
 		}
 	}
 
-	public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2,
-			int len2) {
+	public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
 		// a null value is interpreted as EOF (= highest possible value)
 		if (v1 != null) {
 			if (v2 != null) {
@@ -348,8 +341,7 @@ public final class Calc {
 		}
 	}
 
-	public static int compareU(byte[] v1, int off1, int len1, byte[] v2,
-			int off2, int len2) {
+	public static int compareU(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
 		// a null value is interpreted as EOF (= highest possible value)
 		if (v1 != null) {
 			if (v2 != null) {

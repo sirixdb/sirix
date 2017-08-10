@@ -20,17 +20,16 @@ import org.sirix.node.interfaces.Record;
  */
 public final class NodePersistenterImpl implements NodePersistenter {
 	@Override
-	public Record deserialize(final DataInput source,
-			final @Nonnegative long recordID, final Optional<SirixDeweyID> deweyID,
-			final PageReadTrx pageReadTrx) throws IOException {
+	public Record deserialize(final DataInput source, final @Nonnegative long recordID,
+			final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
 		return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
 	}
 
 	@Override
-	public void serialize(final DataOutput sink, final Record record,
-			final PageReadTrx pageReadTrx) throws IOException {
+	public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+			throws IOException {
 		final Kind nodeKind = (Kind) record.getKind();
 		final byte id = nodeKind.getId();
 		sink.writeByte(id);
@@ -39,8 +38,8 @@ public final class NodePersistenterImpl implements NodePersistenter {
 
 	@Override
 	public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source,
-			Optional<SirixDeweyID> previousDeweyID,
-			ResourceConfiguration resourceConfig) throws IOException {
+			Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+			throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
 		return enumKind.deserializeDeweyID(source, previousDeweyID, resourceConfig);
@@ -52,7 +51,6 @@ public final class NodePersistenterImpl implements NodePersistenter {
 			ResourceConfiguration resourceConfig) throws IOException {
 		final byte id = nodeKind.getId();
 		sink.writeByte(id);
-		nodeKind.serializeDeweyID(sink, nodeKind, deweyID, previousDeweyID,
-				resourceConfig);
+		nodeKind.serializeDeweyID(sink, nodeKind, deweyID, previousDeweyID, resourceConfig);
 	}
 }

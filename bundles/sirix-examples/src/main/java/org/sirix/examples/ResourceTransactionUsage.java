@@ -10,10 +10,10 @@ import javax.xml.stream.XMLStreamException;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -33,19 +33,22 @@ public final class ResourceTransactionUsage {
 			Databases.truncateDatabase(config);
 		}
 		Databases.createDatabase(config);
+
 		try (final Database database = Databases.openDatabase(file)) {
-			database.createResource(new ResourceConfiguration.Builder("resource",
-					config).build());
-			try (final Session session = database.getSession(new SessionConfiguration.Builder("resource").build())) {
-				final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-				wtx.insertSubtreeAsFirstChild(XMLShredder
-						.createFileReader(new File(LOCATION, "input.xml")));
+			database.createResource(new ResourceConfiguration.Builder("resource", config).build());
+
+			try (
+					final ResourceManager resource = database
+							.getResourceManager(new ResourceManagerConfiguration.Builder("resource").build());
+					final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+				wtx.insertSubtreeAsFirstChild(
+						XMLShredder.createFileReader(new File(LOCATION, "input.xml")));
 				wtx.moveTo(2);
-				wtx.moveSubtreeToFirstChild(4).commit();	
-				
+				wtx.moveSubtreeToFirstChild(4).commit();
+
 				final OutputStream out = new ByteArrayOutputStream();
-				new XMLSerializer.XMLSerializerBuilder(session, out).prettyPrint().build().call();
-				
+				new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
+
 				System.out.println(out);
 			}
 		} catch (final SirixException | IOException | XMLStreamException e) {

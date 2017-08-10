@@ -11,10 +11,9 @@ import org.sirix.node.SirixDeweyID;
 
 public interface NodePersistenter extends RecordPersistenter {
 	Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-			Optional<SirixDeweyID> previousDeweyID,
-			ResourceConfiguration resourceConfig) throws IOException;
+			Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+			throws IOException;
 
 	void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-			Optional<SirixDeweyID> nextDeweyID, ResourceConfiguration resourceConfig)
-			throws IOException;
+			Optional<SirixDeweyID> nextDeweyID, ResourceConfiguration resourceConfig) throws IOException;
 }

@@ -7,8 +7,8 @@ import com.sleepycat.persist.model.Entity;
 import com.sleepycat.persist.model.PrimaryKey;
 
 /**
- * This class represents the key selector model holding all data for a node of
- * the right tree consisting of group and user nodes.
+ * This class represents the key selector model holding all data for a node of the right tree
+ * consisting of group and user nodes.
  * 
  * @author Patrick Lang, University of Konstanz
  */
@@ -56,8 +56,7 @@ public class KeySelector {
 	/**
 	 * Constructor for building an new key selector instance.
 	 * 
-	 * @param paramName
-	 *          node name.
+	 * @param paramName node name.
 	 */
 	public KeySelector(final String paramName, final EntityType paramType) {
 		this.mKeyId = RightKey.getInstance().newSelectorKey();
@@ -98,8 +97,7 @@ public class KeySelector {
 	/**
 	 * Add a new parent node to the set.
 	 * 
-	 * @param paramParent
-	 *          parent to add to set.
+	 * @param paramParent parent to add to set.
 	 */
 	public final void addParent(final long paramParent) {
 		mParents.add(paramParent);

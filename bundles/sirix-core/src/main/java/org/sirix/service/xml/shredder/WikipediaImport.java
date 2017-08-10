@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.shredder;
@@ -58,12 +52,12 @@ import javax.xml.stream.events.XMLEvent;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -75,8 +69,7 @@ import org.slf4j.LoggerFactory;
  * <h1>WikipediaImport</h1>
  *
  * <p>
- * Import sorted Wikipedia revisions. Precondition is a file, which is produced
- * from a Hadoop job.
+ * Import sorted Wikipedia revisions. Precondition is a file, which is produced from a Hadoop job.
  * </p>
  *
  * @author Johannes Lichtenberger, University of Konstanz
@@ -85,17 +78,17 @@ import org.slf4j.LoggerFactory;
 public final class WikipediaImport implements Import<StartElement> {
 
 	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER = new LogWrapper(
-			LoggerFactory.getLogger(WikipediaImport.class));
+	private static final LogWrapper LOGWRAPPER =
+			new LogWrapper(LoggerFactory.getLogger(WikipediaImport.class));
 
 	/** StAX parser {@link XMLEventReader}. */
 	private transient XMLEventReader mReader;
 
-	/** sirix {@link Session}. */
-	private final Session mSession;
+	/** Resource manager instance. */
+	private final ResourceManager mResourceManager;
 
 	/** sirix {@link NodeWriteTrx}. */
-	private transient NodeWriteTrx mWtx;
+	private transient XdmNodeWriteTrx mWtx;
 
 	/** {@link XMLEvent}s which specify the page metadata. */
 	private transient Deque<XMLEvent> mPageEvents;
@@ -136,68 +129,62 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Constructor.
 	 *
-	 * @param xmlFile
-	 *          The XML file to import.
-	 * @param sirixDatabase
-	 *          The sirix destination storage directory.
+	 * @param xmlFile The XML file to import.
+	 * @param sirixDatabase The sirix destination storage directory.
 	 *
 	 */
-	public WikipediaImport(final File xmlFile, final File sirixDatabase)
-			throws SirixException {
+	public WikipediaImport(final File xmlFile, final File sirixDatabase) throws SirixException {
 		mPageEvents = new ArrayDeque<>();
 		final XMLInputFactory xmlif = XMLInputFactory.newInstance();
 		try {
-			mReader = xmlif.createXMLEventReader(new FileInputStream(
-					checkNotNull(xmlFile)));
+			mReader = xmlif.createXMLEventReader(new FileInputStream(checkNotNull(xmlFile)));
 		} catch (XMLStreamException | FileNotFoundException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 
-		final DatabaseConfiguration config = new DatabaseConfiguration(
-				sirixDatabase);
+		final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
 		Databases.createDatabase(config);
 		mDatabase = Databases.openDatabase(sirixDatabase);
-		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
-				config).build());
-		mSession = mDatabase
-				.getSession(new SessionConfiguration.Builder("shredded").build());
-		mWtx = mSession.beginNodeWriteTrx();
+		mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+		mResourceManager =
+				mDatabase.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+		mWtx = mResourceManager.beginNodeWriteTrx();
 	}
 
 	/**
 	 * Import data.
 	 *
 	 * @param dateRange
-	 *          <p>
-	 *          Date range, the following values are possible:
-	 *          </p>
-	 *          <dl>
-	 *          <dt>h</dt>
-	 *          <dd>hourly revisions</dd>
-	 *          <dt>d</dt>
-	 *          <dd>daily revisions</dd>
-	 *          <dt>w</dt>
-	 *          <dd>weekly revisions (currently unsupported)</dd>
-	 *          <dt>m</dt>
-	 *          <dd>monthly revisions</dd>
-	 *          </dl>
+	 *        <p>
+	 *        Date range, the following values are possible:
+	 *        </p>
+	 *        <dl>
+	 *        <dt>h</dt>
+	 *        <dd>hourly revisions</dd>
+	 *        <dt>d</dt>
+	 *        <dd>daily revisions</dd>
+	 *        <dt>w</dt>
+	 *        <dd>weekly revisions (currently unsupported)</dd>
+	 *        <dt>m</dt>
+	 *        <dd>monthly revisions</dd>
+	 *        </dl>
 	 *
 	 * @param data
-	 *          <p>
-	 *          List of {@link StartElement}s with the following meaning:
-	 *          </p>
-	 *          <dl>
-	 *          <dt>Zero index</dt>
-	 *          <dd>Timestamp start tag {@link StartElement}.</dd>
-	 *          <dt>First index</dt>
-	 *          <dd>Page start tag {@link StartElement}.</dd>
-	 *          <dt>Second index</dt>
-	 *          <dd>Revision start tag {@link StartElement}.</dd>
-	 *          <dt>Third index</dt>
-	 *          <dd>Page-ID start tag {@link StartElement}.</dd>
-	 *          <dt>Fourth index</dt>
-	 *          <dd>Revision text start tag {@link StartElement}.</dd>
-	 *          </dl>
+	 *        <p>
+	 *        List of {@link StartElement}s with the following meaning:
+	 *        </p>
+	 *        <dl>
+	 *        <dt>Zero index</dt>
+	 *        <dd>Timestamp start tag {@link StartElement}.</dd>
+	 *        <dt>First index</dt>
+	 *        <dd>Page start tag {@link StartElement}.</dd>
+	 *        <dt>Second index</dt>
+	 *        <dd>Revision start tag {@link StartElement}.</dd>
+	 *        <dt>Third index</dt>
+	 *        <dd>Page-ID start tag {@link StartElement}.</dd>
+	 *        <dt>Fourth index</dt>
+	 *        <dd>Revision text start tag {@link StartElement}.</dd>
+	 *        </dl>
 	 */
 	@Override
 	public void importData(final DateBy dateRange, final List<StartElement> data) {
@@ -241,8 +228,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
 						break;
 					case XMLStreamConstants.END_ELEMENT:
-						if (event.asEndElement().getName().equals(page.getName())
-								&& !isFirst) {
+						if (event.asEndElement().getName().equals(page.getName()) && !isFirst) {
 							// StAX parser is located at the end of an article/page.
 							mIsRev = false;
 
@@ -258,21 +244,18 @@ public final class WikipediaImport implements Import<StartElement> {
 								final boolean hasFirstChild = mWtx.hasFirstChild();
 								if (hasFirstChild) {
 									moveToLastPage(page);
-									assert mWtx.getName().getLocalName()
-											.equals(page.getName().getLocalPart());
+									assert mWtx.getName().getLocalName().equals(page.getName().getLocalPart());
 								}
 
 								XMLShredder shredder = null;
 								if (hasFirstChild) {
 									// Shredder as child.
 									shredder = new XMLShredder.Builder(mWtx,
-											XMLShredder.createQueueReader(mPageEvents),
-											Insert.ASRIGHTSIBLING).build();
+											XMLShredder.createQueueReader(mPageEvents), Insert.ASRIGHTSIBLING).build();
 								} else {
 									// Shredder as right sibling.
 									shredder = new XMLShredder.Builder(mWtx,
-											XMLShredder.createQueueReader(mPageEvents),
-											Insert.ASFIRSTCHILD).build();
+											XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).build();
 								}
 
 								shredder.call();
@@ -286,7 +269,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
 			mWtx.commit();
 			mWtx.close();
-			mSession.close();
+			mResourceManager.close();
 			mDatabase.close();
 		} catch (final XMLStreamException | SirixException | IOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
@@ -294,34 +277,29 @@ public final class WikipediaImport implements Import<StartElement> {
 	}
 
 	/** Update shredder. */
-	private void updateShredder() throws SirixException, IOException,
-			XMLStreamException {
-		final Path path = Files.createTempDirectory(
-				Paths.get(System.getProperty("java.io.tmpdir")), "sdbtmp");
-		final DatabaseConfiguration dbConf = new DatabaseConfiguration(
-				path.toFile());
+	private void updateShredder() throws SirixException, IOException, XMLStreamException {
+		final Path path =
+				Files.createTempDirectory(Paths.get(System.getProperty("java.io.tmpdir")), "sdbtmp");
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(path.toFile());
 		Databases.truncateDatabase(dbConf);
 		Databases.createDatabase(dbConf);
 		final Database db = Databases.openDatabase(path.toFile());
 		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
-		final Session session = db.getSession(new SessionConfiguration.Builder(
-				"wiki").build());
+		final ResourceManager resourceManager =
+				db.getResourceManager(new ResourceManagerConfiguration.Builder("wiki").build());
 		if (mPageEvents.peek().isStartElement()
-				&& !mPageEvents.peek().asStartElement().getName().getLocalPart()
-						.equals("root")) {
-			mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(
-					new QName("root"), null, null));
-			mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(
-					new QName("root"), null));
+				&& !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
+			mPageEvents.addFirst(
+					XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
+			mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
 		}
-		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final XdmNodeWriteTrx wtx = resourceManager.beginNodeWriteTrx();
 		final XMLShredder shredder = new XMLShredder.Builder(wtx,
-				XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD)
-				.commitAfterwards().build();
+				XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 		mPageEvents = new ArrayDeque<>();
-		final NodeReadTrx rtx = session.beginNodeReadTrx();
+		final XdmNodeReadTrx rtx = resourceManager.beginNodeReadTrx();
 		rtx.moveToFirstChild();
 		rtx.moveToFirstChild();
 		final long nodeKey = mWtx.getNodeKey();
@@ -330,7 +308,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		}
 		mWtx.moveTo(nodeKey);
 		rtx.close();
-		session.close();
+		resourceManager.close();
 		db.close();
 		Databases.truncateDatabase(dbConf);
 	}
@@ -338,36 +316,27 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Parses a start tag.
 	 *
-	 * @param startTagEvent
-	 *          current StAX {@link XMLEvent}
-	 * @param timestamp
-	 *          timestamp start tag {@link StartElement}
-	 * @param wikiPage
-	 *          wikipedia page start tag {@link StartElement}
-	 * @param revision
-	 *          revision start tag {@link StartElement}
-	 * @param pageID
-	 *          page-ID start tag {@link StartElement}
-	 * @param dateRange
-	 *          date range, the following values are possible:
-	 *          <dl>
-	 *          <dt>h</dt>
-	 *          <dd>hourly revisions</dd>
-	 *          <dt>d</dt>
-	 *          <dd>daily revisions</dd>
-	 *          <dt>w</dt>
-	 *          <dd>weekly revisions (currently unsupported)</dd>
-	 *          <dt>m</dt>
-	 *          <dd>monthly revisions</dd>
-	 *          </dl>
-	 * @throws XMLStreamException
-	 *           In case of any XML parsing errors.
-	 * @throws SirixException
-	 *           In case of any sirix errors.
+	 * @param startTagEvent current StAX {@link XMLEvent}
+	 * @param timestamp timestamp start tag {@link StartElement}
+	 * @param wikiPage wikipedia page start tag {@link StartElement}
+	 * @param revision revision start tag {@link StartElement}
+	 * @param pageID page-ID start tag {@link StartElement}
+	 * @param dateRange date range, the following values are possible:
+	 *        <dl>
+	 *        <dt>h</dt>
+	 *        <dd>hourly revisions</dd>
+	 *        <dt>d</dt>
+	 *        <dd>daily revisions</dd>
+	 *        <dt>w</dt>
+	 *        <dd>weekly revisions (currently unsupported)</dd>
+	 *        <dt>m</dt>
+	 *        <dd>monthly revisions</dd>
+	 *        </dl>
+	 * @throws XMLStreamException In case of any XML parsing errors.
+	 * @throws SirixException In case of any sirix errors.
 	 */
-	private void parseStartTag(final XMLEvent startTagEvent,
-			final StartElement timestamp, final StartElement wikiPage,
-			final StartElement revision, final StartElement pageID,
+	private void parseStartTag(final XMLEvent startTagEvent, final StartElement timestamp,
+			final StartElement wikiPage, final StartElement revision, final StartElement pageID,
 			final DateBy dateRange) throws XMLStreamException, SirixException {
 		XMLEvent event = startTagEvent;
 
@@ -392,7 +361,7 @@ public final class WikipediaImport implements Import<StartElement> {
 				mTimestamp = parseTimestamp(dateRange, currTimestamp);
 				mWtx.commit();
 				mWtx.close();
-				mWtx = mSession.beginNodeWriteTrx();
+				mWtx = mResourceManager.beginNodeWriteTrx();
 			}
 
 			assert mIdText != null;
@@ -400,8 +369,8 @@ public final class WikipediaImport implements Import<StartElement> {
 			// Search for existing page.
 			final QName page = wikiPage.getName();
 			final QName id = pageID.getName();
-			final String query = "//" + qNameToString(page) + "[fn:string("
-					+ qNameToString(id) + ") = '" + mIdText + "']";
+			final String query =
+					"//" + qNameToString(page) + "[fn:string(" + qNameToString(id) + ") = '" + mIdText + "']";
 			mWtx.moveToDocumentRoot();
 			final Axis axis = new XPathAxis(mWtx, query);
 
@@ -419,8 +388,7 @@ public final class WikipediaImport implements Import<StartElement> {
 				assert resCounter == 1;
 
 				// Make sure the transaction is on the page element found.
-				assert mWtx.getName().getLocalName()
-						.equals(wikiPage.getName().getLocalPart());
+				assert mWtx.getName().getLocalName().equals(wikiPage.getName().getLocalPart());
 				key = mWtx.getNodeKey();
 			}
 			mWtx.moveTo(key);
@@ -428,13 +396,11 @@ public final class WikipediaImport implements Import<StartElement> {
 	}
 
 	/**
-	 * Parses a given Timestamp-String to extract time interval which is used
-	 * (simple String value to improve performance).
+	 * Parses a given Timestamp-String to extract time interval which is used (simple String value to
+	 * improve performance).
 	 *
-	 * @param dateRange
-	 *          date Range which is used for revisioning
-	 * @param timestamp
-	 *          the timestamp to parse
+	 * @param dateRange date Range which is used for revisioning
+	 * @param timestamp the timestamp to parse
 	 * @return parsed and truncated String
 	 */
 	private String parseTimestamp(final DateBy dateRange, final String timestamp) {
@@ -472,8 +438,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Determines if the current event is a whitespace event.
 	 *
-	 * @param event
-	 *          {@link XMLEvent} to check.
+	 * @param event {@link XMLEvent} to check.
 	 * @return true if it is whitespace, otherwise false.
 	 */
 	private boolean isWhitespace(final XMLEvent event) {
@@ -483,8 +448,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Get prefix:localname or localname String representation of a qName.
 	 *
-	 * @param name
-	 *          the full qualified name
+	 * @param name the full qualified name
 	 * @return string representation
 	 */
 	private static String qNameToString(final QName name) {
@@ -500,8 +464,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Moves {@link NodeWriteTrx} to last shreddered article/page.
 	 *
-	 * @param page
-	 *          {@link StartElement} page
+	 * @param page {@link StartElement} page
 	 */
 	private void moveToLastPage(final StartElement page) {
 		assert page != null;
@@ -521,17 +484,14 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Check if start element of two StAX parsers match.
 	 *
-	 * @param startTag
-	 *          StartTag of the StAX parser, where it is currently (the "real"
-	 *          StAX parser over the whole document)
-	 * @param elem
-	 *          StartTag to check against
+	 * @param startTag StartTag of the StAX parser, where it is currently (the "real" StAX parser over
+	 *        the whole document)
+	 * @param elem StartTag to check against
 	 * @return {@code true} if start elements match, {@code false} otherwise
-	 * @throws XMLStreamException
-	 *           handling XML Stream Exception
+	 * @throws XMLStreamException handling XML Stream Exception
 	 */
-	private static boolean checkStAXStartElement(final StartElement startTag,
-			final StartElement elem) throws XMLStreamException {
+	private static boolean checkStAXStartElement(final StartElement startTag, final StartElement elem)
+			throws XMLStreamException {
 		assert startTag != null && elem != null;
 		boolean retVal = false;
 		if (startTag.getEventType() == XMLStreamConstants.START_ELEMENT
@@ -539,8 +499,7 @@ public final class WikipediaImport implements Import<StartElement> {
 			// Check attributes.
 			boolean foundAtts = false;
 			boolean hasAtts = false;
-			for (final Iterator<?> itStartTag = startTag.getAttributes(); itStartTag
-					.hasNext();) {
+			for (final Iterator<?> itStartTag = startTag.getAttributes(); itStartTag.hasNext();) {
 				hasAtts = true;
 				final Attribute attStartTag = (Attribute) itStartTag.next();
 				for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
@@ -563,8 +522,7 @@ public final class WikipediaImport implements Import<StartElement> {
 			// Check namespaces.
 			boolean foundNamesps = false;
 			boolean hasNamesps = false;
-			for (final Iterator<?> itStartTag = startTag.getNamespaces(); itStartTag
-					.hasNext();) {
+			for (final Iterator<?> itStartTag = startTag.getNamespaces(); itStartTag.hasNext();) {
 				hasNamesps = true;
 				final Namespace nsStartTag = (Namespace) itStartTag.next();
 				for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
@@ -597,10 +555,8 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Main method.
 	 *
-	 * @param args
-	 *          Arguments (path to xml-file /.
-	 * @throws SirixException
-	 *           if anything within sirix fails
+	 * @param args Arguments (path to xml-file /.
+	 * @throws SirixException if anything within sirix fails
 	 */
 	public static void main(final String[] args) throws SirixException {
 		if (args.length != 2) {
@@ -618,16 +574,16 @@ public final class WikipediaImport implements Import<StartElement> {
 		// Create necessary element nodes.
 		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";
 		final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
-		final StartElement timestamp = eventFactory.createStartElement(new QName(
-				NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-		final StartElement page = eventFactory.createStartElement(new QName(
-				NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-		final StartElement rev = eventFactory.createStartElement(new QName(NSP_URI,
-				"revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-		final StartElement id = eventFactory.createStartElement(new QName(NSP_URI,
-				"id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-		final StartElement text = eventFactory.createStartElement(new QName(
-				NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement timestamp = eventFactory.createStartElement(
+				new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement page = eventFactory
+				.createStartElement(new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement rev = eventFactory.createStartElement(
+				new QName(NSP_URI, "revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement id = eventFactory
+				.createStartElement(new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement text = eventFactory
+				.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
 		// Create list.
 		final List<StartElement> list = new LinkedList<StartElement>();
@@ -640,7 +596,6 @@ public final class WikipediaImport implements Import<StartElement> {
 		// Invoke import.
 		new WikipediaImport(xml, tnk).importData(DateBy.HOURS, list);
 
-		LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000
-				+ "[s].");
+		LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000 + "[s].");
 	}
 }

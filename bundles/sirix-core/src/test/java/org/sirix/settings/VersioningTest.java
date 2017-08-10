@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.settings;
@@ -39,11 +33,11 @@ import org.sirix.access.Databases;
 import org.sirix.access.HashKind;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /** Test revisioning. */
@@ -55,8 +49,7 @@ public class VersioningTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		Databases.createDatabase(new DatabaseConfiguration(TestHelper.PATHS.PATH1
-				.getFile()));
+		Databases.createDatabase(new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile()));
 		mDatabase = Databases.openDatabase(TestHelper.PATHS.PATH1.getFile());
 	}
 
@@ -67,114 +60,112 @@ public class VersioningTest {
 
 	@Test
 	public void testIncremental() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test();
 	}
 
 	@Test
 	public void testIncremental1() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test1();
 	}
 
 	@Test
 	public void testIncremental2() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test2();
 	}
 
 	@Test
 	public void testDifferential() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test();
 	}
 
 	@Test
 	public void testDifferential1() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test1();
 	}
 
 	@Test
 	public void testFull() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
+						.build());
 		test();
 	}
 
 	@Test
 	public void testFull1() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
+						.build());
 		test1();
 	}
 
 	@Test
 	public void testFull2() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
-				.revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
+						.build());
 		test1();
 	}
 
 	@Test
 	public void testSlidingSnapshot() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
-				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test();
 	}
 
 	@Test
 	public void testSlidingSnapshot1() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
-				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test1();
 	}
 
 	@Test
 	public void testSlidingSnapshot2() throws SirixException {
-		mDatabase.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
-				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		mDatabase.createResource(
+				new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+						.versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
+						.revisionsToRestore(3).build());
 		test2();
 	}
 
 	/**
 	 * Test revisioning.
-	 * 
-	 * @throws SirixException
-	 *           if anything in Sirix fails
+	 *
+	 * @throws SirixException if anything in Sirix fails
 	 */
 	public void test() throws SirixException {
-		try (final Session session = mDatabase
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build())) {
-			try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+		try (final ResourceManager manager = mDatabase.getResourceManager(
+				new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+			try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
 				for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 					wtx.insertElementAsFirstChild(new QNm("foo"));
 				}
@@ -192,7 +183,7 @@ public class VersioningTest {
 				fillNodePage(wtx);
 				wtx.commit();
 				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
-				try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+				try (final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()) {
 					for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 						assertTrue(rtx.moveToFirstChild().hasMoved());
 					}
@@ -207,22 +198,20 @@ public class VersioningTest {
 
 	/**
 	 * Test revisioning.
-	 * 
-	 * @throws SirixException
-	 *           if anything in Sirix fails
+	 *
+	 * @throws SirixException if anything in Sirix fails
 	 */
 	public void test1() throws SirixException {
-		try (final Session session = mDatabase
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build())) {
-			NodeWriteTrx wtx = session.beginNodeWriteTrx();
+		try (final ResourceManager manager = mDatabase.getResourceManager(
+				new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+			XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
 			for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 				wtx.insertElementAsFirstChild(new QNm("foo"));
 			}
 			wtx.commit();
 			assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
 			wtx.close();
-			wtx = session.beginNodeWriteTrx();
+			wtx = manager.beginNodeWriteTrx();
 			setBaaaz(wtx);
 			setFooBar(wtx);
 			setFoooo(wtx);
@@ -230,22 +219,22 @@ public class VersioningTest {
 			fillNodePage(wtx);
 			wtx.commit();
 			wtx.close();
-			wtx = session.beginNodeWriteTrx();
+			wtx = manager.beginNodeWriteTrx();
 			wtx.moveTo((Constants.NDP_NODE_COUNT << 1) - 1);
 			fillNodePage(wtx);
 			wtx.commit();
 			wtx.close();
-			wtx = session.beginNodeWriteTrx();
+			wtx = manager.beginNodeWriteTrx();
 			wtx.moveTo((Constants.NDP_NODE_COUNT * 3) - 1);
 			fillNodePage(wtx);
 			wtx.commit();
 			wtx.close();
-			wtx = session.beginNodeWriteTrx();
+			wtx = manager.beginNodeWriteTrx();
 			wtx.moveTo((Constants.NDP_NODE_COUNT << 2) - 1);
 			fillNodePage(wtx);
 			wtx.commit();
 			wtx.close();
-			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+			try (final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()) {
 				assertTrue(rtx.moveToFirstChild().hasMoved());
 				assertEquals(new QNm("foobar"), rtx.getName());
 				assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -260,15 +249,13 @@ public class VersioningTest {
 
 	/**
 	 * Test revisioning.
-	 * 
-	 * @throws SirixException
-	 *           if anything in Sirix fails
+	 *
+	 * @throws SirixException if anything in Sirix fails
 	 */
 	public void test2() throws SirixException {
-		try (final Session session = mDatabase
-				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
-						.build())) {
-			NodeWriteTrx wtx = session.beginNodeWriteTrx();
+		try (final ResourceManager manager = mDatabase.getResourceManager(
+				new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+			XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
 			wtx.insertElementAsFirstChild(new QNm("foo"));
 			wtx.commit();
 			wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -280,7 +267,7 @@ public class VersioningTest {
 			wtx.insertElementAsFirstChild(new QNm("foo"));
 			wtx.commit();
 			wtx.close();
-			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+			try (final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()) {
 				assertTrue(rtx.moveToFirstChild().hasMoved());
 				assertTrue(rtx.moveToFirstChild().hasMoved());
 				assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -292,13 +279,11 @@ public class VersioningTest {
 
 	/**
 	 * Set the second {@link QNm} in the first node page.
-	 * 
-	 * @param wtx
-	 *          {@link NodeWriteTrx} instance
-	 * @throws SirixException
-	 *           if inserting elements fails
+	 *
+	 * @param wtx {@link XdmNodeWriteTrx} instance
+	 * @throws SirixException if inserting elements fails
 	 */
-	private void setFoooo(final NodeWriteTrx wtx) throws SirixException {
+	private void setFoooo(final XdmNodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.moveToFirstChild();
@@ -307,13 +292,11 @@ public class VersioningTest {
 
 	/**
 	 * Set the first {@link QNm} in the first node page.
-	 * 
-	 * @param wtx
-	 *          {@link NodeWriteTrx} instance
-	 * @throws SirixException
-	 *           if inserting elements fails
+	 *
+	 * @param wtx {@link XdmNodeWriteTrx} instance
+	 * @throws SirixException if inserting elements fails
 	 */
-	private void setFooBar(final NodeWriteTrx wtx) throws SirixException {
+	private void setFooBar(final XdmNodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.setName(new QNm("foobar"));
@@ -321,13 +304,11 @@ public class VersioningTest {
 
 	/**
 	 * Set the last {@link QNm} in the first node page.
-	 * 
-	 * @param wtx
-	 *          {@link NodeWriteTrx} instance
-	 * @throws SirixException
-	 *           if inserting elements fails
+	 *
+	 * @param wtx {@link XdmNodeWriteTrx} instance
+	 * @throws SirixException if inserting elements fails
 	 */
-	private void setBaaaz(final NodeWriteTrx wtx) throws SirixException {
+	private void setBaaaz(final XdmNodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
@@ -338,13 +319,11 @@ public class VersioningTest {
 
 	/**
 	 * Fill node page.
-	 * 
-	 * @param wtx
-	 *          {@link NodeWriteTrx} instance
-	 * @throws SirixException
-	 *           if inserting elements fails
+	 *
+	 * @param wtx {@link XdmNodeWriteTrx} instance
+	 * @throws SirixException if inserting elements fails
 	 */
-	private void fillNodePage(final NodeWriteTrx wtx) throws SirixException {
+	private void fillNodePage(final XdmNodeWriteTrx wtx) throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
 			wtx.insertElementAsFirstChild(new QNm("foo"));
 		}
@@ -352,13 +331,11 @@ public class VersioningTest {
 
 	/**
 	 * Move through all nodes in a node page.
-	 * 
-	 * @param rtx
-	 *          {@link NodeReadTrx} instance
-	 * @throws SirixException
-	 *           if movement fails
+	 *
+	 * @param rtx {@link XdmNodeReadTrx} instance
+	 * @throws SirixException if movement fails
 	 */
-	private void move(final NodeReadTrx rtx) throws SirixException {
+	private void move(final XdmNodeReadTrx rtx) throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
 			assertTrue(rtx.moveToFirstChild().hasMoved());
 		}

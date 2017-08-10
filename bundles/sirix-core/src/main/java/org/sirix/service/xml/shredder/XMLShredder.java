@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.service.xml.shredder;
@@ -55,10 +49,10 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.ElementNode;
@@ -66,25 +60,23 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link NodeWriteTrx}
- * . The content of the stream is added as a subtree. Based on an enum which
- * identifies the point of insertion, the subtree is either added as first child
- * or as right sibling.
- * 
+ * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeWriteTrx} . The content of
+ * the stream is added as a subtree. Based on an enum which identifies the point of insertion, the
+ * subtree is either added as first child or as right sibling.
+ *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
-public final class XMLShredder extends AbstractShredder implements
-		Callable<Long> {
+public final class XMLShredder extends AbstractShredder implements Callable<Long> {
 
 	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER = new LogWrapper(
-			LoggerFactory.getLogger(XMLShredder.class));
+	private static final LogWrapper LOGWRAPPER =
+			new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
 
-	/** {@link NodeWriteTrx}. */
-	protected final NodeWriteTrx mWtx;
+	/** {@link XdmNodeWriteTrx}. */
+	protected final XdmNodeWriteTrx mWtx;
 
 	/** {@link XMLEventReader}. */
 	protected final XMLEventReader mReader;
@@ -106,8 +98,8 @@ public final class XMLShredder extends AbstractShredder implements
 	 */
 	public static class Builder {
 
-		/** {@link NodeWriteTrx} implementation. */
-		private final NodeWriteTrx mWtx;
+		/** {@link XdmNodeWriteTrx} implementation. */
+		private final XdmNodeWriteTrx mWtx;
 
 		/** {@link XMLEventReader} implementation. */
 		private final XMLEventReader mReader;
@@ -122,23 +114,18 @@ public final class XMLShredder extends AbstractShredder implements
 		private boolean mIncludePIs = true;
 
 		/**
-		 * Determines if after shredding the transaction should be immediately
-		 * commited.
+		 * Determines if after shredding the transaction should be immediately commited.
 		 */
 		private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
 
 		/**
 		 * Constructor.
-		 * 
-		 * @param wtx
-		 *          {@link NodeWriteTrx} implementation
-		 * @param reader
-		 *          {@link XMLEventReader} implementation
-		 * @param insert
-		 *          insertion position
+		 *
+		 * @param wtx {@link XdmNodeWriteTrx} implementation
+		 * @param reader {@link XMLEventReader} implementation
+		 * @param insert insertion position
 		 */
-		public Builder(final NodeWriteTrx wtx, final XMLEventReader reader,
-				final Insert insert) {
+		public Builder(final XdmNodeWriteTrx wtx, final XMLEventReader reader, final Insert insert) {
 			mWtx = checkNotNull(wtx);
 			mReader = checkNotNull(reader);
 			mInsert = checkNotNull(insert);
@@ -146,9 +133,8 @@ public final class XMLShredder extends AbstractShredder implements
 
 		/**
 		 * Include comments or not (default: yes).
-		 * 
-		 * @param include
-		 *          include comments
+		 *
+		 * @param include include comments
 		 * @return this builder instance
 		 */
 		public Builder includeComments(final boolean include) {
@@ -158,9 +144,8 @@ public final class XMLShredder extends AbstractShredder implements
 
 		/**
 		 * Include processing instructions or not (default: yes).
-		 * 
-		 * @param nclude
-		 *          processing instructions
+		 *
+		 * @param nclude processing instructions
 		 * @return this builder instance
 		 */
 		public Builder includePIs(final boolean include) {
@@ -170,7 +155,7 @@ public final class XMLShredder extends AbstractShredder implements
 
 		/**
 		 * Commit afterwards.
-		 * 
+		 *
 		 * @return this builder instance
 		 */
 		public Builder commitAfterwards() {
@@ -180,7 +165,7 @@ public final class XMLShredder extends AbstractShredder implements
 
 		/**
 		 * Build an instance.
-		 * 
+		 *
 		 * @return {@link XMLShredder} instance
 		 */
 		public XMLShredder build() {
@@ -190,9 +175,8 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Private constructor.
-	 * 
-	 * @param builder
-	 *          builder reference
+	 *
+	 * @param builder builder reference
 	 */
 	private XMLShredder(final Builder builder) {
 		super(builder.mWtx, builder.mInsert);
@@ -206,9 +190,8 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Invoking the shredder.
-	 * 
-	 * @throws SirixException
-	 *           if any kind of sirix exception which has occured
+	 *
+	 * @throws SirixException if any kind of sirix exception which has occured
 	 * @return revision of file
 	 */
 	@Override
@@ -221,9 +204,8 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Insert new content based on a StAX parser {@link XMLStreamReader}.
-	 * 
-	 * @throws SirixException
-	 *           if something went wrong while inserting
+	 *
+	 * @throws SirixException if something went wrong while inserting
 	 */
 	protected final void insertNewContent() throws SirixException {
 		try {
@@ -239,47 +221,46 @@ public final class XMLShredder extends AbstractShredder implements
 				final XMLEvent event = mReader.nextEvent();
 
 				switch (event.getEventType()) {
-				case XMLStreamConstants.START_ELEMENT:
-					level++;
-					addNewElement(event.asStartElement());
-					if (firstElement) {
-						firstElement = false;
-						insertedRootNodeKey = mWtx.getNodeKey();
-						rootElement = event.asStartElement().getName();
-					}
-					break;
-				case XMLStreamConstants.END_ELEMENT:
-					level--;
-					if (level == 0 && rootElement != null
-							&& rootElement.equals(event.asEndElement().getName())) {
-						endElemReached = true;
-					}
-					final QName name = event.asEndElement().getName();
-					processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(),
-							name.getLocalPart()));
-					break;
-				case XMLStreamConstants.CHARACTERS:
-					if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
-						sBuilder.append(event.asCharacters().getData().trim());
-					} else {
-						sBuilder.append(event.asCharacters().getData().trim());
-						processText(sBuilder.toString());
-						sBuilder.setLength(0);
-					}
-					break;
-				case XMLStreamConstants.COMMENT:
-					if (mIncludeComments) {
-						processComment(((Comment) event).getText());
-					}
-					break;
-				case XMLStreamConstants.PROCESSING_INSTRUCTION:
-					if (mIncludePIs) {
-						final ProcessingInstruction pi = (ProcessingInstruction) event;
-						processPI(pi.getData(), pi.getTarget());
-					}
-					break;
-				default:
-					// Node kind not known.
+					case XMLStreamConstants.START_ELEMENT:
+						level++;
+						addNewElement(event.asStartElement());
+						if (firstElement) {
+							firstElement = false;
+							insertedRootNodeKey = mWtx.getNodeKey();
+							rootElement = event.asStartElement().getName();
+						}
+						break;
+					case XMLStreamConstants.END_ELEMENT:
+						level--;
+						if (level == 0 && rootElement != null
+								&& rootElement.equals(event.asEndElement().getName())) {
+							endElemReached = true;
+						}
+						final QName name = event.asEndElement().getName();
+						processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
+						break;
+					case XMLStreamConstants.CHARACTERS:
+						if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
+							sBuilder.append(event.asCharacters().getData().trim());
+						} else {
+							sBuilder.append(event.asCharacters().getData().trim());
+							processText(sBuilder.toString());
+							sBuilder.setLength(0);
+						}
+						break;
+					case XMLStreamConstants.COMMENT:
+						if (mIncludeComments) {
+							processComment(((Comment) event).getText());
+						}
+						break;
+					case XMLStreamConstants.PROCESSING_INSTRUCTION:
+						if (mIncludePIs) {
+							final ProcessingInstruction pi = (ProcessingInstruction) event;
+							processPI(pi.getData(), pi.getTarget());
+						}
+						break;
+					default:
+						// Node kind not known.
 				}
 			}
 
@@ -291,29 +272,23 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Add a new element node.
-	 * 
-	 * @param pLeftSiblingKeyStack
-	 *          stack used to determine if the new element has to be inserted as a
-	 *          right sibling or as a new child (in the latter case is NULL on top
-	 *          of the stack)
-	 * @param event
-	 *          the current event from the StAX parser
+	 *
+	 * @param pLeftSiblingKeyStack stack used to determine if the new element has to be inserted as a
+	 *        right sibling or as a new child (in the latter case is NULL on top of the stack)
+	 * @param event the current event from the StAX parser
 	 * @return the modified stack
-	 * @throws SirixException
-	 *           if adding {@link ElementNode} fails
+	 * @throws SirixException if adding {@link ElementNode} fails
 	 */
 	private void addNewElement(final StartElement event) throws SirixException {
 		assert event != null;
 		final QName qName = event.getName();
-		final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(),
-				qName.getLocalPart());
+		final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(), qName.getLocalPart());
 		processStartTag(name);
 
 		// Parse namespaces.
 		for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
 			final Namespace namespace = (Namespace) it.next();
-			mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace
-					.getPrefix(), ""));
+			mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace.getPrefix(), ""));
 			mWtx.moveToParent();
 		}
 
@@ -322,26 +297,22 @@ public final class XMLShredder extends AbstractShredder implements
 			final Attribute attribute = (Attribute) it.next();
 			final QName attName = attribute.getName();
 			mWtx.insertAttribute(
-					new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName
-							.getLocalPart()), attribute.getValue());
+					new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
+					attribute.getValue());
 			mWtx.moveToParent();
 		}
 	}
 
 	/**
 	 * Main method.
-	 * 
-	 * @param args
-	 *          input and output files
-	 * @throws XMLStreamException
-	 *           if the XML stream isn't valid
-	 * @throws IOException
-	 *           if an I/O error occurs
-	 * @throws SirixException
-	 *           if a Sirix error occurs
+	 *
+	 * @param args input and output files
+	 * @throws XMLStreamException if the XML stream isn't valid
+	 * @throws IOException if an I/O error occurs
+	 * @throws SirixException if a Sirix error occurs
 	 */
-	public static void main(final String... args) throws SirixException,
-			IOException, XMLStreamException {
+	public static void main(final String... args)
+			throws SirixException, IOException, XMLStreamException {
 		if (args.length != 2 && args.length != 3) {
 			throw new IllegalArgumentException(
 					"Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
@@ -352,35 +323,31 @@ public final class XMLShredder extends AbstractShredder implements
 		final DatabaseConfiguration config = new DatabaseConfiguration(target);
 		Databases.truncateDatabase(config);
 		Databases.createDatabase(config);
-		final Database db = Databases.openDatabase(target);
-		db.createResource(new ResourceConfiguration.Builder("shredded", config)
-				.build());
-		final Session session = db.getSession(new SessionConfiguration.Builder(
-				"shredded").build());
-		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		final XMLEventReader reader = createFileReader(new File(args[0]));
-		final boolean includeCoPI = args.length == 3 ? Boolean
-				.parseBoolean(args[2]) : false;
-		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				Insert.ASFIRSTCHILD).commitAfterwards().includeComments(includeCoPI)
-				.includePIs(includeCoPI).build();
-		shredder.call();
-		wtx.close();
-		session.close();
-		db.close();
+
+		try (final Database db = Databases.openDatabase(target)) {
+			db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+			try (
+					final ResourceManager resMgr =
+							db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+					final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
+				final XMLEventReader reader = createFileReader(new File(args[0]));
+				final boolean includeCoPI = args.length == 3 ? Boolean.parseBoolean(args[2]) : false;
+				final XMLShredder shredder = new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD)
+						.commitAfterwards().includeComments(includeCoPI).includePIs(includeCoPI).build();
+				shredder.call();
+			}
+		}
+
 		LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
 	}
 
 	/**
 	 * Create a new StAX reader on a file.
-	 * 
-	 * @param xmlFile
-	 *          the XML file to parse
+	 *
+	 * @param xmlFile the XML file to parse
 	 * @return an {@link XMLEventReader}
-	 * @throws IOException
-	 *           if I/O operation fails
-	 * @throws XMLStreamException
-	 *           if any parsing error occurs
+	 * @throws IOException if I/O operation fails
+	 * @throws XMLStreamException if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createFileReader(final File xmlFile)
 			throws IOException, XMLStreamException {
@@ -394,17 +361,14 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Create a new StAX reader on a string.
-	 * 
-	 * @param xmlString
-	 *          the XML file as a string to parse
+	 *
+	 * @param xmlString the XML file as a string to parse
 	 * @return an {@link XMLEventReader}
-	 * @throws IOException
-	 *           if I/O operation fails
-	 * @throws XMLStreamException
-	 *           if any parsing error occurs
+	 * @throws IOException if I/O operation fails
+	 * @throws XMLStreamException if any parsing error occurs
 	 */
-	public static synchronized XMLEventReader createStringReader(
-			final String xmlString) throws IOException, XMLStreamException {
+	public static synchronized XMLEventReader createStringReader(final String xmlString)
+			throws IOException, XMLStreamException {
 		checkNotNull(xmlString);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -415,17 +379,14 @@ public final class XMLShredder extends AbstractShredder implements
 
 	/**
 	 * Create a new StAX reader based on a List of {@link XMLEvent}s.
-	 * 
-	 * @param events
-	 *          {@link XMLEvent}s
+	 *
+	 * @param events {@link XMLEvent}s
 	 * @return an {@link XMLEventReader}
-	 * @throws IOException
-	 *           if I/O operation fails
-	 * @throws XMLStreamException
-	 *           if any parsing error occurs
+	 * @throws IOException if I/O operation fails
+	 * @throws XMLStreamException if any parsing error occurs
 	 */
-	public static synchronized XMLEventReader createQueueReader(
-			final Queue<XMLEvent> events) throws IOException, XMLStreamException {
+	public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> events)
+			throws IOException, XMLStreamException {
 		return new QueueEventReader(checkNotNull(events));
 	}
 }

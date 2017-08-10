@@ -43,24 +43,16 @@ public final class CASFilterRange implements Filter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 *
-	 * @param rtx
-	 *          transaction this filter is bound to
-	 * @param paths
-	 *          paths to match
-	 * @param min
-	 *          the minimum value
-	 * @param max
-	 *          the maximum value
-	 * @param incMin
-	 *          include the minimum value
-	 * @param incMax
-	 *          include the maximum value
-	 * @param pcrCollector
-	 *          the PCR collector used
+	 * @param rtx transaction this filter is bound to
+	 * @param paths paths to match
+	 * @param min the minimum value
+	 * @param max the maximum value
+	 * @param incMin include the minimum value
+	 * @param incMax include the maximum value
+	 * @param pcrCollector the PCR collector used
 	 */
-	public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min,
-			final Atomic max, final boolean incMin, final boolean incMax,
-			final PCRCollector pcrCollector) {
+	public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max,
+			final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) {
 		mPaths = checkNotNull(paths);
 		mPathFilter = new PathFilter(mPaths, pcrCollector);
 		mMin = checkNotNull(min);
@@ -70,8 +62,7 @@ public final class CASFilterRange implements Filter {
 	}
 
 	@Override
-	public <K extends Comparable<? super K>> boolean filter(
-			final AVLNode<K, NodeReferences> node) {
+	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
 		final K key = node.getKey();
 		if (key instanceof CASValue) {
 			final CASValue casValue = (CASValue) key;
@@ -88,10 +79,8 @@ public final class CASFilterRange implements Filter {
 		final int minKeyCompare = (mMin != null) ? mMin.compareTo(key) : -1;
 		final int maxKeyCompare = (mMax != null) ? mMax.compareTo(key) : 1;
 
-		final boolean lowerBoundValid = ((minKeyCompare == 0) && (mIncMin))
-				|| (minKeyCompare < 0);
-		final boolean upperBoundValid = ((maxKeyCompare == 0) && (mIncMax))
-				|| (maxKeyCompare > 0);
+		final boolean lowerBoundValid = ((minKeyCompare == 0) && (mIncMin)) || (minKeyCompare < 0);
+		final boolean upperBoundValid = ((maxKeyCompare == 0) && (mIncMax)) || (maxKeyCompare > 0);
 
 		return upperBoundValid && lowerBoundValid;
 	}

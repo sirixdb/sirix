@@ -1,28 +1,22 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
- * All rights reserved.
+ * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- * * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- * * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the
- * names of its contributors may be used to endorse or promote products
- * derived from this software without specific prior written permission.
+ * Redistribution and use in source and binary forms, with or without modification, are permitted
+ * provided that the following conditions are met: * Redistributions of source code must retain the
+ * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
+ * in binary form must reproduce the above copyright notice, this list of conditions and the
+ * following disclaimer in the documentation and/or other materials provided with the distribution.
+ * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
+ * endorse or promote products derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package org.sirix.access;
@@ -46,13 +40,13 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.Session;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -61,24 +55,28 @@ import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.Storage;
 import org.sirix.io.Writer;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.MoreObjects;
 
 /**
- * <h1>Session</h1>
+ * <h1>XdmResourceManager</h1>
  *
  * <p>
- * Makes sure that there only is a single session instance bound to a Sirix
- * resource.
+ * Makes sure that there only is a single resource manager instance per thread bound to a resource.
  * </p>
  */
-public final class SessionImpl implements Session {
+public final class XdmResourceManager implements ResourceManager {
 
 	/** Database for centralized closure of related Sessions. */
 	private final DatabaseImpl mDatabase;
+
+	private final ResourceManagerConfiguration mResourceManagerConfig;
 
 	/** Write semaphore to assure only one exclusive write transaction exists. */
 	private final Semaphore mWriteSemaphore;
@@ -90,7 +88,7 @@ public final class SessionImpl implements Session {
 	private AtomicReference<UberPage> mLastCommittedUberPage;
 
 	/** Remember all running node transactions (both read and write). */
-	private final ConcurrentMap<Long, NodeReadTrx> mNodeTrxMap;
+	private final ConcurrentMap<Long, XdmNodeReadTrx> mNodeReaderMap;
 
 	/** Remember all running page transactions (both read and write). */
 	private final ConcurrentMap<Long, PageReadTrx> mPageTrxMap;
@@ -98,11 +96,8 @@ public final class SessionImpl implements Session {
 	/** Lock for blocking the commit. */
 	private final Lock mCommitLock;
 
-	/** Session configuration. */
+	/** Resource configuration. */
 	private final ResourceConfiguration mResourceConfig;
-
-	/** Session configuration. */
-	private final SessionConfiguration mSessionConfig;
 
 	/** Remember the write seperately because of the concurrent writes. */
 	private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
@@ -126,8 +121,7 @@ public final class SessionImpl implements Session {
 	private volatile boolean mClosed;
 
 	/**
-	 * The cache of in-memory pages shared amongst all sessions / resource
-	 * transactions.
+	 * The cache of in-memory pages shared amongst all sessions / resource transactions.
 	 */
 	private final BufferManager mBufferManager;
 
@@ -143,33 +137,26 @@ public final class SessionImpl implements Session {
 	/**
 	 * Package private constructor.
 	 *
-	 * @param database
-	 *          {@link DatabaseImpl} for centralized operations on related
-	 *          sessions
-	 * @param resourceConf
-	 *          {@link DatabaseConfiguration} for general setting about the
-	 *          storage
-	 * @param sessionConf
-	 *          {@link SessionConfiguration} for handling this specific session
-	 * @param pageCache
-	 *          the cache of in-memory pages shared amongst all sessions /
-	 *          resource transactions
-	 * @throws SirixException
-	 *           if Sirix encounters an exception
+	 * @param database {@link DatabaseImpl} for centralized operations on related sessions
+	 * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
+	 * @param resourceManagerConfig {@link ResourceManagerConfiguration} for handling this specific
+	 *        resource transactions
+	 * @param pageCache the cache of in-memory pages shared amongst all sessions / resource
+	 *        transactions
+	 * @throws SirixException if Sirix encounters an exception
 	 */
-	SessionImpl(final DatabaseImpl database,
-			final @Nonnull ResourceConfiguration resourceConf,
-			final @Nonnull SessionConfiguration sessionConf,
-			final @Nonnull BufferManager bufferManager,
-			final @Nonnull File resourceFile, final @Nonnull Storage storage,
-			final @Nonnull UberPage uberPage) {
+	XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceConfiguration resourceConf,
+			final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
+			final @Nonnull BufferManager bufferManager, final @Nonnull File resourceFile,
+			final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
+			final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
 		mDatabase = checkNotNull(database);
 		mResourceConfig = checkNotNull(resourceConf);
-		mSessionConfig = checkNotNull(sessionConf);
+		mResourceManagerConfig = checkNotNull(resourceManagerConfig);
 		mBufferManager = checkNotNull(bufferManager);
 		mFac = checkNotNull(storage);
 
-		mNodeTrxMap = new ConcurrentHashMap<>();
+		mNodeReaderMap = new ConcurrentHashMap<>();
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mRtxIndexControllers = new ConcurrentHashMap<>();
@@ -179,16 +166,16 @@ public final class SessionImpl implements Session {
 		mPageTrxIDCounter = new AtomicLong();
 		mCommitLock = new ReentrantLock(false);
 
-		mWriteSemaphore = database.getWriteSemaphore(resourceFile);
-		mReadSemaphore = database.getReadSemaphore(resourceFile);
+		mReadSemaphore = checkNotNull(readSemaphore);
+		mWriteSemaphore = checkNotNull(writeSemaphore);
 
 		mLastCommittedUberPage = new AtomicReference<>(uberPage);
 
 		mClosed = false;
 	}
 
-	SessionConfiguration getSessionConfig() {
-		return mSessionConfig;
+	ResourceManagerConfiguration getResourceManagerConfig() {
+		return mResourceManagerConfig;
 	}
 
 	Lock getCommitLock() {
@@ -196,13 +183,12 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public NodeReadTrx beginNodeReadTrx() {
+	public XdmNodeReadTrx beginNodeReadTrx() {
 		return beginNodeReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
-	public synchronized NodeReadTrx beginNodeReadTrx(
-			@Nonnegative final int revisionKey) {
+	public synchronized XdmNodeReadTrx beginNodeReadTrx(@Nonnegative final int revisionKey) {
 		assertAccess(revisionKey);
 		// Make sure not to exceed available number of read transactions.
 		try {
@@ -214,44 +200,61 @@ public final class SessionImpl implements Session {
 			throw new SirixThreadedException(e);
 		}
 
-		// Create new read transaction.
-		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
-				mNodeTrxIDCounter.incrementAndGet(),
-				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revisionKey,
-						mFac.createReader(), Optional.empty(), Optional.empty(),
-						mBufferManager));
+		final PageReadTrx pageReadTrx = new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
+				revisionKey, mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager);
 
-		// Remember transaction for debugging and safe close.
-		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
-			throw new SirixUsageException(
-					"ID generation is bogus because of duplicate ID.");
+		final Node documentNode;
+
+		documentNode = getDocumentNode(pageReadTrx);
+
+		// Create new reader.
+		final XdmNodeReadTrx reader = new XdmNodeReadTrxImpl(this, mNodeTrxIDCounter.incrementAndGet(),
+				pageReadTrx, documentNode);
+
+		// Remember reader for debugging and safe close.
+		if (mNodeReaderMap.put(reader.getId(), reader) != null) {
+			throw new SirixUsageException("ID generation is bogus because of duplicate ID.");
 		}
-		return rtx;
+
+		return reader;
+	}
+
+	Node getDocumentNode(final PageReadTrx pageReadTrx) {
+		final Node documentNode;
+
+		@SuppressWarnings("unchecked")
+		final Optional<? extends Node> node = (Optional<? extends Node>) pageReadTrx
+				.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
+		if (node.isPresent()) {
+			documentNode = node.get();
+		} else {
+			pageReadTrx.close();
+			throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
+		}
+
+		return documentNode;
 	}
 
 	/**
-	 * A commit file which is used by a {@link NodeWriteTrx} to denote if it's
-	 * currently commiting or not.
+	 * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting
+	 * or not.
 	 *
-	 * @param revision
-	 *          revision number
+	 * @param revision revision number
 	 */
 	File commitFile(final int revision) {
 		return new File(mResourceConfig.mPath,
 				new File(ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(),
-						new File(new File(String.valueOf(revision)), ".commit").getPath())
-								.getPath());
+						new File(new File(String.valueOf(revision)), ".commit").getPath()).getPath());
 	}
 
 	@Override
-	public NodeWriteTrx beginNodeWriteTrx() {
-		return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
+	public XdmNodeWriteTrx beginNodeWriteTrx() {
+		return beginNodeReadTrx(0, TimeUnit.MINUTES, 0);
 	}
 
 	@Override
-	public synchronized NodeWriteTrx beginNodeWriteTrx(
-			final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
-			final @Nonnegative int maxTime) {
+	public synchronized XdmNodeWriteTrx beginNodeReadTrx(final @Nonnegative int maxNodeCount,
+			final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (maxNodeCount < 0 || maxTime < 0) {
@@ -273,18 +276,19 @@ public final class SessionImpl implements Session {
 		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
-		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = createPageWriteTransaction(
-				currentTrxID, lastRev, lastRev, Abort.NO);
+		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
+				createPageWriteTransaction(currentTrxID, lastRev, lastRev, Abort.NO);
+
+		final Node documentNode = getDocumentNode(pageWtx);
 
 		// Create new node write transaction.
-		final NodeWriteTrx wtx = new NodeWriteTrxImpl(currentTrxID, this, pageWtx,
-				maxNodeCount, timeUnit, maxTime);
+		final XdmNodeWriteTrx wtx = new XdmNodeWriterTrxImpl(currentTrxID, this, pageWtx, maxNodeCount,
+				timeUnit, maxTime, documentNode);
 
 		// Remember node transaction for debugging and safe close.
-		if (mNodeTrxMap.put(currentTrxID, wtx) != null
+		if (mNodeReaderMap.put(currentTrxID, wtx) != null
 				|| mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
-			throw new SirixThreadedException(
-					"ID generation is bogus because of duplicate ID.");
+			throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
 		}
 
 		return wtx;
@@ -293,14 +297,10 @@ public final class SessionImpl implements Session {
 	/**
 	 * Create a new {@link PageWriteTrx}.
 	 *
-	 * @param id
-	 *          the transaction ID
-	 * @param representRevision
-	 *          the revision which is represented
-	 * @param storeRevision
-	 *          the revision which is stored
-	 * @param abort
-	 *          determines if a transaction must be aborted (rollback) or not
+	 * @param id the transaction ID
+	 * @param representRevision the revision which is represented
+	 * @param storeRevision the revision which is stored
+	 * @param abort determines if a transaction must be aborted (rollback) or not
 	 * @return a new {@link PageWriteTrx} instance
 	 */
 	PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(
@@ -310,24 +310,21 @@ public final class SessionImpl implements Session {
 		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
 		checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
 		final Writer writer = mFac.createWriter();
-		final int lastCommitedRev = mLastCommittedUberPage.get()
-				.getRevisionNumber();
+		final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
 		return new PageWriteTrxImpl(this,
-				abort == Abort.YES && lastCommitedUberPage.isBootstrap()
-						? new UberPage()
+				abort == Abort.YES && lastCommitedUberPage.isBootstrap() ? new UberPage()
 						: new UberPage(lastCommitedUberPage),
-				writer, id, representRevision, storeRevision, lastCommitedRev,
-				mBufferManager);
+				writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
 	}
 
 	@Override
-	public synchronized void close() throws SirixException {
+	public synchronized void close() {
 		if (!mClosed) {
 			// Close all open node transactions.
-			for (NodeReadTrx rtx : mNodeTrxMap.values()) {
-				if (rtx instanceof NodeWriteTrx) {
-					((NodeWriteTrx) rtx).rollback();
+			for (XdmNodeReadTrx rtx : mNodeReaderMap.values()) {
+				if (rtx instanceof XdmNodeWriteTrx) {
+					((XdmNodeWriteTrx) rtx).rollback();
 				}
 				rtx.close();
 				rtx = null;
@@ -345,11 +342,11 @@ public final class SessionImpl implements Session {
 
 			// Immediately release all ressources.
 			mLastCommittedUberPage = null;
-			mNodeTrxMap.clear();
+			mNodeReaderMap.clear();
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
 
-			mDatabase.removeSession(mResourceConfig.mPath, mSessionConfig);
+			mDatabase.closeResource(mResourceConfig.mPath, mResourceManagerConfig);
 
 			mFac.close();
 			mClosed = true;
@@ -359,12 +356,9 @@ public final class SessionImpl implements Session {
 	/**
 	 * Checks for valid revision.
 	 *
-	 * @param revision
-	 *          revision number to check
-	 * @throws IllegalStateException
-	 *           if {@link SessionImpl} is already closed
-	 * @throws IllegalArgumentException
-	 *           if revision isn't valid
+	 * @param revision revision number to check
+	 * @throws IllegalStateException if {@link XdmResourceManager} is already closed
+	 * @throws IllegalArgumentException if revision isn't valid
 	 */
 	void assertAccess(final @Nonnegative long revision) {
 		if (mClosed) {
@@ -373,10 +367,9 @@ public final class SessionImpl implements Session {
 		if (revision < 0) {
 			throw new IllegalArgumentException("Revision must be at least 0!");
 		} else if (revision > mLastCommittedUberPage.get().getRevision()) {
-			throw new IllegalArgumentException(
-					new StringBuilder("Revision must not be bigger than ")
-							.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
-							.append("!").toString());
+			throw new IllegalArgumentException(new StringBuilder("Revision must not be bigger than ")
+					.append(Long.toString(mLastCommittedUberPage.get().getRevision())).append("!")
+					.toString());
 		}
 	}
 
@@ -393,10 +386,8 @@ public final class SessionImpl implements Session {
 	/**
 	 * Set a new node page write trx.
 	 *
-	 * @param transactionID
-	 *          page write transaction ID
-	 * @param pageWriteTrx
-	 *          page write trx
+	 * @param transactionID page write transaction ID
+	 * @param pageWriteTrx page write trx
 	 */
 	void setNodePageWriteTransaction(final @Nonnegative long transactionID,
 			@Nonnull final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
@@ -406,10 +397,8 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a node page transaction.
 	 *
-	 * @param transactionID
-	 *          page write transaction ID
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 * @param transactionID page write transaction ID
+	 * @throws SirixIOException if an I/O error occurs
 	 */
 	void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
 			throws SirixIOException {
@@ -421,8 +410,7 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a write transaction.
 	 *
-	 * @param transactionID
-	 *          write transaction ID
+	 * @param transactionID write transaction ID
 	 */
 	void closeWriteTransaction(final @Nonnegative long transactionID) {
 		// Remove from internal map.
@@ -435,8 +423,7 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a read transaction.
 	 *
-	 * @param transactionID
-	 *          read transaction ID
+	 * @param transactionID read transaction ID
 	 */
 	void closeReadTransaction(final @Nonnegative long transactionID) {
 		// Remove from internal map.
@@ -449,12 +436,11 @@ public final class SessionImpl implements Session {
 	/**
 	 * Remove from internal maps.
 	 *
-	 * @param transactionID
-	 *          transaction ID to remove
+	 * @param transactionID transaction ID to remove
 	 */
 	private void removeFromPageMapping(final @Nonnegative long transactionID) {
 		// Purge transaction from internal state.
-		mNodeTrxMap.remove(transactionID);
+		mNodeReaderMap.remove(transactionID);
 
 		// Removing the write from the own internal mapping
 		mNodePageTrxMap.remove(transactionID);
@@ -467,20 +453,14 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("sessionConf", mSessionConfig)
+		return MoreObjects.toStringHelper(this).add("sessionConf", mResourceManagerConfig)
 				.add("resourceConf", mResourceConfig).toString();
-	}
-
-	@Override
-	public String getUser() {
-		return mSessionConfig.mUser;
 	}
 
 	/**
 	 * Set last commited {@link UberPage}.
 	 *
-	 * @param page
-	 *          the new {@link UberPage}
+	 * @param page the new {@link UberPage}
 	 */
 	protected void setLastCommittedUberPage(final UberPage page) {
 		mLastCommittedUberPage.set(checkNotNull(page));
@@ -497,17 +477,15 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PathSummaryReader openPathSummary(
-			final @Nonnegative int revision) {
+	public synchronized PathSummaryReader openPathSummary(final @Nonnegative int revision) {
 		assertAccess(revision);
 
-		return PathSummaryReader.getInstance(new PageReadTrxImpl(this,
-				mLastCommittedUberPage.get(), revision, mFac.createReader(),
-				Optional.empty(), Optional.empty(), mBufferManager), this);
+		return PathSummaryReader.getInstance(new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
+				revision, mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager), this);
 	}
 
 	@Override
-	public PathSummaryReader openPathSummary() throws SirixException {
+	public PathSummaryReader openPathSummary() {
 		return openPathSummary(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
@@ -517,11 +495,9 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PageReadTrx beginPageReadTrx(
-			final @Nonnegative int revision) {
-		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.createReader(), Optional.empty(), Optional.empty(),
-				mBufferManager);
+	public synchronized PageReadTrx beginPageReadTrx(final @Nonnegative int revision) {
+		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac.createReader(),
+				Optional.empty(), Optional.empty(), mBufferManager);
 	}
 
 	@Override
@@ -535,13 +511,12 @@ public final class SessionImpl implements Session {
 			final @Nonnegative int revision) throws SirixException {
 		final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
-		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = createPageWriteTransaction(
-				currentPageTrxID, lastRev, lastRev, Abort.NO);
+		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
+				createPageWriteTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO);
 
 		// Remember page transaction for debugging and safe close.
 		if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
-			throw new SirixThreadedException(
-					"ID generation is bogus because of duplicate ID.");
+			throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
 		}
 
 		return pageWtx;
@@ -550,18 +525,6 @@ public final class SessionImpl implements Session {
 	@Override
 	public synchronized Database getDatabase() {
 		return mDatabase;
-	}
-
-	@Override
-	public synchronized Session commitAll() {
-		if (!mClosed) {
-			for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
-				if (rtx instanceof NodeWriteTrx) {
-					((NodeWriteTrx) rtx).commit();
-				}
-			}
-		}
-		return this;
 	}
 
 	@Override
@@ -585,20 +548,20 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized SessionConfiguration getSessionConfiguration() {
-		return mSessionConfig;
+	public synchronized ResourceManagerConfiguration getResourceManagerCfg() {
+		return mResourceManagerConfig;
 	}
 
 	@Override
-	public Optional<NodeReadTrx> getNodeReadTrx(final long ID) {
-		return Optional.of(mNodeTrxMap.get(ID));
+	public Optional<XdmNodeReadTrx> getNodeReader(final long ID) {
+		return Optional.of(mNodeReaderMap.get(ID));
 	}
 
 	@Override
-	public synchronized Optional<NodeWriteTrx> getNodeWriteTrx() {
-		for (final NodeReadTrx rtx : mNodeTrxMap.values()) {
-			if (rtx instanceof NodeWriteTrx) {
-				return Optional.of((NodeWriteTrx) rtx);
+	public synchronized Optional<XdmNodeWriteTrx> getNodeWriteTrx() {
+		for (final XdmNodeReadTrx rtx : mNodeReaderMap.values()) {
+			if (rtx instanceof XdmNodeWriteTrx) {
+				return Optional.of((XdmNodeWriteTrx) rtx);
 			}
 		}
 		return Optional.empty();

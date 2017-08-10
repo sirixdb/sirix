@@ -14,8 +14,8 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.IndexController;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -31,16 +31,14 @@ import com.google.common.collect.ImmutableSet;
  * statistics about the newly created index as an XML fragment. Supported
  * signatures are:</br>
  * <ul>
- * <li>
- * <code>sdb:create-name-index($doc as node(), $include as xs:QName*) as 
+ * <li><code>sdb:create-name-index($doc as node(), $include as xs:QName*) as
  * node()</code></li>
- * <li>
- * <code>sdb:create-name-index($doc as node()) as node()</code></li>
+ * <li><code>sdb:create-name-index($doc as node()) as node()</code></li>
  * </ul>
- * 
+ *
  * @author Max Bechtold
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class CreateNameIndex extends AbstractFunction {
 
@@ -50,7 +48,7 @@ public final class CreateNameIndex extends AbstractFunction {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *          the name of the function
 	 * @param signature
@@ -68,21 +66,17 @@ public final class CreateNameIndex extends AbstractFunction {
 		}
 
 		final DBNode doc = ((DBNode) args[0]);
-		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession().getWtxIndexController(
-				rtx.getRevisionNumber() - 1);
+		final XdmNodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getResourceManager()
+				.getWtxIndexController(rtx.getRevisionNumber() - 1);
 
-		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
+		if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}
 
 		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: "
-					+ ((Str) args[1]).stringValue()));
-		}
-
-		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
-			throw new QueryException(new QNm("Collection must be updatable!"));
+			throw new QueryException(
+					new QNm("Document not found: " + ((Str) args[1]).stringValue()));
 		}
 
 		final Set<QNm> include = new HashSet<>();
@@ -99,7 +93,7 @@ public final class CreateNameIndex extends AbstractFunction {
 				controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
 		try {
 			controller.createIndexes(ImmutableSet.of(idxDef),
-					(NodeWriteTrx) doc.getTrx());
+					(XdmNodeWriteTrx) doc.getTrx());
 		} catch (final SirixIOException e) {
 			throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
 		}
