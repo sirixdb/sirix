@@ -24,6 +24,7 @@ import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.TemporalCollection;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.ElementType;
@@ -35,32 +36,30 @@ import org.sirix.xquery.node.DBStore;
 
 /**
  * <p>
- * Function for loading a document in a collection/database. The Supported
- * signature is:
+ * Function for loading a document in a collection/database. The Supported signature is:
  * </p>
- * 
+ *
  * <pre>
- * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as ()</code>
+ * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as xs:node</code>
  * </pre>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-@FunctionAnnotation(description = "Store the given fragments in a collection. "
-		+ "If explicitly required or if the collection does not exist, "
-		+ "a new collection will be created. ", parameters = { "$coll", "$res",
-		"$fragments", "$create-new" })
+@FunctionAnnotation(
+		description = "Store the given fragments in a collection. "
+				+ "If explicitly required or if the collection does not exist, "
+				+ "a new collection will be created. ",
+		parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
 	/** Load function name. */
-	public final static QNm LOAD = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"load");
+	public final static QNm LOAD = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "load");
 
 	/**
 	 * Constructor.
-	 * 
-	 * @param createNew
-	 *          determines if a new collection has to be created or not
+	 *
+	 * @param createNew determines if a new collection has to be created or not
 	 */
 	public Load(final boolean createNew) {
 		this(LOAD, createNew);
@@ -68,87 +67,85 @@ public final class Load extends AbstractFunction {
 
 	/**
 	 * Constructor.
-	 * 
-	 * @param name
-	 *          the function name
-	 * @param createNew
-	 *          determines if a new collection has to be created or not
+	 *
+	 * @param name the function name
+	 * @param createNew determines if a new collection has to be created or not
 	 */
 	public Load(final QNm name, final boolean createNew) {
-		super(name, createNew ? new Signature(new SequenceType(ElementType.ELEMENT,
-				Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
-				Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
-				new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
-				: new Signature(new SequenceType(ElementType.ELEMENT,
-						Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
-						Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-						new SequenceType(AtomicType.BOOL, Cardinality.One)), true);
+		super(name,
+				createNew
+						? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+								new SequenceType(AtomicType.STR, Cardinality.One),
+								new SequenceType(AtomicType.STR, Cardinality.One),
+								new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
+						: new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+								new SequenceType(AtomicType.STR, Cardinality.One),
+								new SequenceType(AtomicType.STR, Cardinality.One),
+								new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+								new SequenceType(AtomicType.BOOL, Cardinality.One)),
+				true);
 	}
 
 	@Override
-	public Sequence execute(final StaticContext sctx, final QueryContext ctx,
-			final Sequence[] args) throws QueryException {
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
+			throws QueryException {
 		try {
-			final String collName = FunUtil.getString(args, 0, "collName",
-					"collection", null, true);
+			final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
 			final Sequence resources = args[2];
 			if (resources == null)
 				throw new QueryException(new QNm("No sequence of resources specified!"));
-			final boolean createNew = args.length == 4 ? args[3].booleanValue()
-					: true;
-			final String resName = FunUtil.getString(args, 1, "resName", "resource",
-					null, createNew ? false : true);
+			final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
+			final String resName =
+					FunUtil.getString(args, 1, "resName", "resource", null, createNew ? false : true);
 
 			final DBStore store = (DBStore) ctx.getStore();
+			DBCollection coll;
 			if (createNew) {
-				create(store, collName, resName, resources);
+				coll = (DBCollection) create(store, collName, resName, resources);
 			} else {
 				try {
-					final DBCollection coll = (DBCollection) store.lookup(collName);
+					coll = (DBCollection) store.lookup(collName);
 					add(store, coll, resName, resources);
 				} catch (DocumentException e) {
 					// collection does not exist
-					create(store, collName, resName, resources);
+					coll = (DBCollection) create(store, collName, resName, resources);
 				}
 			}
 
-			return null;
+			return coll;
 		} catch (final Exception e) {
 			throw new QueryException(new QNm(e.getMessage()), e);
 		}
 	}
 
-	private void add(final org.brackit.xquery.xdm.Store store,
+	private TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
 			final DBCollection coll, final String resName, final Sequence resources)
 			throws DocumentException, IOException {
 		if (resources instanceof Atomic) {
 			final Atomic res = (Atomic) resources;
-			coll.add(resName,
-					new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+			coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+			return coll;
 		} else {
 			final ParserStream parsers = new ParserStream(resources);
 			try {
-				for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers
-						.next()) {
+				for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
 					coll.add(resName, parser);
 				}
 			} finally {
 				parsers.close();
 			}
+			return coll;
 		}
 	}
 
-	private void create(final DBStore store, final String collName,
-			final String resName, final Sequence resources) throws DocumentException,
-			IOException {
+	private TemporalCollection<?> create(final DBStore store, final String collName,
+			final String resName, final Sequence resources) throws DocumentException, IOException {
 		if (resources instanceof Atomic) {
 			final Atomic res = (Atomic) resources;
-			store.create(collName, Optional.of(resName), new DocumentParser(
-					URIHandler.getInputStream(res.stringValue())));
+			return store.create(collName, Optional.of(resName),
+					new DocumentParser(URIHandler.getInputStream(res.stringValue())));
 		} else {
-			store.create(collName, new ParserStream(resources));
+			return store.create(collName, new ParserStream(resources));
 		}
 	}
 
@@ -176,66 +173,79 @@ public final class Load extends AbstractFunction {
 			this.handler = handler;
 		}
 
+		@Override
 		public void beginFragment() throws DocumentException {
 			handler.beginFragment();
 			handler.startDocument();
 		}
 
+		@Override
 		public void endFragment() throws DocumentException {
 			handler.endDocument();
 			handler.endFragment();
 		}
 
+		@Override
 		public void startDocument() throws DocumentException {
 			handler.startDocument();
 		}
 
+		@Override
 		public void endDocument() throws DocumentException {
 			handler.endDocument();
 		}
 
+		@Override
 		public void text(Atomic content) throws DocumentException {
 			handler.text(content);
 		}
 
+		@Override
 		public void comment(Atomic content) throws DocumentException {
 			handler.comment(content);
 		}
 
-		public void processingInstruction(QNm target, Atomic content)
-				throws DocumentException {
+		@Override
+		public void processingInstruction(QNm target, Atomic content) throws DocumentException {
 			handler.processingInstruction(target, content);
 		}
 
-		public void startMapping(String prefix, String uri)
-				throws DocumentException {
+		@Override
+		public void startMapping(String prefix, String uri) throws DocumentException {
 			handler.startMapping(prefix, uri);
 		}
 
+		@Override
 		public void endMapping(String prefix) throws DocumentException {
 			handler.endMapping(prefix);
 		}
 
+		@Override
 		public void startElement(QNm name) throws DocumentException {
 			handler.startElement(name);
 		}
 
+		@Override
 		public void endElement(QNm name) throws DocumentException {
 			handler.endElement(name);
 		}
 
+		@Override
 		public void attribute(QNm name, Atomic value) throws DocumentException {
 			handler.attribute(name, value);
 		}
 
+		@Override
 		public void begin() throws DocumentException {
 			handler.begin();
 		}
 
+		@Override
 		public void end() throws DocumentException {
 			handler.end();
 		}
 
+		@Override
 		public void fail() throws DocumentException {
 			handler.fail();
 		}

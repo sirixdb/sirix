@@ -7,6 +7,7 @@ import java.io.PrintStream;
 import java.net.URI;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.Optional;
 import java.util.Random;
 
 import org.brackit.xquery.QueryContext;
@@ -26,10 +27,9 @@ import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
+import org.sirix.xquery.SirixXQuery;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
-
-import com.google.common.base.Optional;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you would use a logger
@@ -63,7 +63,7 @@ public final class XQueryUsage {
 			System.out.println();
 			loadDocumentAndUpdate();
 			System.out.println();
-			loadCollectionAndQuery();
+			// loadCollectionAndQuery();
 			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
@@ -136,59 +136,15 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/></a> into sdb:doc('mycol.xml', 'mydoc.xml')/log";
+			final String xq2 = "let $doc := sdb:doc('mycol.xml', 'mydoc.xml')\n"
+					+ "for $log in $doc/log return \n" + "( insert nodes <a><b/></a> into $log )\n";
 			System.out.println(xq2);
-			new XQuery(xq2).execute(ctx2);
-			store.commitAll();
+			new SirixXQuery(xq2).execute(ctx2);
+
+			final SirixXQuery query = new SirixXQuery("sdb:doc('mycol.xml', 'mydoc.xml')");
+			query.prettyPrint().serialize(ctx2, System.out);
+			// store.commitAll();
 			System.out.println();
-		}
-	}
-
-	/**
-	 * Load a collection and query it.
-	 */
-	private static void loadCollectionAndQuery() throws QueryException, IOException {
-		// Prepare directory with sample documents.
-		final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-		final File dir = new File(tmpDir + File.separator + "docs" + System.currentTimeMillis());
-		if (!dir.mkdir()) {
-			throw new IOException("Directory " + dir + " already exists");
-		}
-		dir.deleteOnExit();
-		for (int i = 0; i < 10; i++) {
-			generateSampleDoc(dir, "sample");
-		}
-
-		// Initialize query context and store.
-		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);
-
-			// Use XQuery to load all sample documents into store.
-			System.out.println("Load collection from files:");
-			final String xq1 = String.format("bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dir);
-			System.out.println(xq1);
-			new XQuery(xq1).evaluate(ctx);
-
-			// Reuse store and query loaded collection.
-			final QueryContext ctx2 = new QueryContext(store);
-			System.out.println();
-			System.out.println("Query loaded collection:");
-			final String xq2 =
-					"for $log in collection('mydocs.col')/log\n" + "where $log/@severity='critical'\n"
-							+ "return\n" + "<message>\n" + "  <from>{$log/src/text()}</from>\n"
-							+ "  <body>{$log/msg/text()}</body>\n" + "</message>\n";
-			System.out.println(xq2);
-			final XQuery q = new XQuery(xq2);
-			q.prettyPrint();
-			q.serialize(ctx2, System.out);
-			System.out.println();
-
-			// Use XQuery to load all sample documents once more into store.
-			System.out.println("Load collection from files:");
-			final String xq3 = String.format("bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())",
-					dir.toString());
-			System.out.println(xq3);
-			new XQuery(xq3).evaluate(ctx);
 		}
 	}
 
