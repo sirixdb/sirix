@@ -4,6 +4,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -17,12 +18,10 @@ import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
 
-import com.google.common.base.Optional;
-
 /**
  * @author Karsten Schmidt
  * @author Sebastian Baechle
- * 
+ *
  */
 public final class Indexes implements Materializable {
 	public static final QNm INDEXES_TAG = new QNm("indexes");
@@ -118,7 +117,7 @@ public final class Indexes implements Materializable {
 					}
 				}
 			}
-			return Optional.absent();
+			return Optional.empty();
 		} catch (PathException e) {
 			throw new DocumentException(e);
 		}
@@ -141,13 +140,14 @@ public final class Indexes implements Materializable {
 					}
 				}
 			}
-			return Optional.absent();
+			return Optional.empty();
 		} catch (PathException e) {
 			throw new DocumentException(e);
 		}
 	}
 
 	public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
+		checkNotNull(names);
 		out: for (final IndexDef index : mIndexes) {
 			if (index.isNameIndex()) {
 				final Set<QNm> incl = index.getIncluded();
@@ -165,7 +165,7 @@ public final class Indexes implements Materializable {
 				return Optional.of(index);
 			}
 		}
-		return Optional.absent();
+		return Optional.empty();
 	}
 
 	public int getNrOfIndexDefsWithType(final IndexType type) {

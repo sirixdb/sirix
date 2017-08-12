@@ -123,7 +123,9 @@ public final class DatabaseConfiguration {
 	// STATIC STANDARD FIELDS
 	/** Identification for string. */
 	public static final String BINARY = "0.1.0";
-	// END STATIC STANDARD FIELDS
+
+	/** Maximum of open resource write transactions. */
+	public static final int MAX_RESOURCE_WTX = 1;
 
 	/** Binary version of storage. */
 	private final String mBinaryVersion;
@@ -134,6 +136,9 @@ public final class DatabaseConfiguration {
 	/** Maximum unique resource ID. */
 	private long mMaxResourceID;
 
+	/** Maximum of open resource read transactions. */
+	private int mMaxResourceReadTrx;
+
 	/**
 	 * Constructor with the path to be set.
 	 *
@@ -142,22 +147,44 @@ public final class DatabaseConfiguration {
 	public DatabaseConfiguration(final File file) {
 		mBinaryVersion = BINARY;
 		mFile = file.getAbsoluteFile();
+		mMaxResourceReadTrx = 512;
+	}
+
+	/**
+	 * Set maximum number of open resource read-only transactions.
+	 *
+	 * @param max maximum concurrent reading resource transactions.
+	 * @return this {@link DatabaseConfiguration} instance
+	 */
+	public DatabaseConfiguration setMaxResourceReadTrx(final int max) {
+		checkArgument(max > 0);
+		mMaxResourceReadTrx = max;
+		return this;
+	}
+
+	/**
+	 * Get the maximum number of open resource read-only transactions.
+	 *
+	 * @return The maximum number of open resource read-only transactions.
+	 */
+	public int getMaxResourceReadTrx() {
+		return mMaxResourceReadTrx;
 	}
 
 	/**
 	 * Set unique maximum resource ID.
 	 *
 	 * @param id maximum resource ID
-	 * @return this {@link DatabaseConfiguration} reference
+	 * @return this {@link DatabaseConfiguration} instance
 	 */
 	public DatabaseConfiguration setMaximumResourceID(final long id) {
-		checkArgument(id >= 0, "pID must be >= 0!");
+		checkArgument(id >= 0, "ID must be >= 0!");
 		mMaxResourceID = id;
 		return this;
 	}
 
 	/**
-	 * Set unique maximum resource ID.
+	 * Get maximum resource transactions.
 	 *
 	 * @return maximum resource ID
 	 */
@@ -217,6 +244,7 @@ public final class DatabaseConfiguration {
 			final String filePath = config.mFile.getAbsolutePath();
 			jsonWriter.name("file").value(filePath);
 			jsonWriter.name("ID").value(config.mMaxResourceID);
+			jsonWriter.name("max-resource-read-trx").value(config.mMaxResourceReadTrx);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
@@ -242,8 +270,12 @@ public final class DatabaseConfiguration {
 			final String IDName = jsonReader.nextName();
 			assert IDName.equals("ID");
 			final int ID = jsonReader.nextInt();
+			final String maxResourceRtxName = jsonReader.nextName();
+			assert maxResourceRtxName.equals("max-resource-read-trx");
+			final int maxResourceRtx = jsonReader.nextInt();
 			jsonReader.endObject();
-			return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID);
+			return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
+					.setMaxResourceReadTrx(maxResourceRtx);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}

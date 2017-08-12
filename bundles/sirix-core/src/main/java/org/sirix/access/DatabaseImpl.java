@@ -28,6 +28,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nonnegative;
@@ -39,6 +40,7 @@ import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
+import org.sirix.api.TransactionManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
@@ -84,7 +86,8 @@ public final class DatabaseImpl implements Database {
 	/** DatabaseConfiguration with fixed settings. */
 	private final DatabaseConfiguration mDBConfig;
 
-	private TransactionManagerImpl mTransactionManager;
+	/** The transaction manager. */
+	private TransactionManager mTransactionManager;
 
 	/**
 	 * Package private constructor.
@@ -96,7 +99,8 @@ public final class DatabaseImpl implements Database {
 		mDBConfig = checkNotNull(dbConfig);
 		mResources = Maps.synchronizedBiMap(HashBiMap.create());
 		mBufferManagers = new ConcurrentHashMap<>();
-		mResourceStore = new ResourceStore();
+		mResourceStore = new ResourceStore(new Semaphore(mDBConfig.getMaxResourceReadTrx()),
+				new Semaphore(DatabaseConfiguration.MAX_RESOURCE_WTX));
 		mTransactionManager = new TransactionManagerImpl();
 	}
 
@@ -105,8 +109,7 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 
 	@Override
-	public synchronized boolean createResource(final ResourceConfiguration resConfig)
-			throws SirixIOException {
+	public synchronized boolean createResource(final ResourceConfiguration resConfig) {
 		boolean returnVal = true;
 		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()), resConfig.mPath.getName());
@@ -289,18 +292,18 @@ public final class DatabaseImpl implements Database {
 	// return this;
 	// }
 
-	/**
-	 * Closing a resource. This callback is necessary due to centralized handling of all sessions
-	 * within a database.
-	 *
-	 * @param resourceFile {@link File} to be closed
-	 * @param resourceManagerCfg the session configuration
-	 * @return {@code true} if close successful, {@code false} otherwise
-	 */
-	protected boolean closeResource(final File resourceFile,
-			final ResourceManagerConfiguration resourceManagerCfg) {
-		return mResourceStore.closeResource(resourceFile);
-	}
+	// /**
+	// * Closing a resource. This callback is necessary due to centralized handling of all sessions
+	// * within a database.
+	// *
+	// * @param resourceFile {@link File} to be closed
+	// * @param resourceManagerCfg the session configuration
+	// * @return {@code true} if close successful, {@code false} otherwise
+	// */
+	// protected boolean closeResource(final File resourceFile,
+	// final ResourceManagerConfiguration resourceManagerCfg) {
+	// return mResourceStore.closeResource(resourceFile);
+	// }
 
 	// //////////////////////////////////////////////////////////
 	// END DB-Operations ////////////////////////////////////////

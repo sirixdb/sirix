@@ -38,6 +38,12 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 */
 	boolean setupIndexTransactionLog(IndexType indexType);
 
+	/**
+	 * Truncate resource to given revision.
+	 * 
+	 * @param revision the given revision
+	 * @return this page writer instance
+	 */
 	PageWriteTrx<K, V, S> truncateTo(int revision);
 
 	/**

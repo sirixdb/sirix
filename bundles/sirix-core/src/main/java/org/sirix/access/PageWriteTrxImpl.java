@@ -369,21 +369,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			case CAS:
 				if (mCASLog == null) {
 					mCASLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "cas",
+							mPageRtx.mResource.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "cas",
 							this);
 				}
 				break;
 			case NAME:
 				if (mNameLog == null) {
 					mNameLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "name",
+							mPageRtx.mResource.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "name",
 							this);
 				}
 				break;
 			case PATH:
 				if (mPathLog == null) {
 					mPathLog = new SynchronizedIndexTransactionLogCache<>(
-							mPageRtx.mSession.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "path",
+							mPageRtx.mResource.getResourceConfig().mPath, mPageRtx.getRevisionNumber(), "path",
 							this);
 				}
 				break;
@@ -567,9 +567,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	@Override
 	public UberPage commit() {
 		mPageRtx.assertNotClosed();
-		mPageRtx.mSession.getCommitLock().lock();
+		mPageRtx.mResource.getCommitLock().lock();
 
-		final File commitFile = mPageRtx.mSession.commitFile(getRevisionNumber());
+		final File commitFile = mPageRtx.mResource.commitFile(getRevisionNumber());
 		commitFile.deleteOnExit();
 		// Issues with windows that it's not created in the first
 		// time?
@@ -582,7 +582,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		}
 
 		// Forcefully flush write-ahead transaction logs to persistent storage.
-		if (mPageRtx.mSession.getResourceManagerConfig().dumpLogs()) {
+		if (mPageRtx.mResource.getResourceManagerConfig().dumpLogs()) {
 			mPageLog.toSecondCache();
 			mNodeLog.toSecondCache();
 
@@ -629,7 +629,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			throw new SirixIOException("Commit file couldn't be deleted!");
 		}
 
-		mPageRtx.mSession.getCommitLock().unlock();
+		mPageRtx.mResource.getCommitLock().unlock();
 		return uberPage;
 	}
 
@@ -847,8 +847,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceRecordPageForModification(
 			final PageReference reference) {
 		final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
-		final Versioning revisioning = mPageRtx.mSession.getResourceConfig().mRevisionKind;
-		final int mileStoneRevision = mPageRtx.mSession.getResourceConfig().mRevisionsToRestore;
+		final Versioning revisioning = mPageRtx.mResource.getResourceConfig().mRevisionKind;
+		final int mileStoneRevision = mPageRtx.mResource.getResourceConfig().mRevisionsToRestore;
 		return revisioning.combineRecordPagesForModification(revs, mileStoneRevision, mPageRtx,
 				reference);
 	}

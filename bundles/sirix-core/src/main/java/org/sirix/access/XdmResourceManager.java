@@ -76,6 +76,7 @@ public final class XdmResourceManager implements ResourceManager {
 	/** Database for centralized closure of related Sessions. */
 	private final DatabaseImpl mDatabase;
 
+	/** The resource manager configuration. */
 	private final ResourceManagerConfiguration mResourceManagerConfig;
 
 	/** Write semaphore to assure only one exclusive write transaction exists. */
@@ -120,10 +121,11 @@ public final class XdmResourceManager implements ResourceManager {
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
 
-	/**
-	 * The cache of in-memory pages shared amongst all sessions / resource transactions.
-	 */
+	/** The cache of in-memory pages shared amongst all manager / resource transactions. */
 	private final BufferManager mBufferManager;
+
+	/** The resource store with which this manager has been created. */
+	private final ResourceStore mResourceStore;
 
 	/** Abort a write transaction. */
 	enum Abort {
@@ -138,6 +140,7 @@ public final class XdmResourceManager implements ResourceManager {
 	 * Package private constructor.
 	 *
 	 * @param database {@link DatabaseImpl} for centralized operations on related sessions
+	 * @param resourceStore the resource store with which this manager has been created
 	 * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
 	 * @param resourceManagerConfig {@link ResourceManagerConfiguration} for handling this specific
 	 *        resource transactions
@@ -145,12 +148,14 @@ public final class XdmResourceManager implements ResourceManager {
 	 *        transactions
 	 * @throws SirixException if Sirix encounters an exception
 	 */
-	XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceConfiguration resourceConf,
+	XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
+			final @Nonnull ResourceConfiguration resourceConf,
 			final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
 			final @Nonnull BufferManager bufferManager, final @Nonnull File resourceFile,
 			final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
 			final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
 		mDatabase = checkNotNull(database);
+		mResourceStore = checkNotNull(resourceStore);
 		mResourceConfig = checkNotNull(resourceConf);
 		mResourceManagerConfig = checkNotNull(resourceManagerConfig);
 		mBufferManager = checkNotNull(bufferManager);
@@ -345,8 +350,7 @@ public final class XdmResourceManager implements ResourceManager {
 			mNodeReaderMap.clear();
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
-
-			mDatabase.closeResource(mResourceConfig.mPath, mResourceManagerConfig);
+			mResourceStore.removeResource(mResourceConfig.getResource());
 
 			mFac.close();
 			mClosed = true;
