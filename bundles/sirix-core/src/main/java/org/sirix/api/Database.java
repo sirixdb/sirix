@@ -44,7 +44,6 @@ import org.sirix.exception.SirixIOException;
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
  */
 public interface Database extends AutoCloseable {
 	/**
@@ -104,6 +103,11 @@ public interface Database extends AutoCloseable {
 	 */
 	DatabaseConfiguration getDatabaseConfig();
 
+	/**
+	 * Begin a database wide transaction.
+	 *
+	 * @return the started transaction
+	 */
 	Transaction beginTransaction();
 
 	/**

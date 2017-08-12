@@ -350,7 +350,7 @@ public final class XdmResourceManager implements ResourceManager {
 			mNodeReaderMap.clear();
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
-			mResourceStore.removeResource(mResourceConfig.getResource());
+			mResourceStore.closeResource(mResourceConfig.getResource());
 
 			mFac.close();
 			mClosed = true;
