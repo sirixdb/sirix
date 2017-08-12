@@ -32,7 +32,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -52,7 +51,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Maps;
@@ -172,7 +170,7 @@ public final class DatabaseImpl implements Database {
 		final File resourceFile = new File(
 				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()), name);
 		// Check that database must be closed beforehand.
-		if (!mResourceStore.hasOpenResourceManager(resourceFile)) {
+		if (!Databases.hasOpenResourceManagers(resourceFile)) {
 			// If file is existing and folder is a Sirix-dataplace, delete it.
 			if (resourceFile.exists()
 					&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
@@ -318,19 +316,19 @@ public final class DatabaseImpl implements Database {
 		return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
 	}
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mDBConfig);
-	}
-
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof DatabaseImpl) {
-			final DatabaseImpl other = (DatabaseImpl) obj;
-			return other.mDBConfig.equals(mDBConfig);
-		}
-		return false;
-	}
+	// @Override
+	// public int hashCode() {
+	// return Objects.hashCode(mDBConfig);
+	// }
+	//
+	// @Override
+	// public boolean equals(final @Nullable Object obj) {
+	// if (obj instanceof DatabaseImpl) {
+	// final DatabaseImpl other = (DatabaseImpl) obj;
+	// return other.mDBConfig.equals(mDBConfig);
+	// }
+	// return false;
+	// }
 
 	// //////////////////////////////////////////////////////////
 	// END general methods //////////////////////////////////////
