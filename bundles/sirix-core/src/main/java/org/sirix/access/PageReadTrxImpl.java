@@ -118,7 +118,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final LoadingCache<PageReference, Page> mPageCache;
 
 	/** {@link XdmResourceManager} reference. */
-	protected final XdmResourceManager mSession;
+	protected final XdmResourceManager mResource;
 
 	/** {@link NamePage} reference. */
 	private final NamePage mNamePage;
@@ -219,7 +219,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final File commitFile = session.commitFile(revision);
 		final boolean doesExist = commitFile.exists();
 
-		mSession = checkNotNull(session);
+		mResource = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
 
@@ -376,7 +376,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public ResourceManager getSession() {
 		assertNotClosed();
-		return mSession;
+		return mResource;
 	}
 
 	/**
@@ -530,9 +530,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException if something odd happens within the creation process
 	 */
 	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
-		checkArgument(revisionKey >= 0 && revisionKey <= mSession.getMostRecentRevisionNumber(),
+		checkArgument(revisionKey >= 0 && revisionKey <= mResource.getMostRecentRevisionNumber(),
 				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-				mSession.getMostRecentRevisionNumber());
+				mResource.getMostRecentRevisionNumber());
 
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.
@@ -679,7 +679,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> List<S> getSnapshotPages(
 			final PageReference pageReference) {
 		assert pageReference != null;
-		final ResourceConfiguration config = mSession.getResourceConfig();
+		final ResourceConfiguration config = mResource.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
 		final int[] revisionsToRead =
 				config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
@@ -851,7 +851,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("Session", mSession).add("PageReader", mPageReader)
+		return MoreObjects.toStringHelper(this).add("Session", mResource).add("PageReader", mPageReader)
 				.add("UberPage", mUberPage).add("RevRootPage", mRootPage).toString();
 	}
 

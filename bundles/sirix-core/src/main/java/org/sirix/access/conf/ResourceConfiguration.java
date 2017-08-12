@@ -154,12 +154,6 @@ public final class ResourceConfiguration {
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenterImpl();
 
-	/** Number of concurrent exclusive read/write transactions. */
-	public static final int MAX_READ_WRITE_TRANSACTIONS = 1;
-
-	/** Number of concurrent read transactions. */
-	public static final int MAX_READ_TRANSACTIONS = 512;
-
 	// END FIXED STANDARD FIELDS
 
 	// MEMBERS FOR FIXED FIELDS

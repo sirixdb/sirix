@@ -1,8 +1,9 @@
 package org.sirix.access;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.IOException;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -109,7 +110,7 @@ public final class Databases {
 	 */
 	public static synchronized Database openDatabase(final File file)
 			throws SirixUsageException, SirixIOException {
-		Objects.requireNonNull(file);
+		checkNotNull(file);
 		if (!file.exists()) {
 			throw new SirixUsageException(
 					"DB could not be opened (since it was not created?) at location", file.toString());
