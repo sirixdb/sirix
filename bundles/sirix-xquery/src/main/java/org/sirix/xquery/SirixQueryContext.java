@@ -3,13 +3,16 @@ package org.sirix.xquery;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Sequence;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
@@ -42,16 +45,22 @@ public final class SirixQueryContext extends QueryContext {
 					getUpdateList() != null ? getUpdateList().list() : Collections.emptyList();
 
 			if (!updateList.isEmpty()) {
-				commit(updateList.get(0).getTarget());
-			}
-		}
-	}
+				final Function<Sequence, XdmNodeReadTrx> mapDBNodeToWtx = sequence -> {
+					if (sequence instanceof DBNode) {
+						final XdmNodeReadTrx trx = ((DBNode) sequence).getTrx();
+						return trx;
+					}
 
-	private void commit(Sequence item) {
-		if (item instanceof DBNode) {
-			final Optional<XdmNodeWriteTrx> trx =
-					((DBNode) item).getTrx().getResourceManager().getNodeWriteTrx();
-			trx.ifPresent(XdmNodeWriteTrx::commit);
+					// Can not occur (must be a write transaction).
+					throw new IllegalStateException();
+				};
+
+				final Set<Long> trxIDs = new HashSet<>();
+
+				updateList.stream().map(UpdateOp::getTarget).map(mapDBNodeToWtx)
+						.filter(trx -> trxIDs.add(trx.getId()))
+						.forEach(trx -> ((XdmNodeWriteTrx) trx).commit());
+			}
 		}
 	}
 }
