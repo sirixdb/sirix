@@ -1,6 +1,5 @@
 package org.sirix.io.ram;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,7 +30,7 @@ public final class RAMStorage implements Storage {
 	/** Mapping pageKey to the page. */
 	private final Map<Long, Page> mResourceStorage;
 
-	private final Map<Integer, Long> mUberPageKey = Collections.singletonMap(-1, 0l);
+	private final Map<Integer, Long> mUberPageKey;
 
 	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mHandler;
@@ -51,7 +50,7 @@ public final class RAMStorage implements Storage {
 	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
 	public RAMStorage(final ResourceConfiguration resourceConfig) {
-		mStorage = new ConcurrentHashMap<String, Map<Long, Page>>();
+		mStorage = new ConcurrentHashMap<>();
 		mHandler = resourceConfig.mByteHandler;
 		final String resource = resourceConfig.getResource().getName();
 		final Map<Long, Page> resourceStorage = mStorage.get(resource);
@@ -64,6 +63,8 @@ public final class RAMStorage implements Storage {
 			mExists = true;
 		}
 		mAccess = new RAMAccess();
+		mUberPageKey = new ConcurrentHashMap<>();
+		mUberPageKey.put(-1, 0L);
 	}
 
 	@Override
