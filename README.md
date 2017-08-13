@@ -111,7 +111,7 @@ We are currently working on the documentation. You may find first drafts and sni
 Please also have a look at and play with our sirix-example bundle which is available via maven.
 
 ## Mailinglist
-Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
