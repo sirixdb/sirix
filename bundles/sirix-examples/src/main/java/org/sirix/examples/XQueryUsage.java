@@ -27,7 +27,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.SirixXQuery;
+import org.sirix.xquery.SirixQueryContext.CommitStrategy;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 
@@ -122,7 +122,7 @@ public final class XQueryUsage {
 
 		// Initialize query context and store.
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new SirixQueryContext(store);
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
@@ -133,15 +133,15 @@ public final class XQueryUsage {
 			new XQuery(xq1).evaluate(ctx);
 
 			// Reuse store and query loaded document.
-			final QueryContext ctx2 = new QueryContext(store);
+			final QueryContext ctx2 = new SirixQueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
 			final String xq2 = "let $doc := sdb:doc('mycol.xml', 'mydoc.xml')\n"
 					+ "for $log in $doc/log return \n" + "( insert nodes <a><b/></a> into $log )\n";
 			System.out.println(xq2);
-			new SirixXQuery(xq2).execute(ctx2);
+			new XQuery(xq2).execute(ctx2);
 
-			final SirixXQuery query = new SirixXQuery("sdb:doc('mycol.xml', 'mydoc.xml')");
+			final XQuery query = new XQuery("sdb:doc('mycol.xml', 'mydoc.xml')");
 			query.prettyPrint().serialize(ctx2, System.out);
 			// store.commitAll();
 			System.out.println();
@@ -248,7 +248,7 @@ public final class XQueryUsage {
 		}
 
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new SirixQueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
 			final String xq3 = "doc('mydocs.col')/log/all-time::*";
@@ -328,7 +328,7 @@ public final class XQueryUsage {
 
 		// Create and commit name index on all elements with QName 'src' or 'msg'.
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx3 = new QueryContext(store);
+			final QueryContext ctx3 = new SirixQueryContext(store, CommitStrategy.EXPLICIT);
 			System.out.println();
 			System.out.println("Create name index for all elements with name 'src' or 'msg':");
 			final XQuery q = new XQuery(new SirixCompileChain(store),
@@ -344,7 +344,7 @@ public final class XQueryUsage {
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			System.out.println("");
 			System.out.println("Find CAS index for all attribute values.");
-			final QueryContext ctx3 = new QueryContext(store);
+			final QueryContext ctx3 = new SirixQueryContext(store);
 			final String query =
 					"let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), 0, ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query).execute(ctx3);
@@ -372,7 +372,7 @@ public final class XQueryUsage {
 			System.out.println("");
 			System.out
 					.println("Find CAS index for all text values which are integers between 10 and 100.");
-			final QueryContext ctx3 = new QueryContext(store);
+			final QueryContext ctx3 = new SirixQueryContext(store);
 			final String query =
 					"let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index-range($doc, sdb:find-cas-index($doc, 'xs:integer', '//*'), 10, 100, true(), true(), ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query).execute(ctx3);
@@ -400,7 +400,7 @@ public final class XQueryUsage {
 			System.out.println("");
 			System.out.println(
 					"Find path index for all elements which are children of the log-element (only elements).");
-			final QueryContext ctx3 = new QueryContext(store);
+			final QueryContext ctx3 = new SirixQueryContext(store);
 			final DBNode node =
 					(DBNode) new XQuery(new SirixCompileChain(store), "doc('mydocs.col')").execute(ctx3);
 			final Optional<IndexDef> index = node.getTrx().getResourceManager()
@@ -440,7 +440,7 @@ public final class XQueryUsage {
 		}
 
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new SirixQueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
 			final String xq3 = "doc('mydocs.col')/log/all-time::*";
@@ -462,7 +462,7 @@ public final class XQueryUsage {
 			System.out.println();
 			// Serialize second version to XML
 			// ($user.home$/sirix-data/output-revision-1.xml).
-			final QueryContext ctx5 = new QueryContext(store);
+			final QueryContext ctx5 = new SirixQueryContext(store);
 			final String xq5 =
 					"sdb:serialize(doc('mydocs.col', 2), fn:boolean(1), 'output-revision-2.xml')";
 			q = new XQuery(xq5);
@@ -470,7 +470,7 @@ public final class XQueryUsage {
 			System.out.println();
 			// Serialize first, second and third version to XML
 			// ($user.home$/sirix-data/output-revisions.xml).
-			final QueryContext ctx6 = new QueryContext(store);
+			final QueryContext ctx6 = new SirixQueryContext(store);
 			final String xq6 =
 					"for $i in ((doc('mydocs.col', 1), doc('mydocs.col', 2), doc('mydocs.col', 3))) return $i";
 			q = new XQuery(xq6);
@@ -487,7 +487,7 @@ public final class XQueryUsage {
 					new StringBuilder("src").append(File.separator).append("main").append(File.separator)
 							.append("resources").append(File.separator).append("test.xml").toString());
 
-			final QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new SirixQueryContext(store);
 			System.out.println();
 			URI docUri = doc.toURI();
 			final String xq3 =
