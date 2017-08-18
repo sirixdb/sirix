@@ -47,8 +47,6 @@ import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
-import org.sirix.cache.TransactionIndexLogCache;
-import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -112,17 +110,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/** Determines if page reading transaction is closed or not. */
 	private boolean mClosed;
 
-	/**
-	 * Optional page transaction log, dependent on the fact, if the log hasn't been completely
-	 * transferred into the data file.
-	 */
-	private final Optional<TransactionLogPageCache> mPageLog;
-
-	/**
-	 * Optional node transaction log, dependent on the fact, if the log hasn't been completely
-	 * transferred into the data file.
-	 */
-	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mNodeLog;
+	// /**
+	// * Optional page transaction log, dependent on the fact, if the log hasn't been completely
+	// * transferred into the data file.
+	// */
+	// private final Optional<TransactionLogPageCache> mPageLog;
+	//
+	// /**
+	// * Optional node transaction log, dependent on the fact, if the log hasn't been completely
+	// * transferred into the data file.
+	// */
+	// private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mNodeLog;
 
 	/** {@link ResourceConfiguration} instance. */
 	final ResourceConfiguration mResourceConfig;
@@ -175,38 +173,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		final File commitFile = session.commitFile();
-		final boolean doesExist = commitFile.exists();
+		commitFile.exists();
 
 		mResourceManager = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
 
-		// Transaction logs which might have to be read because the data hasn't been
-		// commited to the data-file.
-		// =======================================================
-		mPageLog = doesExist
-				? Optional.of(new TransactionLogPageCache(session.getResourceConfig().mPath, "page", this))
-				: Optional.empty();
-		mNodeLog = doesExist
-				? Optional
-						.of(new TransactionIndexLogCache<>(session.getResourceConfig().mPath, "node", this))
-				: Optional.empty();
+		final PageReadTrx pageReadTrx = this;
 
-		// In memory caches from data directory.
-		// =========================================================
-		final PageReadTrxImpl pageReadTrx = this;
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(10_000)
 				.expireAfterWrite(5_000, TimeUnit.SECONDS).expireAfterAccess(5_000, TimeUnit.SECONDS)
 				.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 					@Override
 					public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
-						final RecordPageContainer<UnorderedKeyValuePage> container =
-								mNodeLog.isPresent() ? mNodeLog.get().get(key)
-										: RecordPageContainer.emptyInstance();
-						return container.equals(RecordPageContainer.EMPTY_INSTANCE)
-								? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-										key.getIndexType())
-								: container;
+						return getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
+								key.getIndexType());
 					}
 				});
 
@@ -214,8 +195,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
 			@Override
 			public Page load(final PageReference reference) {
-				Page page =
-						mPageLog.isPresent() ? mPageLog.get().get(reference.getLogKey()) : reference.getPage();
+				Page page = reference.getPage();
 				if (page == null) {
 					page = mPageReader.read(reference.getKey(), pageReadTrx).setDirty(true);
 
@@ -320,24 +300,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 		assertNotClosed();
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
-
-		if (mNodeLog.isPresent()) {
-			mNodeLog.get().clear();
-		}
-		if (mPageLog.isPresent()) {
-			mPageLog.get().clear();
-		}
 	}
 
 	@Override
 	public void closeCaches() {
 		assertNotClosed();
-		if (mNodeLog.isPresent()) {
-			mNodeLog.get().close();
-		}
-		if (mPageLog.isPresent()) {
-			mPageLog.get().close();
-		}
+		// TODO
 	}
 
 	/**
@@ -409,7 +377,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			Page page = reference.getPage();
 
-			if (mPageWriteTrx.isPresent() || mPageLog.isPresent()) {
+			if (mPageWriteTrx.isPresent()) {
 				final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, -1, -1, 0);
 				reference.setLogKey(logKey);
 			}
