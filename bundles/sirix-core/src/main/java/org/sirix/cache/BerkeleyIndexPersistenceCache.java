@@ -27,8 +27,6 @@ import java.io.File;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import javax.annotation.Nonnegative;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -91,14 +89,13 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	 * Constructor. Building up the berkeley db and setting necessary settings.
 	 *
 	 * @param file the place where the berkeley db is stored.
-	 * @param revision revision number, needed to reconstruct the sliding window in the correct way
 	 * @param logType type of log to append to the path of the log
 	 * @param {@link PageReadTrx} instance
 	 * @throws SirixIOException if a database error occurs
 	 */
-	public BerkeleyIndexPersistenceCache(final File file, final @Nonnegative int revision,
-			final String logType, final PageReadTrx pageReadTrx) throws SirixIOException {
-		super(file, revision, logType);
+	public BerkeleyIndexPersistenceCache(final File file, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
+		super(file, logType);
 		try {
 			// Create a new, transactional database environment.
 			final EnvironmentConfig config = new EnvironmentConfig();

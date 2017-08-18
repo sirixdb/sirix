@@ -3,6 +3,8 @@ package org.sirix.cache;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
+import org.sirix.page.PageKind;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -19,18 +21,20 @@ public final class IndexLogKey {
 	/** Record page key. */
 	private final long mRecordPageKey;
 
+	private final PageKind mPageKind;
+
 	/**
 	 * Constructor.
 	 *
-	 * @param pageKind the page kind (kind of the index)
 	 * @param recordPageKey the record page key
 	 * @param index the index number
+	 * @param pageKind the page kind (kind of the index)
 	 */
-	public IndexLogKey(final long recordPageKey, final @Nonnegative int index) {
-		assert recordPageKey >= -1;
-		assert index >= 0;
+	public IndexLogKey(final PageKind pageKind, final long recordPageKey,
+			final @Nonnegative int index) {
 		mRecordPageKey = recordPageKey;
 		mIndex = index;
+		mPageKind = pageKind;
 	}
 
 	public long getRecordPageKey() {
@@ -41,16 +45,21 @@ public final class IndexLogKey {
 		return mIndex;
 	}
 
+	public PageKind getIndexType() {
+		return mPageKind;
+	}
+
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mRecordPageKey, mIndex);
+		return Objects.hashCode(mRecordPageKey, mIndex, mPageKind);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof IndexLogKey) {
 			final IndexLogKey other = (IndexLogKey) obj;
-			return mRecordPageKey == other.mRecordPageKey && mIndex == other.mIndex;
+			return mRecordPageKey == other.mRecordPageKey && mIndex == other.mIndex
+					&& mPageKind == other.mPageKind;
 		}
 		return false;
 	}
@@ -58,6 +67,6 @@ public final class IndexLogKey {
 	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this).add("recordPageKey", mRecordPageKey)
-				.add("index", mIndex).toString();
+				.add("index", mIndex).add("pageKind", mPageKind).toString();
 	}
 }

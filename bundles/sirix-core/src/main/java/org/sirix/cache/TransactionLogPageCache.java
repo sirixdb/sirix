@@ -24,8 +24,6 @@ package org.sirix.cache;
 import java.io.File;
 import java.util.Map;
 
-import javax.annotation.Nonnegative;
-
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
@@ -54,14 +52,13 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	 * Constructor including the {@link DatabaseConfiguration} for persistent storage.
 	 *
 	 * @param file the config for having a storage-place
-	 * @param revision revision number
 	 * @param logType type of log
 	 * @param pageReadTrx {@link PageReadTrx} instance
 	 * @throws SirixIOException if a database error occurs
 	 */
-	public TransactionLogPageCache(final File file, final @Nonnegative int revision,
-			final String logType, final PageReadTrx pageReadTrx) throws SirixIOException {
-		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType, pageReadTrx);
+	public TransactionLogPageCache(final File file, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
+		mSecondCache = new BerkeleyPersistencePageCache(file, logType, pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 

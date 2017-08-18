@@ -243,13 +243,11 @@ public final class XdmResourceManager implements ResourceManager {
 	/**
 	 * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting
 	 * or not.
-	 *
-	 * @param revision revision number
 	 */
-	File commitFile(final int revision) {
+	File commitFile() {
 		return new File(mResourceConfig.mPath,
 				new File(ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(),
-						new File(new File(String.valueOf(revision)), ".commit").getPath()).getPath());
+						new File(".commit").getPath()).getPath());
 	}
 
 	@Override

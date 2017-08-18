@@ -1729,12 +1729,10 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 					throw new SirixUsageException("Must commit/rollback transaction first!");
 				}
 
-				final int revision = getRevisionNumber();
-
 				// Release all state immediately.
 				mNodeReader.mResourceManager.closeWriteTransaction(getId());
 				mNodeReader.close();
-				removeCommitFileAndLogs(revision);
+				removeCommitFile();
 
 				mPathSummaryWriter = null;
 				mNodeFactory = null;
@@ -1770,7 +1768,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 			mNodeReader.getPageTransaction().closeCaches();
 			mNodeReader.mResourceManager.closeNodePageWriteTransaction(getId());
 			mNodeReader.setPageReadTransaction(null);
-			removeCommitFileAndLogs(revision);
+			removeCommitFile();
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx = mNodeReader.mResourceManager
 					.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.YES);
 			mNodeReader.setPageReadTransaction(trx);
@@ -1787,15 +1785,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 		}
 	}
 
-	/**
-	 * Remove a commit file and all transaction logs.
-	 *
-	 * @param revision the revision from which to remove all transaction logs
-	 * @throws SirixIOException if an I/O error occurs
-	 */
-	private void removeCommitFileAndLogs(final @Nonnegative int revision) throws SirixIOException {
-		// Delete commit file.
-		mNodeReader.mResourceManager.commitFile(revision).delete();
+	private void removeCommitFile() throws SirixIOException {
+		mNodeReader.mResourceManager.commitFile().delete();
 	}
 
 	@Override
