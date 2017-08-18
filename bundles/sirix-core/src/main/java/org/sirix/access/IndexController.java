@@ -214,15 +214,6 @@ public final class IndexController {
 	 */
 	public IndexController createIndexes(final Set<IndexDef> indexDefs,
 			final XdmNodeWriteTrx nodeWriteTrx) throws SirixIOException {
-		// Initialize transaction logs.
-		final PageWriteTrx<?, ?, ?> pageWriteTrx = nodeWriteTrx.getPageTransaction();
-		for (final IndexDef indexDef : indexDefs) {
-			final boolean allTrxLogsCreated = pageWriteTrx.setupIndexTransactionLog(indexDef.getType());
-			if (allTrxLogsCreated) {
-				break;
-			}
-		}
-
 		// Build the indexes.
 		IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 

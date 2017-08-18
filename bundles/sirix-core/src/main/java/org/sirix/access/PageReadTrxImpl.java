@@ -48,11 +48,9 @@ import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionIndexLogCache;
-import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
@@ -100,34 +98,19 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final RevisionRootPage mRootPage;
 
 	/** Internal reference to node cache. */
-	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mNodeCache;
-
-	/** Internal reference to path cache. */
-	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathSummaryCache;
-
-	/** Internal reference to text value cache. */
-	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathCache;
-
-	/** Internal reference to attribute value cache. */
-	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mCASCache;
-
-	/** Internal reference to attribute value cache. */
-	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mNameCache;
+	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mNodeCache;
 
 	/** Internal reference to page cache. */
 	private final LoadingCache<PageReference, Page> mPageCache;
 
 	/** {@link XdmResourceManager} reference. */
-	protected final XdmResourceManager mResource;
+	protected final XdmResourceManager mResourceManager;
 
 	/** {@link NamePage} reference. */
 	private final NamePage mNamePage;
 
 	/** Determines if page reading transaction is closed or not. */
 	private boolean mClosed;
-
-	/** Determines if a path summary should be build and kept up-to-date or not. */
-	private final boolean mBuildPathSummary;
 
 	/**
 	 * Optional page transaction log, dependent on the fact, if the log hasn't been completely
@@ -136,34 +119,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final Optional<TransactionLogPageCache> mPageLog;
 
 	/**
-	 * Optional path transaction log, dependent on the fact, if the log hasn't been completely
-	 * transferred into the data file.
-	 */
-	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mPathLog;
-
-	/**
-	 * Optional path transaction log, dependent on the fact, if the log hasn't been completely
-	 * transferred into the data file.
-	 */
-	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mPathSummaryLog;
-
-	/**
-	 * Optional text value transaction log, dependent on the fact, if the log hasn't been completely
-	 * transferred into the data file.
-	 */
-	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mCASLog;
-
-	/**
-	 * Optional attribute value transaction log, dependent on the fact, if the log hasn't been
-	 * completely transferred into the data file.
-	 */
-	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mNameLog;
-
-	/**
 	 * Optional node transaction log, dependent on the fact, if the log hasn't been completely
 	 * transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<UnorderedKeyValuePage>> mNodeLog;
+	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mNodeLog;
 
 	/** {@link ResourceConfiguration} instance. */
 	final ResourceConfiguration mResourceConfig;
@@ -198,7 +157,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mResourceBufferManager = requireNonNull(bufferManager);
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		mClosed = false;
-		mBuildPathSummary = session.getResourceConfig().mPathSummary;
 		mResourceConfig = session.getResourceConfig();
 		mIndexController = indexController.isPresent() ? indexController.get()
 				: session.getRtxIndexController(revision);
@@ -216,10 +174,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 		}
 
-		final File commitFile = session.commitFile(revision);
+		final File commitFile = session.commitFile();
 		final boolean doesExist = commitFile.exists();
 
-		mResource = checkNotNull(session);
+		mResourceManager = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
 
@@ -227,134 +185,39 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// commited to the data-file.
 		// =======================================================
 		mPageLog = doesExist
-				? Optional.of(
-						new TransactionLogPageCache(session.getResourceConfig().mPath, revision, "page", this))
+				? Optional.of(new TransactionLogPageCache(session.getResourceConfig().mPath, "page", this))
 				: Optional.empty();
-		mNodeLog = doesExist ? Optional.of(new TransactionLogCache<UnorderedKeyValuePage>(
-				session.getResourceConfig().mPath, revision, "node", this)) : Optional.empty();
-		if (mBuildPathSummary) {
-			mPathSummaryLog = doesExist
-					? Optional.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
-							session.getResourceConfig().mPath, revision, "pathSummary", this))
-					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>>empty();
-		} else {
-			mPathSummaryLog = Optional.empty();
-		}
-		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathLog = doesExist ? Optional.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
-					session.getResourceConfig().mPath, revision, "path", this)) : Optional.empty();
-		} else {
-			mPathLog = Optional.empty();
-		}
-		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASLog = doesExist ? Optional.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
-					session.getResourceConfig().mPath, revision, "cas", this)) : Optional.empty();
-		} else {
-			mCASLog = Optional.empty();
-		}
-		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameLog = doesExist ? Optional.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
-					session.getResourceConfig().mPath, revision, "name", this)) : Optional.empty();
-		} else {
-			mNameLog = Optional.empty();
-		}
+		mNodeLog = doesExist
+				? Optional
+						.of(new TransactionIndexLogCache<>(session.getResourceConfig().mPath, "node", this))
+				: Optional.empty();
 
 		// In memory caches from data directory.
 		// =========================================================
-		@SuppressWarnings("resource")
 		final PageReadTrxImpl pageReadTrx = this;
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(10_000)
 				.expireAfterWrite(5_000, TimeUnit.SECONDS).expireAfterAccess(5_000, TimeUnit.SECONDS)
-				.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
+				.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 					@Override
-					public RecordPageContainer<UnorderedKeyValuePage> load(final Long key) {
+					public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
 						final RecordPageContainer<UnorderedKeyValuePage> container =
 								mNodeLog.isPresent() ? mNodeLog.get().get(key)
 										: RecordPageContainer.emptyInstance();
 						return container.equals(RecordPageContainer.EMPTY_INSTANCE)
-								? pageReadTrx.getRecordPageContainer(key, -1, PageKind.RECORDPAGE)
+								? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
+										key.getIndexType())
 								: container;
 					}
 				});
-		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder().maximumSize(1000);
-		if (mBuildPathSummary) {
-			mPathSummaryCache =
-					builder.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
-						@Override
-						public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
-							final RecordPageContainer<UnorderedKeyValuePage> container =
-									mPathSummaryLog.isPresent() ? mPathSummaryLog.get().get(key)
-											: RecordPageContainer.emptyInstance();
-							return (container.equals(RecordPageContainer.emptyInstance())
-									? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-											PageKind.PATHSUMMARYPAGE)
-									: container);
-						}
-					});
-		} else {
-			mPathSummaryCache = null;
-		}
-		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathCache =
-					builder.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
-						@Override
-						public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
-							final RecordPageContainer<UnorderedKeyValuePage> container =
-									mPathLog.isPresent() ? mPathLog.get().get(key)
-											: RecordPageContainer.emptyInstance();
-							return container.equals(RecordPageContainer.emptyInstance())
-									? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-											PageKind.PATHPAGE)
-									: container;
-						}
-					});
-		} else {
-			mPathCache = null;
-		}
-		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASCache =
-					builder.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
-						@Override
-						public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
-							final RecordPageContainer<UnorderedKeyValuePage> container =
-									mCASLog.isPresent() ? mCASLog.get().get(key)
-											: RecordPageContainer.emptyInstance();
-							return container.equals(RecordPageContainer.EMPTY_INSTANCE)
-									? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-											PageKind.CASPAGE)
-									: container;
-						}
-					});
-		} else {
-			mCASCache = null;
-		}
-		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameCache =
-					builder.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
-						@Override
-						public RecordPageContainer<UnorderedKeyValuePage> load(final IndexLogKey key) {
-							final RecordPageContainer<UnorderedKeyValuePage> container =
-									mNameLog.isPresent() ? mNameLog.get().get(key)
-											: RecordPageContainer.emptyInstance();
-							return container.equals(RecordPageContainer.EMPTY_INSTANCE)
-									? pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-											PageKind.NAMEPAGE)
-									: container;
-						}
-					});
-		} else {
-			mNameCache = null;
-		}
 
 		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder.newBuilder();
-		final PageReadTrxImpl impl = this;
 		mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
 			@Override
 			public Page load(final PageReference reference) {
 				Page page =
 						mPageLog.isPresent() ? mPageLog.get().get(reference.getLogKey()) : reference.getPage();
 				if (page == null) {
-					page = mPageReader.read(reference.getKey(), impl).setDirty(true);
+					page = mPageReader.read(reference.getKey(), pageReadTrx).setDirty(true);
 
 					if (page != null && !mPageWriteTrx.isPresent()) {
 						// Put page into buffer manager and set page reference (just to
@@ -376,7 +239,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public ResourceManager getSession() {
 		assertNotClosed();
-		return mResource;
+		return mResourceManager;
 	}
 
 	/**
@@ -405,19 +268,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			switch (pageKind) {
 				case RECORDPAGE:
-					cont = mNodeCache.get(recordPageKey);
-					break;
 				case PATHSUMMARYPAGE:
-					cont = mPathSummaryCache.get(new IndexLogKey(recordPageKey, index));
-					break;
 				case PATHPAGE:
-					cont = mPathCache.get(new IndexLogKey(recordPageKey, index));
-					break;
 				case CASPAGE:
-					cont = mCASCache.get(new IndexLogKey(recordPageKey, index));
-					break;
 				case NAMEPAGE:
-					cont = mNameCache.get(new IndexLogKey(recordPageKey, index));
+					cont = mNodeCache.get(new IndexLogKey(pageKind, recordPageKey, index));
 					break;
 				default:
 					throw new IllegalStateException();
@@ -463,33 +318,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public void clearCaches() {
 		assertNotClosed();
-		if (mBuildPathSummary) {
-			mPathSummaryCache.invalidateAll();
-		}
-		if (mPathCache != null) {
-			mPathCache.invalidateAll();
-		}
-		if (mCASCache != null) {
-			mCASCache.invalidateAll();
-		}
-		if (mNameCache != null) {
-			mNameCache.invalidateAll();
-		}
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
 
-		if (mPathLog.isPresent()) {
-			mPathLog.get().clear();
-		}
-		if (mCASLog.isPresent()) {
-			mCASLog.get().clear();
-		}
-		if (mNameLog.isPresent()) {
-			mNameLog.get().clear();
-		}
-		if (mPathSummaryLog.isPresent()) {
-			mPathSummaryLog.get().clear();
-		}
 		if (mNodeLog.isPresent()) {
 			mNodeLog.get().clear();
 		}
@@ -501,18 +332,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public void closeCaches() {
 		assertNotClosed();
-		if (mPathLog.isPresent()) {
-			mPathLog.get().close();
-		}
-		if (mCASLog.isPresent()) {
-			mCASLog.get().close();
-		}
-		if (mNameLog.isPresent()) {
-			mNameLog.get().close();
-		}
-		if (mPathSummaryLog.isPresent()) {
-			mPathSummaryLog.get().close();
-		}
 		if (mNodeLog.isPresent()) {
 			mNodeLog.get().close();
 		}
@@ -530,9 +349,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException if something odd happens within the creation process
 	 */
 	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
-		checkArgument(revisionKey >= 0 && revisionKey <= mResource.getMostRecentRevisionNumber(),
+		checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
 				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-				mResource.getMostRecentRevisionNumber());
+				mResourceManager.getMostRecentRevisionNumber());
 
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.
@@ -612,7 +431,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 		return mUberPage;
 	}
 
-	// TODO: Write another interface for this internal kind of stuff.
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
 			final @Nonnegative Long recordPageKey, final int index, final PageKind pageKind)
@@ -679,7 +497,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> List<S> getSnapshotPages(
 			final PageReference pageReference) {
 		assert pageReference != null;
-		final ResourceConfiguration config = mResource.getResourceConfig();
+		final ResourceConfiguration config = mResourceManager.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
 		final int[] revisionsToRead =
 				config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
@@ -851,8 +669,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("Session", mResource).add("PageReader", mPageReader)
-				.add("UberPage", mUberPage).add("RevRootPage", mRootPage).toString();
+		return MoreObjects.toStringHelper(this).add("Session", mResourceManager)
+				.add("PageReader", mPageReader).add("UberPage", mUberPage).add("RevRootPage", mRootPage)
+				.toString();
 	}
 
 	@Override

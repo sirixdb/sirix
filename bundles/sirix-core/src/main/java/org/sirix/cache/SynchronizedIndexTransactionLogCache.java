@@ -27,8 +27,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import javax.annotation.Nonnegative;
-
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
@@ -67,14 +65,13 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	 * Constructor including the {@link DatabaseConfiguration} for persistent storage.
 	 *
 	 * @param file the config for having a storage-place
-	 * @param revision revision number
 	 * @param logType type of log
 	 * @param pageReadTrx page reading transaction
 	 * @throws SirixIOException if a database error occurs
 	 */
-	public SynchronizedIndexTransactionLogCache(final File file, final @Nonnegative int revision,
-			final String logType, final PageReadTrx pageReadTrx) throws SirixIOException {
-		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, revision, logType, pageReadTrx);
+	public SynchronizedIndexTransactionLogCache(final File file, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
+		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, logType, pageReadTrx);
 		mFirstCache = new LRUCache<IndexLogKey, RecordPageContainer<T>>(mSecondCache);
 	}
 

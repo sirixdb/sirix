@@ -8,10 +8,10 @@ import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * Log key binding.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class IndirectPageLogKeyBinding extends TupleBinding<IndirectPageLogKey> {
 	@Override

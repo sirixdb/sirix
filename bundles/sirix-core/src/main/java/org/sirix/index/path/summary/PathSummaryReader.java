@@ -91,13 +91,14 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 	 * Private constructor.
 	 *
 	 * @param pageReadTrx page reader
-	 * @param session {@link ResourceManager} reference
+	 * @param resourceManager {@link ResourceManager} reference
 	 */
-	private PathSummaryReader(final PageReadTrx pageReadTrx, final ResourceManager session) {
+	private PathSummaryReader(final PageReadTrx pageReadTrx, final ResourceManager resourceManager) {
 		mPathCache = new HashMap<>();
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
-		mResourceManager = session;
+		mResourceManager = resourceManager;
+		System.out.println();
 		try {
 			final Optional<? extends Record> node = mPageReadTrx
 					.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
@@ -137,12 +138,12 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 	 * Get a new path summary reader instance.
 	 *
 	 * @param pageReadTrx Sirix {@link PageReaderTrx}
-	 * @param session Sirix {@link ResourceManager}
+	 * @param resourceManager Sirix {@link ResourceManager}
 	 * @return new path summary reader instance
 	 */
 	public static final PathSummaryReader getInstance(final PageReadTrx pageReadTrx,
-			final ResourceManager session) {
-		return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(session));
+			final ResourceManager resourceManager) {
+		return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
@@ -358,7 +359,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 			return Move.moved(this);
 		} else {
 			mCurrentNode = oldNode;
-			return Moved.notMoved();
+			return Move.notMoved();
 		}
 	}
 

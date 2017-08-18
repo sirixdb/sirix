@@ -6,14 +6,12 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 
 /**
@@ -69,13 +67,6 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	@Override
 	public UberPage commit() {
 		return delegate().commit();
-	}
-
-	@Override
-	public void updateDataContainer(
-			@Nonnull RecordPageContainer<UnorderedKeyValuePage> recordPageContainer,
-			@Nonnull PageKind pageKind) {
-		delegate().updateDataContainer(recordPageContainer, pageKind);
 	}
 
 	@Override

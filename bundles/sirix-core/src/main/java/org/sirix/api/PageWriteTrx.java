@@ -10,7 +10,6 @@ import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.IndexType;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
@@ -30,17 +29,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 		extends PageReadTrx {
 
 	/**
-	 * Setup the transaction log for different index-types.
-	 *
-	 * @param indexType the {@link IndexType}
-	 * @return {@code true}, if all transaction logs have been created, {@code false} otherwise
-	 * @throws SirixIOException if setting up the transaction log fails
-	 */
-	boolean setupIndexTransactionLog(IndexType indexType);
-
-	/**
 	 * Truncate resource to given revision.
-	 * 
+	 *
 	 * @param revision the given revision
 	 * @return this page writer instance
 	 */
@@ -130,16 +120,6 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException if {@code multipleWriteTrx} is {@code null}
 	 */
 	UberPage commit();
-
-	/**
-	 * Update log.
-	 *
-	 * @param nodePageCont {@link RecordPageContainer} reference to synchronize
-	 * @param pageKind type of page
-	 * @throws NullPointerException if {@code nodePageCont} or {@code page} is {@code null}
-	 */
-	void updateDataContainer(@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageCont,
-			@Nonnull PageKind pageKind);
 
 	/**
 	 * Committing a {@link XdmNodeWriteTrx}. This method is recursively invoked by all

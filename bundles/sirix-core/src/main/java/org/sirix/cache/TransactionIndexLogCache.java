@@ -24,8 +24,6 @@ package org.sirix.cache;
 import java.io.File;
 import java.util.Map;
 
-import javax.annotation.Nonnegative;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -54,14 +52,13 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	 * Constructor.
 	 *
 	 * @param file the config for having a storage-place
-	 * @param revision revision number
 	 * @param logType type of log
 	 * @param pageReadTrx page reading transaction
 	 * @throws SirixIOException if a database error occurs
 	 */
-	public TransactionIndexLogCache(final File file, final @Nonnegative int revision,
-			final String logType, final PageReadTrx pageReadTrx) throws SirixIOException {
-		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, revision, logType, pageReadTrx);
+	public TransactionIndexLogCache(final File file, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
+		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, logType, pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 

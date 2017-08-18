@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -26,8 +26,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.util.Map;
 import java.util.Map.Entry;
-
-import javax.annotation.Nonnegative;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -48,9 +46,9 @@ import com.sleepycat.je.OperationStatus;
 /**
  * Berkeley implementation of a persistent cache. That means that all data is stored in this cache
  * and it is never removed. This is useful e.g. when it comes to transaction logging.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class BerkeleyPersistencePageCache
 		extends AbstractPersistenceCache<IndirectPageLogKey, Page> {
@@ -90,16 +88,15 @@ public final class BerkeleyPersistencePageCache
 
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
-	 * 
+	 *
 	 * @param file the place where the berkeley db is stored.
-	 * @param revision revision number, needed to reconstruct the sliding window in the correct way
 	 * @param logType type of log to append to the path of the log
 	 * @param resourceConfig {@link ResourceConfiguration} instance
 	 * @throws SirixIOException if an database open exception occurs
 	 */
-	public BerkeleyPersistencePageCache(final File file, final @Nonnegative int revision,
-			final String logType, final PageReadTrx pageReadTrx) throws SirixIOException {
-		super(checkNotNull(file), revision, logType);
+	public BerkeleyPersistencePageCache(final File file, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
+		super(checkNotNull(file), logType);
 		try {
 			// Create a new, transactional database environment.
 			final EnvironmentConfig config = new EnvironmentConfig();
