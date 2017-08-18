@@ -98,7 +98,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
 		mResourceManager = resourceManager;
-		System.out.println();
+
 		try {
 			final Optional<? extends Record> node = mPageReadTrx
 					.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
