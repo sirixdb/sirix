@@ -26,7 +26,6 @@ import java.util.Map;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
@@ -39,14 +38,13 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
-		implements Cache<IndexLogKey, RecordPageContainer<T>> {
+public final class TransactionIndexLogCache implements Cache<IndexLogKey, PageContainer> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<IndexLogKey, RecordPageContainer<T>> mFirstCache;
+	private final LRUCache<IndexLogKey, PageContainer> mFirstCache;
 
 	/** Persistend second cache. */
-	private final BerkeleyIndexPersistenceCache<T> mSecondCache;
+	private final BerkeleyIndexPersistenceCache mSecondCache;
 
 	/**
 	 * Constructor.
@@ -58,7 +56,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	 */
 	public TransactionIndexLogCache(final File file, final String logType,
 			final PageReadTrx pageReadTrx) throws SirixIOException {
-		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, logType, pageReadTrx);
+		mSecondCache = new BerkeleyIndexPersistenceCache(file, logType, pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 
@@ -73,9 +71,9 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public ImmutableMap<IndexLogKey, RecordPageContainer<T>> getAll(
+	public ImmutableMap<IndexLogKey, PageContainer> getAll(
 			final Iterable<? extends IndexLogKey> pKeys) {
-		final ImmutableMap.Builder<IndexLogKey, RecordPageContainer<T>> builder =
+		final ImmutableMap.Builder<IndexLogKey, PageContainer> builder =
 				new ImmutableMap.Builder<>();
 		for (final IndexLogKey key : pKeys) {
 			if (mFirstCache.get(key) != null) {
@@ -91,22 +89,20 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final IndexLogKey key) {
-		@SuppressWarnings("unchecked")
-		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
+	public PageContainer get(final IndexLogKey key) {
 		if (mFirstCache.get(key) != null) {
-			container = mFirstCache.get(key);
+			return mFirstCache.get(key);
 		}
-		return container;
+		return PageContainer.EMPTY_INSTANCE;
 	}
 
 	@Override
-	public void put(final IndexLogKey key, final RecordPageContainer<T> value) {
+	public void put(final IndexLogKey key, final PageContainer value) {
 		mFirstCache.put(key, value);
 	}
 
 	@Override
-	public void putAll(final Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
+	public void putAll(final Map<? extends IndexLogKey, ? extends PageContainer> map) {
 		mFirstCache.putAll(map);
 	}
 

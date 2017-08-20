@@ -1,6 +1,6 @@
 package org.sirix.page;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -11,9 +11,9 @@ import org.sirix.page.interfaces.Page;
 
 /**
  * OverflowPage used to store records which are longer than a predefined threshold.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class OverflowPage implements Page {
 
@@ -29,7 +29,7 @@ public final class OverflowPage implements Page {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param data data to be stored
 	 */
 	public OverflowPage(final byte[] data) {
@@ -38,7 +38,7 @@ public final class OverflowPage implements Page {
 		mData = data;
 	}
 
-	public OverflowPage(final DataInputStream in) throws IOException {
+	public OverflowPage(final DataInput in) throws IOException {
 		mData = new byte[in.readInt()];
 		in.readFully(mData);
 	}

@@ -27,7 +27,6 @@ import java.util.Map;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
@@ -40,10 +39,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, Page> {
+public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, PageContainer> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<IndirectPageLogKey, Page> mFirstCache;
+	private final LRUCache<IndirectPageLogKey, PageContainer> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
@@ -73,9 +72,10 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	}
 
 	@Override
-	public ImmutableMap<IndirectPageLogKey, Page> getAll(
+	public ImmutableMap<IndirectPageLogKey, PageContainer> getAll(
 			final Iterable<? extends IndirectPageLogKey> keys) {
-		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<IndirectPageLogKey, PageContainer> builder =
+				new ImmutableMap.Builder<>();
 		for (final IndirectPageLogKey key : keys) {
 			if (mFirstCache.get(key) != null) {
 				builder.put(key, mFirstCache.get(key));
@@ -90,17 +90,17 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	}
 
 	@Override
-	public Page get(final IndirectPageLogKey key) {
+	public PageContainer get(final IndirectPageLogKey key) {
 		return mFirstCache.get(key);
 	}
 
 	@Override
-	public void put(final IndirectPageLogKey key, final Page value) {
+	public void put(final IndirectPageLogKey key, final PageContainer value) {
 		mFirstCache.put(key, value);
 	}
 
 	@Override
-	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
+	public void putAll(final Map<? extends IndirectPageLogKey, ? extends PageContainer> map) {
 		mFirstCache.putAll(map);
 	}
 

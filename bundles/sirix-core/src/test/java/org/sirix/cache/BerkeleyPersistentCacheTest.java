@@ -37,7 +37,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public class BerkeleyPersistentCacheTest {
 
-	private Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> cache;
+	private Cache<Long, PageContainer> cache;
 
 	private Holder holder;
 
@@ -49,7 +49,7 @@ public class BerkeleyPersistentCacheTest {
 		TestHelper.createTestDocument();
 		holder = Holder.openResourceManager();
 		mPageReadTrx = holder.getResourceManager().beginPageReadTrx();
-		cache = new BerkeleyPersistenceCache<>(
+		cache = new BerkeleyPersistenceCache(
 				new File(new File(TestHelper.PATHS.PATH1.getFile(),
 						DatabaseConfiguration.Paths.DATA.getFile().getName()), TestHelper.RESOURCE),
 				"log", mPageReadTrx);
@@ -59,8 +59,8 @@ public class BerkeleyPersistentCacheTest {
 	@Test
 	public void test() {
 		for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<UnorderedKeyValuePage> cont = cache.get(i);
-			final UnorderedKeyValuePage current = cont.getComplete();
+			final PageContainer cont = cache.get(i);
+			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
 		}
 	}

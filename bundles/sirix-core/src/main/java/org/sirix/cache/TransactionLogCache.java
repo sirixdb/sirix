@@ -27,7 +27,6 @@ import java.util.Map;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
@@ -40,14 +39,13 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class TransactionLogCache<T extends KeyValuePage<?, ?>>
-		implements Cache<Long, RecordPageContainer<T>> {
+public final class TransactionLogCache implements Cache<Long, PageContainer> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, RecordPageContainer<T>> mFirstCache;
+	private final LRUCache<Long, PageContainer> mFirstCache;
 
 	/** Persistend second cache. */
-	private final BerkeleyPersistenceCache<T> mSecondCache;
+	private final BerkeleyPersistenceCache mSecondCache;
 
 	/**
 	 * Constructor including the {@link DatabaseConfiguration} for persistent storage.
@@ -59,7 +57,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>>
 	 */
 	public TransactionLogCache(final File file, final String logType, final PageReadTrx pageReadTrx)
 			throws SirixIOException {
-		mSecondCache = new BerkeleyPersistenceCache<>(file, logType, pageReadTrx);
+		mSecondCache = new BerkeleyPersistenceCache(file, logType, pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 
@@ -74,8 +72,8 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public ImmutableMap<Long, RecordPageContainer<T>> getAll(final Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
+	public ImmutableMap<Long, PageContainer> getAll(final Iterable<? extends Long> pKeys) {
+		final ImmutableMap.Builder<Long, PageContainer> builder = new ImmutableMap.Builder<>();
 		for (final Long key : pKeys) {
 			if (mFirstCache.get(key) != null) {
 				builder.put(key, mFirstCache.get(key));
@@ -90,22 +88,20 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final Long key) {
-		@SuppressWarnings("unchecked")
-		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
+	public PageContainer get(final Long key) {
 		if (mFirstCache.get(key) != null) {
-			container = mFirstCache.get(key);
+			return mFirstCache.get(key);
 		}
-		return container;
+		return PageContainer.EMPTY_INSTANCE;
 	}
 
 	@Override
-	public void put(final Long key, final RecordPageContainer<T> value) {
+	public void put(final Long key, final PageContainer value) {
 		mFirstCache.put(key, value);
 	}
 
 	@Override
-	public void putAll(final Map<? extends Long, ? extends RecordPageContainer<T>> map) {
+	public void putAll(final Map<? extends Long, ? extends PageContainer> map) {
 		mFirstCache.putAll(map);
 	}
 

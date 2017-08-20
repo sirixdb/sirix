@@ -5,7 +5,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
@@ -111,7 +111,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws NullPointerException if {@code pageKind} is {@code null}
 	 * @throws IllegalArgumentException if {@code key} is negative
 	 */
-	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+	<K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
 			@Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException;
 

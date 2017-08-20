@@ -317,7 +317,8 @@ public final class XdmResourceManager implements ResourceManager {
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
 		return new PageWriteTrxImpl(this,
 				abort == Abort.YES && lastCommitedUberPage.isBootstrap() ? new UberPage()
-						: new UberPage(lastCommitedUberPage),
+						: new UberPage(lastCommitedUberPage,
+								representRevision > 0 ? writer.readUberPageReference().getKey() : -1),
 				writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
 	}
 

@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
@@ -115,7 +115,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
 			@Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException {
 		return delegate().<K, V, S>getRecordPageContainer(key, index, pageKind);

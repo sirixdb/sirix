@@ -25,7 +25,6 @@ import java.util.Objects;
 
 import javax.annotation.Nullable;
 
-import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -42,16 +41,14 @@ import com.google.common.base.MoreObjects;
  */
 public final class PageReference {
 
-	private IndirectPageLogKey mLogKey;
-
 	/** In-memory deserialized page instance. */
 	private Page mPage;
 
-	/** Corresponding mKey of the related key/value page. */
-	private long mKeyValuePageKey = -1;
-
 	/** Key in persistent storage. */
 	private long mKey = Constants.NULL_ID;
+
+	/** Log key. */
+	private long mLogKey = Constants.NULL_ID;
 
 	/**
 	 * Default constructor setting up an uninitialized page reference.
@@ -66,7 +63,6 @@ public final class PageReference {
 	public PageReference(final PageReference reference) {
 		mLogKey = reference.mLogKey;
 		mPage = reference.mPage;
-		mKeyValuePageKey = reference.mKeyValuePageKey;
 		mKey = reference.mKey;
 	}
 
@@ -106,46 +102,28 @@ public final class PageReference {
 		mKey = key;
 	}
 
+	/**
+	 * Get start byte offset in file.
+	 *
+	 * @return start offset in file
+	 */
+	public long getLogKey() {
+		return mLogKey;
+	}
+
+	/**
+	 * Set start byte offset in file.
+	 *
+	 * @param key key of this reference set by the persistent storage
+	 */
+	public void setLogKey(final long key) {
+		mLogKey = key;
+	}
+
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("keyValuePage", mKeyValuePageKey).add("key", mKey)
+		return MoreObjects.toStringHelper(this).add("logKey", mLogKey).add("key", mKey)
 				.add("page", mPage).toString();
-	}
-
-	/**
-	 * Set keyValuePageKey key.
-	 *
-	 * @param keyValuePageKey the keyValuePageKey to set
-	 */
-	public void setKeyValuePageKey(final long keyValuePageKey) {
-		mKeyValuePageKey = keyValuePageKey;
-	}
-
-	/**
-	 * Get nodepage key.
-	 *
-	 * @return the nodePageKey
-	 */
-	public long getKeyValuePageKey() {
-		return mKeyValuePageKey;
-	}
-
-	/**
-	 * Set a {@link IndirectPageLogKey}.
-	 *
-	 * @param logKey the {@link IndirectPageLogKey}
-	 */
-	public void setLogKey(final IndirectPageLogKey logKey) {
-		mLogKey = logKey;
-	}
-
-	/**
-	 * Get a {@link IndirectPageLogKey}
-	 *
-	 * @return the {@link IndirectPageLogKey}
-	 */
-	public IndirectPageLogKey getLogKey() {
-		return mLogKey;
 	}
 
 	@Override

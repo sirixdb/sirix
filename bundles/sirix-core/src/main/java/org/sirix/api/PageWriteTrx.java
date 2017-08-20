@@ -6,8 +6,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.Restore;
-import org.sirix.cache.IndirectPageLogKey;
-import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -15,9 +14,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 
 /**
  * Interface for writing pages to disk and to create in-memory records.
@@ -39,21 +36,9 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	/**
 	 * Put a page into the cache.
 	 *
-	 * @param key the unique logKey in a subtree
 	 * @param page the page to put into the cache
 	 */
-	void putPageIntoCache(IndirectPageLogKey key, @Nonnull Page page);
-
-	/**
-	 * Put a pageContainer into the key/value page cache.
-	 *
-	 * @param pageKind the kind of page
-	 * @param key the unique pageKey in a subtree
-	 * @param index the index number or {@code -1} for regular key/value pages
-	 * @param pageContainer the pageContainer to put into the cache
-	 */
-	void putPageIntoKeyValueCache(PageKind pageKind, @Nonnegative long key, int index,
-			@Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
+	long appendLogRecord(@Nonnull PageContainer page);
 
 	/**
 	 * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
@@ -145,4 +130,6 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @return the {@link PageReadTrx} reference
 	 */
 	PageReadTrx getPageReadTrx();
+
+	UberPage rollback();
 }

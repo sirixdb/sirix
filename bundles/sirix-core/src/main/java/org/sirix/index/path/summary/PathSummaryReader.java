@@ -19,7 +19,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.Move;
-import org.sirix.access.Moved;
 import org.sirix.api.Axis;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
@@ -578,9 +577,9 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 				moveToRightSibling();
 			}
 
-			return Moved.moved(this);
+			return Move.moved(this);
 		}
-		return Moved.notMoved();
+		return Move.notMoved();
 	}
 
 	@Override

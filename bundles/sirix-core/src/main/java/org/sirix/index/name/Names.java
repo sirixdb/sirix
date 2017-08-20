@@ -2,7 +2,7 @@ package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
@@ -15,9 +15,9 @@ import com.google.common.collect.HashBiMap;
 
 /**
  * Names index structure.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class Names {
 
@@ -37,10 +37,10 @@ public final class Names {
 
 	/**
 	 * Constructor to build index of from a persistent storage.
-	 * 
+	 *
 	 * @param in the persistent storage
 	 */
-	private Names(final DataInputStream in) throws IOException {
+	private Names(final DataInput in) throws IOException {
 		final int mapSize = in.readInt();
 		mNameMap = HashBiMap.create(mapSize);
 		mCountNameMapping = new HashMap<>(mapSize);
@@ -58,7 +58,7 @@ public final class Names {
 
 	/**
 	 * Serialize name-index.
-	 * 
+	 *
 	 * @param out the persistent storage
 	 */
 	public void serialize(final DataOutput out) throws IOException {
@@ -76,7 +76,7 @@ public final class Names {
 
 	/**
 	 * Remove a name.
-	 * 
+	 *
 	 * @param key the key to remove
 	 */
 	public void removeName(final int key) {
@@ -93,7 +93,7 @@ public final class Names {
 
 	/**
 	 * Get bytes representation of a string value in a map.
-	 * 
+	 *
 	 * @param name the string representation
 	 * @return byte representation of a string value in a map
 	 */
@@ -103,7 +103,7 @@ public final class Names {
 
 	/**
 	 * Create name key given a name.
-	 * 
+	 *
 	 * @param pKey key for given name
 	 * @param name name to create key for
 	 */
@@ -119,7 +119,7 @@ public final class Names {
 
 	/**
 	 * Get the name for the key.
-	 * 
+	 *
 	 * @param key the key to look up
 	 * @return the string the key maps to, or {@code null} if no mapping exists
 	 */
@@ -133,7 +133,7 @@ public final class Names {
 
 	/**
 	 * Get the number of nodes with the same name.
-	 * 
+	 *
 	 * @param key the key to lookup
 	 * @return number of nodes with the same name
 	 */
@@ -147,7 +147,7 @@ public final class Names {
 
 	/**
 	 * Get the name for the key.
-	 * 
+	 *
 	 * @param key the key to look up
 	 * @return the byte-array representing the string the key maps to
 	 */
@@ -157,7 +157,7 @@ public final class Names {
 
 	/**
 	 * Get a new instance.
-	 * 
+	 *
 	 * @return new instance of {@link Names}
 	 */
 	public static Names getInstance() {
@@ -166,11 +166,11 @@ public final class Names {
 
 	/**
 	 * Clone an instance.
-	 * 
+	 *
 	 * @param in input source, the persistent storage
 	 * @return cloned index
 	 */
-	public static Names clone(final DataInputStream in) throws IOException {
+	public static Names clone(final DataInput in) throws IOException {
 		return new Names(in);
 	}
 }

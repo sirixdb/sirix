@@ -23,7 +23,7 @@ package org.sirix.page.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -75,7 +75,7 @@ public class PageDelegate implements Page {
 	 * @param in input stream to read from
 	 * @throws IOException if the delegate couldn't be deserialized
 	 */
-	public PageDelegate(final @Nonnegative int referenceCount, final DataInputStream in)
+	public PageDelegate(final @Nonnegative int referenceCount, final DataInput in)
 			throws IOException {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
@@ -120,8 +120,8 @@ public class PageDelegate implements Page {
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		for (final PageReference reference : mReferences) {
-			if (!(reference.getLogKey() == null && reference.getPage() == null
-					&& reference.getKey() == Constants.NULL_ID)) {
+			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID
+					&& reference.getLogKey() == Constants.NULL_ID)) {
 				pageWriteTrx.commit(reference);
 			}
 		}

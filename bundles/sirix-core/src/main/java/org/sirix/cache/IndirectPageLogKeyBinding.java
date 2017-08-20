@@ -17,7 +17,7 @@ public final class IndirectPageLogKeyBinding extends TupleBinding<IndirectPageLo
 	@Override
 	public IndirectPageLogKey entryToObject(final TupleInput in) {
 		return new IndirectPageLogKey(PageKind.getKind(in.readByte()), in.readInt(), in.readInt(),
-				in.readInt());
+				in.readInt(), in.readLong());
 	}
 
 	@Override
@@ -26,5 +26,6 @@ public final class IndirectPageLogKeyBinding extends TupleBinding<IndirectPageLo
 		out.writeInt(key.getIndex());
 		out.writeInt(key.getLevel());
 		out.writeInt(key.getOffset());
+		out.writeLong(key.getPageKey());
 	}
 }

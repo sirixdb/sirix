@@ -30,6 +30,7 @@ import javax.annotation.Nullable;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.Page;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -56,28 +57,27 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
+public final class PageContainer {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER =
-			new LogWrapper(LoggerFactory.getLogger(RecordPageContainer.class));
+			new LogWrapper(LoggerFactory.getLogger(PageContainer.class));
 
 	/**
 	 * {@link UnorderedKeyValuePage} reference, which references the complete key/value page.
 	 */
-	private final T mComplete;
+	private final Page mComplete;
 
 	/**
 	 * {@link UnorderedKeyValuePage} reference, which references the modified key/value page.
 	 */
-	private final T mModified;
+	private final Page mModified;
 
 	/** Empty instance. */
-	public static final RecordPageContainer<? extends KeyValuePage<?, ?>> EMPTY_INSTANCE =
-			new RecordPageContainer<>();
+	public static final PageContainer EMPTY_INSTANCE = new PageContainer();
 
 	/** Private constructor for empty instance. */
-	private RecordPageContainer() {
+	private PageContainer() {
 		mComplete = null;
 		mModified = null;
 	}
@@ -87,21 +87,8 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 *
 	 * @return the empty instance
 	 */
-	@SuppressWarnings("unchecked")
-	public static final <T extends KeyValuePage<?, ?>> RecordPageContainer<T> emptyInstance() {
-		return (RecordPageContainer<T>) EMPTY_INSTANCE;
-	}
-
-	/**
-	 * Constructor with complete page and lazy instantiated modifying page.
-	 *
-	 * @param complete page to clone
-	 * @param revision the new revision
-	 */
-	@SuppressWarnings("unchecked")
-	public RecordPageContainer(final T complete) {
-		this(complete, (T) complete.newInstance(complete.getPageKey(), complete.getPageKind(),
-				complete.getPreviousReference(), complete.getPageReadTrx()));
+	public static final PageContainer emptyInstance() {
+		return EMPTY_INSTANCE;
 	}
 
 	/**
@@ -110,7 +97,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * @param complete to be used as a base for this container
 	 * @param modifying to be used as a base for this container
 	 */
-	public RecordPageContainer(final T complete, final T modifying) {
+	public PageContainer(final Page complete, final Page modifying) {
 		// Assertions as it's not part of the public API.
 		assert complete != null;
 		assert modifying != null;
@@ -123,7 +110,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 *
 	 * @return the complete page
 	 */
-	public T getComplete() {
+	public Page getComplete() {
 		return mComplete;
 	}
 
@@ -132,7 +119,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 *
 	 * @return the modified page
 	 */
-	public T getModified() {
+	public Page getModified() {
 		return mModified;
 	}
 
@@ -160,8 +147,8 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof RecordPageContainer) {
-			final RecordPageContainer<?> other = (RecordPageContainer<?>) obj;
+		if (obj instanceof PageContainer) {
+			final PageContainer other = (PageContainer) obj;
 			return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
 		}
 		return false;

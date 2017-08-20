@@ -23,7 +23,7 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -94,7 +94,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *
 	 * @param in input stream
 	 */
-	protected RevisionRootPage(final DataInputStream in) throws IOException {
+	protected RevisionRootPage(final DataInput in) throws IOException {
 		mDelegate = new PageDelegate(5, in);
 		mRevision = in.readInt();
 		mMaxNodeKey = in.readLong();
@@ -246,8 +246,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getIndirectPageReference();
-		if (reference.getPage() == null && reference.getLogKey() == null
-				&& reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID
+				&& reference.getLogKey() == Constants.NULL_ID) {
 			PageUtils.createTree(reference, PageKind.RECORDPAGE, -1, pageWriteTrx);
 			incrementAndGetMaxNodeKey();
 		}
