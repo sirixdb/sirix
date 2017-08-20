@@ -1764,11 +1764,17 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 			final int revision = getRevisionNumber();
 			final int revNumber = getPageTransaction().getUberPage().isBootstrap() ? 0 : revision - 1;
 
+			final UberPage uberPage = getPageTransaction().rollback();
+
+			// Remember succesfully committed uber page in resource manager.
+			mNodeReader.mResourceManager.setLastCommittedUberPage(uberPage);
+
 			mNodeReader.getPageTransaction().clearCaches();
 			mNodeReader.getPageTransaction().closeCaches();
 			mNodeReader.mResourceManager.closeNodePageWriteTransaction(getId());
 			mNodeReader.setPageReadTransaction(null);
 			removeCommitFile();
+
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx = mNodeReader.mResourceManager
 					.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.YES);
 			mNodeReader.setPageReadTransaction(trx);
@@ -1806,7 +1812,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 		try {
 			final UberPage uberPage = getPageTransaction().commit();
 
-			// Remember succesfully committed uber page in session.
+			// Remember succesfully committed uber page in resource manager.
 			mNodeReader.mResourceManager.setLastCommittedUberPage(uberPage);
 
 			// Reinstantiate everything.

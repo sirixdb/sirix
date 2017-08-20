@@ -1,26 +1,6 @@
 package org.sirix.page;
 
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
@@ -74,7 +54,7 @@ public final class PathPage extends AbstractForwardingPage {
 	 * @param in input bytes to read from
 	 * @throws IOException if the page couldn't be deserialized
 	 */
-	protected PathPage(final DataInputStream in) throws IOException {
+	protected PathPage(final DataInput in) throws IOException {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -108,8 +88,8 @@ public final class PathPage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createPathIndexTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
 		final PageReference reference = getReference(index);
-		if (reference.getPage() == null && reference.getLogKey() == null
-				&& reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID
+				&& reference.getLogKey() == Constants.NULL_ID) {
 			PageUtils.createTree(reference, PageKind.PATHPAGE, index, pageWriteTrx);
 			if (mMaxNodeKeys.get(index) == null) {
 				mMaxNodeKeys.put(index, 0l);

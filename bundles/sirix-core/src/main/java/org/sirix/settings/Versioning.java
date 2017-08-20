@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -31,17 +31,17 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageReadTrx;
-import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 
 /**
  * Different versioning algorithms.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public enum Versioning {
 
@@ -57,7 +57,7 @@ public enum Versioning {
 		}
 
 		@Override
-		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
 				final List<T> pages, final @Nonnegative int revToRestore, final PageReadTrx pageReadTrx,
 				final PageReference reference) {
 			assert pages.size() == 1;
@@ -74,7 +74,7 @@ public enum Versioning {
 				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 
-			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+			return new PageContainer(returnVal.get(0), returnVal.get(1));
 		}
 
 		@Override
@@ -136,7 +136,7 @@ public enum Versioning {
 		}
 
 		@Override
-		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
 				final List<T> pages, final @Nonnegative int revToRestore, final PageReadTrx pageReadTrx,
 				final PageReference reference) {
 			assert pages.size() <= 2;
@@ -201,7 +201,7 @@ public enum Versioning {
 				}
 			}
 
-			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+			return new PageContainer(returnVal.get(0), returnVal.get(1));
 		}
 
 		@Override
@@ -268,12 +268,11 @@ public enum Versioning {
 		}
 
 		@Override
-		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
 				final List<T> pages, final int revToRestore, final PageReadTrx pageReadTrx,
 				final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
-			// final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
 					Optional.of(reference), pageReadTrx));
@@ -328,7 +327,7 @@ public enum Versioning {
 				}
 			}
 
-			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+			return new PageContainer(returnVal.get(0), returnVal.get(1));
 		}
 
 		@Override
@@ -405,7 +404,7 @@ public enum Versioning {
 		}
 
 		@Override
-		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
 				final List<T> pages, final int revToRestore, final PageReadTrx pageReadTrx,
 				final PageReference reference) {
 			final T firstPage = pages.get(0);
@@ -473,7 +472,7 @@ public enum Versioning {
 				}
 			}
 
-			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+			return new PageContainer(returnVal.get(0), returnVal.get(1));
 		}
 
 		@Override
@@ -502,7 +501,7 @@ public enum Versioning {
 	/**
 	 * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus
 	 * a revision-delta which determines the necessary steps back.
-	 * 
+	 *
 	 * @param pages the base of the complete {@link KeyValuePage}
 	 * @param revsToRestore the number of revisions needed to build the complete record page
 	 * @return the complete {@link KeyValuePage}
@@ -513,19 +512,19 @@ public enum Versioning {
 	/**
 	 * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
 	 * {@link KeyValuePage} for serializing with the nodes to write.
-	 * 
+	 *
 	 * @param pages the base of the complete {@link KeyValuePage}
 	 * @param revsToRestore the revisions needed to build the complete record page
-	 * @return a {@link RecordPageContainer} holding a complete {@link KeyValuePage} for reading and
+	 * @return a {@link PageContainer} holding a complete {@link KeyValuePage} for reading and
 	 *         one for writing
 	 */
-	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer combineRecordPagesForModification(
 			final List<T> pages, final @Nonnegative int revsToRestore, final PageReadTrx pageReadTrx,
 			final PageReference reference);
 
 	/**
 	 * Get all revision root page numbers which are needed to restore a {@link KeyValuePage}.
-	 * 
+	 *
 	 * @param previousRevision the previous revision
 	 * @param revsToRestore number of revisions to restore
 	 * @return revision root page numbers needed to restore a {@link KeyValuePage}

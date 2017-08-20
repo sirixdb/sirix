@@ -374,8 +374,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 
 		for (final PageReference reference : mReferences.values()) {
-			if (!(reference.getLogKey() == null && reference.getPage() == null
-					&& reference.getKey() == Constants.NULL_ID)) {
+			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID
+					&& reference.getLogKey() == Constants.NULL_ID)) {
 				pageWriteTrx.commit(reference);
 			}
 		}

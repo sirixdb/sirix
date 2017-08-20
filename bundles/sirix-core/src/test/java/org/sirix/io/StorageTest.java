@@ -81,35 +81,36 @@ public final class StorageTest {
 	public void testFirstRef(final Class<Storage> clazz, final Storage[] storages)
 			throws SirixException {
 		for (final Storage handler : storages) {
-			final PageReference pageRef1 = new PageReference();
-			final UberPage page1 = new UberPage();
-			pageRef1.setPage(page1);
+			try {
+				final PageReference pageRef1 = new PageReference();
+				final UberPage page1 = new UberPage();
+				pageRef1.setPage(page1);
 
-			// same instance check
-			final Writer writer = handler.createWriter();
-			writer.writeUberPageReference(pageRef1);
-			final PageReference pageRef2 = writer.readUberPageReference();
-			assertEquals(
-					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-					pageRef1.getKeyValuePageKey(), pageRef2.getKeyValuePageKey());
-			assertEquals(
-					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-					((UberPage) pageRef1.getPage()).getRevisionCount(),
-					((UberPage) pageRef2.getPage()).getRevisionCount());
-			writer.close();
+				// same instance check
+				final PageReference pageRef2;
+				try (final Writer writer = handler.createWriter()) {
+					pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
+					assertEquals(
+							new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+									.toString(),
+							((UberPage) pageRef1.getPage()).getRevisionCount(),
+							((UberPage) pageRef2.getPage()).getRevisionCount());
+				}
 
-			// new instance check
-			final Reader reader = handler.createReader();
-			final PageReference pageRef3 = reader.readUberPageReference();
-			assertEquals(
-					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-					pageRef1.getKeyValuePageKey(), pageRef3.getKeyValuePageKey());
-			assertEquals(
-					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-					((UberPage) pageRef1.getPage()).getRevisionCount(),
-					((UberPage) pageRef3.getPage()).getRevisionCount());
-			reader.close();
-			handler.close();
+				// new instance check
+				try (final Reader reader = handler.createReader()) {
+					final PageReference pageRef3 = reader.readUberPageReference();
+					assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+							.toString(), pageRef2.getKey(), pageRef3.getKey());
+					assertEquals(
+							new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+									.toString(),
+							((UberPage) pageRef2.getPage()).getRevisionCount(),
+							((UberPage) pageRef3.getPage()).getRevisionCount());
+				}
+			} finally {
+				handler.close();
+			}
 		}
 	}
 
@@ -122,10 +123,8 @@ public final class StorageTest {
 	 */
 	@DataProvider(name = "instantiateStorages")
 	public Object[][] instantiateStorages() throws SirixIOException {
-		Object[][] returnVal = {{Storage.class, new Storage[] { // new
-																														// ChronicleStorage(mResourceConfig),
-				new FileStorage(mResourceConfig), new BerkeleyStorage(mResourceConfig),
-				new RAMStorage(mResourceConfig)}}};
+		Object[][] returnVal = {{Storage.class, new Storage[] {new FileStorage(mResourceConfig),
+				new BerkeleyStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
 		return returnVal;
 	}
 

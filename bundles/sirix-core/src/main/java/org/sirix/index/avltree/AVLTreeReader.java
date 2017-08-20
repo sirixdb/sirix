@@ -12,7 +12,6 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.Move;
-import org.sirix.access.Moved;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResultType;
@@ -454,7 +453,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		if (mCurrentNode instanceof AVLNode) {
 			final AVLNode<K, V> node = getAVLNode();
 			if (!node.hasLeftChild()) {
-				return Moved.notMoved();
+				return Move.notMoved();
 			}
 			return moveTo(node.getLeftChildKey());
 		}
@@ -466,7 +465,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		if (mCurrentNode instanceof AVLNode) {
 			final AVLNode<K, V> node = getAVLNode();
 			if (!node.hasRightChild()) {
-				return Moved.notMoved();
+				return Move.notMoved();
 			}
 			return moveTo(node.getRightChildKey());
 		}

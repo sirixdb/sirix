@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,7 +21,7 @@
 
 package org.sirix.page;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.IOException;
 
 import org.sirix.page.delegates.PageDelegate;
@@ -30,7 +30,7 @@ import org.sirix.settings.Constants;
 
 /**
  * <h1>IndirectPage</h1>
- * 
+ *
  * <p>
  * Indirect page holds a set of references to build a reference tree.
  * </p>
@@ -42,7 +42,7 @@ public final class IndirectPage extends AbstractForwardingPage {
 
 	/**
 	 * Create indirect page.
-	 * 
+	 *
 	 */
 	public IndirectPage() {
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
@@ -50,16 +50,16 @@ public final class IndirectPage extends AbstractForwardingPage {
 
 	/**
 	 * Read indirect page.
-	 * 
+	 *
 	 * @param in input source
 	 */
-	protected IndirectPage(final DataInputStream in) throws IOException {
+	protected IndirectPage(final DataInput in) throws IOException {
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 	}
 
 	/**
 	 * Clone indirect page.
-	 * 
+	 *
 	 * @param page {@link IndirectPage} to clone
 	 */
 	public IndirectPage(final IndirectPage page) {

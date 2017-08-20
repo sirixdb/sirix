@@ -23,14 +23,14 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.IndirectPageLogKey;
+import org.sirix.cache.PageContainer;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -68,6 +68,7 @@ public final class UberPage extends AbstractForwardingPage {
 	/** The current most recent revision */
 	private final int mRevision;
 
+	/** Key to previous uberpage in persistent storage. */
 	private long mPreviousUberPageKey;
 
 	/**
@@ -86,10 +87,10 @@ public final class UberPage extends AbstractForwardingPage {
 	/**
 	 * Read uber page.
 	 *
-	 * @param pIn input bytes
+	 * @param in input bytes
 	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final DataInputStream in) throws IOException {
+	protected UberPage(final DataInput in) throws IOException {
 		mDelegate = new PageDelegate(1, in);
 		mRevisionCount = in.readInt();
 		if (in.readBoolean())
@@ -97,7 +98,6 @@ public final class UberPage extends AbstractForwardingPage {
 		mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
 		mBootstrap = false;
 		mRootPage = null;
-		mPreviousUberPageKey = -1;
 	}
 
 	/**
@@ -106,9 +106,9 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param commitedUberPage page to clone
 	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final UberPage committedUberPage) {
+	public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
 		mDelegate = new PageDelegate(checkNotNull(committedUberPage));
-		mPreviousUberPageKey = committedUberPage.getPreviousUberPageKey();
+		mPreviousUberPageKey = previousUberPageKey;
 		if (committedUberPage.isBootstrap()) {
 			mRevision = committedUberPage.mRevision;
 			mRevisionCount = committedUberPage.mRevisionCount;
@@ -202,16 +202,17 @@ public final class UberPage extends AbstractForwardingPage {
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		// Initialize revision tree to guarantee that there is a revision root page.
 		Page page = null;
+		PageReference reference = getIndirectPageReference();
 
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1, i, 0), page);
+			reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(page, page)));
+			reference = page.getReference(0);
 		}
 
 		mRootPage = new RevisionRootPage();
-		pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1,
-				Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length, 0), mRootPage);
+		reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(mRootPage, mRootPage)));
 	}
 
 	/**

@@ -41,7 +41,7 @@ import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
- * Binding for {@link RecordPageContainer} reference.
+ * Binding for {@link PageContainer} reference.
  */
 public final class PageBinding extends TupleBinding<Page> {
 

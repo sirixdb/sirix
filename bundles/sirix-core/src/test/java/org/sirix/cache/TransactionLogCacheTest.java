@@ -33,7 +33,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.page.UnorderedKeyValuePage;
 
 public class TransactionLogCacheTest {
-	private Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mCache;
+	private Cache<Long, PageContainer> mCache;
 
 	private PageReadTrx mPageReadTrx;
 
@@ -43,15 +43,15 @@ public class TransactionLogCacheTest {
 		TestHelper.createTestDocument();
 		mPageReadTrx = Holder.openResourceManager().getResourceManager().beginPageReadTrx();
 
-		mCache = new TransactionLogCache<>(TestHelper.PATHS.PATH1.getFile(), "log", mPageReadTrx);
+		mCache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), "log", mPageReadTrx);
 		CacheTestHelper.setUp(mCache);
 	}
 
 	@Test
 	public void test() {
 		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<UnorderedKeyValuePage> cont = mCache.get((long) i);
-			final UnorderedKeyValuePage current = cont.getComplete();
+			final PageContainer cont = mCache.get((long) i);
+			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 	}

@@ -21,7 +21,7 @@
 
 package org.sirix.page;
 
-import java.io.DataInputStream;
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
@@ -85,7 +85,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 *
 	 * @param in input bytes to read from
 	 */
-	protected NamePage(final DataInputStream in) throws IOException {
+	protected NamePage(final DataInput in) throws IOException {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -259,8 +259,8 @@ public final class NamePage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNameIndexTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
 		final PageReference reference = getReference(index);
-		if (reference.getPage() == null && reference.getLogKey() == null
-				&& reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID
+				&& reference.getLogKey() == Constants.NULL_ID) {
 			PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageWriteTrx);
 			if (mMaxNodeKeys.get(index) == null) {
 				mMaxNodeKeys.put(index, 0l);

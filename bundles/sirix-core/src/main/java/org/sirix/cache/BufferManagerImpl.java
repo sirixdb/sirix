@@ -1,7 +1,6 @@
 package org.sirix.cache;
 
 import org.sirix.page.PageReference;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 public final class BufferManagerImpl implements BufferManager {
@@ -20,7 +19,7 @@ public final class BufferManagerImpl implements BufferManager {
 	}
 
 	@Override
-	public Cache<PageReference, RecordPageContainer<? extends KeyValuePage<?, ?>>> getRecordPageCache() {
+	public Cache<PageReference, PageContainer> getRecordPageCache() {
 		return mRecordPageCache;
 	}
 }

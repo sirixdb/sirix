@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,11 +33,11 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 /**
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public class LRUCacheTest {
 
-	private Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> cache;
+	private Cache<Long, PageContainer> cache;
 
 	@Before
 	public void setUp() throws SirixException {
@@ -57,12 +57,12 @@ public class LRUCacheTest {
 	@Test
 	public void test() {
 		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<UnorderedKeyValuePage> cont = cache.get((long) i);
+			final PageContainer cont = cache.get((long) i);
 			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 
-		final RecordPageContainer<UnorderedKeyValuePage> page = cache.get(0L);
+		final PageContainer page = cache.get(0L);
 		assertNull(page);
 	}
 

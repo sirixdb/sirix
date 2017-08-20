@@ -5,8 +5,7 @@ import java.util.Optional;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.IndirectPageLogKey;
-import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -48,9 +47,7 @@ public final class PageUtils {
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage();
-			final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, index, i, 0);
-			reference.setLogKey(logKey);
-			pageWriteTrx.putPageIntoCache(logKey, page);
+			reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(page, page)));
 			reference = page.getReference(0);
 		}
 
@@ -59,8 +56,7 @@ public final class PageUtils {
 				new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
 						Optional.<PageReference>empty(), pageWriteTrx);
 		ndp.setDirty(true);
-		reference.setKeyValuePageKey(0);
-		reference.setLogKey(new IndirectPageLogKey(pageKind, index, levelPageCountExp.length, 0));
+		// reference.setKeyValuePageKey(0);
 
 		// Create a {@link DocumentRootNode}.
 		final Optional<SirixDeweyID> id = pageWriteTrx.getSession().getResourceConfig().mDeweyIDsStored
@@ -73,7 +69,6 @@ public final class PageUtils {
 				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
-		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0, index,
-				new RecordPageContainer<UnorderedKeyValuePage>(ndp, ndp));
+		reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(ndp, ndp)));
 	}
 }
