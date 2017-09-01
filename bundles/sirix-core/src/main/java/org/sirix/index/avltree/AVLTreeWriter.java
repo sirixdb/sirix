@@ -28,7 +28,6 @@ import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UnorderedKeyValuePage;
-import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -69,26 +68,24 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 					// Create path index tree if needed.
 					final PathPage pathPage = pageWriteTrx.getPathPage(revisionRootPage);
 					reference = revisionRootPage.getPathPageReference();
-					if (reference.getLogKey() == Constants.NULL_ID)
-						reference
-								.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(pathPage, pathPage)));
+					// if (pageWriteTrx.getLogRecord(reference) == null)
+					pageWriteTrx.appendLogRecord(reference, new PageContainer(pathPage, pathPage));
 					pathPage.createPathIndexTree(pageWriteTrx, index);
 					break;
 				case CAS:
 					// Create CAS index tree if needed.
 					final CASPage casPage = pageWriteTrx.getCASPage(revisionRootPage);
 					reference = revisionRootPage.getCASPageReference();
-					if (reference.getLogKey() == Constants.NULL_ID)
-						reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(casPage, casPage)));
+					// if (pageWriteTrx.getLogRecord(reference) == null)
+					pageWriteTrx.appendLogRecord(reference, new PageContainer(casPage, casPage));
 					casPage.createCASIndexTree(pageWriteTrx, index);
 					break;
 				case NAME:
 					// Create name index tree if needed.
 					final NamePage namePage = pageWriteTrx.getNamePage(revisionRootPage);
 					reference = revisionRootPage.getNamePageReference();
-					if (reference.getLogKey() == Constants.NULL_ID)
-						reference
-								.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(namePage, namePage)));
+					// if (pageWriteTrx.getLogRecord(reference) == null)
+					pageWriteTrx.appendLogRecord(reference, new PageContainer(namePage, namePage));
 					namePage.createNameIndexTree(pageWriteTrx, index);
 					break;
 			}

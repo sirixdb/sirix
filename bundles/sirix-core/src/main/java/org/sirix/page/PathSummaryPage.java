@@ -53,8 +53,8 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	 *
 	 * @param in input bytes to read from
 	 */
-	protected PathSummaryPage(final DataInput in) throws IOException {
-		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
+	protected PathSummaryPage(final DataInput in, final SerializationType type) throws IOException {
+		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
 		for (int i = 0; i < size; i++) {
@@ -72,12 +72,6 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 		return mDelegate;
 	}
 
-	@Override
-	public Page setDirty(final boolean pDirty) {
-		mDelegate.setDirty(pDirty);
-		return this;
-	}
-
 	/**
 	 * Initialize text value tree.
 	 *
@@ -87,8 +81,9 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createPathSummaryTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
 		final PageReference reference = getReference(index);
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID
-				&& reference.getLogKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+				&& reference.getLogKey() == Constants.NULL_ID_INT
+				&& reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
 			PageUtils.createTree(reference, PageKind.PATHSUMMARYPAGE, index, pageWriteTrx);
 			if (mMaxNodeKeys.get(index) == null) {
 				mMaxNodeKeys.put(index, 0l);
@@ -99,8 +94,8 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
-		super.serialize(out);
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+		super.serialize(out, type);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);
 		for (int i = 0; i < size; i++) {

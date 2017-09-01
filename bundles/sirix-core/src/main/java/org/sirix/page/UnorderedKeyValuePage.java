@@ -57,7 +57,6 @@ import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.MoreObjects;
@@ -96,9 +95,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Dewey IDs which have to be serialized. */
 	private final Map<SirixDeweyID, Long> mDeweyIDs;
 
-	/** Determine if node page has been modified. */
-	private boolean mIsDirty;
-
 	/** Sirix {@link PageReadTrx}. */
 	private final PageReadTrx mPageReadTrx;
 
@@ -108,8 +104,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Persistenter. */
 	private final RecordPersistenter mPersistenter;
 
-	/** Reference to the previous page if any. */
-	private Optional<PageReference> mPreviousPageReference;
+	/** Reference key to the previous page if any. */
+	private long mPreviousPageRefKey;
 
 	/** The resource configuration. */
 	private final ResourceConfiguration mResourceConfig;
@@ -123,23 +119,21 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 * @param pageReadTrx the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
-			final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
+			final long previousPageRefKey, final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
-		assert previousPageRef != null : "optional previous page reference must not be null!";
 		assert pageReadTrx != null : "The page reading trx must not be null!";
 
 		mReferences = new LinkedHashMap<>();
 		mRecordPageKey = recordPageKey;
 		mRecords = new LinkedHashMap<>();
 		mSlots = new LinkedHashMap<>();
-		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mPageKind = pageKind;
 		mResourceConfig = pageReadTrx.getSession().getResourceConfig();
 		mPersistenter = mResourceConfig.mPersistenter;
-		mPreviousPageReference = previousPageRef;
+		mPreviousPageRefKey = previousPageRefKey;
 
 		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
 				&& mPersistenter instanceof NodePersistenter) {
@@ -210,11 +204,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		final boolean hasPreviousReference = in.readBoolean();
 		if (hasPreviousReference) {
-			final PageReference previousPageReference = new PageReference();
-			previousPageReference.setKey(in.readLong());
-			mPreviousPageReference = Optional.of(previousPageReference);
+			mPreviousPageRefKey = in.readLong();
 		} else {
-			mPreviousPageReference = Optional.empty();
+			mPreviousPageRefKey = Constants.NULL_ID_LONG;
 		}
 		mPageKind = PageKind.getKind(in.readByte());
 	}
@@ -232,9 +224,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			byte[] data = null;
 			try {
 				final PageReference reference = mReferences.get(key);
-				if (reference != null && reference.getKey() != Constants.NULL_ID) {
-					data = ((OverflowPage) mPageReadTrx.getReader().read(reference.getKey(), mPageReadTrx))
-							.getData();
+				if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+					data = ((OverflowPage) mPageReadTrx.getReader().read(reference, mPageReadTrx)).getData();
 				} else {
 					return null;
 				}
@@ -260,7 +251,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
 		if (!mAddedReferences) {
 			addReferences();
 		}
@@ -306,10 +297,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			out.writeLong(entry.getValue().getKey());
 		}
 		// Write previous reference if it has any reference.
-		final boolean hasPreviousReference = mPreviousPageReference.isPresent();
+		final boolean hasPreviousReference = mPreviousPageRefKey != Constants.NULL_ID_LONG;
 		out.writeBoolean(hasPreviousReference);
 		if (hasPreviousReference) {
-			out.writeLong(mPreviousPageReference.get().getKey());
+			out.writeLong(mPreviousPageRefKey);
 		}
 		out.writeByte(mPageKind.getID());
 	}
@@ -374,8 +365,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 
 		for (final PageReference reference : mReferences.values()) {
-			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID
-					&& reference.getLogKey() == Constants.NULL_ID)) {
+			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+					&& reference.getLogKey() == Constants.NULL_ID_LONG)) {
 				pageWriteTrx.commit(reference);
 			}
 		}
@@ -456,17 +447,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public boolean isDirty() {
-		return mIsDirty;
-	}
-
-	@Override
-	public Page setDirty(final boolean dirty) {
-		mIsDirty = dirty;
-		return this;
-	}
-
-	@Override
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
 	}
@@ -474,9 +454,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef,
-			final PageReadTrx pageReadTrx) {
-		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, previousPageRef, pageReadTrx);
+			final PageKind pageKind, final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, previousPageRefKey, pageReadTrx);
 	}
 
 	@Override
@@ -507,8 +486,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public Optional<PageReference> getPreviousReference() {
-		return mPreviousPageReference;
+	public long getPreviousReferenceKey() {
+		return mPreviousPageRefKey;
 	}
 
 }

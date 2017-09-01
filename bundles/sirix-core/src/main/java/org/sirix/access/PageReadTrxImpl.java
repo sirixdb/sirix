@@ -61,6 +61,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
+import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -188,13 +189,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 			public Page load(final PageReference reference) {
 				Page page = reference.getPage();
 				if (page == null) {
-					page = mPageReader.read(reference.getKey(), pageReadTrx).setDirty(true);
+					if (mPageWriteTrx.isPresent()) {
+						// Try to get it from the transaction log if it's present.
+						final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
+						page = cont == null ? null : cont.getComplete();
+					}
 
-					if (page != null && !mPageWriteTrx.isPresent()) {
-						// Put page into buffer manager and set page reference (just to
-						// track when the in-memory page must be removed).
-						mResourceBufferManager.getPageCache().put(reference, page);
-						reference.setPage(page);
+					if (page == null) {
+						page = mPageReader.read(reference, pageReadTrx);
+
+						if (page != null && !mPageWriteTrx.isPresent()) {
+							// Put page into buffer manager and set page reference (just to
+							// track when the in-memory page must be removed).
+							mResourceBufferManager.getPageCache().put(reference, page);
+							reference.setPage(page);
+						}
 					}
 				}
 				return page;
@@ -252,7 +261,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			throw new SirixIOException(e.getCause());
 		}
 
-		if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
+		if (PageContainer.emptyInstance().equals(cont)) {
 			return Optional.empty();
 		}
 
@@ -318,13 +327,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 				revisionKey, -1, PageKind.UBERPAGE);
 		try {
 			RevisionRootPage page = null;
+
 			if (mPageWriteTrx.isPresent()) {
-				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference.getLogKey());
+				// Try to get it from the transaction log if it's present.
+				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
 				page = cont == null ? null : (RevisionRootPage) cont.getComplete();
 			}
+
 			if (page == null) {
-				assert reference.getKey() != Constants.NULL_ID
-						|| reference.getLogKey() != Constants.NULL_ID;
+				assert reference.getKey() != Constants.NULL_ID_LONG
+						|| reference.getLogKey() != Constants.NULL_ID_INT
+						|| reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
 				page = (RevisionRootPage) mPageCache.get(reference);
 			}
 			return page;
@@ -434,9 +447,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 	<E extends Page> E clone(final E toClone) throws SirixIOException {
 		try {
 			final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-			PagePersistenter.serializePage(output, toClone);
+			PagePersistenter.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
 			final ByteArrayDataInput input = ByteStreams.newDataInput(output.toByteArray());
-			return (E) PagePersistenter.deserializePage(input, this);
+			return (E) PagePersistenter.deserializePage(input, this,
+					SerializationType.TRANSACTION_INTENT_LOG);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -470,19 +484,19 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final List<T> pages = new ArrayList<>(revisionsToRead.length);
 		boolean first = true;
 		for (int i = 0; i < revisionsToRead.length; i++) {
-			Optional<PageReference> refToRecordPage = null;
+			long refKeyToRecordPage = Constants.NULL_ID_LONG;
 			if (first) {
 				first = false;
-				refToRecordPage = Optional.of(pageReference);
+				refKeyToRecordPage = pageReference.getKey();
 			} else {
-				refToRecordPage = pages.get(pages.size() - 1).getPreviousReference();
+				refKeyToRecordPage = pages.get(pages.size() - 1).getPreviousReferenceKey();
 			}
 
-			if (refToRecordPage.isPresent()) {
-				final PageReference reference = refToRecordPage.get();
-				if (reference.getKey() != Constants.NULL_ID) {
+			if (refKeyToRecordPage != Constants.NULL_ID_LONG) {
+				final PageReference reference = new PageReference().setKey(refKeyToRecordPage);
+				if (reference.getKey() != Constants.NULL_ID_LONG) {
 					@SuppressWarnings("unchecked")
-					final T page = (T) mPageReader.read(reference.getKey(), this);
+					final T page = (T) mPageReader.read(reference, this);
 					pages.add(page);
 					if (page.size() == Constants.NDP_NODE_COUNT) {
 						// Page is full, thus we can skip reconstructing pages with elder
@@ -548,7 +562,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 			if (mPageWriteTrx.isPresent()) {
 				// Try to get it from the transaction log if it's present.
-				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference.getLogKey());
+				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
 				page = cont == null ? null : (IndirectPage) cont.getComplete();
 			}
 
@@ -557,8 +571,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 				page = (IndirectPage) reference.getPage();
 			}
 
-			if (page == null && (reference.getKey() != Constants.NULL_ID
-					|| reference.getLogKey() != Constants.NULL_ID)) {
+			if (page == null && (reference.getKey() != Constants.NULL_ID_LONG
+					|| reference.getLogKey() != Constants.NULL_ID_INT
+					|| reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
 				// Then try to get it from the page cache which might read it from the persistent storage
 				// on a cache miss.
 				page = (IndirectPage) mPageCache.get(reference);
@@ -604,10 +619,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 				break;
 			} else {
 				try {
-					if (reference.getLogKey() == Constants.NULL_ID && mPageWriteTrx.isPresent()) {
-						reference.setLogKey(
-								mPageWriteTrx.get().appendLogRecord(new PageContainer(derefPage, derefPage)));
-					}
 					reference = derefPage.getReference(offset);
 				} catch (final IndexOutOfBoundsException e) {
 					throw new SirixIOException("Node key isn't supported, it's too big!");
@@ -616,10 +627,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		// Return reference to leaf of indirect tree.
-		// if (reference != null && reference.getLogKey() == Constants.NULL_ID) {
-		// mPageWriteTrx.ifPresent(pageWriteTrx -> reference.setLogKey(pageWriteTrx.appendLogRecord(new
-		// PageContainer(derefPage, derefPage))));
-		// }
 		return reference;
 	}
 

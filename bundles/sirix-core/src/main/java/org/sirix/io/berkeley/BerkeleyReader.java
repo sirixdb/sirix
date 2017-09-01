@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -49,10 +49,10 @@ import com.sleepycat.je.Transaction;
 /**
  * This class represents an reading instance of the Sirix-Application implementing the
  * {@link Reader}-interface.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class BerkeleyReader implements Reader {
 
@@ -70,7 +70,7 @@ public final class BerkeleyReader implements Reader {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param database {@link Database} reference to be connected to
 	 * @param trx {@link Transaction} to be used
 	 * @param pageBinding page binding
@@ -86,7 +86,7 @@ public final class BerkeleyReader implements Reader {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param env {@link Envirenment} to be used
 	 * @param database {@link Database} to be connected to
 	 * @param pPageBinding page binding
@@ -98,12 +98,12 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public Page read(final long key, final PageReadTrx pageReadTrx) throws SirixIOException {
+	public Page read(final PageReference key, final PageReadTrx pageReadTrx) throws SirixIOException {
 		mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 
-		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(key, keyEntry);
+		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(key.getKey(), keyEntry);
 
 		Page page = null;
 		try {
@@ -130,7 +130,7 @@ public final class BerkeleyReader implements Reader {
 				uberPageReference
 						.setKey(TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
 			}
-			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
+			final UberPage page = (UberPage) read(uberPageReference, null);
 			if (uberPageReference != null) {
 				uberPageReference.setPage(page);
 			}

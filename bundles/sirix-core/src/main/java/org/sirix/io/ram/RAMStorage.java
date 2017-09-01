@@ -94,8 +94,8 @@ public final class RAMStorage implements Storage {
 	public class RAMAccess implements Writer {
 
 		@Override
-		public Page read(long key, @Nullable PageReadTrx pageReadTrx) {
-			return mResourceStorage.get(key);
+		public Page read(PageReference reference, @Nullable PageReadTrx pageReadTrx) {
+			return mResourceStorage.get(reference.getKey());
 		}
 
 		@Override
@@ -136,7 +136,7 @@ public final class RAMStorage implements Storage {
 			while (uberPage.getRevisionNumber() != revision) {
 				mResourceStorage.remove(uberPageReference.getKey());
 				final Long previousUberPageKey = uberPage.getPreviousUberPageKey();
-				uberPage = (UberPage) read(previousUberPageKey, null);
+				uberPage = (UberPage) read(new PageReference().setKey(previousUberPageKey), null);
 				uberPageReference = new PageReference();
 				uberPageReference.setKey(previousUberPageKey);
 

@@ -1,5 +1,5 @@
 /**
- * 
+ *
  */
 package org.sirix.page;
 
@@ -11,7 +11,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Optional;
 
 import org.sirix.Holder;
 import org.sirix.TestHelper;
@@ -30,10 +29,10 @@ import org.testng.annotations.Test;
 
 /**
  * Test class for all classes implementing the {@link Page} interface.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @auhtor Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public class PageTest {
 
@@ -61,7 +60,7 @@ public class PageTest {
 	/**
 	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
 	 * {@link org.Page.page.IPage#getByteRepresentation()}.
-	 * 
+	 *
 	 * @param clazz page as class
 	 * @param handlers different pages
 	 * @throws IOException
@@ -71,13 +70,14 @@ public class PageTest {
 			throws IOException {
 		for (final Page handler : handlers) {
 			final ByteArrayOutputStream out = new ByteArrayOutputStream();
-			handler.serialize(new DataOutputStream(out));
+			handler.serialize(new DataOutputStream(out), SerializationType.COMMIT);
 			final byte[] pageBytes = out.toByteArray();
 
 			final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
-			final Page serializedPage = PageKind.getKind(handler.getClass())
-					.deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx);
-			serializedPage.serialize(new DataOutputStream(serializedOutput));
+			final Page serializedPage = PageKind.getKind(handler.getClass()).deserializePage(
+					new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx,
+					SerializationType.COMMIT);
+			serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.COMMIT);
 			assertTrue(
 					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
 					Arrays.equals(pageBytes, serializedOutput.toByteArray()));
@@ -86,7 +86,7 @@ public class PageTest {
 
 	/**
 	 * Providing different implementations of the {@link Page} as Dataprovider to the test class.
-	 * 
+	 *
 	 * @return different classes of the {@link ByteHandler}
 	 * @throws SirixIOException if an I/O error occurs
 	 */
@@ -100,7 +100,7 @@ public class PageTest {
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage =
 				new UnorderedKeyValuePage(TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
-						Optional.<PageReference>empty(), mPageReadTrx);
+						Constants.NULL_ID_LONG, mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);

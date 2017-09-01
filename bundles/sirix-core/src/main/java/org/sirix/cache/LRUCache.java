@@ -45,7 +45,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	/**
 	 * Capacity of the cache. Number of stored pages.
 	 */
-	static final int CACHE_CAPACITY = 1500;
+	static final int CACHE_CAPACITY = 1;
 
 	/**
 	 * The collection to hold the maps.
@@ -103,11 +103,14 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 */
 	@Override
 	public V get(final K key) {
-		V page = mMap.get(key);
-		if (page == null) {
-			page = mSecondCache.get(key);
+		V value = mMap.get(key);
+		if (value == null) {
+			value = mSecondCache.get(key);
+			if (value != null) {
+				mMap.put(key, value);
+			}
 		}
-		return page;
+		return value;
 	}
 
 	/**

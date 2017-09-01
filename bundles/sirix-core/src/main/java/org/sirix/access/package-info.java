@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -20,12 +20,12 @@
  */
 
 /**
- * <h1>Access to sirix</h1>
+ * <h1>Access to Sirix</h1>
  * <p>
  * The access semantics is as follows:
  * <ul>
  * <li>There can only be a single {@link org.sirix.api.Database} instance per Database-Folder</li>
- * <li>There can only be multiple {@link org.sirix.api.ResourceManager} instances per
+ * <li>There can be multiple {@link org.sirix.api.ResourceManager} instances per
  * {@link org.sirix.api.Database} linked uniquely to resources representing concrete
  * data-storages.</li>
  * <li>There can only be a single {@link org.sirix.api.XdmNodeWriteTrx} instance per
@@ -36,9 +36,9 @@
  * </p>
  * <p>
  * Code examples:
- * 
+ *
  * <pre>
- * // DatabaseConfiguration denoted the configuration for a connected set of data resources. 
+ * // DatabaseConfiguration denoted the configuration for a connected set of data resources.
  * final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File("/path/to/db/location"));
  * // Creation of a database. Returns true if successful, false if not (including existence of the database)
  * Database.createDatabase(dbConfig);
@@ -50,11 +50,11 @@
  * // Getting access via a ISession
  * final SessionConfiguration sessionConfig = new SessionConfiguration(&quot;coolResource&quot;);
  * final ISession someSession = Session.beginSession(sessionConfig);
- *  
+ *
  * final IWriteTransaction someWTX = someSession.beginWriteTransaction();
  * final IReadTransaction someRTX = someSession.beginReadTransaction();
  * final IReadTransaction someConcurrentRTX = someSession.beginReadTransaction();
- * 
+ *
  * someWTX.abort();
  * someWTX.close();
  * someRTX.close();
@@ -62,11 +62,11 @@
  * someSession.close();
  * database.close();
  * </pre>
- * 
+ *
  * </p>
  * <p>
  * Best practice to safely manipulate a sirix resource within a database if everything exists:
- * 
+ *
  * <pre>
  *         final IDatabase database = Database.openDatabase(new File(&quot;/path/to/db/location&quot;);
  *         final ISession session = Session.beginSession(new SessionConfiguration(&quot;existingResource&quot;);
@@ -84,9 +84,9 @@
  *         session.close(); // Might also stand in the finally...
  *         database.close();
  * </pre>
- * 
+ *
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  */
 package org.sirix.access;

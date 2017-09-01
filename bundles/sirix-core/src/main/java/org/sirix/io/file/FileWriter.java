@@ -21,6 +21,8 @@
 
 package org.sirix.io.file;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -37,6 +39,7 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
 
@@ -55,6 +58,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 	/** {@link FileReader} reference for this writer. */
 	private final FileReader mReader;
 
+	private SerializationType mType;
+
 	/**
 	 * Constructor.
 	 *
@@ -62,13 +67,15 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 	 * @param handler the byte handler
 	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public FileWriter(final File storage, final ByteHandler handler) throws SirixIOException {
+	public FileWriter(final File storage, final ByteHandler handler, final SerializationType type)
+			throws SirixIOException {
 		try {
 			mFile = new RandomAccessFile(storage, "rw");
 		} catch (final FileNotFoundException e) {
 			throw new SirixIOException(e);
 		}
-		mReader = new FileReader(storage, handler);
+		mReader = new FileReader(storage, handler, type);
+		mType = checkNotNull(type);
 	}
 
 	@Override
@@ -76,7 +83,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 		UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
 
 		while (uberPage.getRevisionNumber() != revision) {
-			uberPage = (UberPage) mReader.read(uberPage.getPreviousUberPageKey(), null);
+			uberPage = (UberPage) mReader
+					.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
 			if (uberPage.getRevisionNumber() == revision) {
 				try {
 					mFile.setLength(uberPage.getPreviousUberPageKey());
@@ -106,7 +114,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 			final ByteArrayOutputStream output = new ByteArrayOutputStream();
 			final DataOutputStream dataOutput =
 					new DataOutputStream(mReader.mByteHandler.serialize(output));
-			PagePersistenter.serializePage(dataOutput, page);
+			PagePersistenter.serializePage(dataOutput, page, mType);
 			output.close();
 			dataOutput.close();
 
@@ -127,7 +135,16 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 			mFile.write(writtenPage);
 
 			// Remember page coordinates.
-			pageReference.setKey(offset);
+			switch (mType) {
+				case COMMIT:
+					pageReference.setKey(offset);
+					break;
+				case TRANSACTION_INTENT_LOG:
+					pageReference.setPersistentLogKey(offset);
+					break;
+			}
+
+			pageReference.setLength(writtenPage.length);
 
 			return this;
 		} catch (final IOException e) {

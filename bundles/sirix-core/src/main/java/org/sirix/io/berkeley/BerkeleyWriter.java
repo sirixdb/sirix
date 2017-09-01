@@ -186,7 +186,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long key, final PageReadTrx pageReadTrx) throws SirixIOException {
+	public Page read(final PageReference key, final PageReadTrx pageReadTrx) throws SirixIOException {
 		return mReader.read(key, pageReadTrx);
 	}
 

@@ -53,8 +53,8 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 *
 	 * @param in input source
 	 */
-	protected IndirectPage(final DataInput in) throws IOException {
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
+	protected IndirectPage(final DataInput in, final SerializationType type) throws IOException {
+		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in, type);
 	}
 
 	/**
@@ -69,11 +69,5 @@ public final class IndirectPage extends AbstractForwardingPage {
 	@Override
 	protected Page delegate() {
 		return mDelegate;
-	}
-
-	@Override
-	public Page setDirty(final boolean isDirty) {
-		mDelegate.setDirty(isDirty);
-		return this;
 	}
 }

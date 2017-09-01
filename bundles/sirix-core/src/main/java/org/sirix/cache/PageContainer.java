@@ -21,13 +21,8 @@
 
 package org.sirix.cache;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-
 import javax.annotation.Nullable;
 
-import org.sirix.page.PagePersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -36,7 +31,6 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * <h1>PageContainer</h1>
@@ -74,7 +68,7 @@ public final class PageContainer {
 	private final Page mModified;
 
 	/** Empty instance. */
-	public static final PageContainer EMPTY_INSTANCE = new PageContainer();
+	private static final PageContainer EMPTY_INSTANCE = new PageContainer();
 
 	/** Private constructor for empty instance. */
 	private PageContainer() {
@@ -123,22 +117,22 @@ public final class PageContainer {
 		return mModified;
 	}
 
-	/**
-	 * Serializing the container to the cache.
-	 *
-	 * @param out for serialization
-	 */
-	public void serialize(final TupleOutput out) {
-		final ByteArrayOutputStream sink = new ByteArrayOutputStream();
-		final DataOutputStream dataOut = new DataOutputStream(sink);
-		try {
-			PagePersistenter.serializePage(dataOut, mComplete);
-			PagePersistenter.serializePage(dataOut, mModified);
-		} catch (final IOException e) {
-			LOGGER.error(e.getMessage(), e);
-		}
-		out.write(sink.toByteArray());
-	}
+	// /**
+	// * Serializing the container to the cache.
+	// *
+	// * @param out for serialization
+	// */
+	// public void serialize(final TupleOutput out) {
+	// final ByteArrayOutputStream sink = new ByteArrayOutputStream();
+	// final DataOutputStream dataOut = new DataOutputStream(sink);
+	// try {
+	// PagePersistenter.serializePage(dataOut, mComplete);
+	// PagePersistenter.serializePage(dataOut, mModified);
+	// } catch (final IOException e) {
+	// LOGGER.error(e.getMessage(), e);
+	// }
+	// out.write(sink.toByteArray());
+	// }
 
 	@Override
 	public int hashCode() {

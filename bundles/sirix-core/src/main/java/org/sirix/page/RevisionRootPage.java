@@ -94,8 +94,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *
 	 * @param in input stream
 	 */
-	protected RevisionRootPage(final DataInput in) throws IOException {
-		mDelegate = new PageDelegate(5, in);
+	protected RevisionRootPage(final DataInput in, final SerializationType type) throws IOException {
+		mDelegate = new PageDelegate(5, in, type);
 		mRevision = in.readInt();
 		mMaxNodeKey = in.readLong();
 		mRevisionTimestamp = in.readLong();
@@ -208,9 +208,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
 		mRevisionTimestamp = System.currentTimeMillis();
-		mDelegate.serialize(checkNotNull(out));
+		mDelegate.serialize(checkNotNull(out), checkNotNull(type));
 		out.writeInt(mRevision);
 		out.writeLong(mMaxNodeKey);
 		out.writeLong(mRevisionTimestamp);
@@ -232,12 +232,6 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		return mDelegate;
 	}
 
-	@Override
-	public Page setDirty(final boolean pDirty) {
-		mDelegate.setDirty(pDirty);
-		return this;
-	}
-
 	/**
 	 * Initialize node tree.
 	 *
@@ -246,8 +240,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getIndirectPageReference();
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID
-				&& reference.getLogKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+				&& reference.getLogKey() == Constants.NULL_ID_INT
+				&& reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
 			PageUtils.createTree(reference, PageKind.RECORDPAGE, -1, pageWriteTrx);
 			incrementAndGetMaxNodeKey();
 		}

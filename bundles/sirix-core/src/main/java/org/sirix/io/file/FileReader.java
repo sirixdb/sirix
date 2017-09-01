@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -29,7 +29,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
-import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -38,16 +38,17 @@ import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
 
 /**
  * File Reader. Used for {@link PageReadTrx} to provide read only access on a RandomAccessFile.
- * 
+ *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class FileReader implements Reader {
 
@@ -63,14 +64,17 @@ public final class FileReader implements Reader {
 	/** Inflater to decompress. */
 	final ByteHandler mByteHandler;
 
+	private final SerializationType mType;
+
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param concreteStorage storage file
 	 * @param handler {@link ByteHandler} instance
 	 * @throws SirixIOException if something bad happens
 	 */
-	public FileReader(final File concreteStorage, final ByteHandler handler) throws SirixIOException {
+	public FileReader(final File concreteStorage, final ByteHandler handler,
+			final SerializationType type) throws SirixIOException {
 		try {
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
@@ -79,18 +83,27 @@ public final class FileReader implements Reader {
 
 			mFile = new RandomAccessFile(concreteStorage, "r");
 			mByteHandler = checkNotNull(handler);
+			mType = checkNotNull(type);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
 	}
 
 	@Override
-	public Page read(final @Nonnegative long key, final @Nullable PageReadTrx pageReadTrx)
+	public Page read(final @Nonnull PageReference reference, final @Nullable PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		try {
 			// Read page from file.
-			mFile.seek(key);
+			switch (mType) {
+				case COMMIT:
+					mFile.seek(reference.getKey());
+					break;
+				case TRANSACTION_INTENT_LOG:
+					mFile.seek(reference.getPersistentLogKey());
+					break;
+			}
 			final int dataLength = mFile.readInt();
+			reference.setLength(dataLength + FileReader.OTHER_BEACON);
 			final byte[] page = new byte[dataLength];
 			mFile.read(page);
 
@@ -99,7 +112,7 @@ public final class FileReader implements Reader {
 					new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
 
 			// Return reader required to instantiate and deserialize page.
-			return PagePersistenter.deserializePage(input, pageReadTrx);
+			return PagePersistenter.deserializePage(input, pageReadTrx, mType);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -112,7 +125,7 @@ public final class FileReader implements Reader {
 			// Read primary beacon.
 			mFile.seek(0);
 			uberPageReference.setKey(mFile.readLong());
-			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
+			final UberPage page = (UberPage) read(uberPageReference, null);
 			uberPageReference.setPage(page);
 			return uberPageReference;
 		} catch (final IOException e) {

@@ -71,7 +71,7 @@ public final class ResourceStore implements AutoCloseable {
 				try (final Reader reader = storage.createReader()) {
 					final PageReference firstRef = reader.readUberPageReference();
 					if (firstRef.getPage() == null) {
-						uberPage = (UberPage) reader.read(firstRef.getKey(), null);
+						uberPage = (UberPage) reader.read(firstRef, null);
 					} else {
 						uberPage = (UberPage) firstRef.getPage();
 					}

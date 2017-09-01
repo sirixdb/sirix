@@ -30,6 +30,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 
 /**
  * Page interface all pages have to implement.
@@ -44,9 +45,10 @@ public interface Page {
 	 * Serialize a page
 	 *
 	 * @param out {@link DataOutput} to serialize to
+	 * @param type serialization type (currently transaction intent log or normal commit)
 	 * @throws IOException if serialization fails
 	 */
-	void serialize(final DataOutput out) throws IOException;
+	void serialize(DataOutput out, SerializationType type) throws IOException;
 
 	/**
 	 * Get all page references.
@@ -71,19 +73,4 @@ public interface Page {
 	 * @return the {@link PageReference} at the specified offset
 	 */
 	PageReference getReference(@Nonnegative int offset);
-
-	/**
-	 * Determines if a page is dirty meaning if it has been changed.
-	 *
-	 * @return {@code true} if it has been changed, {@code false} otherwise
-	 */
-	boolean isDirty();
-
-	/**
-	 * Set dirty flag (if page has been modified).
-	 *
-	 * @param dirty dirty or not
-	 * @return the page instance
-	 */
-	Page setDirty(boolean dirty);
 }
