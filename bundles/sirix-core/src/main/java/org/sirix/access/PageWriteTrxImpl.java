@@ -161,7 +161,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 		// Create new revision root page.
 		final RevisionRootPage lastCommitedRoot = mPageRtx.loadRevRoot(lastCommitedRev);
-		mNewRoot = preparePreviousRevisionRootPage(lastStoredRev, representRev);
+		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
 		// First create revision tree if needed.
@@ -174,37 +174,37 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 			page.createPathSummaryTree(this, 0);
 
-			// if (PageContainer.emptyInstance()
-			// .equals(mLog.get(revisionRoot.getPathSummaryPageReference())))
-			mLog.put(mNewRoot.getPathSummaryPageReference(), new PageContainer(page, page));
+			if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathSummaryPageReference())))
+				mLog.put(mNewRoot.getPathSummaryPageReference(), new PageContainer(page, page));
 		}
 
-		// if (!uberPage.isBootstrap()) {
-		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getNamePageReference()))) {
-		final Page namePage = mPageRtx.getNamePage(mNewRoot);
-		mLog.put(mNewRoot.getNamePageReference(), new PageContainer(namePage, namePage));
-		// }
+		if (!uberPage.isBootstrap()) {
+			if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getNamePageReference()))) {
+				final Page namePage = mPageRtx.getNamePage(mNewRoot);
+				mLog.put(mNewRoot.getNamePageReference(), new PageContainer(namePage, namePage));
+			}
 
-		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getCASPageReference()))) {
-		final Page casPage = mPageRtx.getCASPage(mNewRoot);
-		mLog.put(mNewRoot.getCASPageReference(), new PageContainer(casPage, casPage));
-		// }
+			if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getCASPageReference()))) {
+				final Page casPage = mPageRtx.getCASPage(mNewRoot);
+				mLog.put(mNewRoot.getCASPageReference(), new PageContainer(casPage, casPage));
+			}
 
-		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathPageReference()))) {
-		final Page pathPage = mPageRtx.getPathPage(mNewRoot);
-		mLog.put(mNewRoot.getPathPageReference(), new PageContainer(pathPage, pathPage));
-		// }
-		// }
+			if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathPageReference()))) {
+				final Page pathPage = mPageRtx.getPathPage(mNewRoot);
+				mLog.put(mNewRoot.getPathPageReference(), new PageContainer(pathPage, pathPage));
+			}
 
-		final Page indirectPage = mPageRtx.dereferenceIndirectPage(mNewRoot.getIndirectPageReference());
-		mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
+			final Page indirectPage =
+					mPageRtx.dereferenceIndirectPage(mNewRoot.getIndirectPageReference());
+			mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
 
-		final PageReference revisionRootPageReference =
-				prepareLeafOfTree(uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(),
-						-1, PageKind.UBERPAGE);
+			final PageReference revisionRootPageReference =
+					prepareLeafOfTree(uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(),
+							-1, PageKind.UBERPAGE);
 
-		// Link the prepared revision root nodePageReference with the prepared indirect tree.
-		appendLogRecord(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
+			// Link the prepared revision root nodePageReference with the prepared indirect tree.
+			appendLogRecord(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
+		}
 	}
 
 	private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
