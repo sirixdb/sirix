@@ -358,10 +358,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		if (reference == null)
 			return;
 
-		if (reference.getKey() != Constants.NULL_ID_LONG) {
-			System.out.println();
-		}
-
 		final PageContainer container = mLog.get(reference);
 
 		Page page = null;
