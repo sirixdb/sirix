@@ -21,6 +21,8 @@
 
 package org.sirix.page;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import java.util.Objects;
 
 import javax.annotation.Nullable;
@@ -45,10 +47,16 @@ public final class PageReference {
 	private Page mPage;
 
 	/** Key in persistent storage. */
-	private long mKey = Constants.NULL_ID;
+	private long mKey = Constants.NULL_ID_LONG;
 
 	/** Log key. */
-	private long mLogKey = Constants.NULL_ID;
+	private int mLogKey = Constants.NULL_ID_INT;
+
+	/** Persistent log key. */
+	private long mPersistentLogKey = Constants.NULL_ID_LONG;
+
+	/** Length in bytes. */
+	private int mLength;
 
 	/**
 	 * Default constructor setting up an uninitialized page reference.
@@ -64,6 +72,8 @@ public final class PageReference {
 		mLogKey = reference.mLogKey;
 		mPage = reference.mPage;
 		mKey = reference.mKey;
+		mPersistentLogKey = reference.mPersistentLogKey;
+		mLength = reference.mLength;
 	}
 
 	/**
@@ -73,6 +83,27 @@ public final class PageReference {
 	 */
 	public Page getPage() {
 		return mPage;
+	}
+
+	/**
+	 * Set the length of a referenced page in bytes.
+	 *
+	 * @param length the length
+	 * @return this page reference
+	 */
+	public PageReference setLength(final int length) {
+		checkArgument(length > 0, "Length must be > 0.");
+		mLength = length;
+		return this;
+	}
+
+	/**
+	 * Get the length of a referenced page in the persistent storage (in bytes).
+	 *
+	 * @return the length of a referenced page in the persistent storage (in bytes)
+	 */
+	public int getLength() {
+		return mLength;
 	}
 
 	/**
@@ -98,44 +129,66 @@ public final class PageReference {
 	 *
 	 * @param key key of this reference set by the persistent storage
 	 */
-	public void setKey(final long key) {
+	public PageReference setKey(final long key) {
 		mKey = key;
+		return this;
 	}
 
 	/**
-	 * Get start byte offset in file.
+	 * Get in-memory log-key.
 	 *
-	 * @return start offset in file
+	 * @return log key
 	 */
-	public long getLogKey() {
+	public int getLogKey() {
 		return mLogKey;
 	}
 
 	/**
-	 * Set start byte offset in file.
+	 * Set in-memory log-key.
 	 *
-	 * @param key key of this reference set by the persistent storage
+	 * @param key key of this reference set by the transaction intent log.
 	 */
-	public void setLogKey(final long key) {
+	public PageReference setLogKey(final int key) {
 		mLogKey = key;
+		return this;
+	}
+
+	/**
+	 * Get log-key.
+	 *
+	 * @return log key
+	 */
+	public long getPersistentLogKey() {
+		return mPersistentLogKey;
+	}
+
+	/**
+	 * Set log-key.
+	 *
+	 * @param key key of this reference set by the transaction intent log.
+	 */
+	public PageReference setPersistentLogKey(final long key) {
+		mPersistentLogKey = key;
+		return this;
 	}
 
 	@Override
 	public String toString() {
-		return MoreObjects.toStringHelper(this).add("logKey", mLogKey).add("key", mKey)
-				.add("page", mPage).toString();
+		return MoreObjects.toStringHelper(this).add("logKey", mLogKey)
+				.add("persistentLogKey", mPersistentLogKey).add("key", mKey).add("page", mPage).toString();
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mKey);
+		return Objects.hash(mLogKey, mKey, mPersistentLogKey);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object other) {
 		if (other instanceof PageReference) {
 			final PageReference otherPageRef = (PageReference) other;
-			return otherPageRef.mKey == mKey;
+			return otherPageRef.mLogKey == mLogKey && otherPageRef.mKey == mKey
+					&& otherPageRef.mPersistentLogKey == mPersistentLogKey;
 		}
 		return false;
 	}

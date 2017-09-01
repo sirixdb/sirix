@@ -29,16 +29,19 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * Truncate resource to given revision.
 	 *
 	 * @param revision the given revision
-	 * @return this page writer instance
+	 * @return this page write transaction instance
 	 */
 	PageWriteTrx<K, V, S> truncateTo(int revision);
 
 	/**
 	 * Put a page into the cache.
 	 *
+	 * @param reference the reference
 	 * @param page the page to put into the cache
+	 * @return this page write transaction instance
 	 */
-	long appendLogRecord(@Nonnull PageContainer page);
+	PageWriteTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference,
+			@Nonnull PageContainer page);
 
 	/**
 	 * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
@@ -131,5 +134,18 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 */
 	PageReadTrx getPageReadTrx();
 
+	/**
+	 * Rollback all changes done within the page transaction.
+	 *
+	 * @return the former uberpage
+	 */
 	UberPage rollback();
+
+	/**
+	 * Get a transaction intent log record.
+	 *
+	 * @param reference the reference parameter
+	 * @return the page container
+	 */
+	PageContainer getLogRecord(PageReference reference);
 }

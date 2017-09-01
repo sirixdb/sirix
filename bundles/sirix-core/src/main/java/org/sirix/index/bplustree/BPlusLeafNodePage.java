@@ -15,19 +15,18 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.page.interfaces.Page;
 
 import com.google.common.io.ByteArrayDataInput;
 
 /**
  * Leaf node key/value page.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  * @param <K> the key
  * @param <V> the value
  */
@@ -39,9 +38,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	/** Key/Value records. */
 	private final Map<K, V> mRecords;
-
-	/** Determine if node page has been modified. */
-	private boolean mIsDirty;
 
 	/** Sirix {@link PageReadTrx}. */
 	private final PageReadTrx mPageReadTrx;
@@ -65,14 +61,14 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	/**
 	 * Create record page.
-	 * 
+	 *
 	 * @param recordPageKey base key assigned to this node page
 	 * @param pageKind the kind of page (in which subtree it is)
 	 * @param pageReadTrx Sirix page reading transaction
 	 * @param kind determines if it's a leaf or inner node page
 	 */
 	public BPlusLeafNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
-			final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
+			final long previousPageRefKey, final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -80,7 +76,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRecordPageKey = recordPageKey;
 		mRecords = new TreeMap<>();
-		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mLeftPage = Optional.empty();
 		mRightPage = Optional.empty();
@@ -89,7 +84,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	/**
 	 * Read node page.
-	 * 
+	 *
 	 * @param in input bytes to read page from
 	 * @param pageReadTrx {@link
 	 */
@@ -97,8 +92,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
-		final RecordPersistenter persistenter =
-				pageReadTrx.getSession().getResourceConfig().mPersistenter;
+		pageReadTrx.getSession().getResourceConfig();
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
 			// @SuppressWarnings("unchecked")
@@ -122,12 +116,11 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
 		out.writeLong(mRecordPageKey);
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
-		final RecordPersistenter persistenter =
-				mPageReadTrx.getSession().getResourceConfig().mPersistenter;
+		mPageReadTrx.getSession().getResourceConfig();
 		for (final Map.Entry<K, V> node : mRecords.entrySet()) {
 			// persistenter.serialize(out, node.getKey(), mPageReadTrx);
 			// persistenter.serialize(out, node.getValue(), mPageReadTrx);
@@ -137,7 +130,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	private void serializePointer(final Optional<PageReference> page, final DataOutput out)
 			throws IOException {
 		if (page.isPresent()) {
-			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false : true);
+			out.writeBoolean(
+					page.get().getKey() == org.sirix.settings.Constants.NULL_ID_LONG ? false : true);
 		} else {
 			out.writeBoolean(false);
 		}
@@ -155,17 +149,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@Override
 	public PageReference getReference(@Nonnegative int offset) {
 		return null;
-	}
-
-	@Override
-	public boolean isDirty() {
-		return mIsDirty;
-	}
-
-	@Override
-	public Page setDirty(final boolean dirty) {
-		mIsDirty = dirty;
-		return this;
 	}
 
 	@Override
@@ -196,9 +179,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef,
-			final PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
+			final PageKind pageKind, final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRefKey,
+				pageReadTrx);
 	}
 
 	@Override
@@ -236,9 +219,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public Optional<PageReference> getPreviousReference() {
+	public long getPreviousReferenceKey() {
 		// TODO Auto-generated method stub
-		return null;
+		return -1;
 	}
 
 	// @Override

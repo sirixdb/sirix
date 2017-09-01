@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -29,6 +29,7 @@ import java.io.IOException;
 import org.sirix.api.PageReadTrx;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
+import org.sirix.page.SerializationType;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
@@ -41,10 +42,10 @@ import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * Binding for storing {@link PageDelegate} objects within the Berkeley DB.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class PageBinding extends TupleBinding<Page> {
 
@@ -59,7 +60,7 @@ public final class PageBinding extends TupleBinding<Page> {
 
 	/**
 	 * Copy constructor.
-	 * 
+	 *
 	 * @param pageBinding page binding
 	 */
 	public PageBinding(final PageBinding pageBinding) {
@@ -69,7 +70,7 @@ public final class PageBinding extends TupleBinding<Page> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param byteHandler byte handler pipleine
 	 */
 	public PageBinding(final ByteHandlePipeline byteHandler) {
@@ -79,7 +80,7 @@ public final class PageBinding extends TupleBinding<Page> {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param byteHandler byte handler pipleine
 	 * @param pageReadTrx page reading transaction
 	 */
@@ -93,7 +94,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	public Page entryToObject(final TupleInput input) {
 		try {
 			return PagePersistenter.deserializePage(new DataInputStream(mByteHandler.deserialize(input)),
-					mPageReadTrx);
+					mPageReadTrx, SerializationType.COMMIT);
 		} catch (final IOException e) {
 			LOGGER.error(e.getMessage(), e);
 			return null;
@@ -104,7 +105,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	public void objectToEntry(final Page page, final TupleOutput output) {
 		try {
 			final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
-			PagePersistenter.serializePage(dataOutput, page);
+			PagePersistenter.serializePage(dataOutput, page, SerializationType.COMMIT);
 			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
 			dataOutput.close();
 		} catch (final IOException e) {

@@ -17,9 +17,6 @@ import org.sirix.page.interfaces.Page;
  */
 public final class OverflowPage implements Page {
 
-	/** Determines if page has been created/modified or not. */
-	private boolean mIsDirty;
-
 	/** Data to be stored. */
 	private final byte[] mData;
 
@@ -34,7 +31,6 @@ public final class OverflowPage implements Page {
 	 */
 	public OverflowPage(final byte[] data) {
 		assert data != null;
-		mIsDirty = true;
 		mData = data;
 	}
 
@@ -58,18 +54,7 @@ public final class OverflowPage implements Page {
 	}
 
 	@Override
-	public boolean isDirty() {
-		return mIsDirty;
-	}
-
-	@Override
-	public Page setDirty(final boolean dirty) {
-		mIsDirty = dirty;
-		return this;
-	}
-
-	@Override
-	public void serialize(final DataOutput out) throws IOException {
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
 		out.writeInt(mData.length);
 		out.write(mData);
 	}

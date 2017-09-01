@@ -2,7 +2,6 @@ package org.sirix.page.interfaces;
 
 import java.util.Collection;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -83,8 +82,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return a new {@link KeyValuePage} instance
 	 */
 	<C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-			@Nonnull PageKind pageKind, @Nonnull Optional<PageReference> previousPageRef,
-			@Nonnull PageReadTrx pageReadTrx);
+			@Nonnull PageKind pageKind, long previousPageRefKey, @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Get the {@link PageReadTrx}.
@@ -112,5 +110,5 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *
 	 * @return optional {@link PageReference} pointing to the previous version of the page
 	 */
-	Optional<PageReference> getPreviousReference();
+	long getPreviousReferenceKey();
 }

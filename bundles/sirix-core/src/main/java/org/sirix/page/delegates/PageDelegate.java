@@ -26,12 +26,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
+import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -50,9 +52,6 @@ public class PageDelegate implements Page {
 	/** Page references. */
 	private PageReference[] mReferences;
 
-	/** Determines if page is new or changed. */
-	private boolean mIsDirty;
-
 	/**
 	 * Constructor to initialize instance.
 	 *
@@ -62,7 +61,6 @@ public class PageDelegate implements Page {
 	public PageDelegate(final @Nonnegative int referenceCount) {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
-		mIsDirty = true;
 		for (int i = 0; i < referenceCount; i++) {
 			mReferences[i] = new PageReference();
 		}
@@ -75,14 +73,30 @@ public class PageDelegate implements Page {
 	 * @param in input stream to read from
 	 * @throws IOException if the delegate couldn't be deserialized
 	 */
-	public PageDelegate(final @Nonnegative int referenceCount, final DataInput in)
-			throws IOException {
+	public PageDelegate(final @Nonnegative int referenceCount, final DataInput in,
+			final SerializationType type) throws IOException {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
-		mIsDirty = false;
-		for (int offset = 0; offset < mReferences.length; offset++) {
+
+		for (int offset = 0, length = mReferences.length; offset < length; offset++) {
 			mReferences[offset] = new PageReference();
-			mReferences[offset].setKey(in.readLong());
+
+			switch (type) {
+				case COMMIT:
+					final boolean hasKey = in.readBoolean();
+					if (hasKey) {
+						final long key = in.readLong();
+						mReferences[offset].setKey(key);
+					}
+					break;
+				case TRANSACTION_INTENT_LOG:
+					final boolean hasLogKey = in.readBoolean();
+					if (hasLogKey) {
+						final int key = in.readInt();
+						mReferences[offset].setLogKey(key);
+					}
+					break;
+			}
 		}
 	}
 
@@ -93,8 +107,12 @@ public class PageDelegate implements Page {
 	 * @param revision revision number
 	 */
 	public PageDelegate(final Page commitedPage) {
-		mReferences = commitedPage.getReferences();
-		mIsDirty = true;
+		mReferences = Arrays.copyOf(commitedPage.getReferences(), commitedPage.getReferences().length);
+
+		for (int offset = 0, length = mReferences.length; offset < length; offset++) {
+			mReferences[offset] = new PageReference();
+			mReferences[offset].setKey(commitedPage.getReferences()[offset].getKey());
+		}
 	}
 
 	/**
@@ -120,8 +138,8 @@ public class PageDelegate implements Page {
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		for (final PageReference reference : mReferences) {
-			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID
-					&& reference.getLogKey() == Constants.NULL_ID)) {
+			if (!(reference.getLogKey() == Constants.NULL_ID_INT
+					&& reference.getPersistentLogKey() == Constants.NULL_ID_LONG)) {
 				pageWriteTrx.commit(reference);
 			}
 		}
@@ -133,9 +151,20 @@ public class PageDelegate implements Page {
 	 * @param out output stream
 	 */
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
 		for (final PageReference reference : mReferences) {
-			out.writeLong(reference.getKey());
+			switch (type) {
+				case COMMIT:
+					out.writeBoolean(reference.getKey() != Constants.NULL_ID_LONG);
+					if (reference.getKey() != Constants.NULL_ID_LONG)
+						out.writeLong(reference.getKey());
+					break;
+				case TRANSACTION_INTENT_LOG:
+					out.writeBoolean(reference.getLogKey() != Constants.NULL_ID_INT);
+					if (reference.getLogKey() != Constants.NULL_ID_INT)
+						out.writeInt(reference.getLogKey());
+					break;
+			}
 		}
 	}
 
@@ -157,27 +186,4 @@ public class PageDelegate implements Page {
 		}
 		return helper.toString();
 	}
-
-	@Override
-	public boolean isDirty() {
-		return mIsDirty;
-	}
-
-	@Override
-	public Page setDirty(final boolean isDirty) {
-		mIsDirty = isDirty;
-		return this;
-	}
-
-	// @Override
-	// public boolean isFullDump() {
-	// return mIsFullDump;
-	// }
-	//
-	// @Override
-	// public Page setFullDump(final boolean isFullDump) {
-	// mIsFullDump = isFullDump;
-	// return this;
-	// }
-
 }

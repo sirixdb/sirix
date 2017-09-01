@@ -30,6 +30,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,12 +46,14 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.BufferManager;
-import org.sirix.cache.Cache;
 import org.sirix.cache.PageContainer;
-import org.sirix.cache.TransactionLogCache;
+import org.sirix.cache.PersistentFileCache;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.file.FileWriter;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -62,6 +68,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
+import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -89,10 +96,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	/** Page writer to serialize. */
 	private final Writer mPageWriter;
 
-	/**
-	 * Persistent BerkeleyDB page log for all page types != UnorderedKeyValuePage.
-	 */
-	final Cache<Long, PageContainer> mLog;
+	/** Transaction intent log. */
+	TransactionIntentLog mLog;
 
 	/** Last reference to the actual revRoot. */
 	private final RevisionRootPage mNewRoot;
@@ -111,9 +116,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 	/** {@link IndexController} instance. */
 	private final IndexController mIndexController;
-
-	/** The log key. */
-	private long mLogKey;
 
 	/**
 	 * Constructor.
@@ -144,7 +146,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			}
 		}
 
-		mLog = new TransactionLogCache(resourceManager.getResourceConfig().mPath, "log", this);
+		mLog = createTrxIntentLog(resourceManager);
 
 		// Create revision tree if needed.
 		if (uberPage.isBootstrap()) {
@@ -156,32 +158,70 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 				Optional.of(this), Optional.of(mIndexController), bufferManager);
 
 		mPageWriter = writer;
+
+		// Create new revision root page.
 		final RevisionRootPage lastCommitedRoot = mPageRtx.loadRevRoot(lastCommitedRev);
-		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
+		mNewRoot = preparePreviousRevisionRootPage(lastStoredRev, representRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
 		// First create revision tree if needed.
-		final RevisionRootPage revisionRoot = mPageRtx.getActualRevisionRootPage();
-		revisionRoot.createNodeTree(this);
+		// final RevisionRootPage revisionRoot = mPageRtx.getActualRevisionRootPage();
+		mNewRoot.createNodeTree(this);
 
 		if (mUsePathSummary) {
 			// Create path summary tree if needed.
-			final PathSummaryPage page = mPageRtx.getPathSummaryPage(revisionRoot);
-			mNewRoot.getPathSummaryPageReference()
-					.setLogKey(appendLogRecord(new PageContainer(page, page)));
+			PathSummaryPage page = mPageRtx.getPathSummaryPage(mNewRoot);
+
 			page.createPathSummaryTree(this, 0);
+
+			// if (PageContainer.emptyInstance()
+			// .equals(mLog.get(revisionRoot.getPathSummaryPageReference())))
+			mLog.put(mNewRoot.getPathSummaryPageReference(), new PageContainer(page, page));
 		}
 
-		final Page namePage = mPageRtx.getNamePage(revisionRoot);
-		final Page casPage = mPageRtx.getCASPage(revisionRoot);
-		final Page pathPage = mPageRtx.getPathPage(revisionRoot);
+		// if (!uberPage.isBootstrap()) {
+		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getNamePageReference()))) {
+		final Page namePage = mPageRtx.getNamePage(mNewRoot);
+		mLog.put(mNewRoot.getNamePageReference(), new PageContainer(namePage, namePage));
+		// }
 
-		revisionRoot.getNamePageReference()
-				.setLogKey(appendLogRecord(new PageContainer(namePage, namePage)));
-		revisionRoot.getCASPageReference()
-				.setLogKey(appendLogRecord(new PageContainer(casPage, casPage)));
-		revisionRoot.getPathPageReference()
-				.setLogKey(appendLogRecord(new PageContainer(pathPage, pathPage)));
+		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getCASPageReference()))) {
+		final Page casPage = mPageRtx.getCASPage(mNewRoot);
+		mLog.put(mNewRoot.getCASPageReference(), new PageContainer(casPage, casPage));
+		// }
+
+		// if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathPageReference()))) {
+		final Page pathPage = mPageRtx.getPathPage(mNewRoot);
+		mLog.put(mNewRoot.getPathPageReference(), new PageContainer(pathPage, pathPage));
+		// }
+		// }
+
+		final Page indirectPage = mPageRtx.dereferenceIndirectPage(mNewRoot.getIndirectPageReference());
+		mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
+
+		final PageReference revisionRootPageReference =
+				prepareLeafOfTree(uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(),
+						-1, PageKind.UBERPAGE);
+
+		// Link the prepared revision root nodePageReference with the prepared indirect tree.
+		appendLogRecord(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
+	}
+
+	private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
+		final Path logFile = Paths.get(resourceManager.getResourceConfig().mPath.toPath().toString(),
+				"log", "intent-log");
+		if (Files.exists(logFile)) {
+			try {
+				Files.delete(logFile);
+				Files.createFile(logFile);
+			} catch (IOException e) {
+				throw new UncheckedIOException(e);
+			}
+		}
+
+		return new TransactionIntentLog(new PersistentFileCache(new FileWriter(logFile.toFile(),
+				new ByteHandlePipeline(resourceManager.getResourceConfig().mByteHandler),
+				SerializationType.TRANSACTION_INTENT_LOG), this));
 	}
 
 	@Override
@@ -281,7 +321,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		final long recordPageKey = mPageRtx.pageKey(recordKey);
 
 		final PageContainer pageCont = prepareRecordPage(recordPageKey, index, pageKind);
-		if (pageCont.equals(PageContainer.EMPTY_INSTANCE)) {
+		if (pageCont.equals(PageContainer.emptyInstance())) {
 			return mPageRtx.getRecord(recordKey, pageKind, index);
 		} else {
 			Record node = ((UnorderedKeyValuePage) pageCont.getModified()).getValue(recordKey);
@@ -292,40 +332,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		}
 	}
 
-	// /**
-	// * Get the page container.
-	// *
-	// * @param pageKind the kind of page
-	// * @param index the index to open or {@code -1} if a regular record page container has to be
-	// * retrieved
-	// * @param recordPageKey the record page key
-	// * @return the {@link PageContainer} instance from the write ahead log
-	// */
-	// private PageContainer getUnorderedRecordPageContainer(final @Nullable PageKind pageKind,
-	// final @Nonnegative int index, final @Nonnegative long recordPageKey) {
-	// if (pageKind != null) {
-	// switch (pageKind) {
-	// case RECORDPAGE:
-	// case PATHSUMMARYPAGE:
-	// case PATHPAGE:
-	// case CASPAGE:
-	// case NAMEPAGE:
-	// final int[] levelPageCountExp = getUberPage().getPageCountExp(pageKind);
-	// final PageContainer pageContainer = mLog.get(
-	// new IndirectPageLogKey(pageKind, index, levelPageCountExp.length, 0, recordPageKey));
-	// return pageContainer == null ? PageContainer.emptyInstance() : pageContainer;
-	// default:
-	// throw new IllegalStateException();
-	// }
-	// }
-	// return PageContainer.emptyInstance();
-	// }
-
 	@Override
 	public String getName(final int nameKey, final Kind nodeKind) {
 		mPageRtx.assertNotClosed();
 		final NamePage currentNamePage = getNamePage(mNewRoot);
-		// If currentNamePage == null -> state was commited and no prepareNodepage was invoked yet.
 		return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind) == null)
 				? mPageRtx.getName(nameKey, nodeKind)
 				: currentNamePage.getName(nameKey, nodeKind);
@@ -348,7 +358,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		if (reference == null)
 			return;
 
-		final PageContainer container = mLog.get(reference.getLogKey());
+		if (reference.getKey() != Constants.NULL_ID_LONG) {
+			System.out.println();
+		}
+
+		final PageContainer container = mLog.get(reference);
 
 		Page page = null;
 
@@ -413,7 +427,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		}
 
 		mLog.clear();
-		mLogKey = 0;
+		mLog.close();
+		mLog = createTrxIntentLog(mPageRtx.mResourceManager);
 
 		// Delete commit file which denotes that a commit must write the log in the data file.
 		final boolean deleted = commitFile.delete();
@@ -422,7 +437,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		}
 
 		final UberPage commitedUberPage =
-				(UberPage) mPageWriter.read(mPageWriter.readUberPageReference().getKey(), mPageRtx);
+				(UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
 		mPageRtx.mResourceManager.getCommitLock().unlock();
 
@@ -433,8 +448,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	public UberPage rollback() {
 		mPageRtx.assertNotClosed();
 
+		mLog.clear();
+		mLog.close();
+		mLog = createTrxIntentLog(mPageRtx.mResourceManager);
+
 		final UberPage lastUberPage =
-				(UberPage) mPageWriter.read(mPageWriter.readUberPageReference().getKey(), mPageRtx);
+				(UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
 		return lastUberPage;
 	}
@@ -445,7 +464,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			mPageRtx.assertNotClosed();
 
 			final UberPage lastUberPage =
-					(UberPage) mPageWriter.read(mPageWriter.readUberPageReference().getKey(), mPageRtx);
+					(UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
 			mPageRtx.mResourceManager.setLastCommittedUberPage(lastUberPage);
 
@@ -462,7 +481,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		mPageRtx.assertNotClosed();
 		mPageRtx.clearCaches();
 		mLog.clear();
-		mLogKey = 0;
 	}
 
 	@Override
@@ -480,16 +498,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	 * @throws SirixIOException if an I/O error occurs
 	 */
 	private IndirectPage prepareIndirectPage(final PageReference reference) throws SirixIOException {
-		final PageContainer cont = mLog.get(reference.getLogKey());
+		final PageContainer cont = mLog.get(reference);
 		IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
 		if (page == null) {
-			if (reference.getKey() == Constants.NULL_ID) {
+			if (reference.getKey() == Constants.NULL_ID_LONG) {
 				page = new IndirectPage();
 			} else {
 				final IndirectPage indirectPage = mPageRtx.dereferenceIndirectPage(reference);
 				page = new IndirectPage(indirectPage);
 			}
-			reference.setLogKey(appendLogRecord(new PageContainer(page, page)));
+			appendLogRecord(reference, new PageContainer(page, page));
 		}
 		return page;
 	}
@@ -510,19 +528,19 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		final PageReference reference = prepareLeafOfTree(
 				mPageRtx.getPageReference(mNewRoot, pageKind, index), recordPageKey, index, pageKind);
 
-		PageContainer cont = mLog.get(reference.getLogKey());
+		PageContainer pageContainer = mLog.get(reference);
 
-		if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
-			if (reference.getKey() == Constants.NULL_ID) {
-				final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey,
-						pageKind, Optional.<PageReference>empty(), mPageRtx);
+		if (pageContainer.equals(PageContainer.emptyInstance())) {
+			if (reference.getKey() == Constants.NULL_ID_LONG) {
+				final UnorderedKeyValuePage completePage =
+						new UnorderedKeyValuePage(recordPageKey, pageKind, Constants.NULL_ID_LONG, mPageRtx);
 				final UnorderedKeyValuePage modifyPage = mPageRtx.clone(completePage);
-				cont = new PageContainer(completePage, modifyPage);
+				pageContainer = new PageContainer(completePage, modifyPage);
 			} else {
-				cont = dereferenceRecordPageForModification(reference);
+				pageContainer = dereferenceRecordPageForModification(reference);
 			}
 
-			assert cont != null;
+			assert pageContainer != null;
 
 			switch (pageKind) {
 				case RECORDPAGE:
@@ -530,14 +548,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 				case PATHPAGE:
 				case CASPAGE:
 				case NAMEPAGE:
-					reference.setLogKey(appendLogRecord(cont));
+					appendLogRecord(reference, pageContainer);
 					break;
 				default:
 					throw new IllegalStateException("Page kind not known!");
 			}
 		}
 
-		return cont;
+		return pageContainer;
 	}
 
 	/**
@@ -565,8 +583,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 							getUberPage().getRevisionNumber(), -1, PageKind.UBERPAGE);
 
 			// Link the prepared revision root nodePageReference with the prepared indirect tree.
-			revisionRootPageReference
-					.setLogKey(appendLogRecord(new PageContainer(revisionRootPage, revisionRootPage)));
+			appendLogRecord(revisionRootPageReference,
+					new PageContainer(revisionRootPage, revisionRootPage));
 
 			// Return prepared revision root nodePageReference.
 			return revisionRootPage;
@@ -597,7 +615,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
 			levelKey -= offset << inpLevelPageCountExp[level];
 			final IndirectPage page = prepareIndirectPage(reference);
-			page.setDirty(true);
 			reference = page.getReference(offset);
 		}
 
@@ -635,10 +652,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	}
 
 	@Override
-	public long appendLogRecord(final PageContainer pageContainer) {
+	public PageWriteTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(
+			final PageReference reference, final PageContainer pageContainer) {
 		checkNotNull(pageContainer);
-		mLog.put(mLogKey, pageContainer);
-		return mLogKey++;
+		mLog.put(reference, pageContainer);
+		return this;
+	}
+
+	@Override
+	public PageContainer getLogRecord(final PageReference reference) {
+		checkNotNull(reference);
+		return mLog.get(reference);
 	}
 
 	@Override

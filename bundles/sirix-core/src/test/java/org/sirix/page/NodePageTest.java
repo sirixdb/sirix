@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -45,6 +45,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.collect.HashBiMap;
@@ -79,8 +80,8 @@ public final class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() throws IOException {
-		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE,
-				Optional.<PageReference>empty(), mPageReadTrx);
+		final UnorderedKeyValuePage page1 =
+				new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
 		assertEquals(0L, page1.getPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
@@ -97,10 +98,10 @@ public final class NodePageTest {
 
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		final DataOutputStream dataOut = new DataOutputStream(out);
-		PagePersistenter.serializePage(dataOut, page1);
+		PagePersistenter.serializePage(dataOut, page1, SerializationType.COMMIT);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
 		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter
-				.deserializePage(new DataInputStream(in), mPageReadTrx);
+				.deserializePage(new DataInputStream(in), mPageReadTrx, SerializationType.COMMIT);
 		// assertEquals(position, out.position());
 		final ElementNode element = (ElementNode) page2.getValue(0l);
 		assertEquals(0L, page2.getValue(0l).getNodeKey());

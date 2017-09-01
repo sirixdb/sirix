@@ -31,22 +31,29 @@ import org.sirix.page.PageReference;
  *
  */
 public interface Writer extends Reader {
-
 	/**
 	 * Writing a page related to the reference.
 	 *
 	 * @param pageReference that points to a page
 	 * @throws SirixIOException execption to be thrown if something bad happens
+	 * @return this writer instance
 	 */
-	Writer write(final PageReference pageReference) throws SirixIOException;
+	Writer write(PageReference pageReference) throws SirixIOException;
 
 	/**
 	 * Write beacon for the first reference.
 	 *
 	 * @param pageReference that points to the beacon
 	 * @throws SirixIOException if an I/O error occured
+	 * @return this writer instance
 	 */
-	Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException;
+	Writer writeUberPageReference(PageReference pageReference) throws SirixIOException;
 
+	/**
+	 * Truncate to a specific revision.
+	 *
+	 * @param revision the revision to truncate to.
+	 * @return this writer instance
+	 */
 	Writer truncateTo(int revision);
 }

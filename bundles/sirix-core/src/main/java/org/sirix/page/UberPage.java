@@ -90,8 +90,8 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param in input bytes
 	 * @param resourceConfig {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final DataInput in) throws IOException {
-		mDelegate = new PageDelegate(1, in);
+	protected UberPage(final DataInput in, final SerializationType type) throws IOException {
+		mDelegate = new PageDelegate(1, in, type);
 		mRevisionCount = in.readInt();
 		if (in.readBoolean())
 			mPreviousUberPageKey = in.readLong();
@@ -163,8 +163,8 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final DataOutput out) throws IOException {
-		mDelegate.serialize(checkNotNull(out));
+	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+		mDelegate.serialize(checkNotNull(out), checkNotNull(type));
 		out.writeInt(mRevisionCount);
 		out.writeBoolean(!mBootstrap);
 		if (!mBootstrap) {
@@ -186,12 +186,6 @@ public final class UberPage extends AbstractForwardingPage {
 		return mDelegate;
 	}
 
-	@Override
-	public Page setDirty(final boolean pDirty) {
-		mDelegate.setDirty(pDirty);
-		return this;
-	}
-
 	/**
 	 * Create revision tree.
 	 *
@@ -207,12 +201,29 @@ public final class UberPage extends AbstractForwardingPage {
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(page, page)));
+			pageWriteTrx.appendLogRecord(reference, new PageContainer(page, page));
 			reference = page.getReference(0);
 		}
 
 		mRootPage = new RevisionRootPage();
-		reference.setLogKey(pageWriteTrx.appendLogRecord(new PageContainer(mRootPage, mRootPage)));
+
+		final Page namePage = mRootPage.getNamePageReference().getPage();
+		pageWriteTrx.appendLogRecord(mRootPage.getNamePageReference(),
+				new PageContainer(namePage, namePage));
+
+		final Page casPage = mRootPage.getCASPageReference().getPage();
+		pageWriteTrx.appendLogRecord(mRootPage.getCASPageReference(),
+				new PageContainer(casPage, casPage));
+
+		final Page pathPage = mRootPage.getPathPageReference().getPage();
+		pageWriteTrx.appendLogRecord(mRootPage.getPathPageReference(),
+				new PageContainer(pathPage, pathPage));
+
+		final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
+		pageWriteTrx.appendLogRecord(mRootPage.getPathSummaryPageReference(),
+				new PageContainer(pathSummaryPage, pathSummaryPage));
+
+		pageWriteTrx.appendLogRecord(reference, new PageContainer(mRootPage, mRootPage));
 	}
 
 	/**

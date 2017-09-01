@@ -11,9 +11,9 @@ import com.google.common.collect.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractForwardingReader extends ForwardingObject implements Reader {
 
@@ -21,8 +21,9 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
 	protected AbstractForwardingReader() {}
 
 	@Override
-	public Page read(long key, @Nullable PageReadTrx pageReadTrx) throws SirixIOException {
-		return delegate().read(key, pageReadTrx);
+	public Page read(PageReference reference, @Nullable PageReadTrx pageReadTrx)
+			throws SirixIOException {
+		return delegate().read(reference, pageReadTrx);
 	}
 
 	@Override
