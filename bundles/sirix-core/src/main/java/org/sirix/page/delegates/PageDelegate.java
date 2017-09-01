@@ -26,7 +26,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
 
 import javax.annotation.Nonnegative;
 
@@ -107,7 +106,7 @@ public class PageDelegate implements Page {
 	 * @param revision revision number
 	 */
 	public PageDelegate(final Page commitedPage) {
-		mReferences = Arrays.copyOf(commitedPage.getReferences(), commitedPage.getReferences().length);
+		mReferences = new PageReference[commitedPage.getReferences().length];
 
 		for (int offset = 0, length = mReferences.length; offset < length; offset++) {
 			mReferences[offset] = new PageReference();
