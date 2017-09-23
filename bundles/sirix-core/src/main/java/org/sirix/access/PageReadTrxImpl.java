@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.Objects.requireNonNull;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -46,6 +45,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -117,43 +117,42 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/** {@link ResourceConfiguration} instance. */
 	final ResourceConfiguration mResourceConfig;
 
-	/** Optional {@link PageWriteTrxImpl} needed for very first revision. */
-	private final Optional<PageWriteTrxImpl> mPageWriteTrx;
-
 	/** {@link IndexController} instance. */
 	private final IndexController mIndexController;
 
 	/** Caches in-memory reconstructed pages of a specific resource. */
 	private final BufferManager mResourceBufferManager;
 
+	/** Transaction intent log. */
+	private final TransactionIntentLog mTrxIntentLog;
+
 	/**
 	 * Standard constructor.
 	 *
-	 * @param session current {@link XdmResourceManager} instance
+	 * @param resourceManager {@link XdmResourceManager} instance
 	 * @param uberPage {@link UberPage} to start reading from
 	 * @param revision key of revision to read from uber page
 	 * @param reader reader to read stored pages for this transaction
-	 * @param pageWriteLog optional page cache
+	 * @param trxIntentLog transaction intent log
 	 * @param pageCache caches in-memory reconstructed pages of a specific resource.
 	 * @param unorderedKeyValuePageWriteLog optional key/value page cache
 	 * @throws SirixIOException if reading of the persistent storage fails
 	 */
-	PageReadTrxImpl(final XdmResourceManager session, final UberPage uberPage,
-			final @Nonnegative int revision, final Reader reader,
-			final Optional<PageWriteTrxImpl> pageWriteTrx,
+	PageReadTrxImpl(final XdmResourceManager resourceManager, final UberPage uberPage,
+			final @Nonnegative int revision, final Reader reader, final TransactionIntentLog trxIntentLog,
 			final Optional<IndexController> indexController, final @Nonnull BufferManager bufferManager)
 			throws SirixIOException {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
-		mResourceBufferManager = requireNonNull(bufferManager);
-		mPageWriteTrx = checkNotNull(pageWriteTrx);
+		mResourceBufferManager = checkNotNull(bufferManager);
+		mTrxIntentLog = trxIntentLog;
 		mClosed = false;
-		mResourceConfig = session.getResourceConfig();
+		mResourceConfig = resourceManager.getResourceConfig();
 		mIndexController = indexController.isPresent() ? indexController.get()
-				: session.getRtxIndexController(revision);
+				: resourceManager.getRtxIndexController(revision);
 
 		if (!indexController.isPresent()) {
 			// Deserialize index definitions.
-			final File indexes = new File(session.getResourceConfig().mPath,
+			final File indexes = new File(resourceManager.getResourceConfig().mPath,
 					ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
 			if (indexes.exists()) {
 				try (final InputStream in = new FileInputStream(indexes)) {
@@ -164,10 +163,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 		}
 
-		final File commitFile = session.commitFile();
+		final File commitFile = resourceManager.commitFile();
 		commitFile.exists();
 
-		mResourceManager = checkNotNull(session);
+		mResourceManager = checkNotNull(resourceManager);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
 
@@ -189,16 +188,16 @@ final class PageReadTrxImpl implements PageReadTrx {
 			public Page load(final PageReference reference) {
 				Page page = reference.getPage();
 				if (page == null) {
-					if (mPageWriteTrx.isPresent()) {
+					if (mTrxIntentLog != null) {
 						// Try to get it from the transaction log if it's present.
-						final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
+						final PageContainer cont = mTrxIntentLog.get(reference);
 						page = cont == null ? null : cont.getComplete();
 					}
 
 					if (page == null) {
 						page = mPageReader.read(reference, pageReadTrx);
 
-						if (page != null && !mPageWriteTrx.isPresent()) {
+						if (page != null && mTrxIntentLog == null) {
 							// Put page into buffer manager and set page reference (just to
 							// track when the in-memory page must be removed).
 							mResourceBufferManager.getPageCache().put(reference, page);
@@ -328,9 +327,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			RevisionRootPage page = null;
 
-			if (mPageWriteTrx.isPresent()) {
+			if (mTrxIntentLog != null) {
 				// Try to get it from the transaction log if it's present.
-				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
+				final PageContainer cont = mTrxIntentLog.get(reference);
 				page = cont == null ? null : (RevisionRootPage) cont.getComplete();
 			}
 
@@ -435,8 +434,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		final PageContainer recordPageContainer = new PageContainer(completePage, clone(completePage));
 
-		// recordPageContainerFromBufferesource buffer manager.
-		if (!mPageWriteTrx.isPresent())
+		if (mTrxIntentLog == null)
 			mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(),
 					recordPageContainer);
 
@@ -560,9 +558,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			IndirectPage page = null;
 
-			if (mPageWriteTrx.isPresent()) {
+			if (mTrxIntentLog != null) {
 				// Try to get it from the transaction log if it's present.
-				final PageContainer cont = mPageWriteTrx.get().mLog.get(reference);
+				final PageContainer cont = mTrxIntentLog.get(reference);
 				page = cont == null ? null : (IndirectPage) cont.getComplete();
 			}
 
