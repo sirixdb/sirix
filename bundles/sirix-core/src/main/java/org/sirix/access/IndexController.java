@@ -122,15 +122,15 @@ public final class IndexController {
 	 * Determines if an index of the specified type is available.
 	 *
 	 * @param type type of index to lookup
-	 * @param session the {@link ResourceManager} this index controller is bound to
+	 * @param resourceManager the {@link ResourceManager} this index controller is bound to
 	 * @return {@code true} if an index of the specified type exists, {@code false} otherwise
 	 * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
 	 *         for the specified {@code revision}
 	 */
-	public boolean containsIndex(final IndexType type, final ResourceManager session,
+	public boolean containsIndex(final IndexType type, final ResourceManager resourceManager,
 			final int revision) throws SirixIOException {
 		final Indexes indexes = new Indexes();
-		final File indexesFile = new File(session.getResourceConfig().mPath,
+		final File indexesFile = new File(resourceManager.getResourceConfig().mPath,
 				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
 		if (indexesFile.length() != 0) {
 			try (final InputStream in = new FileInputStream(indexesFile)) {

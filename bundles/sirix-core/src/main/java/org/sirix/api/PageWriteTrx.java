@@ -7,6 +7,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.Restore;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -148,4 +149,11 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @return the page container
 	 */
 	PageContainer getLogRecord(PageReference reference);
+
+	/**
+	 * Get the transaction intent log.
+	 * 
+	 * @return the transaction intent log
+	 */
+	TransactionIntentLog getLog();
 }

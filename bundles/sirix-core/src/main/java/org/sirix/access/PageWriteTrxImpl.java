@@ -150,7 +150,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 		// Create revision tree if needed.
 		if (uberPage.isBootstrap()) {
-			uberPage.createRevisionTree(this);
+			uberPage.createRevisionTree(mLog);
 		}
 
 		// Page read trx.
@@ -166,13 +166,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 		// First create revision tree if needed.
 		// final RevisionRootPage revisionRoot = mPageRtx.getActualRevisionRootPage();
-		mNewRoot.createNodeTree(this);
+		mNewRoot.createNodeTree(mPageRtx, mLog);
 
 		if (mUsePathSummary) {
 			// Create path summary tree if needed.
 			PathSummaryPage page = mPageRtx.getPathSummaryPage(mNewRoot);
 
-			page.createPathSummaryTree(this, 0);
+			page.createPathSummaryTree(mPageRtx, 0, mLog);
 
 			if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathSummaryPageReference())))
 				mLog.put(mNewRoot.getPathSummaryPageReference(), new PageContainer(page, page));
@@ -203,8 +203,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 							-1, PageKind.UBERPAGE);
 
 			// Link the prepared revision root nodePageReference with the prepared indirect tree.
-			appendLogRecord(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
+			mLog.put(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
 		}
+	}
+
+	@Override
+	public TransactionIntentLog getLog() {
+		return mLog;
 	}
 
 	private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
