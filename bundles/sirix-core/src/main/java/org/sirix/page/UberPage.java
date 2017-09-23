@@ -29,8 +29,8 @@ import java.io.IOException;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -193,7 +193,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param revisionRoot {@link RevisionRootPage} instance
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createRevisionTree(
-			final PageWriteTrx<K, V, S> pageWriteTrx) {
+			final TransactionIntentLog log) {
 		// Initialize revision tree to guarantee that there is a revision root page.
 		Page page = null;
 		PageReference reference = getIndirectPageReference();
@@ -201,29 +201,26 @@ public final class UberPage extends AbstractForwardingPage {
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.appendLogRecord(reference, new PageContainer(page, page));
+			log.put(reference, new PageContainer(page, page));
 			reference = page.getReference(0);
 		}
 
 		mRootPage = new RevisionRootPage();
 
 		final Page namePage = mRootPage.getNamePageReference().getPage();
-		pageWriteTrx.appendLogRecord(mRootPage.getNamePageReference(),
-				new PageContainer(namePage, namePage));
+		log.put(mRootPage.getNamePageReference(), new PageContainer(namePage, namePage));
 
 		final Page casPage = mRootPage.getCASPageReference().getPage();
-		pageWriteTrx.appendLogRecord(mRootPage.getCASPageReference(),
-				new PageContainer(casPage, casPage));
+		log.put(mRootPage.getCASPageReference(), new PageContainer(casPage, casPage));
 
 		final Page pathPage = mRootPage.getPathPageReference().getPage();
-		pageWriteTrx.appendLogRecord(mRootPage.getPathPageReference(),
-				new PageContainer(pathPage, pathPage));
+		log.put(mRootPage.getPathPageReference(), new PageContainer(pathPage, pathPage));
 
 		final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
-		pageWriteTrx.appendLogRecord(mRootPage.getPathSummaryPageReference(),
+		log.put(mRootPage.getPathSummaryPageReference(),
 				new PageContainer(pathSummaryPage, pathSummaryPage));
 
-		pageWriteTrx.appendLogRecord(reference, new PageContainer(mRootPage, mRootPage));
+		log.put(reference, new PageContainer(mRootPage, mRootPage));
 	}
 
 	/**

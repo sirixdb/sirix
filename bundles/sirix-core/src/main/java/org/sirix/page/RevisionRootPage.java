@@ -32,6 +32,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -236,14 +237,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * Initialize node tree.
 	 *
 	 * @param pageReadTrx {@link PageReadTrx} instance
+	 * @param log the transaction intent log
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
-			final PageWriteTrx<K, V, S> pageWriteTrx) {
+			final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
 		final PageReference reference = getIndirectPageReference();
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
 				&& reference.getLogKey() == Constants.NULL_ID_INT
 				&& reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-			PageUtils.createTree(reference, PageKind.RECORDPAGE, -1, pageWriteTrx);
+			PageUtils.createTree(reference, PageKind.RECORDPAGE, -1, pageReadTrx, log);
 			incrementAndGetMaxNodeKey();
 		}
 	}

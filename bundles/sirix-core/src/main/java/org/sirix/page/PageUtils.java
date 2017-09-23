@@ -4,8 +4,9 @@ import java.util.Optional;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadTrx;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -39,25 +40,25 @@ public final class PageUtils {
 	 */
 	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTree(
 			@Nonnull PageReference reference, final PageKind pageKind, final int index,
-			final PageWriteTrx<K, V, S> pageWriteTrx) {
+			final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.
-		final int[] levelPageCountExp = pageWriteTrx.getUberPage().getPageCountExp(pageKind);
+		final int[] levelPageCountExp = pageReadTrx.getUberPage().getPageCountExp(pageKind);
 
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.appendLogRecord(reference, new PageContainer(page, page));
+			log.put(reference, new PageContainer(page, page));
 			reference = page.getReference(0);
 		}
 
 		// Create new record page.
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, Constants.NULL_ID_LONG, pageWriteTrx);
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, Constants.NULL_ID_LONG, pageReadTrx);
 
 		// Create a {@link DocumentRootNode}.
-		final Optional<SirixDeweyID> id = pageWriteTrx.getSession().getResourceConfig().mDeweyIDsStored
+		final Optional<SirixDeweyID> id = pageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
 				? Optional.of(SirixDeweyID.newRootID())
 				: Optional.empty();
 		final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
@@ -67,6 +68,6 @@ public final class PageUtils {
 				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
-		pageWriteTrx.appendLogRecord(reference, new PageContainer(ndp, ndp));
+		log.put(reference, new PageContainer(ndp, ndp));
 	}
 }
