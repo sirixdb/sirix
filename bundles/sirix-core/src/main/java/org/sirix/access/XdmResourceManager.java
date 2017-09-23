@@ -206,11 +206,9 @@ public final class XdmResourceManager implements ResourceManager {
 		}
 
 		final PageReadTrx pageReadTrx = new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
-				revisionKey, mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager);
+				revisionKey, mFac.createReader(), null, Optional.empty(), mBufferManager);
 
-		final Node documentNode;
-
-		documentNode = getDocumentNode(pageReadTrx);
+		final Node documentNode = getDocumentNode(pageReadTrx);
 
 		// Create new reader.
 		final XdmNodeReadTrx reader = new XdmNodeReadTrxImpl(this, mNodeTrxIDCounter.incrementAndGet(),
@@ -484,7 +482,7 @@ public final class XdmResourceManager implements ResourceManager {
 		assertAccess(revision);
 
 		return PathSummaryReader.getInstance(new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
-				revision, mFac.createReader(), Optional.empty(), Optional.empty(), mBufferManager), this);
+				revision, mFac.createReader(), null, Optional.empty(), mBufferManager), this);
 	}
 
 	@Override
@@ -500,7 +498,7 @@ public final class XdmResourceManager implements ResourceManager {
 	@Override
 	public synchronized PageReadTrx beginPageReadTrx(final @Nonnegative int revision) {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac.createReader(),
-				Optional.empty(), Optional.empty(), mBufferManager);
+				null, Optional.empty(), mBufferManager);
 	}
 
 	@Override

@@ -154,8 +154,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		}
 
 		// Page read trx.
-		mPageRtx = new PageReadTrxImpl(resourceManager, uberPage, representRev, writer,
-				Optional.of(this), Optional.of(mIndexController), bufferManager);
+		mPageRtx = new PageReadTrxImpl(resourceManager, uberPage, representRev, writer, mLog,
+				Optional.of(mIndexController), bufferManager);
 
 		mPageWriter = writer;
 
