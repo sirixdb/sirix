@@ -139,18 +139,19 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException if reading of the persistent storage fails
 	 */
 	PageReadTrxImpl(final XdmResourceManager resourceManager, final UberPage uberPage,
-			final @Nonnegative int revision, final Reader reader, final TransactionIntentLog trxIntentLog,
-			final Optional<IndexController> indexController, final @Nonnull BufferManager bufferManager)
+			final @Nonnegative int revision, final Reader reader,
+			final @Nullable TransactionIntentLog trxIntentLog,
+			final @Nullable IndexController indexController, final @Nonnull BufferManager bufferManager)
 			throws SirixIOException {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
 		mResourceBufferManager = checkNotNull(bufferManager);
 		mTrxIntentLog = trxIntentLog;
 		mClosed = false;
 		mResourceConfig = resourceManager.getResourceConfig();
-		mIndexController = indexController.isPresent() ? indexController.get()
-				: resourceManager.getRtxIndexController(revision);
+		mIndexController =
+				indexController == null ? resourceManager.getRtxIndexController(revision) : indexController;
 
-		if (!indexController.isPresent()) {
+		if (indexController == null) {
 			// Deserialize index definitions.
 			final File indexes = new File(resourceManager.getResourceConfig().mPath,
 					ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
