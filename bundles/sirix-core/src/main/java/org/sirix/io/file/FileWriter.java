@@ -25,8 +25,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
@@ -67,13 +65,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 	 * @param handler the byte handler
 	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public FileWriter(final File storage, final ByteHandler handler, final SerializationType type)
-			throws SirixIOException {
-		try {
-			mFile = new RandomAccessFile(storage, "rw");
-		} catch (final FileNotFoundException e) {
-			throw new SirixIOException(e);
-		}
+	public FileWriter(final RandomAccessFile storage, final ByteHandler handler,
+			final SerializationType type) throws SirixIOException {
+		mFile = checkNotNull(storage);
 		mReader = new FileReader(storage, handler, type);
 		mType = checkNotNull(type);
 	}
