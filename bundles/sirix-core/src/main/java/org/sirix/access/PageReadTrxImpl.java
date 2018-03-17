@@ -316,7 +316,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *
 	 * @throws SirixIOException if something odd happens within the creation process
 	 */
-	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
+	@Override
+	public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
 		checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
 				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
 				mResourceManager.getMostRecentRevisionNumber());
@@ -555,7 +556,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException if something odd happens within the creation process
 	 * @throws NullPointerException if {@code reference} is {@code null}
 	 */
-	final IndirectPage dereferenceIndirectPage(final PageReference reference) {
+	@Override
+	public IndirectPage dereferenceIndirectPageReference(final PageReference reference) {
 		try {
 			IndirectPage page = null;
 
@@ -612,7 +614,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
 			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
 			levelKey -= offset << inpLevelPageCountExp[level];
-			final Page derefPage = dereferenceIndirectPage(reference);
+			final Page derefPage = dereferenceIndirectPageReference(reference);
 			if (derefPage == null) {
 				reference = null;
 				break;
