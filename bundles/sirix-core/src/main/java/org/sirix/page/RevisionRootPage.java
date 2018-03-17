@@ -239,8 +239,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param pageReadTrx {@link PageReadTrx} instance
 	 * @param log the transaction intent log
 	 */
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
-			final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
+	public void createNodeTree(final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
 		final PageReference reference = getIndirectPageReference();
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
 				&& reference.getLogKey() == Constants.NULL_ID_INT

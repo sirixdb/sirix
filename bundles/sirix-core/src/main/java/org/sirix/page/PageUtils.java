@@ -11,8 +11,6 @@ import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.Record;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -38,9 +36,8 @@ public final class PageUtils {
 	 * @param reference reference from revision root
 	 * @param pageKind the page kind
 	 */
-	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTree(
-			@Nonnull PageReference reference, final PageKind pageKind, final int index,
-			final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
+	public static void createTree(@Nonnull PageReference reference, final PageKind pageKind,
+			final int index, final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.
