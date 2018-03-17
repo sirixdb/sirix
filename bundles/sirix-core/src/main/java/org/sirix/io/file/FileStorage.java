@@ -81,7 +81,7 @@ public final class FileStorage implements Storage {
 		final Path concreteStorage = getConcreteStorage();
 
 		if (!Files.exists(concreteStorage)) {
-			Files.createDirectories(concreteStorage);
+			Files.createDirectories(concreteStorage.getParent());
 			Files.createFile(concreteStorage);
 		}
 		return concreteStorage;
