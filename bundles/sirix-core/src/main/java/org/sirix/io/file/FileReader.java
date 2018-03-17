@@ -25,7 +25,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
@@ -73,20 +72,11 @@ public final class FileReader implements Reader {
 	 * @param handler {@link ByteHandler} instance
 	 * @throws SirixIOException if something bad happens
 	 */
-	public FileReader(final File concreteStorage, final ByteHandler handler,
-			final SerializationType type) throws SirixIOException {
-		try {
-			if (!concreteStorage.exists()) {
-				concreteStorage.getParentFile().mkdirs();
-				concreteStorage.createNewFile();
-			}
-
-			mFile = new RandomAccessFile(concreteStorage, "r");
-			mByteHandler = checkNotNull(handler);
-			mType = checkNotNull(type);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
+	public FileReader(final RandomAccessFile file, final ByteHandler handler,
+			final SerializationType type) {
+		mFile = checkNotNull(file);
+		mByteHandler = checkNotNull(handler);
+		mType = checkNotNull(type);
 	}
 
 	@Override

@@ -22,6 +22,10 @@
 package org.sirix.io.file;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
@@ -63,14 +67,36 @@ public final class FileStorage implements Storage {
 
 	@Override
 	public Reader createReader() throws SirixIOException {
-		return new FileReader(getConcreteStorage(), new ByteHandlePipeline(mByteHandler),
-				SerializationType.COMMIT);
+		try {
+			final Path concreteStorage = createDirectoriesAndFile();
+
+			return new FileReader(new RandomAccessFile(concreteStorage.toFile(), "r"),
+					new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
+
+	private Path createDirectoriesAndFile() throws IOException {
+		final Path concreteStorage = getConcreteStorage();
+
+		if (!Files.exists(concreteStorage)) {
+			Files.createDirectories(concreteStorage);
+			Files.createFile(concreteStorage);
+		}
+		return concreteStorage;
 	}
 
 	@Override
 	public Writer createWriter() throws SirixIOException {
-		return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(mByteHandler),
-				SerializationType.COMMIT);
+		try {
+			final Path concreteStorage = createDirectoriesAndFile();
+
+			return new FileWriter(new RandomAccessFile(concreteStorage.toFile(), "rw"),
+					new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
 	}
 
 	@Override
@@ -83,15 +109,19 @@ public final class FileStorage implements Storage {
 	 *
 	 * @return the concrete storage for this database
 	 */
-	private File getConcreteStorage() {
+	private Path getConcreteStorage() {
 		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.DATA.getFile().getName())
-				.append(File.separator).append(FILENAME).toString());
+				.append(File.separator).append(FILENAME).toString()).toPath();
 	}
 
 	@Override
 	public boolean exists() throws SirixIOException {
-		final File file = getConcreteStorage();
-		return file.exists() && file.length() > 0;
+		final Path storage = getConcreteStorage();
+		try {
+			return Files.exists(storage) && Files.size(storage) > 0;
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
 	}
 
 	@Override
