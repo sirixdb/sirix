@@ -31,9 +31,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -192,8 +190,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param pageReadTrx {@link PageReadTrx} instance
 	 * @param revisionRoot {@link RevisionRootPage} instance
 	 */
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createRevisionTree(
-			final TransactionIntentLog log) {
+	public void createRevisionTree(final TransactionIntentLog log) {
 		// Initialize revision tree to guarantee that there is a revision root page.
 		Page page = null;
 		PageReference reference = getIndirectPageReference();
