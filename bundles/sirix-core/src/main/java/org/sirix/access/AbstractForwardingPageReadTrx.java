@@ -13,6 +13,7 @@ import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
+import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -44,6 +45,16 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	@Override
 	public void closeCaches() {
 		delegate().closeCaches();
+	}
+
+	@Override
+	public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
+		return delegate().dereferenceIndirectPageReference(indirectPageReference);
+	}
+
+	@Override
+	public RevisionRootPage loadRevRoot(int lastCommitedRev) {
+		return delegate().loadRevRoot(lastCommitedRev);
 	}
 
 	@Override

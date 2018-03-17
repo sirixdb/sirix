@@ -11,6 +11,7 @@ import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
+import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -197,4 +198,20 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @return the {@link Reader}
 	 */
 	Reader getReader();
+
+	/**
+	 * Dereference the indirect page reference.
+	 *
+	 * @param indirectPageReference The indirect page reference.
+	 * @return The indirect page.
+	 */
+	IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference);
+
+	/**
+	 * Load the revision root.
+	 * 
+	 * @param lastCommitedRev The revision to load.
+	 * @return The revision root.
+	 */
+	RevisionRootPage loadRevRoot(int lastCommitedRev);
 }

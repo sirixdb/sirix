@@ -30,6 +30,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -195,7 +196,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			}
 
 			final Page indirectPage =
-					mPageRtx.dereferenceIndirectPage(mNewRoot.getIndirectPageReference());
+					mPageRtx.dereferenceIndirectPageReference(mNewRoot.getIndirectPageReference());
 			mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
 
 			final PageReference revisionRootPageReference =
@@ -215,18 +216,24 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
 		final Path logFile = Paths.get(resourceManager.getResourceConfig().mPath.toPath().toString(),
 				"log", "intent-log");
-		if (Files.exists(logFile)) {
-			try {
+		try {
+			if (Files.exists(logFile)) {
 				Files.delete(logFile);
 				Files.createFile(logFile);
-			} catch (IOException e) {
-				throw new UncheckedIOException(e);
 			}
-		}
 
-		return new TransactionIntentLog(new PersistentFileCache(new FileWriter(logFile.toFile(),
-				new ByteHandlePipeline(resourceManager.getResourceConfig().mByteHandler),
-				SerializationType.TRANSACTION_INTENT_LOG), this));
+			final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
+
+			final FileWriter fileWriter = new FileWriter(file,
+					new ByteHandlePipeline(resourceManager.getResourceConfig().mByteHandler),
+					SerializationType.TRANSACTION_INTENT_LOG);
+
+			final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter, this);
+
+			return new TransactionIntentLog(persistentFileCache);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
 	}
 
 	@Override
@@ -505,7 +512,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 			if (reference.getKey() == Constants.NULL_ID_LONG) {
 				page = new IndirectPage();
 			} else {
-				final IndirectPage indirectPage = mPageRtx.dereferenceIndirectPage(reference);
+				final IndirectPage indirectPage = mPageRtx.dereferenceIndirectPageReference(reference);
 				page = new IndirectPage(indirectPage);
 			}
 			appendLogRecord(reference, new PageContainer(page, page));
