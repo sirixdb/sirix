@@ -11,4 +11,4 @@ notifications:
       - lichtenberger.johannes@gmail.com
 gemfile: Gemfile
 after-success:
-  mvn jacoco:report coveralls:jacoco
+  mvn clean test jacoco:report coveralls:report
