@@ -10,3 +10,5 @@ notifications:
     recipients:
       - lichtenberger.johannes@gmail.com
 gemfile: Gemfile
+after-success:
+  mvn jacoco:report coveralls:jacoco
