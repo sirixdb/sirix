@@ -22,7 +22,6 @@
 package org.sirix.diff;
 
 import javax.annotation.Nonnull;
-
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
@@ -34,37 +33,37 @@ import org.sirix.exception.SirixException;
  * 
  */
 interface DiffObservable {
-	/**
-	 * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined
-	 * in the {@link DiffObserver} interface.
-	 * 
-	 * @param diff the encountered diff
-	 * @param newNodeKey node key of current node in new revision
-	 * @param oldNodeKey node key of current node in old revision
-	 * @param depth current {@link DiffDepth} instance
-	 */
-	void fireDiff(DiffType diff, @Nonnull long newNodeKey, @Nonnull long oldNodeKey,
-			@Nonnull DiffDepth depth);
+  /**
+   * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined
+   * in the {@link DiffObserver} interface.
+   * 
+   * @param diff the encountered diff
+   * @param newNodeKey node key of current node in new revision
+   * @param oldNodeKey node key of current node in old revision
+   * @param depth current {@link DiffDepth} instance
+   */
+  void fireDiff(DiffType diff, @Nonnull long newNodeKey, @Nonnull long oldNodeKey,
+      @Nonnull DiffDepth depth);
 
-	/**
-	 * Diff computation done, thus inform listeners.
-	 * 
-	 * @throws SirixException if closing transactions failes
-	 */
-	void done() throws SirixException;
+  /**
+   * Diff computation done, thus inform listeners.
+   * 
+   * @throws SirixException if closing transactions failes
+   */
+  void done() throws SirixException;
 
-	/**
-	 * Add an observer. This means add an instance of a class which implements the
-	 * {@link DiffObserver} interface.
-	 * 
-	 * @param observer instance of the class which implements {@link DiffObserver}
-	 */
-	void addObserver(DiffObserver observer);
+  /**
+   * Add an observer. This means add an instance of a class which implements the
+   * {@link DiffObserver} interface.
+   * 
+   * @param observer instance of the class which implements {@link DiffObserver}
+   */
+  void addObserver(DiffObserver observer);
 
-	/**
-	 * Remove an observer.
-	 * 
-	 * @param observer instance of the class which implements {@link DiffObserver}
-	 */
-	void removeObserver(DiffObserver observer);
+  /**
+   * Remove an observer.
+   * 
+   * @param observer instance of the class which implements {@link DiffObserver}
+   */
+  void removeObserver(DiffObserver observer);
 }

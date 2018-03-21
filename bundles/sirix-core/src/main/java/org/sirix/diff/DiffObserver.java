@@ -22,7 +22,6 @@
 package org.sirix.diff;
 
 import javax.annotation.Nonnull;
-
 import org.sirix.diff.DiffFactory.DiffType;
 
 /**
@@ -32,17 +31,17 @@ import org.sirix.diff.DiffFactory.DiffType;
  * 
  */
 public interface DiffObserver {
-	/**
-	 * Called for every node comparsion.
-	 * 
-	 * @param diffType the {@link DiffType} type
-	 * @param pNewNode node key of node in new revision
-	 * @param pOldNode node key of node in old revision
-	 * @param depth current {@link DiffDepth} instance
-	 */
-	void diffListener(final @Nonnull DiffType diffType, final long newNodeKey, final long oldNodeKey,
-			final @Nonnull DiffDepth depth);
+  /**
+   * Called for every node comparsion.
+   * 
+   * @param diffType the {@link DiffType} type
+   * @param pNewNode node key of node in new revision
+   * @param pOldNode node key of node in old revision
+   * @param depth current {@link DiffDepth} instance
+   */
+  void diffListener(final @Nonnull DiffType diffType, final long newNodeKey, final long oldNodeKey,
+      final @Nonnull DiffDepth depth);
 
-	/** Signals that the diff calculation is done. */
-	void diffDone();
+  /** Signals that the diff calculation is done. */
+  void diffDone();
 }

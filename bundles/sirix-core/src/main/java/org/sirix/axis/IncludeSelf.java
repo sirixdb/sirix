@@ -22,9 +22,9 @@ package org.sirix.axis;
 
 /** Determines if current node is included or not. */
 public enum IncludeSelf {
-	/** Yes it is included. */
-	YES,
+  /** Yes it is included. */
+  YES,
 
-	/** No it is not included. */
-	NO
+  /** No it is not included. */
+  NO
 }

@@ -22,11 +22,8 @@
 package org.sirix.axis.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.concurrent.BlockingQueue;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
@@ -46,50 +43,50 @@ import org.slf4j.LoggerFactory;
  */
 public class ConcurrentAxisHelper implements Runnable {
 
-	/** Logger. */
-	public static final LogWrapper LOGWRAPPER =
-			new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
+  /** Logger. */
+  public static final LogWrapper LOGWRAPPER =
+      new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
-	/** {@link Axis} that computes the results. */
-	private final Axis mAxis;
+  /** {@link Axis} that computes the results. */
+  private final Axis mAxis;
 
-	/**
-	 * Queue that stores result keys already computed by this axis. End of the result sequence is
-	 * marked by the NULL_NODE_KEY. This is used for communication with the consumer.
-	 */
-	private BlockingQueue<Long> mResults;
+  /**
+   * Queue that stores result keys already computed by this axis. End of the result sequence is
+   * marked by the NULL_NODE_KEY. This is used for communication with the consumer.
+   */
+  private BlockingQueue<Long> mResults;
 
-	/**
-	 * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
-	 * parameter rtx. Because of concurrency every axis has to have it's own transaction.
-	 * 
-	 * @param rtx Transaction to operate with.
-	 */
-	public ConcurrentAxisHelper(final Axis axis, @Nonnull final BlockingQueue<Long> results) {
-		mAxis = checkNotNull(axis);
-		mResults = checkNotNull(results);
-	}
+  /**
+   * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
+   * parameter rtx. Because of concurrency every axis has to have it's own transaction.
+   * 
+   * @param rtx Transaction to operate with.
+   */
+  public ConcurrentAxisHelper(final Axis axis, @Nonnull final BlockingQueue<Long> results) {
+    mAxis = checkNotNull(axis);
+    mResults = checkNotNull(results);
+  }
 
-	@Override
-	public void run() {
-		// Compute all results of the given axis and store the results in the
-		// queue.
-		while (mAxis.hasNext()) {
-			final long nodeKey = mAxis.next();
-			try {
-				// Store result in queue as soon as there is space left.
-				mResults.put(nodeKey);
-				// Wait until next thread arrives and exchange blocking queue.
-			} catch (final InterruptedException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
-		}
+  @Override
+  public void run() {
+    // Compute all results of the given axis and store the results in the
+    // queue.
+    while (mAxis.hasNext()) {
+      final long nodeKey = mAxis.next();
+      try {
+        // Store result in queue as soon as there is space left.
+        mResults.put(nodeKey);
+        // Wait until next thread arrives and exchange blocking queue.
+      } catch (final InterruptedException e) {
+        LOGWRAPPER.error(e.getMessage(), e);
+      }
+    }
 
-		try {
-			// Mark end of result sequence by the NULL_NODE_KEY.
-			mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
-		} catch (final InterruptedException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-		}
-	}
+    try {
+      // Mark end of result sequence by the NULL_NODE_KEY.
+      mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+    } catch (final InterruptedException e) {
+      LOGWRAPPER.error(e.getMessage(), e);
+    }
+  }
 }

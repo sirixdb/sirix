@@ -22,7 +22,6 @@
 package org.sirix.axis;
 
 import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 
 /**
@@ -47,60 +46,60 @@ import org.sirix.api.Axis;
  */
 public final class ForAxis extends AbstractAxis {
 
-	/** The range expression. */
-	private final Axis mRange;
+  /** The range expression. */
+  private final Axis mRange;
 
-	/** The result expression. */
-	private final Axis mReturn;
+  /** The result expression. */
+  private final Axis mReturn;
 
-	/** Defines, whether is first call of hasNext(). */
-	private boolean mIsFirst;
+  /** Defines, whether is first call of hasNext(). */
+  private boolean mIsFirst;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param range the range variable that holds the binding sequence
-	 * @param returnExpr the return expression of the for expression
-	 */
-	public ForAxis(final Axis range, @Nonnull final Axis returnExpr) {
-		super(range.getTrx());
-		mRange = range;
-		mReturn = returnExpr;
-		mIsFirst = true;
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param range the range variable that holds the binding sequence
+   * @param returnExpr the return expression of the for expression
+   */
+  public ForAxis(final Axis range, @Nonnull final Axis returnExpr) {
+    super(range.getTrx());
+    mRange = range;
+    mReturn = returnExpr;
+    mIsFirst = true;
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mIsFirst = true;
-		if (mRange != null) {
-			mRange.reset(nodeKey);
-		}
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mIsFirst = true;
+    if (mRange != null) {
+      mRange.reset(nodeKey);
+    }
+  }
 
-	@Override
-	protected long nextKey() {
-		if (mIsFirst) {
-			/*
-			 * Makes sure, that mRange.hasNext() is called before the return statement, on the first call.
-			 */
-			mIsFirst = false;
-		} else {
-			if (mReturn.hasNext()) {
-				return mReturn.next();
-			}
-		}
+  @Override
+  protected long nextKey() {
+    if (mIsFirst) {
+      /*
+       * Makes sure, that mRange.hasNext() is called before the return statement, on the first call.
+       */
+      mIsFirst = false;
+    } else {
+      if (mReturn.hasNext()) {
+        return mReturn.next();
+      }
+    }
 
-		// Check for more items in the binding sequence.
-		while (mRange.hasNext()) {
-			mRange.next();
+    // Check for more items in the binding sequence.
+    while (mRange.hasNext()) {
+      mRange.next();
 
-			mReturn.reset(getStartKey());
-			if (mReturn.hasNext()) {
-				return mReturn.next();
-			}
-		}
+      mReturn.reset(getStartKey());
+      if (mReturn.hasNext()) {
+        return mReturn.next();
+      }
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

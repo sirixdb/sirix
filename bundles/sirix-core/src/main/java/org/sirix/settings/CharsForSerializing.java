@@ -29,91 +29,91 @@ package org.sirix.settings;
  */
 public enum CharsForSerializing {
 
-	/** " ". */
-	SPACE(new byte[] {32}),
+  /** " ". */
+  SPACE(new byte[] {32}),
 
-	/** "&lt;". */
-	OPEN(new byte[] {60}),
+  /** "&lt;". */
+  OPEN(new byte[] {60}),
 
-	/** "&gt;". */
-	CLOSE(new byte[] {62}),
+  /** "&gt;". */
+  CLOSE(new byte[] {62}),
 
-	/** "/". */
-	SLASH(new byte[] {47}),
+  /** "/". */
+  SLASH(new byte[] {47}),
 
-	/** "=". */
-	EQUAL(new byte[] {61}),
+  /** "=". */
+  EQUAL(new byte[] {61}),
 
-	/** "\"". */
-	QUOTE(new byte[] {34}),
+  /** "\"". */
+  QUOTE(new byte[] {34}),
 
-	/** "=\"". */
-	EQUAL_QUOTE(EQUAL.getBytes(), QUOTE.getBytes()),
+  /** "=\"". */
+  EQUAL_QUOTE(EQUAL.getBytes(), QUOTE.getBytes()),
 
-	/** "&lt;/". */
-	OPEN_SLASH(OPEN.getBytes(), SLASH.getBytes()),
+  /** "&lt;/". */
+  OPEN_SLASH(OPEN.getBytes(), SLASH.getBytes()),
 
-	/** "/&gt;". */
-	SLASH_CLOSE(SLASH.getBytes(), CLOSE.getBytes()),
+  /** "/&gt;". */
+  SLASH_CLOSE(SLASH.getBytes(), CLOSE.getBytes()),
 
-	/** " rest:"". */
-	REST_PREFIX(SPACE.getBytes(), new byte[] {114, 101, 115, 116, 58}),
+  /** " rest:"". */
+  REST_PREFIX(SPACE.getBytes(), new byte[] {114, 101, 115, 116, 58}),
 
-	/** "ttid". */
-	ID(new byte[] {116, 116, 105, 100}),
+  /** "ttid". */
+  ID(new byte[] {116, 116, 105, 100}),
 
-	/** " xmlns=\"". */
-	XMLNS(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115}, EQUAL.getBytes(), QUOTE.getBytes()),
+  /** " xmlns=\"". */
+  XMLNS(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115}, EQUAL.getBytes(), QUOTE.getBytes()),
 
-	/** :. */
-	COLON(new byte[] {58}),
+  /** :. */
+  COLON(new byte[] {58}),
 
-	/** " xmlns:". */
-	XMLNS_COLON(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115, 58}),
+  /** " xmlns:". */
+  XMLNS_COLON(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115, 58}),
 
-	/** "&lt;!-- ". */
-	OPENCOMMENT(OPEN.getBytes(), new byte[] {33, 45, 45}, SPACE.getBytes()),
+  /** "&lt;!-- ". */
+  OPENCOMMENT(OPEN.getBytes(), new byte[] {33, 45, 45}, SPACE.getBytes()),
 
-	/** " --&gt;". */
-	CLOSECOMMENT(SPACE.getBytes(), new byte[] {45, 45}, CLOSE.getBytes()),
+  /** " --&gt;". */
+  CLOSECOMMENT(SPACE.getBytes(), new byte[] {45, 45}, CLOSE.getBytes()),
 
-	/** "&lt;?". */
-	OPENPI(OPEN.getBytes(), new byte[] {63}),
+  /** "&lt;?". */
+  OPENPI(OPEN.getBytes(), new byte[] {63}),
 
-	/** "?&gt;". */
-	CLOSEPI(new byte[] {63}, CLOSE.getBytes()),
+  /** "?&gt;". */
+  CLOSEPI(new byte[] {63}, CLOSE.getBytes()),
 
-	/** Newline. */
-	NEWLINE(System.getProperty("line.separator").getBytes(Constants.DEFAULT_ENCODING));
+  /** Newline. */
+  NEWLINE(System.getProperty("line.separator").getBytes(Constants.DEFAULT_ENCODING));
 
-	/** Getting the bytes for the char. */
-	private final byte[] mBytes;
+  /** Getting the bytes for the char. */
+  private final byte[] mBytes;
 
-	/**
-	 * Private constructor.
-	 * 
-	 * @param bytes the bytes for the chars
-	 */
-	CharsForSerializing(final byte[]... bytes) {
-		int index = 0;
-		for (final byte[] runner : bytes) {
-			index = index + runner.length;
-		}
-		mBytes = new byte[index];
-		index = 0;
-		for (final byte[] runner : bytes) {
-			System.arraycopy(runner, 0, mBytes, index, runner.length);
-			index = index + runner.length;
-		}
-	}
+  /**
+   * Private constructor.
+   * 
+   * @param bytes the bytes for the chars
+   */
+  CharsForSerializing(final byte[]... bytes) {
+    int index = 0;
+    for (final byte[] runner : bytes) {
+      index = index + runner.length;
+    }
+    mBytes = new byte[index];
+    index = 0;
+    for (final byte[] runner : bytes) {
+      System.arraycopy(runner, 0, mBytes, index, runner.length);
+      index = index + runner.length;
+    }
+  }
 
-	/**
-	 * Getting the bytes.
-	 * 
-	 * @return the bytes for the char.
-	 */
-	public byte[] getBytes() {
-		return mBytes;
-	}
+  /**
+   * Getting the bytes.
+   * 
+   * @return the bytes for the char.
+   */
+  public byte[] getBytes() {
+    return mBytes;
+  }
 
 }

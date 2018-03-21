@@ -33,18 +33,18 @@ import org.sirix.node.Kind;
  */
 public final class CommentFilter extends AbstractFilter {
 
-	/**
-	 * Default constructor.
-	 * 
-	 * @param rtx Transaction this filter is bound to.
-	 */
-	public CommentFilter(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Default constructor.
+   * 
+   * @param rtx Transaction this filter is bound to.
+   */
+  public CommentFilter(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public final boolean filter() {
-		return getTrx().getKind() == Kind.COMMENT;
-	}
+  @Override
+  public final boolean filter() {
+    return getTrx().getKind() == Kind.COMMENT;
+  }
 
 }

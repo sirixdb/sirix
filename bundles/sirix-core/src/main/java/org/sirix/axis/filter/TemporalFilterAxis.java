@@ -12,60 +12,60 @@ import org.sirix.axis.AbstractTemporalAxis;
  */
 public final class TemporalFilterAxis extends AbstractTemporalAxis {
 
-	/** Axis to test. */
-	private final AbstractTemporalAxis mAxis;
+  /** Axis to test. */
+  private final AbstractTemporalAxis mAxis;
 
-	/** Test to apply to axis. */
-	private final Filter[] mAxisFilter;
+  /** Test to apply to axis. */
+  private final Filter[] mAxisFilter;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param axis axis to iterate over
-	 * @param firstAxisTest test to perform for each node found with axis
-	 * @param axisTest tests to perform for each node found with axis
-	 */
-	public TemporalFilterAxis(final AbstractTemporalAxis axis, final Filter firstAxisTest,
-			final Filter... axisTest) {
-		mAxis = axis;
-		final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;
-		mAxisFilter = new Filter[length];
-		mAxisFilter[0] = firstAxisTest;
-		for (int i = 1; i < length; i++) {
-			mAxisFilter[i] = axisTest[i - 1];
-		}
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param axis axis to iterate over
+   * @param firstAxisTest test to perform for each node found with axis
+   * @param axisTest tests to perform for each node found with axis
+   */
+  public TemporalFilterAxis(final AbstractTemporalAxis axis, final Filter firstAxisTest,
+      final Filter... axisTest) {
+    mAxis = axis;
+    final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;
+    mAxisFilter = new Filter[length];
+    mAxisFilter[0] = firstAxisTest;
+    for (int i = 1; i < length; i++) {
+      mAxisFilter[i] = axisTest[i - 1];
+    }
+  }
 
-	@Override
-	protected XdmNodeReadTrx computeNext() {
-		while (mAxis.hasNext()) {
-			final XdmNodeReadTrx rtx = mAxis.next();
-			boolean filterResult = true;
-			for (final Filter filter : mAxisFilter) {
-				filter.setTrx(rtx);
-				filterResult = filterResult && filter.filter();
-				if (!filterResult) {
-					break;
-				}
-			}
-			if (filterResult) {
-				return mAxis.getTrx();
-			}
-		}
-		return endOfData();
-	}
+  @Override
+  protected XdmNodeReadTrx computeNext() {
+    while (mAxis.hasNext()) {
+      final XdmNodeReadTrx rtx = mAxis.next();
+      boolean filterResult = true;
+      for (final Filter filter : mAxisFilter) {
+        filter.setTrx(rtx);
+        filterResult = filterResult && filter.filter();
+        if (!filterResult) {
+          break;
+        }
+      }
+      if (filterResult) {
+        return mAxis.getTrx();
+      }
+    }
+    return endOfData();
+  }
 
-	/**
-	 * Returns the inner axis.
-	 * 
-	 * @return the axis
-	 */
-	public AbstractTemporalAxis getAxis() {
-		return mAxis;
-	}
+  /**
+   * Returns the inner axis.
+   * 
+   * @return the axis
+   */
+  public AbstractTemporalAxis getAxis() {
+    return mAxis;
+  }
 
-	@Override
-	public XdmNodeReadTrx getTrx() {
-		return mAxis.getTrx();
-	}
+  @Override
+  public XdmNodeReadTrx getTrx() {
+    return mAxis.getTrx();
+  }
 }

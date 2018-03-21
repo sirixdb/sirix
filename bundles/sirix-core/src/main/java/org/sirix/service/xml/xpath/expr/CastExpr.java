@@ -46,84 +46,84 @@ import org.sirix.service.xml.xpath.types.Type;
  */
 public class CastExpr extends AbstractExpression {
 
-	/** The input expression to cast to a specified target expression. */
-	private final Axis mSourceExpr;
+  /** The input expression to cast to a specified target expression. */
+  private final Axis mSourceExpr;
 
-	/** The type, to which the input expression will be casted to. */
-	private final Type mTargetType;
+  /** The type, to which the input expression will be casted to. */
+  private final Type mTargetType;
 
-	/** Defines, whether an empty sequence will be casted to any target type. */
-	private final boolean mPermitEmptySeq;
+  /** Defines, whether an empty sequence will be casted to any target type. */
+  private final boolean mPermitEmptySeq;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mInputExpr input expression, that will be casted.
-	 * @param mTarget Type the input expression will be casted to.
-	 */
-	public CastExpr(final XdmNodeReadTrx rtx, final Axis mInputExpr, final SingleType mTarget) {
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mInputExpr input expression, that will be casted.
+   * @param mTarget Type the input expression will be casted to.
+   */
+  public CastExpr(final XdmNodeReadTrx rtx, final Axis mInputExpr, final SingleType mTarget) {
 
-		super(rtx);
-		mSourceExpr = mInputExpr;
-		mTargetType = mTarget.getAtomic();
-		mPermitEmptySeq = mTarget.hasInterogation();
+    super(rtx);
+    mSourceExpr = mInputExpr;
+    mTargetType = mTarget.getAtomic();
+    mPermitEmptySeq = mTarget.hasInterogation();
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void reset(final long mNodeKey) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void reset(final long mNodeKey) {
 
-		super.reset(mNodeKey);
-		if (mSourceExpr != null) {
-			mSourceExpr.reset(mNodeKey);
-		}
-	}
+    super.reset(mNodeKey);
+    if (mSourceExpr != null) {
+      mSourceExpr.reset(mNodeKey);
+    }
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void evaluate() throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void evaluate() throws SirixXPathException {
 
-		// atomic type must not be xs:anyAtomicType or xs:NOTATION
-		if (mTargetType == Type.ANY_ATOMIC_TYPE || mTargetType == Type.NOTATION) {
-			throw new XPathError(ErrorType.XPST0080);
-		}
+    // atomic type must not be xs:anyAtomicType or xs:NOTATION
+    if (mTargetType == Type.ANY_ATOMIC_TYPE || mTargetType == Type.NOTATION) {
+      throw new XPathError(ErrorType.XPST0080);
+    }
 
-		if (mSourceExpr.hasNext()) {
-			mSourceExpr.next();
+    if (mSourceExpr.hasNext()) {
+      mSourceExpr.next();
 
-			final Type sourceType = Type.getType(getTrx().getTypeKey());
-			final String sourceValue = getTrx().getValue();
+      final Type sourceType = Type.getType(getTrx().getTypeKey());
+      final String sourceValue = getTrx().getValue();
 
-			// cast source to target type, if possible
-			if (sourceType.isCastableTo(mTargetType, sourceValue)) {
-				throw new IllegalStateException("casts not implemented yet.");
-				// ((XPathReadTransaction)
-				// getTransaction()).castTo(mTargetType);
-			}
+      // cast source to target type, if possible
+      if (sourceType.isCastableTo(mTargetType, sourceValue)) {
+        throw new IllegalStateException("casts not implemented yet.");
+        // ((XPathReadTransaction)
+        // getTransaction()).castTo(mTargetType);
+      }
 
-			// 2. if the result sequence of the input expression has more than
-			// one
-			// items, a type error is raised.
-			if (mSourceExpr.hasNext()) {
-				throw new XPathError(ErrorType.XPTY0004);
-			}
+      // 2. if the result sequence of the input expression has more than
+      // one
+      // items, a type error is raised.
+      if (mSourceExpr.hasNext()) {
+        throw new XPathError(ErrorType.XPTY0004);
+      }
 
-		} else {
-			// 3. if is empty sequence:
-			if (!mPermitEmptySeq) {
-				// if '?' is specified after the target type, the result is an
-				// empty sequence (which means, nothing is changed),
-				// otherwise an error is raised.
-				throw new XPathError(ErrorType.XPTY0004);
+    } else {
+      // 3. if is empty sequence:
+      if (!mPermitEmptySeq) {
+        // if '?' is specified after the target type, the result is an
+        // empty sequence (which means, nothing is changed),
+        // otherwise an error is raised.
+        throw new XPathError(ErrorType.XPTY0004);
 
-			}
-		}
+      }
+    }
 
-	}
+  }
 }

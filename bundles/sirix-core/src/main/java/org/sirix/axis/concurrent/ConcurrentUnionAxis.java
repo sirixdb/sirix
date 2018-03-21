@@ -38,107 +38,107 @@ import org.sirix.service.xml.xpath.EXPathError;
  */
 public final class ConcurrentUnionAxis extends AbstractAxis {
 
-	/** First operand sequence. */
-	private final ConcurrentAxis mOp1;
+  /** First operand sequence. */
+  private final ConcurrentAxis mOp1;
 
-	/** Second operand sequence. */
-	private final ConcurrentAxis mOp2;
+  /** Second operand sequence. */
+  private final ConcurrentAxis mOp2;
 
-	/** First run. */
-	private boolean mFirst;
+  /** First run. */
+  private boolean mFirst;
 
-	/** Result from first axis. */
-	private long mCurrentResult1;
+  /** Result from first axis. */
+  private long mCurrentResult1;
 
-	/** Result from second axis. */
-	private long mCurrentResult2;
+  /** Result from second axis. */
+  private long mCurrentResult2;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 * @param operand1 first operand
-	 * @param operand2 second operand
-	 * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
-	 *         {@code null}
-	 */
-	public ConcurrentUnionAxis(final XdmNodeReadTrx rtx, final Axis operand1, final Axis operand2) {
-		super(rtx);
-		mOp1 = new ConcurrentAxis(rtx, operand1);
-		mOp2 = new ConcurrentAxis(rtx, operand2);
-		mFirst = true;
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   * @param operand1 first operand
+   * @param operand2 second operand
+   * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
+   *         {@code null}
+   */
+  public ConcurrentUnionAxis(final XdmNodeReadTrx rtx, final Axis operand1, final Axis operand2) {
+    super(rtx);
+    mOp1 = new ConcurrentAxis(rtx, operand1);
+    mOp2 = new ConcurrentAxis(rtx, operand2);
+    mFirst = true;
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
 
-		if (mOp1 != null) {
-			mOp1.reset(nodeKey);
-		}
-		if (mOp2 != null) {
-			mOp2.reset(nodeKey);
-		}
+    if (mOp1 != null) {
+      mOp1.reset(nodeKey);
+    }
+    if (mOp2 != null) {
+      mOp2.reset(nodeKey);
+    }
 
-		mFirst = true;
-	}
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		if (mFirst) {
-			mFirst = false;
-			mCurrentResult1 = Util.getNext(mOp1);
-			mCurrentResult2 = Util.getNext(mOp2);
-		}
+  @Override
+  protected long nextKey() {
+    if (mFirst) {
+      mFirst = false;
+      mCurrentResult1 = Util.getNext(mOp1);
+      mCurrentResult2 = Util.getNext(mOp2);
+    }
 
-		final long nodeKey;
+    final long nodeKey;
 
-		// if both operands have results left return the smallest value (doc
-		// order)
-		if (!mOp1.isFinished()) {
-			if (!mOp2.isFinished()) {
-				if (mCurrentResult1 < mCurrentResult2) {
-					nodeKey = mCurrentResult1;
-					mCurrentResult1 = Util.getNext(mOp1);
-				} else if (mCurrentResult1 > mCurrentResult2) {
-					nodeKey = mCurrentResult2;
-					mCurrentResult2 = Util.getNext(mOp2);
-				} else {
-					// return only one of the values (prevent duplicates)
-					nodeKey = mCurrentResult2;
-					mCurrentResult1 = Util.getNext(mOp1);
-					mCurrentResult2 = Util.getNext(mOp2);
-				}
+    // if both operands have results left return the smallest value (doc
+    // order)
+    if (!mOp1.isFinished()) {
+      if (!mOp2.isFinished()) {
+        if (mCurrentResult1 < mCurrentResult2) {
+          nodeKey = mCurrentResult1;
+          mCurrentResult1 = Util.getNext(mOp1);
+        } else if (mCurrentResult1 > mCurrentResult2) {
+          nodeKey = mCurrentResult2;
+          mCurrentResult2 = Util.getNext(mOp2);
+        } else {
+          // return only one of the values (prevent duplicates)
+          nodeKey = mCurrentResult2;
+          mCurrentResult1 = Util.getNext(mOp1);
+          mCurrentResult2 = Util.getNext(mOp2);
+        }
 
-				if (nodeKey < 0) {
-					try {
-						throw EXPathError.XPTY0004.getEncapsulatedException();
-					} catch (final SirixXPathException mExp) {
-						mExp.printStackTrace();
-					}
-				}
-				return nodeKey;
-			}
+        if (nodeKey < 0) {
+          try {
+            throw EXPathError.XPTY0004.getEncapsulatedException();
+          } catch (final SirixXPathException mExp) {
+            mExp.printStackTrace();
+          }
+        }
+        return nodeKey;
+      }
 
-			// only operand1 has results left, so return all of them
-			nodeKey = mCurrentResult1;
-			if (Util.isValid(nodeKey)) {
-				mCurrentResult1 = Util.getNext(mOp1);
-				return nodeKey;
-			}
-			// should never come here!
-			throw new IllegalStateException(nodeKey + " is not valid!");
-		} else if (!mOp2.isFinished()) {
-			// only operand2 has results left, so return all of them
-			nodeKey = mCurrentResult2;
-			if (Util.isValid(nodeKey)) {
-				mCurrentResult2 = Util.getNext(mOp2);
-				return nodeKey;
-			}
-			// should never come here!
-			throw new IllegalStateException(nodeKey + " is not valid!");
-		}
+      // only operand1 has results left, so return all of them
+      nodeKey = mCurrentResult1;
+      if (Util.isValid(nodeKey)) {
+        mCurrentResult1 = Util.getNext(mOp1);
+        return nodeKey;
+      }
+      // should never come here!
+      throw new IllegalStateException(nodeKey + " is not valid!");
+    } else if (!mOp2.isFinished()) {
+      // only operand2 has results left, so return all of them
+      nodeKey = mCurrentResult2;
+      if (Util.isValid(nodeKey)) {
+        mCurrentResult2 = Util.getNext(mOp2);
+        return nodeKey;
+      }
+      // should never come here!
+      throw new IllegalStateException(nodeKey + " is not valid!");
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

@@ -29,71 +29,71 @@ package org.sirix.exception;
  */
 public class SirixException extends RuntimeException {
 
-	/** General ID. */
-	private static final long serialVersionUID = 1L;
+  /** General ID. */
+  private static final long serialVersionUID = 1L;
 
-	/**
-	 * Constructor to encapsulate parsing.
-	 *
-	 * @param throwable to encapsulate
-	 */
-	public SirixException(final Throwable throwable) {
-		super(throwable);
-	}
+  /**
+   * Constructor to encapsulate parsing.
+   *
+   * @param throwable to encapsulate
+   */
+  public SirixException(final Throwable throwable) {
+    super(throwable);
+  }
 
-	public SirixException(String message, Object... args) {
-		super(String.format(message, args));
-	}
+  public SirixException(String message, Object... args) {
+    super(String.format(message, args));
+  }
 
-	public SirixException(String message) {
-		super(message);
-	}
+  public SirixException(String message) {
+    super(message);
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param message message
-	 */
-	private SirixException(final StringBuilder message) {
-		super(message.toString());
-	}
+  /**
+   * Constructor.
+   *
+   * @param message message
+   */
+  private SirixException(final StringBuilder message) {
+    super(message.toString());
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param message message as string, they are concatenated with spaces in between
-	 */
-	public SirixException(final String... message) {
-		this(concat(message));
-	}
+  /**
+   * Constructor.
+   *
+   * @param message message as string, they are concatenated with spaces in between
+   */
+  public SirixException(final String... message) {
+    this(concat(message));
+  }
 
-	/**
-	 * Constructor
-	 *
-	 * @param message message as string
-	 * @param throwable
-	 */
-	public SirixException(final String message, final Throwable throwable) {
-		super(message, throwable);
-	}
+  /**
+   * Constructor
+   *
+   * @param message message as string
+   * @param throwable
+   */
+  public SirixException(final String message, final Throwable throwable) {
+    super(message, throwable);
+  }
 
-	public SirixException(Throwable cause, String message, Object[] args) {
-		super(String.format(message, args), cause);
-	}
+  public SirixException(Throwable cause, String message, Object[] args) {
+    super(String.format(message, args), cause);
+  }
 
-	/**
-	 * Util method to provide StringBuilder functionality.
-	 *
-	 * @param message to be concatenated
-	 * @return the StringBuilder for the combined string
-	 */
-	public static StringBuilder concat(final String... pMessage) {
-		final StringBuilder builder = new StringBuilder();
-		for (final String mess : pMessage) {
-			builder.append(mess);
-			builder.append(" ");
-		}
-		return builder;
-	}
+  /**
+   * Util method to provide StringBuilder functionality.
+   *
+   * @param message to be concatenated
+   * @return the StringBuilder for the combined string
+   */
+  public static StringBuilder concat(final String... pMessage) {
+    final StringBuilder builder = new StringBuilder();
+    for (final String mess : pMessage) {
+      builder.append(mess);
+      builder.append(" ");
+    }
+    return builder;
+  }
 
 }

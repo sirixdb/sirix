@@ -31,11 +31,11 @@ import org.sirix.api.Expression;
  */
 public interface IObserver extends Expression {
 
-	/**
-	 * This method is called whenever the observed axis is changed.
-	 * 
-	 * @param mItemKey the item key of the current context item of the observed axis
-	 */
-	void update(final long mItemKey);
+  /**
+   * This method is called whenever the observed axis is changed.
+   * 
+   * @param mItemKey the item key of the current context item of the observed axis
+   */
+  void update(final long mItemKey);
 
 }

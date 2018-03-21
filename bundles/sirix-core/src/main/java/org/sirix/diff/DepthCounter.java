@@ -30,64 +30,64 @@ import com.google.common.base.MoreObjects;
  *
  */
 final class DepthCounter {
-	/** Depth in new revision. */
-	private int mNewDepth;
+  /** Depth in new revision. */
+  private int mNewDepth;
 
-	/** Depth in old revision. */
-	private int mOldDepth;
+  /** Depth in old revision. */
+  private int mOldDepth;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param newDepth depth of transaction cursor in new revision
-	 * @param oldDepth depth of transaction cursor in old revision
-	 */
-	DepthCounter(final int newDepth, final int oldDepth) {
-		mNewDepth = newDepth;
-		mOldDepth = oldDepth;
-	}
+  /**
+   * Constructor.
+   *
+   * @param newDepth depth of transaction cursor in new revision
+   * @param oldDepth depth of transaction cursor in old revision
+   */
+  DepthCounter(final int newDepth, final int oldDepth) {
+    mNewDepth = newDepth;
+    mOldDepth = oldDepth;
+  }
 
-	/** Increment depth in new revision. */
-	void incrementNewDepth() {
-		mNewDepth++;
-	}
+  /** Increment depth in new revision. */
+  void incrementNewDepth() {
+    mNewDepth++;
+  }
 
-	/** Decrement depth in new revision. */
-	void decrementNewDepth() {
-		mNewDepth--;
-	}
+  /** Decrement depth in new revision. */
+  void decrementNewDepth() {
+    mNewDepth--;
+  }
 
-	/** Increment depth in old revision. */
-	void incrementOldDepth() {
-		mOldDepth++;
-	}
+  /** Increment depth in old revision. */
+  void incrementOldDepth() {
+    mOldDepth++;
+  }
 
-	/** Decrement depth in old revision. */
-	void decrementOldDepth() {
-		mOldDepth--;
-	}
+  /** Decrement depth in old revision. */
+  void decrementOldDepth() {
+    mOldDepth--;
+  }
 
-	/**
-	 * Get depth in new revision.
-	 *
-	 * @return depth in new revision
-	 */
-	int getNewDepth() {
-		return mNewDepth;
-	}
+  /**
+   * Get depth in new revision.
+   *
+   * @return depth in new revision
+   */
+  int getNewDepth() {
+    return mNewDepth;
+  }
 
-	/**
-	 * Get depth in old revision.
-	 *
-	 * @return depth in old revision
-	 */
-	int getOldDepth() {
-		return mOldDepth;
-	}
+  /**
+   * Get depth in old revision.
+   *
+   * @return depth in old revision
+   */
+  int getOldDepth() {
+    return mOldDepth;
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("newDepth: ", mNewDepth)
-				.add("oldDepth: ", mOldDepth).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("newDepth: ", mNewDepth)
+        .add("oldDepth: ", mOldDepth).toString();
+  }
 }

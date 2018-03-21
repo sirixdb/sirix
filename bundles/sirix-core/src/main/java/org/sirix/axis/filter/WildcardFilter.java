@@ -22,7 +22,6 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
@@ -35,75 +34,75 @@ import org.sirix.node.Kind;
  */
 public final class WildcardFilter extends AbstractFilter {
 
-	/** Type. */
-	public enum EType {
-		/** Prefix filter. */
-		PREFIX,
+  /** Type. */
+  public enum EType {
+    /** Prefix filter. */
+    PREFIX,
 
-		/** Local name filter. */
-		LOCALNAME
-	}
+    /** Local name filter. */
+    LOCALNAME
+  }
 
-	/** Defines, if the defined part of the qualified name is the local name. */
-	private final EType mType;
+  /** Defines, if the defined part of the qualified name is the local name. */
+  private final EType mType;
 
-	/** Name key of the defined name part. */
-	private final int mKnownPartKey;
+  /** Name key of the defined name part. */
+  private final int mKnownPartKey;
 
-	/**
-	 * Default constructor.
-	 * 
-	 * @param rtx transaction to operate on
-	 * @param knownPart part of the qualified name that is specified. This can be either the namespace
-	 *        prefix, or the local name
-	 * @param pIsName defines, if the specified part is the prefix, or the local name (true, if it is
-	 *        the local name)
-	 */
-	public WildcardFilter(final XdmNodeReadTrx rtx, final String knownPart, final EType type) {
-		super(rtx);
-		mType = checkNotNull(type);
-		mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));
-	}
+  /**
+   * Default constructor.
+   * 
+   * @param rtx transaction to operate on
+   * @param knownPart part of the qualified name that is specified. This can be either the namespace
+   *        prefix, or the local name
+   * @param pIsName defines, if the specified part is the prefix, or the local name (true, if it is
+   *        the local name)
+   */
+  public WildcardFilter(final XdmNodeReadTrx rtx, final String knownPart, final EType type) {
+    super(rtx);
+    mType = checkNotNull(type);
+    mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));
+  }
 
-	@Override
-	public final boolean filter() {
-		final Kind kind = getTrx().getKind();
-		switch (kind) {
-			case ELEMENT:
-				if (mType == EType.LOCALNAME) { // local name is given
-					return localNameMatch();
-				} else { // namespace prefix is given
-					final int prefixKey = mKnownPartKey;
-					for (int i = 0, nsCount = getTrx().getNamespaceCount(); i < nsCount; i++) {
-						getTrx().moveToNamespace(i);
-						if (getTrx().getPrefixKey() == prefixKey) {
-							getTrx().moveToParent();
-							return true;
-						}
-						getTrx().moveToParent();
-					}
-					return false;
-				}
-			case ATTRIBUTE:
-				if (mType == EType.LOCALNAME) { // local name is given
-					return localNameMatch();
-				} else {
-					final String prefix = getTrx().nameForKey(getTrx().getPrefixKey());
-					final int prefixKey = getTrx().keyForName(prefix);
-					return prefixKey == mKnownPartKey;
-				}
-			default:
-				return false;
-		}
-	}
+  @Override
+  public final boolean filter() {
+    final Kind kind = getTrx().getKind();
+    switch (kind) {
+      case ELEMENT:
+        if (mType == EType.LOCALNAME) { // local name is given
+          return localNameMatch();
+        } else { // namespace prefix is given
+          final int prefixKey = mKnownPartKey;
+          for (int i = 0, nsCount = getTrx().getNamespaceCount(); i < nsCount; i++) {
+            getTrx().moveToNamespace(i);
+            if (getTrx().getPrefixKey() == prefixKey) {
+              getTrx().moveToParent();
+              return true;
+            }
+            getTrx().moveToParent();
+          }
+          return false;
+        }
+      case ATTRIBUTE:
+        if (mType == EType.LOCALNAME) { // local name is given
+          return localNameMatch();
+        } else {
+          final String prefix = getTrx().nameForKey(getTrx().getPrefixKey());
+          final int prefixKey = getTrx().keyForName(prefix);
+          return prefixKey == mKnownPartKey;
+        }
+      default:
+        return false;
+    }
+  }
 
-	/**
-	 * Determines if local names match.
-	 * 
-	 * @return {@code true}, if they match, {@code false} otherwise
-	 */
-	private boolean localNameMatch() {
-		final int localnameKey = getTrx().keyForName(getTrx().getName().getLocalName());
-		return localnameKey == mKnownPartKey;
-	}
+  /**
+   * Determines if local names match.
+   * 
+   * @return {@code true}, if they match, {@code false} otherwise
+   */
+  private boolean localNameMatch() {
+    final int localnameKey = getTrx().keyForName(getTrx().getName().getLocalName());
+    return localnameKey == mKnownPartKey;
+  }
 }

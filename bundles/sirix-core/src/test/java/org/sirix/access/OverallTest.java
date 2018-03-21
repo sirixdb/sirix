@@ -22,9 +22,7 @@
 package org.sirix.access;
 
 import java.util.Random;
-
 import junit.framework.TestCase;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -38,129 +36,129 @@ import org.sirix.settings.Fixed;
 /** Test a bunch of modification methods. */
 public final class OverallTest extends TestCase {
 
-	/** Used for random number generator. */
-	private static int NUM_CHARS = 3;
+  /** Used for random number generator. */
+  private static int NUM_CHARS = 3;
 
-	/** Modification number of nodes. */
-	private static int ELEMENTS = 1000;
+  /** Modification number of nodes. */
+  private static int ELEMENTS = 1000;
 
-	/** Percentage of commits. */
-	private static int COMMITPERCENTAGE = 20;
+  /** Percentage of commits. */
+  private static int COMMITPERCENTAGE = 20;
 
-	/** Percentage of nodes to remove. */
-	private static int REMOVEPERCENTAGE = 20;
+  /** Percentage of nodes to remove. */
+  private static int REMOVEPERCENTAGE = 20;
 
-	/** Random number generator. */
-	private static final Random ran = new Random(0l);
+  /** Random number generator. */
+  private static final Random ran = new Random(0l);
 
-	/** Some characters. */
-	public static String chars = "abcdefghijklm";
+  /** Some characters. */
+  public static String chars = "abcdefghijklm";
 
-	/** {@link Holder} instance. */
-	private Holder holder;
+  /** {@link Holder} instance. */
+  private Holder holder;
 
-	@Override
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		holder = Holder.generateWtx();
-	}
+  @Override
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    holder = Holder.generateWtx();
+  }
 
-	@Test
-	public void testJustEverything() throws SirixException {
-		holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-		holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-		for (int i = 0; i < ELEMENTS; i++) {
-			if (ran.nextBoolean()) {
-				switch (holder.getWriter().getKind()) {
-					case ELEMENT:
-						holder.getWriter().setName(new QNm(getString()));
-						break;
-					case ATTRIBUTE:
-						holder.getWriter().setName(new QNm(getString()));
-						holder.getWriter().setValue(getString());
-						break;
-					case NAMESPACE:
-						holder.getWriter().setName(new QNm(getString()));
-						break;
-					case PROCESSING_INSTRUCTION:
-					case TEXT:
-					case COMMENT:
-						holder.getWriter().setValue(getString());
-						break;
-					default:
-				}
-			} else {
-				if (holder.getWriter().getKind() == Kind.ELEMENT) {
-					if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-						assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
-						assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
-					}
-					if (ran.nextBoolean()) {
-						holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-					} else {
-						holder.getWriter().insertElementAsRightSibling(new QNm(getString()));
-					}
-					if (ran.nextBoolean()) {
-						holder.getWriter().insertAttribute(new QNm(getString()), getString());
-						holder.getWriter().moveToParent();
-					}
-					if (ran.nextBoolean()) {
-						holder.getWriter().insertNamespace(new QNm(getString(), getString()));
-						holder.getWriter().moveToParent();
-					}
-				}
+  @Test
+  public void testJustEverything() throws SirixException {
+    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+    for (int i = 0; i < ELEMENTS; i++) {
+      if (ran.nextBoolean()) {
+        switch (holder.getWriter().getKind()) {
+          case ELEMENT:
+            holder.getWriter().setName(new QNm(getString()));
+            break;
+          case ATTRIBUTE:
+            holder.getWriter().setName(new QNm(getString()));
+            holder.getWriter().setValue(getString());
+            break;
+          case NAMESPACE:
+            holder.getWriter().setName(new QNm(getString()));
+            break;
+          case PROCESSING_INSTRUCTION:
+          case TEXT:
+          case COMMENT:
+            holder.getWriter().setValue(getString());
+            break;
+          default:
+        }
+      } else {
+        if (holder.getWriter().getKind() == Kind.ELEMENT) {
+          if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
+            assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
+          }
+          if (ran.nextBoolean()) {
+            holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+          } else {
+            holder.getWriter().insertElementAsRightSibling(new QNm(getString()));
+          }
+          if (ran.nextBoolean()) {
+            holder.getWriter().insertAttribute(new QNm(getString()), getString());
+            holder.getWriter().moveToParent();
+          }
+          if (ran.nextBoolean()) {
+            holder.getWriter().insertNamespace(new QNm(getString(), getString()));
+            holder.getWriter().moveToParent();
+          }
+        }
 
-				if (ran.nextInt(100) < REMOVEPERCENTAGE) {
-					holder.getWriter().remove();
-				}
+        if (ran.nextInt(100) < REMOVEPERCENTAGE) {
+          holder.getWriter().remove();
+        }
 
-				if (ran.nextInt(100) < COMMITPERCENTAGE) {
-					holder.getWriter().commit();
-				}
-				do {
-					final int newKey = ran.nextInt(i + 1) + 1;
+        if (ran.nextInt(100) < COMMITPERCENTAGE) {
+          holder.getWriter().commit();
+        }
+        do {
+          final int newKey = ran.nextInt(i + 1) + 1;
 
-					if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-						holder.getWriter().moveToFirstChild();
-						holder.getWriter().moveToFirstChild();
-					} else {
-						holder.getWriter().moveTo(newKey);
-						if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY
-								.getStandardProperty()) {
-							holder.getWriter().moveToFirstChild();
-						}
-					}
-				} while (holder.getWriter() == null);
-				if (holder.getWriter().getKind() != Kind.ELEMENT) {
-					holder.getWriter().moveToParent();
-				}
-			}
-		}
-		final long key = holder.getWriter().getNodeKey();
-		holder.getWriter().remove();
-		holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-		holder.getWriter().moveTo(key);
-		holder.getWriter().commit();
-		holder.getWriter().close();
-	}
+          if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            holder.getWriter().moveToFirstChild();
+            holder.getWriter().moveToFirstChild();
+          } else {
+            holder.getWriter().moveTo(newKey);
+            if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY
+                .getStandardProperty()) {
+              holder.getWriter().moveToFirstChild();
+            }
+          }
+        } while (holder.getWriter() == null);
+        if (holder.getWriter().getKind() != Kind.ELEMENT) {
+          holder.getWriter().moveToParent();
+        }
+      }
+    }
+    final long key = holder.getWriter().getNodeKey();
+    holder.getWriter().remove();
+    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+    holder.getWriter().moveTo(key);
+    holder.getWriter().commit();
+    holder.getWriter().close();
+  }
 
-	@Override
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @Override
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	/** Get a random string. */
-	private static String getString() {
-		char[] buf = new char[NUM_CHARS];
+  /** Get a random string. */
+  private static String getString() {
+    char[] buf = new char[NUM_CHARS];
 
-		for (int i = 0; i < buf.length; i++) {
-			buf[i] = chars.charAt(ran.nextInt(chars.length()));
-		}
+    for (int i = 0; i < buf.length; i++) {
+      buf[i] = chars.charAt(ran.nextInt(chars.length()));
+    }
 
-		return new String(buf);
-	}
+    return new String(buf);
+  }
 
 }

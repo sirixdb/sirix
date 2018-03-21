@@ -22,12 +22,10 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,61 +39,61 @@ import org.sirix.exception.SirixException;
 
 public class ThreadTest {
 
-	public static final int WORKER_COUNT = 50;
+  public static final int WORKER_COUNT = 50;
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.openResourceManager();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.openResourceManager();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testThreads() throws Exception {
-		final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
-		long newKey = 10L;
-		for (int i = 0; i < WORKER_COUNT; i++) {
-			taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadTrx(i)));
+  @Test
+  public void testThreads() throws Exception {
+    final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
+    long newKey = 10L;
+    for (int i = 0; i < WORKER_COUNT; i++) {
+      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadTrx(i)));
 
-			try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-				wtx.moveTo(newKey);
-				wtx.setValue("value" + i);
-				newKey = wtx.getNodeKey();
-				wtx.commit();
-			}
-		}
-		taskExecutor.shutdown();
-		taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
-	}
+      try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+        wtx.moveTo(newKey);
+        wtx.setValue("value" + i);
+        newKey = wtx.getNodeKey();
+        wtx.commit();
+      }
+    }
+    taskExecutor.shutdown();
+    taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
+  }
 
-	private class Task implements Callable<Void> {
+  private class Task implements Callable<Void> {
 
-		private XdmNodeReadTrx mRTX;
+    private XdmNodeReadTrx mRTX;
 
-		public Task(final XdmNodeReadTrx rtx) {
-			mRTX = rtx;
-		}
+    public Task(final XdmNodeReadTrx rtx) {
+      mRTX = rtx;
+    }
 
-		@Override
-		public Void call() throws Exception {
-			final Axis axis = new DescendantAxis(mRTX);
-			while (axis.hasNext()) {
-				axis.next();
-			}
+    @Override
+    public Void call() throws Exception {
+      final Axis axis = new DescendantAxis(mRTX);
+      while (axis.hasNext()) {
+        axis.next();
+      }
 
-			mRTX.moveTo(12L);
-			assertEquals("bar", mRTX.getValue());
-			mRTX.close();
-			return null;
-		}
-	}
+      mRTX.moveTo(12L);
+      assertEquals("bar", mRTX.getValue());
+      mRTX.close();
+      return null;
+    }
+  }
 
 }

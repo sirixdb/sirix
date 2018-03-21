@@ -16,8 +16,7 @@ import org.sirix.xquery.node.DBNode;
  * Function for getting the hash of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:hash($doc as xs:node) as xs:string</code></li>
+ * <li><code>sdb:hash($doc as xs:node) as xs:string</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -25,27 +24,24 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class GetHash extends AbstractFunction {
 
-	/** Get number of children function name. */
-	public final static QNm HASH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"get-hash");
+  /** Get number of children function name. */
+  public final static QNm HASH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "get-hash");
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public GetHash(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public GetHash(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		return new Str(String.valueOf(doc.getTrx().getHash()));
-	}
+    return new Str(String.valueOf(doc.getTrx().getHash()));
+  }
 }

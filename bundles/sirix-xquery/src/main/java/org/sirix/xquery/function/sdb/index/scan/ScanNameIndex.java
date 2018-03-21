@@ -34,86 +34,84 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
  */
-@FunctionAnnotation(description = "Scans the given name index for matching nodes.", parameters = {
-		"$doc", "$idx-no", "$names" })
+@FunctionAnnotation(description = "Scans the given name index for matching nodes.",
+    parameters = {"$doc", "$idx-no", "$names"})
 public final class ScanNameIndex extends AbstractFunction {
 
-	/** Default function name. */
-	public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "scan-name-index");
+  /** Default function name. */
+  public final static QNm DEFAULT_NAME =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-name-index");
 
-	/**
-	 * Constructor.
-	 */
-	public ScanNameIndex() {
-		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
-				Cardinality.ZeroOrMany), SequenceType.NODE, new SequenceType(
-				AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.QNM,
-				Cardinality.ZeroOrOne)), true);
-	}
+  /**
+   * Constructor.
+   */
+  public ScanNameIndex() {
+    super(DEFAULT_NAME,
+        new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
+            SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AtomicType.QNM, Cardinality.ZeroOrOne)),
+        true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
-		final XdmNodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getResourceManager().getRtxIndexController(
-				rtx.getRevisionNumber());
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
+    final XdmNodeReadTrx rtx = doc.getTrx();
+    final IndexController controller =
+        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
-		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: "
-					+ ((Str) args[1]).stringValue()));
-		}
+    if (controller == null) {
+      throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+    }
 
-		final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx,
-				IndexType.NAME);
+    final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
+    final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.NAME);
 
-		if (indexDef == null) {
-			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
-					"Index no %s for collection %s and document %s not found.", idx, doc
-							.getCollection().getName(), doc.getTrx().getResourceManager()
-							.getResourceConfig().getResource().getFileName().toString());
-		}
-		if (indexDef.getType() != IndexType.NAME) {
-			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-					"Index no %s for collection %s and document %s is not a path index.",
-					idx, doc.getCollection().getName(), doc.getTrx().getResourceManager()
-							.getResourceConfig().getResource().getFileName().toString());
-		}
+    if (indexDef == null) {
+      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
+          "Index no %s for collection %s and document %s not found.", idx,
+          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
+              .getResource().getFileName().toString());
+    }
+    if (indexDef.getType() != IndexType.NAME) {
+      throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
+          "Index no %s for collection %s and document %s is not a path index.", idx,
+          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
+              .getResource().getFileName().toString());
+    }
 
-		final String names = FunUtil
-				.getString(args, 2, "$names", null, null, false);
-		final NameFilter filter = (names != null) ? controller
-				.createNameFilter(names.split(";")) : null;
+    final String names = FunUtil.getString(args, 2, "$names", null, null, false);
+    final NameFilter filter =
+        (names != null) ? controller.createNameFilter(names.split(";")) : null;
 
-		final IndexController ic = controller;
-		final DBNode node = doc;
+    final IndexController ic = controller;
+    final DBNode node = doc;
 
-		return new LazySequence() {
-			@Override
-			public Iter iterate() {
-				return new BaseIter() {
-					Stream<?> s;
+    return new LazySequence() {
+      @Override
+      public Iter iterate() {
+        return new BaseIter() {
+          Stream<?> s;
 
-					@Override
-					public Item next() throws QueryException {
-						if (s == null) {
-							s = new SirixNodeKeyStream(ic.openNameIndex(node.getTrx()
-									.getPageTrx(), indexDef, filter), node.getCollection(),
-									node.getTrx());
-						}
-						return (Item) s.next();
-					}
+          @Override
+          public Item next() throws QueryException {
+            if (s == null) {
+              s = new SirixNodeKeyStream(
+                  ic.openNameIndex(node.getTrx().getPageTrx(), indexDef, filter),
+                  node.getCollection(), node.getTrx());
+            }
+            return (Item) s.next();
+          }
 
-					@Override
-					public void close() {
-						if (s != null) {
-							s.close();
-						}
-					}
-				};
-			}
-		};
-	}
+          @Override
+          public void close() {
+            if (s != null) {
+              s.close();
+            }
+          }
+        };
+      }
+    };
+  }
 }

@@ -31,28 +31,28 @@ import org.sirix.exception.SirixException;
 
 public class SelfAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testIterate() throws SirixException {
-		final XdmNodeReadTrx rtx = holder.getReader();
-		rtx.moveTo(4L);
-		AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {4L});
+  @Test
+  public void testIterate() throws SirixException {
+    final XdmNodeReadTrx rtx = holder.getReader();
+    rtx.moveTo(4L);
+    AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {4L});
 
-		rtx.moveTo(8L);
-		AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {8L});
-	}
+    rtx.moveTo(8L);
+    AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {8L});
+  }
 }

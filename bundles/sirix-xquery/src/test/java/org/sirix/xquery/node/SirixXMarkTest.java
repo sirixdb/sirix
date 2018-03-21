@@ -1,7 +1,6 @@
 package org.sirix.xquery.node;
 
 import java.io.FileNotFoundException;
-
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;
@@ -20,34 +19,34 @@ import org.sirix.xquery.SirixCompileChain;
  */
 public final class SirixXMarkTest extends XMarkTest {
 
-	/** Sirix database store. */
-	private DBStore mStore;
+  /** Sirix database store. */
+  private DBStore mStore;
 
-	@Override
-	protected Store createStore() throws Exception {
-		mStore = DBStore.newBuilder().build();
-		return mStore;
-	}
+  @Override
+  protected Store createStore() throws Exception {
+    mStore = DBStore.newBuilder().build();
+    return mStore;
+  }
 
-	@Override
-	protected XQuery xquery(final String query) throws QueryException {
-		return new XQuery(new SirixCompileChain(mStore), query);
-	}
+  @Override
+  protected XQuery xquery(final String query) throws QueryException {
+    return new XQuery(new SirixCompileChain(mStore), query);
+  }
 
-	@Override
-	protected Collection<?> createDoc(final DocumentParser parser) throws DocumentException {
-		return mStore.create("testCollection", parser);
-	}
+  @Override
+  protected Collection<?> createDoc(final DocumentParser parser) throws DocumentException {
+    return mStore.create("testCollection", parser);
+  }
 
-	@Override
-	public void setUp() throws Exception, FileNotFoundException {
-		super.setUp();
-		// mTransaction = ((DBCollection) coll).beginTransaction();
-	}
+  @Override
+  public void setUp() throws Exception, FileNotFoundException {
+    super.setUp();
+    // mTransaction = ((DBCollection) coll).beginTransaction();
+  }
 
-	@After
-	public void commit() throws DocumentException {
-		// mTransaction.commit();
-		mStore.close();
-	}
+  @After
+  public void commit() throws DocumentException {
+    // mTransaction.commit();
+    mStore.close();
+  }
 }

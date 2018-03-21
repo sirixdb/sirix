@@ -33,23 +33,23 @@ import org.sirix.io.StorageType;
 
 public class BerkeleyTest {
 
-	private ResourceConfiguration resourceConf;
+  private ResourceConfiguration resourceConf;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		Holder.openResourceManager().close();
-		resourceConf = IOTestHelper.registerIO(StorageType.BERKELEY_DB);
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    Holder.openResourceManager().close();
+    resourceConf = IOTestHelper.registerIO(StorageType.BERKELEY_DB);
+  }
 
-	@Test
-	public void testFirstRef() throws SirixException {
-		IOTestHelper.testReadWriteFirstRef(resourceConf);
-	}
+  @Test
+  public void testFirstRef() throws SirixException {
+    IOTestHelper.testReadWriteFirstRef(resourceConf);
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		IOTestHelper.clean();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    IOTestHelper.clean();
+  }
 
 }

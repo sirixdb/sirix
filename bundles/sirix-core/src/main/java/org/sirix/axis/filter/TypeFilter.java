@@ -32,33 +32,33 @@ import org.sirix.api.XdmNodeReadTrx;
  */
 public class TypeFilter extends AbstractFilter {
 
-	/** Type information. */
-	private final int mType;
+  /** Type information. */
+  private final int mType;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx transaction this filter is bound to
-	 * @param type type to match
-	 */
-	public TypeFilter(final XdmNodeReadTrx rtx, final int type) {
-		super(rtx);
-		mType = type;
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx transaction this filter is bound to
+   * @param type type to match
+   */
+  public TypeFilter(final XdmNodeReadTrx rtx, final int type) {
+    super(rtx);
+    mType = type;
+  }
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx transaction this filter is bound to
-	 * @param typeName name of the type to match
-	 */
-	public TypeFilter(final XdmNodeReadTrx rtx, final String typeName) {
-		this(rtx, rtx.keyForName(typeName));
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx transaction this filter is bound to
+   * @param typeName name of the type to match
+   */
+  public TypeFilter(final XdmNodeReadTrx rtx, final String typeName) {
+    this(rtx, rtx.keyForName(typeName));
+  }
 
-	@Override
-	public final boolean filter() {
-		return getTrx().getTypeKey() == mType;
-	}
+  @Override
+  public final boolean filter() {
+    return getTrx().getTypeKey() == mType;
+  }
 
 }

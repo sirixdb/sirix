@@ -23,7 +23,6 @@ package org.sirix.service.xml.xpath.expr;
 
 import java.util.Arrays;
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -40,71 +39,71 @@ import org.sirix.service.xml.xpath.AbstractAxis;
  */
 public class SequenceAxis extends AbstractAxis {
 
-	private final List<Axis> mSeq;
-	private Axis mCurrent;
-	private int mNum;
+  private final List<Axis> mSeq;
+  private Axis mCurrent;
+  private int mNum;
 
-	/**
-	 * 
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param axis The singleExpressions contained by the sequence
-	 */
-	public SequenceAxis(final XdmNodeReadTrx rtx, final Axis... axis) {
+  /**
+   * 
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param axis The singleExpressions contained by the sequence
+   */
+  public SequenceAxis(final XdmNodeReadTrx rtx, final Axis... axis) {
 
-		super(rtx);
-		mSeq = Arrays.asList(axis);
-		mNum = 0;
-	}
+    super(rtx);
+    mSeq = Arrays.asList(axis);
+    mNum = 0;
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void reset(final long mNodeKey) {
-		super.reset(mNodeKey);
-		if (mSeq != null) {
-			for (Axis ax : mSeq) {
-				ax.reset(mNodeKey);
-			}
-		}
-		mCurrent = null;
-		mNum = 0;
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void reset(final long mNodeKey) {
+    super.reset(mNodeKey);
+    if (mSeq != null) {
+      for (Axis ax : mSeq) {
+        ax.reset(mNodeKey);
+      }
+    }
+    mCurrent = null;
+    mNum = 0;
 
-	}
+  }
 
-	@Override
-	public boolean hasNext() {
+  @Override
+  public boolean hasNext() {
 
-		resetToLastKey();
+    resetToLastKey();
 
-		if (mCurrent != null) {
-			if (mCurrent.hasNext()) {
-				mKey = mCurrent.next();
-				return true;
-			} else {
-				// // necessary, because previous hasNext() changes state
-				// resetToLastKey();
-				// mKey =
-			}
-		}
+    if (mCurrent != null) {
+      if (mCurrent.hasNext()) {
+        mKey = mCurrent.next();
+        return true;
+      } else {
+        // // necessary, because previous hasNext() changes state
+        // resetToLastKey();
+        // mKey =
+      }
+    }
 
-		while (mNum < mSeq.size()) {
-			mCurrent = mSeq.get(mNum++);
+    while (mNum < mSeq.size()) {
+      mCurrent = mSeq.get(mNum++);
 
-			// mCurrent.getTransaction().moveTo(getTransaction().getKey());
-			mCurrent.reset(getTrx().getNodeKey());
-			// mCurrent.resetToLastKey();
-			if (mCurrent.hasNext()) {
-				mKey = mCurrent.next();
-				return true;
-			}
-		}
+      // mCurrent.getTransaction().moveTo(getTransaction().getKey());
+      mCurrent.reset(getTrx().getNodeKey());
+      // mCurrent.resetToLastKey();
+      if (mCurrent.hasNext()) {
+        mKey = mCurrent.next();
+        return true;
+      }
+    }
 
-		resetToStartKey();
-		return false;
+    resetToStartKey();
+    return false;
 
-	}
+  }
 
 }

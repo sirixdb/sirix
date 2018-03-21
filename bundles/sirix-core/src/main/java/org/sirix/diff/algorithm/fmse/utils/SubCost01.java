@@ -41,52 +41,52 @@ package org.sirix.diff.algorithm.fmse.utils;
  */
 public final class SubCost01 implements SubstitutionCost {
 
-	/**
-	 * Get the name of the cost function.
-	 * 
-	 * @return the name of the cost function
-	 */
-	@Override
-	public String getShortDescriptionString() {
-		return "SubCost01";
-	}
+  /**
+   * Get the name of the cost function.
+   * 
+   * @return the name of the cost function
+   */
+  @Override
+  public String getShortDescriptionString() {
+    return "SubCost01";
+  }
 
-	/**
-	 * Cost between characters where d(i,j) = 1 if i does not equals j, 0 if i equals j.
-	 * 
-	 * @param str1 the string1 to evaluate the cost
-	 * @param string1Index the index within the string1 to test
-	 * @param str2 the string2 to evaluate the cost
-	 * @param string2Index the index within the string2 to test
-	 * @return the cost of a given subsitution d(i,j) where d(i,j) = 1 if i!=j, 0 if i==j
-	 */
-	@Override
-	public float getCost(final String str1, final int string1Index, final String str2,
-			final int string2Index) {
-		if (str1.charAt(string1Index) == str2.charAt(string2Index)) {
-			return 0.0f;
-		} else {
-			return 1.0f;
-		}
-	}
+  /**
+   * Cost between characters where d(i,j) = 1 if i does not equals j, 0 if i equals j.
+   * 
+   * @param str1 the string1 to evaluate the cost
+   * @param string1Index the index within the string1 to test
+   * @param str2 the string2 to evaluate the cost
+   * @param string2Index the index within the string2 to test
+   * @return the cost of a given subsitution d(i,j) where d(i,j) = 1 if i!=j, 0 if i==j
+   */
+  @Override
+  public float getCost(final String str1, final int string1Index, final String str2,
+      final int string2Index) {
+    if (str1.charAt(string1Index) == str2.charAt(string2Index)) {
+      return 0.0f;
+    } else {
+      return 1.0f;
+    }
+  }
 
-	/**
-	 * Get the maximum possible cost.
-	 * 
-	 * @return the maximum possible cost
-	 */
-	@Override
-	public float getMaxCost() {
-		return 1.0f;
-	}
+  /**
+   * Get the maximum possible cost.
+   * 
+   * @return the maximum possible cost
+   */
+  @Override
+  public float getMaxCost() {
+    return 1.0f;
+  }
 
-	/**
-	 * Get the minimum possible cost.
-	 * 
-	 * @return the minimum possible cost
-	 */
-	@Override
-	public float getMinCost() {
-		return 0.0f;
-	}
+  /**
+   * Get the minimum possible cost.
+   * 
+   * @return the minimum possible cost
+   */
+  @Override
+  public float getMinCost() {
+    return 0.0f;
+  }
 }

@@ -21,9 +21,7 @@
 package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Map;
-
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
@@ -44,105 +42,105 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  */
 public final class FMSEVisitor extends AbstractVisitor {
 
-	/** {@link XdmNodeReadTrx} reference. */
-	private final XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadTrx} reference. */
+  private final XdmNodeReadTrx mRtx;
 
-	/** Determines if nodes are in order. */
-	private final Map<Long, Boolean> mInOrder;
+  /** Determines if nodes are in order. */
+  private final Map<Long, Boolean> mInOrder;
 
-	/** Descendant count per node. */
-	private final Map<Long, Long> mDescendants;
+  /** Descendant count per node. */
+  private final Map<Long, Long> mDescendants;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param pSession {@link ResourceManager} implementation
-	 * @param inOrder {@link Map} reference to track ordered nodes
-	 * @param descendants {@link Map} reference to track descendants per node
-	 * @throws SirixException if setting up sirix fails
-	 * @throws NullPointerException if one of the arguments is {@code null}
-	 */
-	public FMSEVisitor(final XdmNodeReadTrx readTransaction, final Map<Long, Boolean> inOrder,
-			final Map<Long, Long> descendants) throws SirixException {
-		mRtx = checkNotNull(readTransaction);
-		mInOrder = checkNotNull(inOrder);
-		mDescendants = checkNotNull(descendants);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param pSession {@link ResourceManager} implementation
+   * @param inOrder {@link Map} reference to track ordered nodes
+   * @param descendants {@link Map} reference to track descendants per node
+   * @throws SirixException if setting up sirix fails
+   * @throws NullPointerException if one of the arguments is {@code null}
+   */
+  public FMSEVisitor(final XdmNodeReadTrx readTransaction, final Map<Long, Boolean> inOrder,
+      final Map<Long, Long> descendants) throws SirixException {
+    mRtx = checkNotNull(readTransaction);
+    mInOrder = checkNotNull(inOrder);
+    mDescendants = checkNotNull(descendants);
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutableElement node) {
-		final long nodeKey = node.getNodeKey();
-		mRtx.moveTo(nodeKey);
-		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-			mRtx.moveToAttribute(i);
-			fillStructuralDataStructures();
-			mRtx.moveTo(nodeKey);
-		}
-		for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-			mRtx.moveToNamespace(i);
-			fillStructuralDataStructures();
-			mRtx.moveTo(nodeKey);
-		}
-		countDescendants();
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResultType visit(final ImmutableElement node) {
+    final long nodeKey = node.getNodeKey();
+    mRtx.moveTo(nodeKey);
+    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
+      mRtx.moveToAttribute(i);
+      fillStructuralDataStructures();
+      mRtx.moveTo(nodeKey);
+    }
+    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
+      mRtx.moveToNamespace(i);
+      fillStructuralDataStructures();
+      mRtx.moveTo(nodeKey);
+    }
+    countDescendants();
+    return VisitResultType.CONTINUE;
+  }
 
-	/**
-	 * Fill data structures.
-	 */
-	private void fillStructuralDataStructures() {
-		mInOrder.put(mRtx.getNodeKey(), true);
-		mDescendants.put(mRtx.getNodeKey(), 1L);
-	}
+  /**
+   * Fill data structures.
+   */
+  private void fillStructuralDataStructures() {
+    mInOrder.put(mRtx.getNodeKey(), true);
+    mDescendants.put(mRtx.getNodeKey(), 1L);
+  }
 
-	/**
-	 * Count descendants of node (including self).
-	 */
-	private void countDescendants() {
-		long descendants = 0;
-		final long nodeKey = mRtx.getNodeKey();
-		descendants += mRtx.getNamespaceCount();
-		descendants += mRtx.getAttributeCount();
-		if (mRtx.hasFirstChild()) {
-			mRtx.moveToFirstChild();
-			do {
-				descendants += mDescendants.get(mRtx.getNodeKey());
-				if (mRtx.getKind() == Kind.ELEMENT) {
-					descendants += 1;
-				}
-			} while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());
-		}
-		mRtx.moveTo(nodeKey);
-		mInOrder.put(mRtx.getNodeKey(), false);
-		mDescendants.put(mRtx.getNodeKey(), descendants);
-	}
+  /**
+   * Count descendants of node (including self).
+   */
+  private void countDescendants() {
+    long descendants = 0;
+    final long nodeKey = mRtx.getNodeKey();
+    descendants += mRtx.getNamespaceCount();
+    descendants += mRtx.getAttributeCount();
+    if (mRtx.hasFirstChild()) {
+      mRtx.moveToFirstChild();
+      do {
+        descendants += mDescendants.get(mRtx.getNodeKey());
+        if (mRtx.getKind() == Kind.ELEMENT) {
+          descendants += 1;
+        }
+      } while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());
+    }
+    mRtx.moveTo(nodeKey);
+    mInOrder.put(mRtx.getNodeKey(), false);
+    mDescendants.put(mRtx.getNodeKey(), descendants);
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutableText node) {
-		return visiLeafNode(node);
-	}
+  @Override
+  public VisitResultType visit(final ImmutableText node) {
+    return visiLeafNode(node);
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutableComment node) {
-		return visiLeafNode(node);
-	}
+  @Override
+  public VisitResultType visit(final ImmutableComment node) {
+    return visiLeafNode(node);
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutablePI node) {
-		return visiLeafNode(node);
-	}
+  @Override
+  public VisitResultType visit(final ImmutablePI node) {
+    return visiLeafNode(node);
+  }
 
-	/**
-	 * Visit a leaf node.
-	 * 
-	 * @param pNode the node to visit
-	 * @return {@link VisitResultType} value to continue normally
-	 */
-	private VisitResultType visiLeafNode(final ImmutableNode pNode) {
-		final long nodeKey = pNode.getNodeKey();
-		mRtx.moveTo(nodeKey);
-		mInOrder.put(mRtx.getNodeKey(), false);
-		mDescendants.put(mRtx.getNodeKey(), 1L);
-		return VisitResultType.CONTINUE;
-	}
+  /**
+   * Visit a leaf node.
+   * 
+   * @param pNode the node to visit
+   * @return {@link VisitResultType} value to continue normally
+   */
+  private VisitResultType visiLeafNode(final ImmutableNode pNode) {
+    final long nodeKey = pNode.getNodeKey();
+    mRtx.moveTo(nodeKey);
+    mInOrder.put(mRtx.getNodeKey(), false);
+    mDescendants.put(mRtx.getNodeKey(), 1L);
+    return VisitResultType.CONTINUE;
+  }
 }

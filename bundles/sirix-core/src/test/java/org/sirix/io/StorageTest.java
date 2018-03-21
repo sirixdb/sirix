@@ -22,10 +22,8 @@
 package org.sirix.io;
 
 import static org.testng.AssertJUnit.assertEquals;
-
 import java.io.IOException;
 import java.nio.file.Files;
-
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -47,85 +45,85 @@ import org.testng.annotations.Test;
  */
 public final class StorageTest {
 
-	/** {@link ResourceConfiguration} reference. */
-	private ResourceConfiguration mResourceConfig;
+  /** {@link ResourceConfiguration} reference. */
+  private ResourceConfiguration mResourceConfig;
 
-	@BeforeClass
-	public void setUp() throws SirixException, IOException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
-		Files.createDirectories(TestHelper.PATHS.PATH1.getFile()
-				.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
-		Files.createFile(TestHelper.PATHS.PATH1.getFile()
-				.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve("data.sirix"));
-		mResourceConfig = new ResourceConfiguration.Builder("shredded",
-				new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
-	}
+  @BeforeClass
+  public void setUp() throws SirixException, IOException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
+    Files.createDirectories(TestHelper.PATHS.PATH1.getFile()
+        .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
+    Files.createFile(TestHelper.PATHS.PATH1.getFile()
+        .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve("data.sirix"));
+    mResourceConfig = new ResourceConfiguration.Builder("shredded",
+        new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
+  }
 
-	@AfterClass
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-	}
+  @AfterClass
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+  }
 
-	/**
-	 * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-	 * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
-	 *
-	 * @throws SirixIOException
-	 */
-	@Test(dataProvider = "instantiateStorages")
-	public void testFirstRef(final Class<Storage> clazz, final Storage[] storages)
-			throws SirixException {
-		for (final Storage handler : storages) {
-			try {
-				final PageReference pageRef1 = new PageReference();
-				final UberPage page1 = new UberPage();
-				pageRef1.setPage(page1);
+  /**
+   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
+   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
+   *
+   * @throws SirixIOException
+   */
+  @Test(dataProvider = "instantiateStorages")
+  public void testFirstRef(final Class<Storage> clazz, final Storage[] storages)
+      throws SirixException {
+    for (final Storage handler : storages) {
+      try {
+        final PageReference pageRef1 = new PageReference();
+        final UberPage page1 = new UberPage();
+        pageRef1.setPage(page1);
 
-				// same instance check
-				final PageReference pageRef2;
-				try (final Writer writer = handler.createWriter()) {
-					pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
-					assertEquals(
-							new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-									.toString(),
-							((UberPage) pageRef1.getPage()).getRevisionCount(),
-							((UberPage) pageRef2.getPage()).getRevisionCount());
-				}
+        // same instance check
+        final PageReference pageRef2;
+        try (final Writer writer = handler.createWriter()) {
+          pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
+          assertEquals(
+              new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+                  .toString(),
+              ((UberPage) pageRef1.getPage()).getRevisionCount(),
+              ((UberPage) pageRef2.getPage()).getRevisionCount());
+        }
 
-				// new instance check
-				try (final Reader reader = handler.createReader()) {
-					final PageReference pageRef3 = reader.readUberPageReference();
-					assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-							.toString(), pageRef2.getKey(), pageRef3.getKey());
-					assertEquals(
-							new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-									.toString(),
-							((UberPage) pageRef2.getPage()).getRevisionCount(),
-							((UberPage) pageRef3.getPage()).getRevisionCount());
-				}
-			} finally {
-				handler.close();
-			}
-		}
-	}
+        // new instance check
+        try (final Reader reader = handler.createReader()) {
+          final PageReference pageRef3 = reader.readUberPageReference();
+          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+              .toString(), pageRef2.getKey(), pageRef3.getKey());
+          assertEquals(
+              new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
+                  .toString(),
+              ((UberPage) pageRef2.getPage()).getRevisionCount(),
+              ((UberPage) pageRef3.getPage()).getRevisionCount());
+        }
+      } finally {
+        handler.close();
+      }
+    }
+  }
 
-	/**
-	 * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test
-	 * class.
-	 *
-	 * @return different classes of the {@link ByteHandler}
-	 * @throws SirixIOException if an I/O error occurs
-	 */
-	@DataProvider(name = "instantiateStorages")
-	public Object[][] instantiateStorages() throws SirixIOException {
-		Object[][] returnVal = {{Storage.class,
-				new Storage[] {new FileStorage(mResourceConfig),
-						new BerkeleyStorageFactory().createStorage(mResourceConfig),
-						new RAMStorage(mResourceConfig)}}};
-		return returnVal;
-	}
+  /**
+   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test
+   * class.
+   *
+   * @return different classes of the {@link ByteHandler}
+   * @throws SirixIOException if an I/O error occurs
+   */
+  @DataProvider(name = "instantiateStorages")
+  public Object[][] instantiateStorages() throws SirixIOException {
+    Object[][] returnVal = {{Storage.class,
+        new Storage[] {new FileStorage(mResourceConfig),
+            new BerkeleyStorageFactory().createStorage(mResourceConfig),
+            new RAMStorage(mResourceConfig)}}};
+    return returnVal;
+  }
 
 }

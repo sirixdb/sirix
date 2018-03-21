@@ -22,12 +22,9 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nullable;
-
 import org.sirix.api.Filter;
 import org.sirix.api.XdmNodeReadTrx;
-
 import com.google.common.base.Predicate;
 
 /**
@@ -39,34 +36,34 @@ import com.google.common.base.Predicate;
  */
 public abstract class AbstractFilter implements Filter, Predicate<Long> {
 
-	/** Iterate over transaction exclusive to this step. */
-	private XdmNodeReadTrx mRtx;
+  /** Iterate over transaction exclusive to this step. */
+  private XdmNodeReadTrx mRtx;
 
-	/**
-	 * Bind axis step to transaction.
-	 * 
-	 * @param rtx transaction to operate with
-	 */
-	protected AbstractFilter(final XdmNodeReadTrx rtx) {
-		mRtx = checkNotNull(rtx);
-	}
+  /**
+   * Bind axis step to transaction.
+   * 
+   * @param rtx transaction to operate with
+   */
+  protected AbstractFilter(final XdmNodeReadTrx rtx) {
+    mRtx = checkNotNull(rtx);
+  }
 
-	@Override
-	public final XdmNodeReadTrx getTrx() {
-		return mRtx;
-	}
+  @Override
+  public final XdmNodeReadTrx getTrx() {
+    return mRtx;
+  }
 
-	@Override
-	public void setTrx(XdmNodeReadTrx rtx) {
-		mRtx = checkNotNull(rtx);
-	}
+  @Override
+  public void setTrx(XdmNodeReadTrx rtx) {
+    mRtx = checkNotNull(rtx);
+  }
 
-	@Override
-	public abstract boolean filter();
+  @Override
+  public abstract boolean filter();
 
-	@Override
-	public boolean apply(final @Nullable Long nodeKey) {
-		mRtx.moveTo(checkNotNull(nodeKey));
-		return filter();
-	}
+  @Override
+  public boolean apply(final @Nullable Long nodeKey) {
+    mRtx.moveTo(checkNotNull(nodeKey));
+    return filter();
+  }
 }

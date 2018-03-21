@@ -49,52 +49,52 @@ import org.sirix.axis.filter.AbstractFilter;
  */
 public class SchemaElementFilter extends AbstractFilter {
 
-	// /** The specified name for the element. */
-	// private final String elementName;
+  // /** The specified name for the element. */
+  // private final String elementName;
 
-	/**
-	 * Default constructor.
-	 * 
-	 * @param rtx Transaction this filter is bound to..
-	 */
-	public SchemaElementFilter(final XdmNodeReadTrx rtx) {
+  /**
+   * Default constructor.
+   * 
+   * @param rtx Transaction this filter is bound to..
+   */
+  public SchemaElementFilter(final XdmNodeReadTrx rtx) {
 
-		super(rtx);
-		// elementName = declaration;
-	}
+    super(rtx);
+    // elementName = declaration;
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public final boolean filter() {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public final boolean filter() {
 
-		return false;
+    return false;
 
-		// TODO: The result is only false, because support for schema
-		// information is
-		// not implemented in sirix yet. As soon as this situation changes it
-		// is
-		// necessary to change this method according to the following pseudo
-		// code:
-		//
-		// if (ElementName is NOT in in-scope-declaration) {
-		// throw new XPathError(ErrorType.XPST0008);
-		// } else {
-		// Type specifiedType = type of the Element specified in the declaration
-		// return getTransaction().isElementKind()
-		// && (getTransaction().getName().equals(ElementName)
-		// || substitution group matches elementName)
-		// && (getTransaction().getValueTypeAsType() == specifiedType
-		// || getTransaction.getValueTypeAsType().
-		// derivesFrom(specifiedDeclaration)
-		// && if (element declaration is not nillable) nilled property of
-		// candidate node has to be false);
+    // TODO: The result is only false, because support for schema
+    // information is
+    // not implemented in sirix yet. As soon as this situation changes it
+    // is
+    // necessary to change this method according to the following pseudo
+    // code:
+    //
+    // if (ElementName is NOT in in-scope-declaration) {
+    // throw new XPathError(ErrorType.XPST0008);
+    // } else {
+    // Type specifiedType = type of the Element specified in the declaration
+    // return getTransaction().isElementKind()
+    // && (getTransaction().getName().equals(ElementName)
+    // || substitution group matches elementName)
+    // && (getTransaction().getValueTypeAsType() == specifiedType
+    // || getTransaction.getValueTypeAsType().
+    // derivesFrom(specifiedDeclaration)
+    // && if (element declaration is not nillable) nilled property of
+    // candidate node has to be false);
 
-		// }
-		//
-		// See W3C's XPath 2.0 specification for more details
+    // }
+    //
+    // See W3C's XPath 2.0 specification for more details
 
-	}
+  }
 
 }

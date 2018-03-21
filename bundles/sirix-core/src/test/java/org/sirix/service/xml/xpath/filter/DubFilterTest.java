@@ -38,38 +38,38 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class DubFilterTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testDupElemination() throws SirixException {
+  @Test
+  public void testDupElemination() throws SirixException {
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "child::node()/parent::node()"), new long[] {1L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "child::node()/parent::node()"), new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "b/following-sibling::node()"), new long[] {8L, 9L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "b/following-sibling::node()"), new long[] {8L, 9L, 13L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/preceding::node()"),
-				new long[] {4L, 8L, 7L, 6L, 5L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/preceding::node()"),
+        new long[] {4L, 8L, 7L, 6L, 5L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "//c/ancestor::node()"),
-				new long[] {5L, 1L, 9L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "//c/ancestor::node()"),
+        new long[] {5L, 1L, 9L});
 
-	}
+  }
 
 }

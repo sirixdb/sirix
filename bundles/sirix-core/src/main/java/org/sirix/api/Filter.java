@@ -60,15 +60,15 @@ package org.sirix.api;
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
  * public final class ExampleFilter extends AbstractFilter {
  * 
- * 	public ExampleFilter(final INodeReadTrx pRtx) {
- * 		// Must be called as first.
- * 		super(pRtx);
- * 	}
+ *   public ExampleFilter(final INodeReadTrx pRtx) {
+ *     // Must be called as first.
+ *     super(pRtx);
+ *   }
  * 
- * 	public final boolean filter() {
- * 		// Do not move cursor.
- * 		return (getTrx().isStructuralNode());
- * 	}
+ *   public final boolean filter() {
+ *     // Do not move cursor.
+ *     return (getTrx().isStructuralNode());
+ *   }
  * }
  * </pre>
  * 
@@ -76,25 +76,25 @@ package org.sirix.api;
  */
 public interface Filter {
 
-	/**
-	 * Apply filter on current node of transaction.
-	 * 
-	 * @return {@code true} if node passes filter, {@code false} otherwise
-	 */
-	boolean filter();
+  /**
+   * Apply filter on current node of transaction.
+   * 
+   * @return {@code true} if node passes filter, {@code false} otherwise
+   */
+  boolean filter();
 
-	/**
-	 * Getting the transaction of this filter.
-	 * 
-	 * @return the transaction of this filter
-	 */
-	XdmNodeReadTrx getTrx();
+  /**
+   * Getting the transaction of this filter.
+   * 
+   * @return the transaction of this filter
+   */
+  XdmNodeReadTrx getTrx();
 
-	/**
-	 * Setting the transaction of this filter.
-	 * 
-	 * @return the transaction of this filter
-	 */
-	void setTrx(XdmNodeReadTrx rtx);
+  /**
+   * Setting the transaction of this filter.
+   * 
+   * @return the transaction of this filter
+   */
+  void setTrx(XdmNodeReadTrx rtx);
 
 }

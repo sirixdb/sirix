@@ -19,7 +19,6 @@ import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECEN
 import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -61,153 +60,149 @@ import org.sirix.xquery.function.sdb.trx.Rollback;
  *
  */
 public final class SDBFun {
-	/** Prefix for Sirix functions. */
-	public static final String SDB_PREFIX = "sdb";
+  /** Prefix for Sirix functions. */
+  public static final String SDB_PREFIX = "sdb";
 
-	/** Namespace URI for Sirix functions. */
-	public static final String SDB_NSURI = "https://github.com/sirixdb/sirix";
+  /** Namespace URI for Sirix functions. */
+  public static final String SDB_NSURI = "https://github.com/sirixdb/sirix";
 
-	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX,
-			"SIRIXDBF0001");
+  public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0001");
 
-	public static final QNm ERR_INDEX_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX,
-			"SIRIXDBF0002");
-	
-	public static final QNm ERR_FILE_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0003");
+  public static final QNm ERR_INDEX_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0002");
 
-	public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF004");
+  public static final QNm ERR_FILE_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0003");
 
-	public static void register() {
-		// dummy function to cause static block
-		// to be executed exactly once
-	}
+  public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF004");
 
-	static {
-		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
+  public static void register() {
+    // dummy function to cause static block
+    // to be executed exactly once
+  }
 
-		// get path
-		Functions.predefine(new GetPath(GetPath.GET_PATH, new Signature(SequenceType.STRING, SequenceType.NODE)));
-		
-		// get nodeKey
-		Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY, new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
-		
-		// move to
-		Functions.predefine(new SelectNode(SelectNode.SELECT_NODE, new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
-		
-		// serialize
-		Functions.predefine(new Serialize());
-		
-		// sort by document order
-		Functions.predefine(new SortByDocOrder(SORT, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
-		
-		// get number of descendants
-		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-		
-		// get number of descendants
-		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+  static {
+    Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
-		// get number of children
-		Functions.predefine(new GetChildCount(GET_CHILD_COUNT, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE)));
+    // get path
+    Functions.predefine(
+        new GetPath(GetPath.GET_PATH, new Signature(SequenceType.STRING, SequenceType.NODE)));
 
-		// get hash
-		Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING,
-				SequenceType.NODE)));
+    // get nodeKey
+    Functions.predefine(new GetNodeKey(GetNodeKey.GET_NODEKEY,
+        new Signature(new SequenceType(AtomicType.INT, Cardinality.One), SequenceType.NODE)));
 
-		// store
-		Functions.predefine(new Store(false));
-		Functions.predefine(new Store(true));
-		Functions.predefine(new Store(STORE, false));
-		Functions.predefine(new Store(STORE, true));
+    // move to
+    Functions.predefine(new SelectNode(SelectNode.SELECT_NODE, new Signature(SequenceType.NODE,
+        SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
 
-		// load
-		Functions.predefine(new Load(false));
-		Functions.predefine(new Load(true));
-		Functions.predefine(new Load(LOAD, false));
-		Functions.predefine(new Load(LOAD, true));
+    // serialize
+    Functions.predefine(new Serialize());
 
-		// doc
-		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
-				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
-						AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INT,
-						Cardinality.ZeroOrOne))));
-		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
-				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
-						AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INT,
-						Cardinality.ZeroOrOne), new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
-		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
-				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
-						AtomicType.STR, Cardinality.One))));
+    // sort by document order
+    Functions.predefine(new SortByDocOrder(SORT,
+        new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
 
-		// commit
-		Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER,
-				SequenceType.NODE)));
+    // get number of descendants
+    Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// rollback
-		Functions.predefine(new Rollback(ROLLBACK, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE)));
+    // get number of descendants
+    Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// revision
-		Functions.predefine(new GetRevision(REVISION, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE)));
+    // get number of children
+    Functions.predefine(
+        new GetChildCount(GET_CHILD_COUNT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// most-recent-revision
-		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+    // get hash
+    Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING, SequenceType.NODE)));
 
-		// get-namespace-count
-		Functions.predefine(new GetNamespaceCount(GET_NAMESPACE_COUNT,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+    // store
+    Functions.predefine(new Store(false));
+    Functions.predefine(new Store(true));
+    Functions.predefine(new Store(STORE, false));
+    Functions.predefine(new Store(STORE, true));
 
-		// get-attribute-count
-		Functions.predefine(new GetNamespaceCount(GET_ATTRIBUTE_COUNT,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+    // load
+    Functions.predefine(new Load(false));
+    Functions.predefine(new Load(true));
+    Functions.predefine(new Load(LOAD, false));
+    Functions.predefine(new Load(LOAD, true));
 
-		// find-name-index
-		Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, new SequenceType(
-						AtomicType.QNM, Cardinality.One))));
+    // doc
+    Functions.predefine(new Doc(DOC,
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne))));
+    Functions.predefine(new Doc(DOC,
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+    Functions.predefine(new Doc(DOC,
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One))));
 
-		// find-path-index
-		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+    // commit
+    Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// find-cas-index
-		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING,
-				SequenceType.STRING)));
+    // rollback
+    Functions
+        .predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// create-name-index
-		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.QNM,
-						Cardinality.ZeroOrMany))));
-		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE)));
+    // revision
+    Functions.predefine(
+        new GetRevision(REVISION, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// create-path-index
-		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrMany))));
-		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE)));
+    // most-recent-revision
+    Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// create-cas-index
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrMany))));
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrOne))));
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE)));
+    // get-namespace-count
+    Functions.predefine(new GetNamespaceCount(GET_NAMESPACE_COUNT,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
-		// scan indexes
-		Functions.predefine(new ScanPathIndex());
-		Functions.predefine(new ScanCASIndex());
-		Functions.predefine(new ScanCASIndexRange());
-		Functions.predefine(new ScanNameIndex());
-	}
+    // get-attribute-count
+    Functions.predefine(new GetNamespaceCount(GET_ATTRIBUTE_COUNT,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+
+    // find-name-index
+    Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(SequenceType.INTEGER,
+        SequenceType.NODE, new SequenceType(AtomicType.QNM, Cardinality.One))));
+
+    // find-path-index
+    Functions.predefine(new FindPathIndex(FIND_PATH_INDEX,
+        new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+
+    // find-cas-index
+    Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(SequenceType.INTEGER,
+        SequenceType.NODE, SequenceType.STRING, SequenceType.STRING)));
+
+    // create-name-index
+    Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(SequenceType.NODE,
+        SequenceType.NODE, new SequenceType(AtomicType.QNM, Cardinality.ZeroOrMany))));
+    Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX,
+        new Signature(SequenceType.NODE, SequenceType.NODE)));
+
+    // create-path-index
+    Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(SequenceType.NODE,
+        SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+    Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX,
+        new Signature(SequenceType.NODE, SequenceType.NODE)));
+
+    // create-cas-index
+    Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
+        new Signature(SequenceType.NODE, SequenceType.NODE,
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+    Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.NODE,
+        SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne))));
+    Functions.predefine(
+        new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.NODE, SequenceType.NODE)));
+
+    // scan indexes
+    Functions.predefine(new ScanPathIndex());
+    Functions.predefine(new ScanCASIndex());
+    Functions.predefine(new ScanCASIndexRange());
+    Functions.predefine(new ScanNameIndex());
+  }
 }

@@ -22,7 +22,6 @@
 package org.sirix.service.xml.shredder;
 
 import java.util.List;
-
 import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 
 /**
@@ -39,11 +38,11 @@ import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
  * 
  */
 public interface Import<T> {
-	/**
-	 * Import data.
-	 * 
-	 * @param dateRange date range, which is used to determine the time between single revisions
-	 * @param timestamps {@link List} of Timestamp objects
-	 */
-	void importData(final DateBy dateRange, final List<T> timestamps);
+  /**
+   * Import data.
+   * 
+   * @param dateRange date range, which is used to determine the time between single revisions
+   * @param timestamps {@link List} of Timestamp objects
+   */
+  void importData(final DateBy dateRange, final List<T> timestamps);
 }

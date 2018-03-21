@@ -32,33 +32,33 @@ import org.sirix.api.XdmNodeReadTrx;
  */
 public final class ChildAxis extends AbstractAxis {
 
-	/** Has another child node. */
-	private boolean mFirst;
+  /** Has another child node. */
+  private boolean mFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public ChildAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public ChildAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		if (!mFirst && getTrx().hasRightSibling()) {
-			return getTrx().getRightSiblingKey();
-		} else if (mFirst && getTrx().hasFirstChild()) {
-			mFirst = false;
-			return getTrx().getFirstChildKey();
-		}
+  @Override
+  protected long nextKey() {
+    if (!mFirst && getTrx().hasRightSibling()) {
+      return getTrx().getRightSiblingKey();
+    } else if (mFirst && getTrx().hasFirstChild()) {
+      mFirst = false;
+      return getTrx().getFirstChildKey();
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

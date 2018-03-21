@@ -21,12 +21,10 @@
 package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
@@ -44,81 +42,81 @@ import org.sirix.node.immutable.ImmutableText;
  */
 public final class LabelFMSEVisitor extends AbstractVisitor {
 
-	/** {@link XdmNodeReadTrx} implementation. */
-	private final XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadTrx} implementation. */
+  private final XdmNodeReadTrx mRtx;
 
-	/** For each node type: list of inner nodes. */
-	private final Map<Kind, List<Long>> mLabels;
+  /** For each node type: list of inner nodes. */
+  private final Map<Kind, List<Long>> mLabels;
 
-	/** For each node type: list of leaf nodes. */
-	private final Map<Kind, List<Long>> mLeafLabels;
+  /** For each node type: list of leaf nodes. */
+  private final Map<Kind, List<Long>> mLeafLabels;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param pSession {@link ResourceManager} implementation
-	 * @throws SirixException if setting up sirix fails
-	 */
-	public LabelFMSEVisitor(final XdmNodeReadTrx pReadTrx) throws SirixException {
-		mRtx = checkNotNull(pReadTrx);
-		mLabels = new HashMap<>();
-		mLeafLabels = new HashMap<>();
-	}
+  /**
+   * Constructor.
+   * 
+   * @param pSession {@link ResourceManager} implementation
+   * @throws SirixException if setting up sirix fails
+   */
+  public LabelFMSEVisitor(final XdmNodeReadTrx pReadTrx) throws SirixException {
+    mRtx = checkNotNull(pReadTrx);
+    mLabels = new HashMap<>();
+    mLeafLabels = new HashMap<>();
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutableElement pNode) {
-		final long nodeKey = pNode.getNodeKey();
-		mRtx.moveTo(nodeKey);
-		for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-			mRtx.moveToNamespace(i);
-			addLeafLabel();
-			mRtx.moveTo(nodeKey);
-		}
-		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-			mRtx.moveToAttribute(i);
-			addLeafLabel();
-			mRtx.moveTo(nodeKey);
-		}
-		if (!mLabels.containsKey(pNode.getKind())) {
-			mLabels.put(pNode.getKind(), new ArrayList<Long>());
-		}
-		mLabels.get(pNode.getKind()).add(pNode.getNodeKey());
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResultType visit(final ImmutableElement pNode) {
+    final long nodeKey = pNode.getNodeKey();
+    mRtx.moveTo(nodeKey);
+    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
+      mRtx.moveToNamespace(i);
+      addLeafLabel();
+      mRtx.moveTo(nodeKey);
+    }
+    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
+      mRtx.moveToAttribute(i);
+      addLeafLabel();
+      mRtx.moveTo(nodeKey);
+    }
+    if (!mLabels.containsKey(pNode.getKind())) {
+      mLabels.put(pNode.getKind(), new ArrayList<Long>());
+    }
+    mLabels.get(pNode.getKind()).add(pNode.getNodeKey());
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResultType visit(final ImmutableText pNode) {
-		mRtx.moveTo(pNode.getNodeKey());
-		addLeafLabel();
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResultType visit(final ImmutableText pNode) {
+    mRtx.moveTo(pNode.getNodeKey());
+    addLeafLabel();
+    return VisitResultType.CONTINUE;
+  }
 
-	/**
-	 * Add leaf node label.
-	 */
-	private void addLeafLabel() {
-		final Kind nodeKind = mRtx.getKind();
-		if (!mLeafLabels.containsKey(nodeKind)) {
-			mLeafLabels.put(nodeKind, new ArrayList<Long>());
-		}
-		mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
-	}
+  /**
+   * Add leaf node label.
+   */
+  private void addLeafLabel() {
+    final Kind nodeKind = mRtx.getKind();
+    if (!mLeafLabels.containsKey(nodeKind)) {
+      mLeafLabels.put(nodeKind, new ArrayList<Long>());
+    }
+    mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
+  }
 
-	/**
-	 * Get labels.
-	 * 
-	 * @return the Labels
-	 */
-	public Map<Kind, List<Long>> getLabels() {
-		return mLabels;
-	}
+  /**
+   * Get labels.
+   * 
+   * @return the Labels
+   */
+  public Map<Kind, List<Long>> getLabels() {
+    return mLabels;
+  }
 
-	/**
-	 * Get leaf labels.
-	 * 
-	 * @return the leaf labels
-	 */
-	public Map<Kind, List<Long>> getLeafLabels() {
-		return mLeafLabels;
-	}
+  /**
+   * Get leaf labels.
+   * 
+   * @return the leaf labels
+   */
+  public Map<Kind, List<Long>> getLeafLabels() {
+    return mLeafLabels;
+  }
 }

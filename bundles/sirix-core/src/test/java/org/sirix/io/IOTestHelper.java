@@ -22,7 +22,6 @@
 package org.sirix.io;
 
 import static org.junit.Assert.assertEquals;
-
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -39,58 +38,58 @@ import org.sirix.page.UberPage;
  */
 public final class IOTestHelper {
 
-	/** Private constructor. */
-	private IOTestHelper() {}
+  /** Private constructor. */
+  private IOTestHelper() {}
 
-	/**
-	 * Static method to get {@link ResourceConfiguration}
-	 *
-	 * @param type for the the {@link ResourceConfiguration} should be generated
-	 * @return a suitable {@link ResourceConfiguration}
-	 * @throws SirixUsageException
-	 */
-	public static ResourceConfiguration registerIO(final StorageType type) throws SirixException {
-		final ResourceConfiguration.Builder resourceConfig =
-				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig());
-		resourceConfig.storageType(type);
-		return resourceConfig.build();
-	}
+  /**
+   * Static method to get {@link ResourceConfiguration}
+   *
+   * @param type for the the {@link ResourceConfiguration} should be generated
+   * @return a suitable {@link ResourceConfiguration}
+   * @throws SirixUsageException
+   */
+  public static ResourceConfiguration registerIO(final StorageType type) throws SirixException {
+    final ResourceConfiguration.Builder resourceConfig =
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig());
+    resourceConfig.storageType(type);
+    return resourceConfig.build();
+  }
 
-	/**
-	 * Tear down for all tests related to the io layer.
-	 */
-	public static void clean() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  /**
+   * Tear down for all tests related to the io layer.
+   */
+  public static void clean() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	/**
-	 * Test reading/writing the first reference.
-	 *
-	 * @param resourceConf {@link ResourceConfiguration} reference
-	 * @throws SirixException if something went wrong
-	 */
-	public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf)
-			throws SirixException {
-		final Storage fac = StorageType.getStorage(resourceConf);
-		final PageReference pageRef1 = new PageReference();
-		final UberPage page1 = new UberPage();
-		pageRef1.setPage(page1);
+  /**
+   * Test reading/writing the first reference.
+   *
+   * @param resourceConf {@link ResourceConfiguration} reference
+   * @throws SirixException if something went wrong
+   */
+  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf)
+      throws SirixException {
+    final Storage fac = StorageType.getStorage(resourceConf);
+    final PageReference pageRef1 = new PageReference();
+    final UberPage page1 = new UberPage();
+    pageRef1.setPage(page1);
 
-		// same instance check
-		final Writer writer = fac.createWriter();
-		writer.writeUberPageReference(pageRef1);
-		final PageReference pageRef2 = writer.readUberPageReference();
-		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-				((UberPage) pageRef2.getPage()).getRevisionCount());
-		writer.close();
+    // same instance check
+    final Writer writer = fac.createWriter();
+    writer.writeUberPageReference(pageRef1);
+    final PageReference pageRef2 = writer.readUberPageReference();
+    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+        ((UberPage) pageRef2.getPage()).getRevisionCount());
+    writer.close();
 
-		// new instance check
-		final Reader reader = fac.createReader();
-		final PageReference pageRef3 = reader.readUberPageReference();
-		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-				((UberPage) pageRef3.getPage()).getRevisionCount());
-		reader.close();
-		fac.close();
-	}
+    // new instance check
+    final Reader reader = fac.createReader();
+    final PageReference pageRef3 = reader.readUberPageReference();
+    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+        ((UberPage) pageRef3.getPage()).getRevisionCount());
+    reader.close();
+    fac.close();
+  }
 
 }

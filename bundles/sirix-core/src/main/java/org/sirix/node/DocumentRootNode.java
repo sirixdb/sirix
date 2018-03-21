@@ -22,17 +22,14 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.interfaces.StructNode;
-
 import com.google.common.base.Objects;
 
 /**
@@ -45,59 +42,59 @@ import com.google.common.base.Objects;
  */
 public final class DocumentRootNode extends AbstractStructForwardingNode implements StructNode {
 
-	/** {@link NodeDelegate} reference. */
-	private final NodeDelegate mNodeDel;
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
 
-	/** {@link StructNodeDelegate} reference. */
-	private final StructNodeDelegate mStructNodeDel;
+  /** {@link StructNodeDelegate} reference. */
+  private final StructNodeDelegate mStructNodeDel;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param nodeDel {@link NodeDelegate} reference
-	 * @param structDel {@link StructNodeDelegate} reference
-	 */
-	public DocumentRootNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
-		mNodeDel = checkNotNull(nodeDel);
-		mStructNodeDel = checkNotNull(structDel);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param nodeDel {@link NodeDelegate} reference
+   * @param structDel {@link StructNodeDelegate} reference
+   */
+  public DocumentRootNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
+    mNodeDel = checkNotNull(nodeDel);
+    mStructNodeDel = checkNotNull(structDel);
+  }
 
-	@Override
-	public Kind getKind() {
-		return Kind.DOCUMENT;
-	}
+  @Override
+  public Kind getKind() {
+    return Kind.DOCUMENT;
+  }
 
-	@Override
-	public VisitResult acceptVisitor(final Visitor visitor) {
-		return visitor.visit(ImmutableDocument.of(this));
-	}
+  @Override
+  public VisitResult acceptVisitor(final Visitor visitor) {
+    return visitor.visit(ImmutableDocument.of(this));
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mNodeDel);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mNodeDel);
+  }
 
-	@Override
-	public boolean equals(@Nullable final Object obj) {
-		if (obj instanceof DocumentRootNode) {
-			final DocumentRootNode other = (DocumentRootNode) obj;
-			return Objects.equal(mNodeDel, other.mNodeDel);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(@Nullable final Object obj) {
+    if (obj instanceof DocumentRootNode) {
+      final DocumentRootNode other = (DocumentRootNode) obj;
+      return Objects.equal(mNodeDel, other.mNodeDel);
+    }
+    return false;
+  }
 
-	@Override
-	public String toString() {
-		return super.toString();
-	}
+  @Override
+  public String toString() {
+    return super.toString();
+  }
 
-	@Override
-	protected NodeDelegate delegate() {
-		return mNodeDel;
-	}
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
+  }
 
-	@Override
-	protected StructNodeDelegate structDelegate() {
-		return mStructNodeDel;
-	}
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructNodeDel;
+  }
 }

@@ -33,41 +33,41 @@ import org.sirix.io.bytepipe.ByteHandler;
  */
 public interface Storage {
 
-	/**
-	 * Getting a writer.
-	 * 
-	 * @return an {@link Writer} instance
-	 * @throws SirixIOException if the initialization fails
-	 */
-	Writer createWriter() throws SirixIOException;
+  /**
+   * Getting a writer.
+   * 
+   * @return an {@link Writer} instance
+   * @throws SirixIOException if the initialization fails
+   */
+  Writer createWriter() throws SirixIOException;
 
-	/**
-	 * Getting a reader.
-	 * 
-	 * @return an {@link Reader} instance
-	 * @throws SirixIOException if the initialization fails
-	 */
-	Reader createReader() throws SirixIOException;
+  /**
+   * Getting a reader.
+   * 
+   * @return an {@link Reader} instance
+   * @throws SirixIOException if the initialization fails
+   */
+  Reader createReader() throws SirixIOException;
 
-	/**
-	 * Closing this storage.
-	 * 
-	 * @throws SirixIOException if an I/O error occurs
-	 */
-	void close() throws SirixIOException;
+  /**
+   * Closing this storage.
+   * 
+   * @throws SirixIOException if an I/O error occurs
+   */
+  void close() throws SirixIOException;
 
-	/**
-	 * Check if storage exists.
-	 * 
-	 * @return true if storage holds data, false otherwise
-	 * @throws SirixIOException if storage is not accessible
-	 */
-	boolean exists() throws SirixIOException;
+  /**
+   * Check if storage exists.
+   * 
+   * @return true if storage holds data, false otherwise
+   * @throws SirixIOException if storage is not accessible
+   */
+  boolean exists() throws SirixIOException;
 
-	/**
-	 * Get the byte handler pipeline.
-	 * 
-	 * @return byte handler pipeline
-	 */
-	ByteHandler getByteHandler();
+  /**
+   * Get the byte handler pipeline.
+   * 
+   * @return byte handler pipeline
+   */
+  ByteHandler getByteHandler();
 }

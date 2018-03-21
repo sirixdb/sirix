@@ -31,34 +31,34 @@ import org.sirix.exception.SirixException;
 
 public class ValueFilterTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testFilterConvetions() throws SirixException {
-		final XdmNodeReadTrx reader = holder.getReader();
-		reader.moveTo(4L);
-		FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
-		FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);
+  @Test
+  public void testFilterConvetions() throws SirixException {
+    final XdmNodeReadTrx reader = holder.getReader();
+    reader.moveTo(4L);
+    FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
+    FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);
 
-		reader.moveTo(1L);
-		reader.moveToAttribute(0);
-		FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
+    reader.moveTo(1L);
+    reader.moveToAttribute(0);
+    FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
 
-		reader.moveTo(3L);
-		FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
-	}
+    reader.moveTo(3L);
+    FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
+  }
 
 }

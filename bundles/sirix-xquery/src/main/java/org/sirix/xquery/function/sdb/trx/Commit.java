@@ -15,8 +15,8 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for commiting a new revision. The result is the new commited
- * revision number. Supported signature is:
+ * Function for commiting a new revision. The result is the new commited revision number. Supported
+ * signature is:
  * </p>
  * <ul>
  * <li><code>sdb:commit($doc as xs:node) as xs:int</code></li>
@@ -27,46 +27,43 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class Commit extends AbstractFunction {
 
-	/** Get most recent revision function name. */
-	public final static QNm COMMIT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"commit");
+  /** Get most recent revision function name. */
+  public final static QNm COMMIT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "commit");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public Commit(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public Commit(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		if (doc.getTrx() instanceof XdmNodeWriteTrx) {
-			final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
-			final long revision = wtx.getRevisionNumber();
-			wtx.commit();
-			return new Int64(revision);
-		} else {
-			final ResourceManager manager = doc.getTrx().getResourceManager();
-			final XdmNodeWriteTrx wtx;
-			if (manager.getAvailableNodeWriteTrx() == 0) {
-				wtx = manager.getNodeWriteTrx().get();
-			} else {
-				wtx = manager.beginNodeWriteTrx();
-			}
-			final int revision = doc.getTrx().getRevisionNumber();
-			if (revision < manager.getMostRecentRevisionNumber()) {
-				wtx.revertTo(doc.getTrx().getRevisionNumber());
-			}
-			wtx.commit();
-			return new Int64(revision);
-		}
-	}
+    if (doc.getTrx() instanceof XdmNodeWriteTrx) {
+      final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
+      final long revision = wtx.getRevisionNumber();
+      wtx.commit();
+      return new Int64(revision);
+    } else {
+      final ResourceManager manager = doc.getTrx().getResourceManager();
+      final XdmNodeWriteTrx wtx;
+      if (manager.getAvailableNodeWriteTrx() == 0) {
+        wtx = manager.getNodeWriteTrx().get();
+      } else {
+        wtx = manager.beginNodeWriteTrx();
+      }
+      final int revision = doc.getTrx().getRevisionNumber();
+      if (revision < manager.getMostRecentRevisionNumber()) {
+        wtx.revertTo(doc.getTrx().getRevisionNumber());
+      }
+      wtx.commit();
+      return new Int64(revision);
+    }
+  }
 }

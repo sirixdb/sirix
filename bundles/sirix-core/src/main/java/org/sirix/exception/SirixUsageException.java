@@ -28,13 +28,13 @@ package org.sirix.exception;
  * 
  */
 public class SirixUsageException extends SirixRuntimeException {
-	/**
-	 * Constructor.
-	 * 
-	 * @param message message as string, they are concatenated with spaces in between
-	 */
-	public SirixUsageException(final String... message) {
-		super(message);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param message message as string, they are concatenated with spaces in between
+   */
+  public SirixUsageException(final String... message) {
+    super(message);
+  }
 
 }

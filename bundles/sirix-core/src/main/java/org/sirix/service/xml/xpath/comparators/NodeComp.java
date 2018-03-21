@@ -37,61 +37,61 @@ import org.sirix.utils.TypedValue;
  */
 public class NodeComp extends AbstractComparator {
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mOperand1 First value of the comparison
-	 * @param mOperand2 Second value of the comparison
-	 * @param mComp comparison kind
-	 */
-	public NodeComp(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2,
-			final CompKind mComp) {
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mOperand1 First value of the comparison
+   * @param mOperand2 Second value of the comparison
+   * @param mComp comparison kind
+   */
+  public NodeComp(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2,
+      final CompKind mComp) {
 
-		super(rtx, mOperand1, mOperand2, mComp);
-	}
+    super(rtx, mOperand1, mOperand2, mComp);
+  }
 
-	@Override
-	protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
+  @Override
+  protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-		final XdmNodeReadTrx rtx = getTrx();
-		// store item key as atomic value
-		final AtomicValue mAtomized = new AtomicValue(
-				TypedValue.getBytes(((Long) rtx.getNodeKey()).toString()), rtx.keyForName("xs:integer"));
-		final AtomicValue[] op = {mAtomized};
+    final XdmNodeReadTrx rtx = getTrx();
+    // store item key as atomic value
+    final AtomicValue mAtomized = new AtomicValue(
+        TypedValue.getBytes(((Long) rtx.getNodeKey()).toString()), rtx.keyForName("xs:integer"));
+    final AtomicValue[] op = {mAtomized};
 
-		// the operands must be singletons in case of a node comparison
-		if (mOperand.hasNext()) {
-			throw EXPathError.XPTY0004.getEncapsulatedException();
-		} else {
-			return op;
-		}
+    // the operands must be singletons in case of a node comparison
+    if (mOperand.hasNext()) {
+      throw EXPathError.XPTY0004.getEncapsulatedException();
+    } else {
+      return op;
+    }
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	protected Type getType(final int mKey1, final int mKey2) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  protected Type getType(final int mKey1, final int mKey2) {
 
-		return Type.INTEGER;
+    return Type.INTEGER;
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 */
-	@Override
-	protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-			throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   * 
+   */
+  @Override
+  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
+      throws SirixXPathException {
 
-		final String op1 = new String(mOperand1[0].getRawValue());
-		final String op2 = new String(mOperand2[0].getRawValue());
+    final String op1 = new String(mOperand1[0].getRawValue());
+    final String op2 = new String(mOperand2[0].getRawValue());
 
-		return getCompKind().compare(op1, op2,
-				getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
-	}
+    return getCompKind().compare(op1, op2,
+        getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
+  }
 
 }

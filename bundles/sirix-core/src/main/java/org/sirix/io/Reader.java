@@ -22,7 +22,6 @@
 package org.sirix.io;
 
 import javax.annotation.Nullable;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
@@ -38,30 +37,30 @@ import org.sirix.page.interfaces.Page;
  */
 public interface Reader extends AutoCloseable {
 
-	/**
-	 * Getting the first reference of the {@code Uberpage}.
-	 *
-	 * @return a {@link PageReference} with link to the first reference
-	 * @throws SirixIOException if something bad happens
-	 */
-	PageReference readUberPageReference() throws SirixIOException;
+  /**
+   * Getting the first reference of the {@code Uberpage}.
+   *
+   * @return a {@link PageReference} with link to the first reference
+   * @throws SirixIOException if something bad happens
+   */
+  PageReference readUberPageReference() throws SirixIOException;
 
-	/**
-	 * Getting a reference for the given pointer.
-	 *
-	 * @param key the reference for the page to be determined
-	 * @param pageReadTrx {@link PageReadTrx} reference
-	 * @return a {@link PageDelegate} as the base for a page
-	 * @throws SirixIOException if something bad happens during read
-	 */
-	Page read(PageReference key, @Nullable PageReadTrx pageReadTrx) throws SirixIOException;
+  /**
+   * Getting a reference for the given pointer.
+   *
+   * @param key the reference for the page to be determined
+   * @param pageReadTrx {@link PageReadTrx} reference
+   * @return a {@link PageDelegate} as the base for a page
+   * @throws SirixIOException if something bad happens during read
+   */
+  Page read(PageReference key, @Nullable PageReadTrx pageReadTrx) throws SirixIOException;
 
-	/**
-	 * Closing the storage.
-	 *
-	 * @throws SirixIOException if something bad happens while access
-	 */
-	@Override
-	void close() throws SirixIOException;
+  /**
+   * Closing the storage.
+   *
+   * @throws SirixIOException if something bad happens while access
+   */
+  @Override
+  void close() throws SirixIOException;
 
 }

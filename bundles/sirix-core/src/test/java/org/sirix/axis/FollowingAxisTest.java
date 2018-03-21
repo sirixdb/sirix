@@ -31,43 +31,43 @@ import org.sirix.exception.SirixException;
 
 public class FollowingAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testAxisConventions() throws SirixException {
-		final XdmNodeReadTrx rtx = holder.getReader();
+  @Test
+  public void testAxisConventions() throws SirixException {
+    final XdmNodeReadTrx rtx = holder.getReader();
 
-		rtx.moveTo(11L);
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {12L, 13L});
+    rtx.moveTo(11L);
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {12L, 13L});
 
-		rtx.moveTo(5L);
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {8L, 9L, 11L, 12L, 13L});
+    rtx.moveTo(5L);
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {8L, 9L, 11L, 12L, 13L});
 
-		rtx.moveTo(13L);
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    rtx.moveTo(13L);
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
 
-		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    rtx.moveTo(1L);
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
 
-		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+    rtx.moveToDocumentRoot();
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
 
-		rtx.moveTo(9L);
-		rtx.moveToAttribute(0);
-		AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
-	}
+    rtx.moveTo(9L);
+    rtx.moveToAttribute(0);
+    AbsAxisTest.testIAxisConventions(new FollowingAxis(rtx), new long[] {});
+  }
 
 }

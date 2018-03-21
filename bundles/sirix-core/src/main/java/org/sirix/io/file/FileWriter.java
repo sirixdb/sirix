@@ -22,14 +22,12 @@
 package org.sirix.io.file;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
-
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -50,131 +48,131 @@ import org.sirix.page.interfaces.Page;
  */
 public final class FileWriter extends AbstractForwardingReader implements Writer {
 
-	/** Random access to work on. */
-	private final RandomAccessFile mFile;
+  /** Random access to work on. */
+  private final RandomAccessFile mFile;
 
-	/** {@link FileReader} reference for this writer. */
-	private final FileReader mReader;
+  /** {@link FileReader} reference for this writer. */
+  private final FileReader mReader;
 
-	private SerializationType mType;
+  private SerializationType mType;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param storage the concrete storage
-	 * @param handler the byte handler
-	 * @throws SirixIOException if an I/O error occurs
-	 */
-	public FileWriter(final RandomAccessFile storage, final ByteHandler handler,
-			final SerializationType type) throws SirixIOException {
-		mFile = checkNotNull(storage);
-		mReader = new FileReader(storage, handler, type);
-		mType = checkNotNull(type);
-	}
+  /**
+   * Constructor.
+   *
+   * @param storage the concrete storage
+   * @param handler the byte handler
+   * @throws SirixIOException if an I/O error occurs
+   */
+  public FileWriter(final RandomAccessFile storage, final ByteHandler handler,
+      final SerializationType type) throws SirixIOException {
+    mFile = checkNotNull(storage);
+    mReader = new FileReader(storage, handler, type);
+    mType = checkNotNull(type);
+  }
 
-	@Override
-	public Writer truncateTo(int revision) {
-		UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
+  @Override
+  public Writer truncateTo(int revision) {
+    UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
 
-		while (uberPage.getRevisionNumber() != revision) {
-			uberPage = (UberPage) mReader
-					.read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
-			if (uberPage.getRevisionNumber() == revision) {
-				try {
-					mFile.setLength(uberPage.getPreviousUberPageKey());
-				} catch (final IOException e) {
-					throw new UncheckedIOException(e);
-				}
-				break;
-			}
-		}
+    while (uberPage.getRevisionNumber() != revision) {
+      uberPage = (UberPage) mReader
+          .read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
+      if (uberPage.getRevisionNumber() == revision) {
+        try {
+          mFile.setLength(uberPage.getPreviousUberPageKey());
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+        break;
+      }
+    }
 
-		return this;
-	}
+    return this;
+  }
 
-	/**
-	 * Write page contained in page reference to storage.
-	 *
-	 * @param pageReference page reference to write
-	 * @throws SirixIOException if errors during writing occur
-	 */
-	@Override
-	public FileWriter write(final PageReference pageReference) throws SirixIOException {
-		// Perform byte operations.
-		try {
-			// Serialize page.
-			final Page page = pageReference.getPage();
-			assert page != null;
-			final ByteArrayOutputStream output = new ByteArrayOutputStream();
-			final DataOutputStream dataOutput =
-					new DataOutputStream(mReader.mByteHandler.serialize(output));
-			PagePersistenter.serializePage(dataOutput, page, mType);
-			output.close();
-			dataOutput.close();
+  /**
+   * Write page contained in page reference to storage.
+   *
+   * @param pageReference page reference to write
+   * @throws SirixIOException if errors during writing occur
+   */
+  @Override
+  public FileWriter write(final PageReference pageReference) throws SirixIOException {
+    // Perform byte operations.
+    try {
+      // Serialize page.
+      final Page page = pageReference.getPage();
+      assert page != null;
+      final ByteArrayOutputStream output = new ByteArrayOutputStream();
+      final DataOutputStream dataOutput =
+          new DataOutputStream(mReader.mByteHandler.serialize(output));
+      PagePersistenter.serializePage(dataOutput, page, mType);
+      output.close();
+      dataOutput.close();
 
-			final byte[] serializedPage = output.toByteArray();
+      final byte[] serializedPage = output.toByteArray();
 
-			final byte[] writtenPage = new byte[serializedPage.length + FileReader.OTHER_BEACON];
-			final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
-			buffer.putInt(serializedPage.length);
-			buffer.put(serializedPage);
-			buffer.position(0);
-			buffer.get(writtenPage, 0, writtenPage.length);
+      final byte[] writtenPage = new byte[serializedPage.length + FileReader.OTHER_BEACON];
+      final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
+      buffer.putInt(serializedPage.length);
+      buffer.put(serializedPage);
+      buffer.position(0);
+      buffer.get(writtenPage, 0, writtenPage.length);
 
-			// Getting actual offset and appending to the end of the current
-			// file.
-			final long fileSize = mFile.length();
-			final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
-			mFile.seek(offset);
-			mFile.write(writtenPage);
+      // Getting actual offset and appending to the end of the current
+      // file.
+      final long fileSize = mFile.length();
+      final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
+      mFile.seek(offset);
+      mFile.write(writtenPage);
 
-			// Remember page coordinates.
-			switch (mType) {
-				case COMMIT:
-					pageReference.setKey(offset);
-					break;
-				case TRANSACTION_INTENT_LOG:
-					pageReference.setPersistentLogKey(offset);
-					break;
-			}
+      // Remember page coordinates.
+      switch (mType) {
+        case COMMIT:
+          pageReference.setKey(offset);
+          break;
+        case TRANSACTION_INTENT_LOG:
+          pageReference.setPersistentLogKey(offset);
+          break;
+      }
 
-			pageReference.setLength(writtenPage.length);
+      pageReference.setLength(writtenPage.length);
 
-			return this;
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      return this;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public void close() throws SirixIOException {
-		try {
-			if (mFile != null) {
-				mFile.close();
-			}
-			if (mReader != null) {
-				mReader.close();
-			}
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public void close() throws SirixIOException {
+    try {
+      if (mFile != null) {
+        mFile.close();
+      }
+      if (mReader != null) {
+        mReader.close();
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
-		try {
-			write(pageReference);
-			mFile.seek(0);
-			mFile.writeLong(pageReference.getKey());
+  @Override
+  public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
+    try {
+      write(pageReference);
+      mFile.seek(0);
+      mFile.writeLong(pageReference.getKey());
 
-			return this;
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      return this;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	protected Reader delegate() {
-		return mReader;
-	}
+  @Override
+  protected Reader delegate() {
+    return mReader;
+  }
 }

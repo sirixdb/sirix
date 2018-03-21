@@ -22,7 +22,6 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
-
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -32,9 +31,7 @@ import java.nio.file.Paths;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
-
 import javax.annotation.Nonnull;
-
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.Databases;
@@ -63,263 +60,263 @@ import org.sirix.utils.DocumentCreater;
  */
 public final class TestHelper {
 
-	/** Temporary directory path. */
-	private static final String TMPDIR = System.getProperty("java.io.tmpdir");
+  /** Temporary directory path. */
+  private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
-	/** Common resource name. */
-	public static final String RESOURCE = "shredded";
+  /** Common resource name. */
+  public static final String RESOURCE = "shredded";
 
-	/** Paths where the data is stored to. */
-	public enum PATHS {
-		// PATH1 (Sirix)
-		PATH1(Paths.get(TMPDIR, "sirix", "path1")),
+  /** Paths where the data is stored to. */
+  public enum PATHS {
+    // PATH1 (Sirix)
+    PATH1(Paths.get(TMPDIR, "sirix", "path1")),
 
-		// PATH2 (Sirix)
-		PATH2(Paths.get(TMPDIR, "sirix", "path2")),
+    // PATH2 (Sirix)
+    PATH2(Paths.get(TMPDIR, "sirix", "path2")),
 
-		// PATH3 (XML)
-		PATH3(Paths.get(TMPDIR, "xml", "test.xml"));
+    // PATH3 (XML)
+    PATH3(Paths.get(TMPDIR, "xml", "test.xml"));
 
-		final Path file;
+    final Path file;
 
-		final DatabaseConfiguration config;
+    final DatabaseConfiguration config;
 
-		PATHS(final Path file) {
-			this.file = file;
-			config = new DatabaseConfiguration(file);
-		}
+    PATHS(final Path file) {
+      this.file = file;
+      config = new DatabaseConfiguration(file);
+    }
 
-		public Path getFile() {
-			return file;
-		}
+    public Path getFile() {
+      return file;
+    }
 
-		public DatabaseConfiguration getConfig() {
-			return config;
-		}
+    public DatabaseConfiguration getConfig() {
+      return config;
+    }
 
-	}
+  }
 
-	/** Common random instance for generating common tag names. */
-	public final static Random random = new Random();
+  /** Common random instance for generating common tag names. */
+  public final static Random random = new Random();
 
-	/** Path <=> Database instances. */
-	private final static Map<Path, Database> INSTANCES = new Hashtable<>();
+  /** Path <=> Database instances. */
+  private final static Map<Path, Database> INSTANCES = new Hashtable<>();
 
-	@Test
-	public void testDummy() {
-		// Just empty to ensure maven running
-	}
+  @Test
+  public void testDummy() {
+    // Just empty to ensure maven running
+  }
 
-	/**
-	 * Getting a database and create one of not existing. This includes the creation of a resource
-	 * with the settings in the builder as standard.
-	 *
-	 * @param file to be created
-	 * @return a database-obj
-	 */
-	@Ignore
-	public static final Database getDatabase(final Path file) {
-		if (INSTANCES.containsKey(file)) {
-			return INSTANCES.get(file);
-		} else {
-			try {
-				final DatabaseConfiguration config = new DatabaseConfiguration(file);
-				if (!Files.exists(file)) {
-					Databases.createDatabase(config);
-				}
-				final Database database = Databases.openDatabase(file);
-				database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
-				INSTANCES.put(file, database);
-				return database;
-			} catch (final SirixRuntimeException e) {
-				fail(e.toString());
-				return null;
-			}
-		}
-	}
+  /**
+   * Getting a database and create one of not existing. This includes the creation of a resource
+   * with the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static final Database getDatabase(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createDatabase(config);
+        }
+        final Database database = Databases.openDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
 
-	/**
-	 * Deleting all resources as defined in the enum {@link PATHS}.
-	 *
-	 * @throws SirixException
-	 */
-	@Ignore
-	public static final void deleteEverything() throws SirixException {
-		closeEverything();
-		Databases.truncateDatabase(PATHS.PATH1.config);
-		Databases.truncateDatabase(PATHS.PATH2.config);
-	}
+  /**
+   * Deleting all resources as defined in the enum {@link PATHS}.
+   *
+   * @throws SirixException
+   */
+  @Ignore
+  public static final void deleteEverything() throws SirixException {
+    closeEverything();
+    Databases.truncateDatabase(PATHS.PATH1.config);
+    Databases.truncateDatabase(PATHS.PATH2.config);
+  }
 
-	/**
-	 * Closing all resources as defined in the enum {@link PATHS}.
-	 *
-	 * @throws SirixException
-	 */
-	@Ignore
-	public static final void closeEverything() throws SirixException {
-		if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
-			final Database database = INSTANCES.remove(PATHS.PATH1.getFile());
-			database.close();
-		}
-		if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
-			final Database database = INSTANCES.remove(PATHS.PATH2.getFile());
-			database.close();
-		}
-	}
+  /**
+   * Closing all resources as defined in the enum {@link PATHS}.
+   *
+   * @throws SirixException
+   */
+  @Ignore
+  public static final void closeEverything() throws SirixException {
+    if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
+      final Database database = INSTANCES.remove(PATHS.PATH1.getFile());
+      database.close();
+    }
+    if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
+      final Database database = INSTANCES.remove(PATHS.PATH2.getFile());
+      database.close();
+    }
+  }
 
-	// @Ignore
-	// public static NodePage getNodePage(final int revision, final int offset,
-	// final int length, final long nodePageKey) {
-	// new ResourceConfiguration.Builder(RESOURCE,
-	// config).build();
-	// final NodePage page = new NodePage(nodePageKey, revision);
-	// NodeDelegate nodeDel;
-	// NameNodeDelegate nameDel;
-	// StructNodeDelegate strucDel;
-	// ValNodeDelegate valDel;
-	// int pathNodeKey = 1;
-	// for (int i = offset; i < length; i++) {
-	// switch (random.nextInt(6)) {
-	// case 0:
-	// nodeDel = new NodeDelegate(random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-	// random.nextInt(), pathNodeKey++);
-	// valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
-	// false);
-	// page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
-	// break;
-	// case 1:
-	// page.setNode(new DeletedNode(
-	// new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000))));
-	// break;
-	// case 2:
-	// nodeDel = new NodeDelegate(random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-	// random.nextInt(), pathNodeKey++);
-	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000));
-	// page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-	// HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
-	// break;
-	// case 3:
-	// nodeDel = new NodeDelegate(random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-	// random.nextInt(), pathNodeKey++);
-	// page.setNode(new NamespaceNode(nodeDel, nameDel));
-	// break;
-	// case 4:
-	// nodeDel = new NodeDelegate(random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000));
-	// page.setNode(new DocumentRootNode(nodeDel, strucDel));
-	// break;
-	// case 5:
-	// nodeDel = new NodeDelegate(random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-	// valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
-	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000),
-	// random.nextInt(10000), random.nextInt(10000));
-	// page.setNode(new TextNode(valDel, strucDel));
-	// break;
-	// }
-	//
-	// }
-	// return page;
-	// }
+  // @Ignore
+  // public static NodePage getNodePage(final int revision, final int offset,
+  // final int length, final long nodePageKey) {
+  // new ResourceConfiguration.Builder(RESOURCE,
+  // config).build();
+  // final NodePage page = new NodePage(nodePageKey, revision);
+  // NodeDelegate nodeDel;
+  // NameNodeDelegate nameDel;
+  // StructNodeDelegate strucDel;
+  // ValNodeDelegate valDel;
+  // int pathNodeKey = 1;
+  // for (int i = offset; i < length; i++) {
+  // switch (random.nextInt(6)) {
+  // case 0:
+  // nodeDel = new NodeDelegate(random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+  // random.nextInt(), pathNodeKey++);
+  // valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
+  // false);
+  // page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
+  // break;
+  // case 1:
+  // page.setNode(new DeletedNode(
+  // new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000))));
+  // break;
+  // case 2:
+  // nodeDel = new NodeDelegate(random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+  // random.nextInt(), pathNodeKey++);
+  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000));
+  // page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+  // HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
+  // break;
+  // case 3:
+  // nodeDel = new NodeDelegate(random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+  // random.nextInt(), pathNodeKey++);
+  // page.setNode(new NamespaceNode(nodeDel, nameDel));
+  // break;
+  // case 4:
+  // nodeDel = new NodeDelegate(random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000));
+  // page.setNode(new DocumentRootNode(nodeDel, strucDel));
+  // break;
+  // case 5:
+  // nodeDel = new NodeDelegate(random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+  // valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
+  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000),
+  // random.nextInt(10000), random.nextInt(10000));
+  // page.setNode(new TextNode(valDel, strucDel));
+  // break;
+  // }
+  //
+  // }
+  // return page;
+  // }
 
-	/**
-	 * Read a file into a StringBuilder.
-	 *
-	 * @param file the file to read
-	 * @param whitespaces retrieve file and don't remove any whitespaces
-	 * @return StringBuilder instance, which has the string representation of the document
-	 * @throws IOException if an I/O operation fails
-	 */
-	@Ignore("Not a test, utility method only")
-	public static StringBuilder readFile(final Path file, final boolean whitespaces)
-			throws IOException {
-		final BufferedReader in = new BufferedReader(new FileReader(file.toFile()));
-		final StringBuilder sBuilder = new StringBuilder();
-		for (String line = in.readLine(); line != null; line = in.readLine()) {
-			if (whitespaces) {
-				sBuilder.append(line + CharsForSerializing.NEWLINE);
-			} else {
-				sBuilder.append(line.trim());
-			}
-		}
+  /**
+   * Read a file into a StringBuilder.
+   *
+   * @param file the file to read
+   * @param whitespaces retrieve file and don't remove any whitespaces
+   * @return StringBuilder instance, which has the string representation of the document
+   * @throws IOException if an I/O operation fails
+   */
+  @Ignore("Not a test, utility method only")
+  public static StringBuilder readFile(final Path file, final boolean whitespaces)
+      throws IOException {
+    final BufferedReader in = new BufferedReader(new FileReader(file.toFile()));
+    final StringBuilder sBuilder = new StringBuilder();
+    for (String line = in.readLine(); line != null; line = in.readLine()) {
+      if (whitespaces) {
+        sBuilder.append(line + CharsForSerializing.NEWLINE);
+      } else {
+        sBuilder.append(line.trim());
+      }
+    }
 
-		// Remove last newline.
-		if (whitespaces) {
-			sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
-		}
-		in.close();
+    // Remove last newline.
+    if (whitespaces) {
+      sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
+    }
+    in.close();
 
-		return sBuilder;
-	}
+    return sBuilder;
+  }
 
-	/**
-	 * Creating a test document at {@link PATHS#PATH1}.
-	 *
-	 * @throws SirixException
-	 */
-	public static void createTestDocument() throws SirixException {
-		try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-			database
-					.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-			try (
-					final ResourceManager manager = database
-							.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
-					final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-				DocumentCreater.create(wtx);
-				wtx.commit();
-			}
-		}
-	}
+  /**
+   * Creating a test document at {@link PATHS#PATH1}.
+   *
+   * @throws SirixException
+   */
+  public static void createTestDocument() throws SirixException {
+    try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      database
+          .createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+      try (
+          final ResourceManager manager = database
+              .getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        DocumentCreater.create(wtx);
+        wtx.commit();
+      }
+    }
+  }
 
-	/**
-	 * Creating a test document with comments and processing instructions at {@link PATHS#PATH1}.
-	 *
-	 * @throws SirixException
-	 */
-	public static void createPICommentTestDocument() throws SirixException {
-		try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-			database
-					.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-			try (
-					final ResourceManager manager = database
-							.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
-					final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-				DocumentCreater.createCommentPI(wtx);
-				wtx.commit();
-			}
-		}
-	}
+  /**
+   * Creating a test document with comments and processing instructions at {@link PATHS#PATH1}.
+   *
+   * @throws SirixException
+   */
+  public static void createPICommentTestDocument() throws SirixException {
+    try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      database
+          .createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+      try (
+          final ResourceManager manager = database
+              .getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        DocumentCreater.createCommentPI(wtx);
+        wtx.commit();
+      }
+    }
+  }
 
-	/**
-	 * Generating random bytes.
-	 *
-	 * @return the random bytes
-	 */
-	public static final @Nonnull byte[] generateRandomBytes(final int size) {
-		final byte[] returnVal = new byte[size];
-		random.nextBytes(returnVal);
-		return returnVal;
-	}
+  /**
+   * Generating random bytes.
+   *
+   * @return the random bytes
+   */
+  public static final @Nonnull byte[] generateRandomBytes(final int size) {
+    final byte[] returnVal = new byte[size];
+    random.nextBytes(returnVal);
+    return returnVal;
+  }
 
-	/**
-	 * Generating a single {@link DumbNode} with random values.
-	 *
-	 * @return a {@link DumbNode} with random values
-	 */
-	public static final Record generateOne() {
-		return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
-	}
+  /**
+   * Generating a single {@link DumbNode} with random values.
+   *
+   * @return a {@link DumbNode} with random values
+   */
+  public static final Record generateOne() {
+    return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
+  }
 }

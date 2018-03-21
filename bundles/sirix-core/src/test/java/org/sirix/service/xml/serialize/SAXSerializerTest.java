@@ -22,7 +22,6 @@
 package org.sirix.service.xml.serialize;
 
 import java.io.IOException;
-
 import org.custommonkey.xmlunit.XMLTestCase;
 import org.junit.After;
 import org.junit.Before;
@@ -43,70 +42,70 @@ import org.xml.sax.helpers.XMLFilterImpl;
  *
  */
 public class SAXSerializerTest extends XMLTestCase {
-	private Holder holder;
+  private Holder holder;
 
-	@Override
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Override
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@Override
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @Override
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testSAXSerializer() throws SirixException, SAXException, IOException {
+  @Test
+  public void testSAXSerializer() throws SirixException, SAXException, IOException {
 
-		final StringBuilder strBuilder = new StringBuilder();
-		final ContentHandler contHandler = new XMLFilterImpl() {
+    final StringBuilder strBuilder = new StringBuilder();
+    final ContentHandler contHandler = new XMLFilterImpl() {
 
-			@Override
-			public void startDocument() {
-				strBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-			}
+      @Override
+      public void startDocument() {
+        strBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+      }
 
-			@Override
-			public void startElement(final String uri, final String localName, final String qName,
-					final Attributes atts) throws SAXException {
-				strBuilder.append("<" + qName);
+      @Override
+      public void startElement(final String uri, final String localName, final String qName,
+          final Attributes atts) throws SAXException {
+        strBuilder.append("<" + qName);
 
-				for (int i = 0; i < atts.getLength(); i++) {
-					strBuilder.append(" " + atts.getQName(i));
-					strBuilder.append("=\"" + atts.getValue(i) + "\"");
-				}
+        for (int i = 0; i < atts.getLength(); i++) {
+          strBuilder.append(" " + atts.getQName(i));
+          strBuilder.append("=\"" + atts.getValue(i) + "\"");
+        }
 
-				strBuilder.append(">");
-			}
+        strBuilder.append(">");
+      }
 
-			// @Override
-			// public void startPrefixMapping(final String prefix, final String
-			// uri) throws SAXException {
-			// strBuilder.append(" " + prefix + "=\"" + uri + "\"");
-			// };
+      // @Override
+      // public void startPrefixMapping(final String prefix, final String
+      // uri) throws SAXException {
+      // strBuilder.append(" " + prefix + "=\"" + uri + "\"");
+      // };
 
-			@Override
-			public void endElement(String uri, String localName, String qName) throws SAXException {
-				strBuilder.append("</" + qName + ">");
-			}
+      @Override
+      public void endElement(String uri, String localName, String qName) throws SAXException {
+        strBuilder.append("</" + qName + ">");
+      }
 
-			@Override
-			public void characters(final char[] ch, final int start, final int length)
-					throws SAXException {
-				for (int i = start; i < start + length; i++) {
-					strBuilder.append(ch[i]);
-				}
-			}
-		};
+      @Override
+      public void characters(final char[] ch, final int start, final int length)
+          throws SAXException {
+        for (int i = start; i < start + length; i++) {
+          strBuilder.append(ch[i]);
+        }
+      }
+    };
 
-		final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
-				holder.getResourceManager().getMostRecentRevisionNumber());
-		serializer.call();
-		assertXMLEqual(DocumentCreater.XML, strBuilder.toString());
-	}
+    final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
+        holder.getResourceManager().getMostRecentRevisionNumber());
+    serializer.call();
+    assertXMLEqual(DocumentCreater.XML, strBuilder.toString());
+  }
 }

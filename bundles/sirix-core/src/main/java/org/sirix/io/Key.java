@@ -31,17 +31,17 @@ package org.sirix.io;
  * 
  */
 public interface Key {
-	/**
-	 * Getting the main identifier
-	 * 
-	 * @return a long identifying the page.
-	 */
-	long getIdentifier();
+  /**
+   * Getting the main identifier
+   * 
+   * @return a long identifying the page.
+   */
+  long getIdentifier();
 
-	/**
-	 * Getting all keys.
-	 * 
-	 * @return a long-array containing all information to get the data.
-	 */
-	long[] getKeys();
+  /**
+   * Getting all keys.
+   * 
+   * @return a long-array containing all information to get the data.
+   */
+  long[] getKeys();
 }

@@ -22,7 +22,6 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 import org.sirix.utils.TypedValue;
@@ -36,54 +35,54 @@ import org.sirix.utils.TypedValue;
  */
 public final class ValueFilter extends AbstractFilter {
 
-	/** Value test to do. */
-	private final byte[] mValue;
+  /** Value test to do. */
+  private final byte[] mValue;
 
-	/**
-	 * Constructor initializing internal state.
-	 *
-	 * @param rtx transaction this filter is bound to
-	 * @param value value to find
-	 */
-	public ValueFilter(final XdmNodeReadTrx rtx, final byte[] value) {
-		super(rtx);
-		mValue = checkNotNull(value);
-	}
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx transaction this filter is bound to
+   * @param value value to find
+   */
+  public ValueFilter(final XdmNodeReadTrx rtx, final byte[] value) {
+    super(rtx);
+    mValue = checkNotNull(value);
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 *
-	 * @param rtx Transaction to bind filter to.
-	 * @param value Value to find.
-	 */
-	public ValueFilter(final XdmNodeReadTrx rtx, final String value) {
-		this(rtx, TypedValue.getBytes(value));
-	}
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param value Value to find.
+   */
+  public ValueFilter(final XdmNodeReadTrx rtx, final String value) {
+    this(rtx, TypedValue.getBytes(value));
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 *
-	 * @param rtx Transaction to bind filter to.
-	 * @param value Value to find.
-	 */
-	public ValueFilter(final XdmNodeReadTrx rtx, final int value) {
-		this(rtx, TypedValue.getBytes(value));
-	}
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param value Value to find.
+   */
+  public ValueFilter(final XdmNodeReadTrx rtx, final int value) {
+    this(rtx, TypedValue.getBytes(value));
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 *
-	 * @param rtx Transaction to bind filter to.
-	 * @param mValue Value to find.
-	 */
-	public ValueFilter(final XdmNodeReadTrx rtx, final long mValue) {
-		this(rtx, TypedValue.getBytes(mValue));
-	}
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param mValue Value to find.
+   */
+  public ValueFilter(final XdmNodeReadTrx rtx, final long mValue) {
+    this(rtx, TypedValue.getBytes(mValue));
+  }
 
-	@Override
-	public final boolean filter() {
-		return (getTrx().getKind() == Kind.TEXT || getTrx().getKind() == Kind.ATTRIBUTE)
-				&& (TypedValue.equals(getTrx().getValue(), mValue));
-	}
+  @Override
+  public final boolean filter() {
+    return (getTrx().getKind() == Kind.TEXT || getTrx().getKind() == Kind.ATTRIBUTE)
+        && (TypedValue.equals(getTrx().getValue(), mValue));
+  }
 
 }

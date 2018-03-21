@@ -22,7 +22,6 @@
 package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -30,7 +29,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Optional;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -47,7 +45,6 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
-
 import com.google.common.collect.HashBiMap;
 
 /**
@@ -55,70 +52,70 @@ import com.google.common.collect.HashBiMap;
  */
 public final class NodePageTest {
 
-	/** {@link Holder} instance. */
-	private Holder mHolder;
+  /** {@link Holder} instance. */
+  private Holder mHolder;
 
-	/** Sirix {@link PageReadTrx} instance. */
-	private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx} instance. */
+  private PageReadTrx mPageReadTrx;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		mHolder = Holder.generateDeweyIDResourceMgr();
-		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		mPageReadTrx.close();
-		mHolder.close();
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    mPageReadTrx.close();
+    mHolder.close();
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testSerializeDeserialize() throws IOException {
-		final UnorderedKeyValuePage page1 =
-				new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
-		assertEquals(0L, page1.getPageKey());
+  @Test
+  public void testSerializeDeserialize() throws IOException {
+    final UnorderedKeyValuePage page1 =
+        new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
+    assertEquals(0L, page1.getPageKey());
 
-		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-		final ElementNode node1 = new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-				HashBiMap.<Long, Long>create(), new ArrayList<Long>(), new QNm("a", "b", "c"));
-		node1.insertAttribute(88L, 100);
-		node1.insertAttribute(87L, 101);
-		node1.insertNamespace(99L);
-		node1.insertNamespace(98L);
-		assertEquals(0L, node1.getNodeKey());
-		page1.setEntry(node1.getNodeKey(), node1);
+    final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
+    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
+    final ElementNode node1 = new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+        HashBiMap.<Long, Long>create(), new ArrayList<Long>(), new QNm("a", "b", "c"));
+    node1.insertAttribute(88L, 100);
+    node1.insertAttribute(87L, 101);
+    node1.insertNamespace(99L);
+    node1.insertNamespace(98L);
+    assertEquals(0L, node1.getNodeKey());
+    page1.setEntry(node1.getNodeKey(), node1);
 
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final DataOutputStream dataOut = new DataOutputStream(out);
-		PagePersistenter.serializePage(dataOut, page1, SerializationType.COMMIT);
-		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter
-				.deserializePage(new DataInputStream(in), mPageReadTrx, SerializationType.COMMIT);
-		// assertEquals(position, out.position());
-		final ElementNode element = (ElementNode) page2.getValue(0l);
-		assertEquals(0L, page2.getValue(0l).getNodeKey());
-		assertEquals(1L, element.getParentKey());
-		assertEquals(12L, element.getFirstChildKey());
-		assertEquals(3L, element.getLeftSiblingKey());
-		assertEquals(4L, element.getRightSiblingKey());
-		assertEquals(1, element.getChildCount());
-		assertEquals(2, element.getAttributeCount());
-		assertEquals(2, element.getNamespaceCount());
-		assertEquals(88L, element.getAttributeKey(0));
-		assertEquals(87L, element.getAttributeKey(1));
-		assertEquals(99L, element.getNamespaceKey(0));
-		assertEquals(98L, element.getNamespaceKey(1));
-		assertEquals(5, ((NameNode) page2.getValue(0l)).getURIKey());
-		assertEquals(6, ((NameNode) page2.getValue(0l)).getPrefixKey());
-		assertEquals(7, ((NameNode) page2.getValue(0l)).getLocalNameKey());
-		assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
-	}
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    final DataOutputStream dataOut = new DataOutputStream(out);
+    PagePersistenter.serializePage(dataOut, page1, SerializationType.COMMIT);
+    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter
+        .deserializePage(new DataInputStream(in), mPageReadTrx, SerializationType.COMMIT);
+    // assertEquals(position, out.position());
+    final ElementNode element = (ElementNode) page2.getValue(0l);
+    assertEquals(0L, page2.getValue(0l).getNodeKey());
+    assertEquals(1L, element.getParentKey());
+    assertEquals(12L, element.getFirstChildKey());
+    assertEquals(3L, element.getLeftSiblingKey());
+    assertEquals(4L, element.getRightSiblingKey());
+    assertEquals(1, element.getChildCount());
+    assertEquals(2, element.getAttributeCount());
+    assertEquals(2, element.getNamespaceCount());
+    assertEquals(88L, element.getAttributeKey(0));
+    assertEquals(87L, element.getAttributeKey(1));
+    assertEquals(99L, element.getNamespaceKey(0));
+    assertEquals(98L, element.getNamespaceKey(1));
+    assertEquals(5, ((NameNode) page2.getValue(0l)).getURIKey());
+    assertEquals(6, ((NameNode) page2.getValue(0l)).getPrefixKey());
+    assertEquals(7, ((NameNode) page2.getValue(0l)).getLocalNameKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
+  }
 }

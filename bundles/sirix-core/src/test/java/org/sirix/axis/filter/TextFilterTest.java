@@ -31,35 +31,35 @@ import org.sirix.exception.SirixException;
 
 public class TextFilterTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testFilterConvetions() throws SirixException {
-		final XdmNodeReadTrx reader = holder.getReader();
-		reader.moveTo(8L);
-		FilterTest.testFilterConventions(new TextFilter(reader), true);
+  @Test
+  public void testFilterConvetions() throws SirixException {
+    final XdmNodeReadTrx reader = holder.getReader();
+    reader.moveTo(8L);
+    FilterTest.testFilterConventions(new TextFilter(reader), true);
 
-		reader.moveTo(3L);
-		FilterTest.testFilterConventions(new TextFilter(reader), false);
+    reader.moveTo(3L);
+    FilterTest.testFilterConventions(new TextFilter(reader), false);
 
-		reader.moveTo(5L);
-		FilterTest.testFilterConventions(new TextFilter(reader), false);
+    reader.moveTo(5L);
+    FilterTest.testFilterConventions(new TextFilter(reader), false);
 
-		reader.moveTo(1L);
-		reader.moveToAttribute(0);
-		FilterTest.testFilterConventions(new TextFilter(reader), false);
-	}
+    reader.moveTo(1L);
+    reader.moveToAttribute(0);
+    FilterTest.testFilterConventions(new TextFilter(reader), false);
+  }
 }

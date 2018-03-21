@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.expr;
 
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -41,66 +40,66 @@ import org.sirix.utils.TypedValue;
  */
 public class EveryExpr extends AbstractExpression {
 
-	private final List<Axis> mVars;
+  private final List<Axis> mVars;
 
-	private final Axis mSatisfy;
+  private final Axis mSatisfy;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mVars Variables for which the condition must be satisfied
-	 * @param mSatisfy condition every item of the variable results must satisfy in order to evaluate
-	 *        expression to true
-	 */
-	public EveryExpr(final XdmNodeReadTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mVars Variables for which the condition must be satisfied
+   * @param mSatisfy condition every item of the variable results must satisfy in order to evaluate
+   *        expression to true
+   */
+  public EveryExpr(final XdmNodeReadTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
 
-		super(rtx);
-		this.mVars = mVars;
-		this.mSatisfy = mSatisfy;
-	}
+    super(rtx);
+    this.mVars = mVars;
+    this.mSatisfy = mSatisfy;
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void reset(final long mNodeKey) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void reset(final long mNodeKey) {
 
-		super.reset(mNodeKey);
-		if (mVars != null) {
-			for (final Axis axis : mVars) {
-				axis.reset(mNodeKey);
-			}
-		}
+    super.reset(mNodeKey);
+    if (mVars != null) {
+      for (final Axis axis : mVars) {
+        axis.reset(mNodeKey);
+      }
+    }
 
-		if (mSatisfy != null) {
-			mSatisfy.reset(mNodeKey);
-		}
-	}
+    if (mSatisfy != null) {
+      mSatisfy.reset(mNodeKey);
+    }
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void evaluate() {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void evaluate() {
 
-		boolean satisfiesCond = true;
+    boolean satisfiesCond = true;
 
-		for (final Axis axis : mVars) {
-			while (axis.hasNext()) {
-				axis.next();
-				if (!mSatisfy.hasNext()) {
-					// condition is not satisfied for this item -> expression is
-					// false
-					satisfiesCond = false;
-					break;
-				}
-			}
-		}
-		final int mItemKey = getTrx().getItemList().addItem(new AtomicValue(
-				TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTrx().keyForName("xs:boolean")));
-		mKey = mItemKey;
+    for (final Axis axis : mVars) {
+      while (axis.hasNext()) {
+        axis.next();
+        if (!mSatisfy.hasNext()) {
+          // condition is not satisfied for this item -> expression is
+          // false
+          satisfiesCond = false;
+          break;
+        }
+      }
+    }
+    final int mItemKey = getTrx().getItemList().addItem(new AtomicValue(
+        TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTrx().keyForName("xs:boolean")));
+    mKey = mItemKey;
 
-	}
+  }
 
 }

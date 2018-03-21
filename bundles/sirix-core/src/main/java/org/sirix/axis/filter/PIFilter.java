@@ -33,18 +33,18 @@ import org.sirix.node.Kind;
  */
 public final class PIFilter extends AbstractFilter {
 
-	/**
-	 * Default constructor.
-	 * 
-	 * @param rtx transaction this filter is bound to
-	 */
-	public PIFilter(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Default constructor.
+   * 
+   * @param rtx transaction this filter is bound to
+   */
+  public PIFilter(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public final boolean filter() {
-		return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
-	}
+  @Override
+  public final boolean filter() {
+    return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
+  }
 
 }

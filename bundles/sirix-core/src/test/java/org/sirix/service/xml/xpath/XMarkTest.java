@@ -23,7 +23,6 @@ package org.sirix.service.xml.xpath;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,102 +41,102 @@ import org.sirix.service.xml.shredder.XMLShredder;
 @BenchClass(runs = 1)
 public class XMarkTest {
 
-	// XMark 1 GB
-	private static final Path XML = Paths.get("src", "test", "resources", "auction.xml");
+  // XMark 1 GB
+  private static final Path XML = Paths.get("src", "test", "resources", "auction.xml");
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws Exception {
-		TestHelper.deleteEverything();
-		// Build simple test tree.
-		XMLShredder.main(XML.toAbsolutePath().toString(),
-				PATHS.PATH1.getFile().toAbsolutePath().toString());
-		holder = Holder.generateRtx();
+  @Before
+  public void setUp() throws Exception {
+    TestHelper.deleteEverything();
+    // Build simple test tree.
+    XMLShredder.main(XML.toAbsolutePath().toString(),
+        PATHS.PATH1.getFile().toAbsolutePath().toString());
+    holder = Holder.generateRtx();
 
-	}
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testQ1_10() throws SirixException {
-		// Verify.
+  @Test
+  public void testQ1_10() throws SirixException {
+    // Verify.
 
-		XPathStringChecker.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "/site/people/person[@id=\"person0\"]/name/text()"),
-				new String[] {"Sinisa Farrel"});
-	}
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "/site/people/person[@id=\"person0\"]/name/text()"),
+        new String[] {"Sinisa Farrel"});
+  }
 
-	@Test
-	public void testQ1() throws SirixException {
+  @Test
+  public void testQ1() throws SirixException {
 
-		// Q1 The name of the person with ID 'person0' {projecting}
-		XPathStringChecker.testIAxisConventions(
-				new XPathAxis(holder.getReader(),
-						"for $b in /site/people/person[@id=\"person0\"] " + "return $b/name/text()"),
-				new String[] {"Sinisa Farrel"});
-	}
+    // Q1 The name of the person with ID 'person0' {projecting}
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(),
+            "for $b in /site/people/person[@id=\"person0\"] " + "return $b/name/text()"),
+        new String[] {"Sinisa Farrel"});
+  }
 
-	@Test
-	public void testQ5() throws SirixException {
+  @Test
+  public void testQ5() throws SirixException {
 
-		// Q5 How many sold items cost more than 40?
-		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(),
-				"fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
-						+ "return $i/price)"),
-				new String[] {"75"});
-	}
+    // Q5 How many sold items cost more than 40?
+    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(),
+        "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
+            + "return $i/price)"),
+        new String[] {"75"});
+  }
 
-	@Test
-	public void testQ6() throws SirixException {
+  @Test
+  public void testQ6() throws SirixException {
 
-		// Q6 How many items are listed on all continents?
-		XPathStringChecker.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "for $b in //site/regions return fn:count($b//item)"),
-				new String[] {"217"});
-	}
+    // Q6 How many items are listed on all continents?
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "for $b in //site/regions return fn:count($b//item)"),
+        new String[] {"217"});
+  }
 
-	@Test
-	public void testQ7() throws SirixException {
-		// Q7 How many pieces of prose are in our database?
-		XPathStringChecker
-				.testIAxisConventions(
-						new XPathAxis(holder.getReader(),
-								"for $p in /site return fn:count($p//description) + "
-										+ "fn:count($p//annotation) + fn:count($p//emailaddress)"),
-						new String[] {"916.0"}); // TODO: why double?
-	}
+  @Test
+  public void testQ7() throws SirixException {
+    // Q7 How many pieces of prose are in our database?
+    XPathStringChecker
+        .testIAxisConventions(
+            new XPathAxis(holder.getReader(),
+                "for $p in /site return fn:count($p//description) + "
+                    + "fn:count($p//annotation) + fn:count($p//emailaddress)"),
+            new String[] {"916.0"}); // TODO: why double?
+  }
 
-	// @Test
-	// public void testQ8() throws IOException {
-	// // Q8 List the names of persons and the number of items they bought
-	// // (joins person, closed\_auction)
-	// XPathStringChecker.testIAxisConventions(
-	// new XPathAxis(rtx, ""),
-	// new String[] { "" });
-	//
-	// }
+  // @Test
+  // public void testQ8() throws IOException {
+  // // Q8 List the names of persons and the number of items they bought
+  // // (joins person, closed\_auction)
+  // XPathStringChecker.testIAxisConventions(
+  // new XPathAxis(rtx, ""),
+  // new String[] { "" });
+  //
+  // }
 
-	// @Test
-	// public void testQ9() throws IOException {
-	// // // Q9 List the names of persons and the names of the items they bought
-	// in
-	// // // Europe. (joins person, closed_auction, item)
-	// // XPathStringChecker.testIAxisConventions(new XPathAxis(rtx,
-	// // ""),
-	// // new String[] { "" });
-	// }
+  // @Test
+  // public void testQ9() throws IOException {
+  // // // Q9 List the names of persons and the names of the items they bought
+  // in
+  // // // Europe. (joins person, closed_auction, item)
+  // // XPathStringChecker.testIAxisConventions(new XPathAxis(rtx,
+  // // ""),
+  // // new String[] { "" });
+  // }
 
-	//
-	// @Test
-	// public void testPos() throws IOException {
-	// XPathStringChecker.testIAxisConventions(new XPathAxis(rtx,
-	// "/site/regions/*/item[2]/@id"), new String[] {"item1", "item6",
-	// "item26", "item48", "item108", "item208"});
-	// }
+  //
+  // @Test
+  // public void testPos() throws IOException {
+  // XPathStringChecker.testIAxisConventions(new XPathAxis(rtx,
+  // "/site/regions/*/item[2]/@id"), new String[] {"item1", "item6",
+  // "item26", "item48", "item108", "item208"});
+  // }
 
 }

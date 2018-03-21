@@ -28,51 +28,51 @@ package org.sirix.settings;
  */
 public enum Fixed {
 
-	// --- File Version
-	// ----------------------------------------------------------------
-	/** Major version number of this release. */
-	VERSION_MAJOR(5),
+  // --- File Version
+  // ----------------------------------------------------------------
+  /** Major version number of this release. */
+  VERSION_MAJOR(5),
 
-	/** Minor version number of this release. */
-	VERSION_MINOR(1),
+  /** Minor version number of this release. */
+  VERSION_MINOR(1),
 
-	/** Last major version to which this version is binary compatible. */
-	LAST_VERSION_MAJOR(5),
+  /** Last major version to which this version is binary compatible. */
+  LAST_VERSION_MAJOR(5),
 
-	/** Last minor version to which this version is binary compatible. */
-	LAST_VERSION_MINOR(1),
+  /** Last minor version to which this version is binary compatible. */
+  LAST_VERSION_MINOR(1),
 
-	// --- Keys
-	// -------------------------------------------------------------
-	/** Root node page key constant. */
-	ROOT_PAGE_KEY(0L),
+  // --- Keys
+  // -------------------------------------------------------------
+  /** Root node page key constant. */
+  ROOT_PAGE_KEY(0L),
 
-	/** Document node key constant. */
-	DOCUMENT_NODE_KEY(0L),
+  /** Document node key constant. */
+  DOCUMENT_NODE_KEY(0L),
 
-	/** Null key for nodes. */
-	NULL_NODE_KEY(-1L);
+  /** Null key for nodes. */
+  NULL_NODE_KEY(-1L);
 
-	/**
-	 * Standard property.
-	 */
-	private final long mStandardProperty;
+  /**
+   * Standard property.
+   */
+  private final long mStandardProperty;
 
-	/**
-	 * Private constructor.
-	 * 
-	 * @param property property to set
-	 */
-	private Fixed(final long property) {
-		mStandardProperty = property;
-	}
+  /**
+   * Private constructor.
+   * 
+   * @param property property to set
+   */
+  private Fixed(final long property) {
+    mStandardProperty = property;
+  }
 
-	/**
-	 * Getting the property.
-	 * 
-	 * @return the prop
-	 */
-	public long getStandardProperty() {
-		return mStandardProperty;
-	}
+  /**
+   * Getting the property.
+   * 
+   * @return the prop
+   */
+  public long getStandardProperty() {
+    return mStandardProperty;
+  }
 }

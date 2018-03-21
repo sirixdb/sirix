@@ -68,38 +68,38 @@ import org.sirix.node.immutable.ImmutableText;
  * 
  */
 public abstract class AbstractVisitor implements Visitor {
-	@Override
-	public VisitResult visit(final ImmutablePI node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutablePI node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableComment node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableComment node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableElement node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableElement node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableText node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableText node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableDocument node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableDocument node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableAttribute node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableAttribute node) {
+    return VisitResultType.CONTINUE;
+  }
 
-	@Override
-	public VisitResult visit(final ImmutableNamespace node) {
-		return VisitResultType.CONTINUE;
-	}
+  @Override
+  public VisitResult visit(final ImmutableNamespace node) {
+    return VisitResultType.CONTINUE;
+  }
 }

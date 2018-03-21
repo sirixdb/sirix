@@ -21,7 +21,6 @@
 package org.sirix.io;
 
 import java.io.RandomAccessFile;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorageFactory;
@@ -36,49 +35,49 @@ import org.sirix.io.ram.RAMStorage;
  *
  */
 public enum StorageType {
-	/** In memory backend. */
-	IN_MEMORY {
-		@Override
-		public Storage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
-			return new RAMStorage(resourceConf);
-		}
-	},
+  /** In memory backend. */
+  IN_MEMORY {
+    @Override
+    public Storage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
+      return new RAMStorage(resourceConf);
+    }
+  },
 
-	/** {@link RandomAccessFile} backend. */
-	FILE {
-		@Override
-		public Storage getInstance(final ResourceConfiguration resourceConf) {
-			return new FileStorage(resourceConf);
-		}
-	},
+  /** {@link RandomAccessFile} backend. */
+  FILE {
+    @Override
+    public Storage getInstance(final ResourceConfiguration resourceConf) {
+      return new FileStorage(resourceConf);
+    }
+  },
 
-	/** BerkeleyDB backend. */
-	BERKELEY_DB {
-		@Override
-		public Storage getInstance(final ResourceConfiguration resourceConf) {
-			return new BerkeleyStorageFactory().createStorage(resourceConf);
-		}
-	};
+  /** BerkeleyDB backend. */
+  BERKELEY_DB {
+    @Override
+    public Storage getInstance(final ResourceConfiguration resourceConf) {
+      return new BerkeleyStorageFactory().createStorage(resourceConf);
+    }
+  };
 
-	/**
-	 * Get an instance of the storage backend.
-	 *
-	 * @param resourceConf {@link ResourceConfiguration} reference
-	 * @return instance of a storage backend specified within the {@link ResourceConfiguration}
-	 * @throws SirixIOException if an IO-error occured
-	 */
-	public abstract Storage getInstance(final ResourceConfiguration resourceConf);
+  /**
+   * Get an instance of the storage backend.
+   *
+   * @param resourceConf {@link ResourceConfiguration} reference
+   * @return instance of a storage backend specified within the {@link ResourceConfiguration}
+   * @throws SirixIOException if an IO-error occured
+   */
+  public abstract Storage getInstance(final ResourceConfiguration resourceConf);
 
-	/**
-	 * Factory method to retrieve suitable {@link Storage} instances based upon the suitable
-	 * {@link ResourceConfiguration}.
-	 *
-	 * @param resourceConf determining the storage
-	 * @return an implementation of the {@link Storage} interface
-	 * @throws SirixIOException if an IO-exception occurs
-	 * @throws NullPointerException if {@code resourceConf} is {@code null}
-	 */
-	public static final Storage getStorage(final ResourceConfiguration resourceConf) {
-		return resourceConf.mStorage.getInstance(resourceConf);
-	}
+  /**
+   * Factory method to retrieve suitable {@link Storage} instances based upon the suitable
+   * {@link ResourceConfiguration}.
+   *
+   * @param resourceConf determining the storage
+   * @return an implementation of the {@link Storage} interface
+   * @throws SirixIOException if an IO-exception occurs
+   * @throws NullPointerException if {@code resourceConf} is {@code null}
+   */
+  public static final Storage getStorage(final ResourceConfiguration resourceConf) {
+    return resourceConf.mStorage.getInstance(resourceConf);
+  }
 }

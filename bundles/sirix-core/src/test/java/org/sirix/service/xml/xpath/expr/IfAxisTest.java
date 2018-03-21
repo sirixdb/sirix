@@ -38,39 +38,39 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class IfAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testIf() throws SirixException {
+  @Test
+  public void testIf() throws SirixException {
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "if (text()) then . else child::node()"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "if (text()) then . else child::node()"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "if (node()) then . else child::node()"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "if (node()) then . else child::node()"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(),
-						"if (processing-instruction()) then . else child::node()"),
-				new long[] {4L, 5L, 8L, 9L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(),
+            "if (processing-instruction()) then . else child::node()"),
+        new long[] {4L, 5L, 8L, 9L, 13L});
 
-	}
+  }
 
 }

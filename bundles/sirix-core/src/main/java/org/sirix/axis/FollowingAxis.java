@@ -23,7 +23,6 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-
 import org.sirix.api.XdmNodeReadTrx;
 
 /**
@@ -36,128 +35,128 @@ import org.sirix.api.XdmNodeReadTrx;
  */
 public final class FollowingAxis extends AbstractAxis {
 
-	/** Determines if it's the first node. */
-	private boolean mIsFirst;
+  /** Determines if it's the first node. */
+  private boolean mIsFirst;
 
-	/** {@link Deque} reference to save right sibling keys. */
-	private Deque<Long> mRightSiblingStack;
+  /** {@link Deque} reference to save right sibling keys. */
+  private Deque<Long> mRightSiblingStack;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public FollowingAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-		mIsFirst = true;
-		mRightSiblingStack = new ArrayDeque<>();
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public FollowingAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+    mIsFirst = true;
+    mRightSiblingStack = new ArrayDeque<>();
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mIsFirst = true;
-		mRightSiblingStack = new ArrayDeque<>();
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mIsFirst = true;
+    mRightSiblingStack = new ArrayDeque<>();
+  }
 
-	@Override
-	protected long nextKey() {
-		// Assure, that following is not evaluated on an attribute or a
-		// namespace.
-		if (mIsFirst) {
-			switch (getTrx().getKind()) {
-				case ATTRIBUTE:
-				case NAMESPACE:
-					return done();
-				default:
-			}
-		}
+  @Override
+  protected long nextKey() {
+    // Assure, that following is not evaluated on an attribute or a
+    // namespace.
+    if (mIsFirst) {
+      switch (getTrx().getKind()) {
+        case ATTRIBUTE:
+        case NAMESPACE:
+          return done();
+        default:
+      }
+    }
 
-		final long currKey = getTrx().getNodeKey();
+    final long currKey = getTrx().getNodeKey();
 
-		if (mIsFirst) {
-			mIsFirst = false;
+    if (mIsFirst) {
+      mIsFirst = false;
 
-			/*
-			 * The first following is either a right sibling, or the right sibling of the first ancestor
-			 * that has a right sibling. Note: ancestors and descendants are no following node!
-			 */
-			if (getTrx().hasRightSibling()) {
-				getTrx().moveToRightSibling();
-				final long key = getTrx().getNodeKey();
+      /*
+       * The first following is either a right sibling, or the right sibling of the first ancestor
+       * that has a right sibling. Note: ancestors and descendants are no following node!
+       */
+      if (getTrx().hasRightSibling()) {
+        getTrx().moveToRightSibling();
+        final long key = getTrx().getNodeKey();
 
-				if (getTrx().hasRightSibling()) {
-					// Push right sibling on a stack to reduce path traversal.
-					mRightSiblingStack.push(getTrx().getRightSiblingKey());
-				}
+        if (getTrx().hasRightSibling()) {
+          // Push right sibling on a stack to reduce path traversal.
+          mRightSiblingStack.push(getTrx().getRightSiblingKey());
+        }
 
-				getTrx().moveTo(currKey);
-				return key;
-			}
-			// Try to find the right sibling of one of the ancestors.
-			while (getTrx().hasParent()) {
-				getTrx().moveToParent();
-				if (getTrx().hasRightSibling()) {
-					getTrx().moveToRightSibling();
-					final long key = getTrx().getNodeKey();
+        getTrx().moveTo(currKey);
+        return key;
+      }
+      // Try to find the right sibling of one of the ancestors.
+      while (getTrx().hasParent()) {
+        getTrx().moveToParent();
+        if (getTrx().hasRightSibling()) {
+          getTrx().moveToRightSibling();
+          final long key = getTrx().getNodeKey();
 
-					if (getTrx().hasRightSibling()) {
-						mRightSiblingStack.push(getTrx().getRightSiblingKey());
-					}
-					getTrx().moveTo(currKey);
-					return key;
-				}
-			}
-			// CurrentNode is last key in the document order.
-			return done();
-		}
+          if (getTrx().hasRightSibling()) {
+            mRightSiblingStack.push(getTrx().getRightSiblingKey());
+          }
+          getTrx().moveTo(currKey);
+          return key;
+        }
+      }
+      // CurrentNode is last key in the document order.
+      return done();
+    }
 
-		// Step down the tree in document order.
-		if (getTrx().hasFirstChild()) {
-			getTrx().moveToFirstChild();
-			final long key = getTrx().getNodeKey();
+    // Step down the tree in document order.
+    if (getTrx().hasFirstChild()) {
+      getTrx().moveToFirstChild();
+      final long key = getTrx().getNodeKey();
 
-			if (getTrx().hasRightSibling()) {
-				// Push right sibling on a stack to reduce path traversal.
-				mRightSiblingStack.push(getTrx().getRightSiblingKey());
-			}
+      if (getTrx().hasRightSibling()) {
+        // Push right sibling on a stack to reduce path traversal.
+        mRightSiblingStack.push(getTrx().getRightSiblingKey());
+      }
 
-			getTrx().moveTo(currKey);
-			return key;
-		}
+      getTrx().moveTo(currKey);
+      return key;
+    }
 
-		if (mRightSiblingStack.isEmpty()) {
-			// Try to find the right sibling of one of the ancestors.
-			while (getTrx().hasParent()) {
-				getTrx().moveToParent();
-				if (getTrx().hasRightSibling()) {
-					getTrx().moveToRightSibling();
-					final long key = getTrx().getNodeKey();
+    if (mRightSiblingStack.isEmpty()) {
+      // Try to find the right sibling of one of the ancestors.
+      while (getTrx().hasParent()) {
+        getTrx().moveToParent();
+        if (getTrx().hasRightSibling()) {
+          getTrx().moveToRightSibling();
+          final long key = getTrx().getNodeKey();
 
-					if (getTrx().hasRightSibling()) {
-						// Push right sibling on a stack to reduce path
-						// traversal.
-						mRightSiblingStack.push(getTrx().getRightSiblingKey());
-					}
+          if (getTrx().hasRightSibling()) {
+            // Push right sibling on a stack to reduce path
+            // traversal.
+            mRightSiblingStack.push(getTrx().getRightSiblingKey());
+          }
 
-					getTrx().moveTo(currKey);
-					return key;
-				}
-			}
-		} else {
-			// Get root key of sibling subtree.
-			getTrx().moveTo(mRightSiblingStack.pop());
-			final long key = getTrx().getNodeKey();
+          getTrx().moveTo(currKey);
+          return key;
+        }
+      }
+    } else {
+      // Get root key of sibling subtree.
+      getTrx().moveTo(mRightSiblingStack.pop());
+      final long key = getTrx().getNodeKey();
 
-			if (getTrx().hasRightSibling()) {
-				// Push right sibling on a stack to reduce path traversal.
-				mRightSiblingStack.push(getTrx().getRightSiblingKey());
-			}
+      if (getTrx().hasRightSibling()) {
+        // Push right sibling on a stack to reduce path traversal.
+        mRightSiblingStack.push(getTrx().getRightSiblingKey());
+      }
 
-			getTrx().moveTo(currKey);
-			return key;
-		}
+      getTrx().moveTo(currKey);
+      return key;
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

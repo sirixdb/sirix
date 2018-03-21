@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -75,60 +74,60 @@ import org.sirix.settings.Fixed;
  */
 public final class XPathAxis extends AbstractAxis {
 
-	/** Declares if the evaluation is compatible to XPath 1.0 or not. */
-	public static final boolean XPATH_10_COMP = true;
+  /** Declares if the evaluation is compatible to XPath 1.0 or not. */
+  public static final boolean XPATH_10_COMP = true;
 
-	/** Axis holding the consecutive query execution plans of the query. */
-	private Axis mPipeline;
+  /** Axis holding the consecutive query execution plans of the query. */
+  private Axis mPipeline;
 
-	/**
-	 * <p>
-	 * Constructor initializing internal state.
-	 * </p>
-	 * <p>
-	 * Starts the query scanning and parsing and retrieves the builded query execution plan from the
-	 * parser.
-	 * </p>
-	 * <p>
-	 * <strong>Deprecated: Use the the brackit-binding.</strong>
-	 * </P>
-	 *
-	 * @param pRtx Transaction to operate with.
-	 * @param pQuery XPath query to process.
-	 * @throws SirixXPathException throw a sirix xpath exception.
-	 */
-	@Deprecated
-	public XPathAxis(final XdmNodeReadTrx pRtx, final String pQuery) throws SirixXPathException {
-		super(pRtx);
+  /**
+   * <p>
+   * Constructor initializing internal state.
+   * </p>
+   * <p>
+   * Starts the query scanning and parsing and retrieves the builded query execution plan from the
+   * parser.
+   * </p>
+   * <p>
+   * <strong>Deprecated: Use the the brackit-binding.</strong>
+   * </P>
+   *
+   * @param pRtx Transaction to operate with.
+   * @param pQuery XPath query to process.
+   * @throws SirixXPathException throw a sirix xpath exception.
+   */
+  @Deprecated
+  public XPathAxis(final XdmNodeReadTrx pRtx, final String pQuery) throws SirixXPathException {
+    super(pRtx);
 
-		// /** Initializing executor service with fixed thread pool. */
-		// EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
+    // /** Initializing executor service with fixed thread pool. */
+    // EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
 
-		// start parsing and get execution plans
-		final XPathParser parser = new XPathParser(pRtx, checkNotNull(pQuery));
-		parser.parseQuery();
-		mPipeline = parser.getQueryPipeline();
-	}
+    // start parsing and get execution plans
+    final XPathParser parser = new XPathParser(pRtx, checkNotNull(pQuery));
+    parser.parseQuery();
+    mPipeline = parser.getQueryPipeline();
+  }
 
-	@Override
-	protected long nextKey() {
-		if (mPipeline.hasNext()) {
-			return mPipeline.next();
-		} else {
-			return Fixed.NULL_NODE_KEY.getStandardProperty();
-		}
-	}
+  @Override
+  protected long nextKey() {
+    if (mPipeline.hasNext()) {
+      return mPipeline.next();
+    } else {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+  }
 
-	// @Override
-	// public boolean hasNext() {
-	// resetToLastKey();
-	//
-	// if (mPipeline.hasNext()) {
-	// mKey = mPipeline.next();
-	// return true;
-	// } else {
-	// resetToStartKey();
-	// return false;
-	// }
-	// }
+  // @Override
+  // public boolean hasNext() {
+  // resetToLastKey();
+  //
+  // if (mPipeline.hasNext()) {
+  // mKey = mPipeline.next();
+  // return true;
+  // } else {
+  // resetToStartKey();
+  // return false;
+  // }
+  // }
 }

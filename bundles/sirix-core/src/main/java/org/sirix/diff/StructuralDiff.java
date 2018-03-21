@@ -34,47 +34,47 @@ import org.sirix.exception.SirixException;
  */
 final class StructuralDiff extends AbstractDiff {
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param builder {@link Builder} reference
-	 * @throws SirixException
-	 */
-	public StructuralDiff(final Builder builder) throws SirixException {
-		super(builder);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param builder {@link Builder} reference
+   * @throws SirixException
+   */
+  public StructuralDiff(final Builder builder) throws SirixException {
+    super(builder);
+  }
 
-	@Override
-	boolean checkNodes(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx) {
-		boolean found = false;
-		if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
-				&& newRtx.getKind() == oldRtx.getKind()) {
-			switch (newRtx.getKind()) {
-				case ELEMENT:
-					if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-							&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
-						found = true;
-					}
-					break;
-				case PROCESSING_INSTRUCTION:
-					found = newRtx.getValue().equals(oldRtx.getValue())
-							&& newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-							&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey();
-					break;
-				case COMMENT:
-				case TEXT:
-					if (newRtx.getValue().equals(oldRtx.getValue())) {
-						found = true;
-					}
-					break;
-				default:
-					// Do nothing.
-			}
-		}
-		return found;
-	}
+  @Override
+  boolean checkNodes(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx) {
+    boolean found = false;
+    if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
+        && newRtx.getKind() == oldRtx.getKind()) {
+      switch (newRtx.getKind()) {
+        case ELEMENT:
+          if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
+            found = true;
+          }
+          break;
+        case PROCESSING_INSTRUCTION:
+          found = newRtx.getValue().equals(oldRtx.getValue())
+              && newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey();
+          break;
+        case COMMENT:
+        case TEXT:
+          if (newRtx.getValue().equals(oldRtx.getValue())) {
+            found = true;
+          }
+          break;
+        default:
+          // Do nothing.
+      }
+    }
+    return found;
+  }
 
-	@Override
-	void emitNonStructuralDiff(XdmNodeReadTrx newRtx, XdmNodeReadTrx oldRtx, DiffDepth depth,
-			DiffType diff) {}
+  @Override
+  void emitNonStructuralDiff(XdmNodeReadTrx newRtx, XdmNodeReadTrx oldRtx, DiffDepth depth,
+      DiffType diff) {}
 }

@@ -23,9 +23,7 @@ package org.sirix.api;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.access.IndexController;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
@@ -53,189 +51,189 @@ import org.sirix.page.UnorderedKeyValuePage;
  */
 public interface ResourceManager extends AutoCloseable {
 
-	/**
-	 * Get the {@link Database} this session is bound to.
-	 *
-	 * @return {@link Database} this session is bound to
-	 */
-	Database getDatabase();
+  /**
+   * Get the {@link Database} this session is bound to.
+   *
+   * @return {@link Database} this session is bound to
+   */
+  Database getDatabase();
 
-	/**
-	 * Get the resource manager configuration.
-	 *
-	 * @return The resource manager configuration.
-	 */
-	ResourceManagerConfiguration getResourceManagerCfg();
+  /**
+   * Get the resource manager configuration.
+   *
+   * @return The resource manager configuration.
+   */
+  ResourceManagerConfiguration getResourceManagerCfg();
 
-	/**
-	 * Get the single node writer if available, wrapped in an {@link Optional}.
-	 *
-	 * @return The single node writer if available.
-	 */
-	Optional<XdmNodeWriteTrx> getNodeWriteTrx();
+  /**
+   * Get the single node writer if available, wrapped in an {@link Optional}.
+   *
+   * @return The single node writer if available.
+   */
+  Optional<XdmNodeWriteTrx> getNodeWriteTrx();
 
-	/**
-	 * Begin a new {@link PageReadTrx}.
-	 *
-	 * @return new {@link PageReadTrx} instance
-	 */
-	PageReadTrx beginPageReadTrx();
+  /**
+   * Begin a new {@link PageReadTrx}.
+   *
+   * @return new {@link PageReadTrx} instance
+   */
+  PageReadTrx beginPageReadTrx();
 
-	/**
-	 * Begin a new {@link PageReadTrx}.
-	 *
-	 * @param revision revision number
-	 * @return new {@link PageReadTrx} instance
-	 * @throws IllegalArgumentException if {@code revision < 0}
-	 */
-	PageReadTrx beginPageReadTrx(@Nonnegative int revision);
+  /**
+   * Begin a new {@link PageReadTrx}.
+   *
+   * @param revision revision number
+   * @return new {@link PageReadTrx} instance
+   * @throws IllegalArgumentException if {@code revision < 0}
+   */
+  PageReadTrx beginPageReadTrx(@Nonnegative int revision);
 
-	/**
-	 * Begin a new {@link PageWriteTrx}.
-	 *
-	 * @param pRevision revision number
-	 * @return new {@link PageWriteTrx} instance
-	 * @throws SirixException if Sirix fails to create a new instance
-	 */
-	PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx() throws SirixException;
+  /**
+   * Begin a new {@link PageWriteTrx}.
+   *
+   * @param pRevision revision number
+   * @return new {@link PageWriteTrx} instance
+   * @throws SirixException if Sirix fails to create a new instance
+   */
+  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx() throws SirixException;
 
-	/**
-	 * Begin a new {@link PageWriteTrx}.
-	 *
-	 * @param revision revision number
-	 * @return new {@link PageWriteTrx} instance
-	 * @throws SirixException if Sirix fails to create a new instance
-	 * @throws IllegalArgumentException if {@code revision < 0}
-	 */
-	PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision)
-			throws SirixException;
+  /**
+   * Begin a new {@link PageWriteTrx}.
+   *
+   * @param revision revision number
+   * @return new {@link PageWriteTrx} instance
+   * @throws SirixException if Sirix fails to create a new instance
+   * @throws IllegalArgumentException if {@code revision < 0}
+   */
+  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision)
+      throws SirixException;
 
-	/**
-	 * Begin a read-only transaction on the latest committed revision.
-	 *
-	 * @throws SirixException if can't begin Read Transaction
-	 * @return {@link XdmNodeReadTrx} instance
-	 */
-	XdmNodeReadTrx beginNodeReadTrx() throws SirixException;
+  /**
+   * Begin a read-only transaction on the latest committed revision.
+   *
+   * @throws SirixException if can't begin Read Transaction
+   * @return {@link XdmNodeReadTrx} instance
+   */
+  XdmNodeReadTrx beginNodeReadTrx() throws SirixException;
 
-	/**
-	 * Begin a read-only transaction on the given revision number.
-	 *
-	 * @param revision revision to read from denoted by the revision number.
-	 * @throws IllegalArgumentException if {@code revision < 0}
-	 * @throws SirixThreadedException if the thread is interrupted
-	 * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-	 * @return {@link XdmNodeReadTrx} instance
-	 */
-	XdmNodeReadTrx beginNodeReadTrx(@Nonnegative int revision);
+  /**
+   * Begin a read-only transaction on the given revision number.
+   *
+   * @param revision revision to read from denoted by the revision number.
+   * @throws IllegalArgumentException if {@code revision < 0}
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
+   * @return {@link XdmNodeReadTrx} instance
+   */
+  XdmNodeReadTrx beginNodeReadTrx(@Nonnegative int revision);
 
-	/**
-	 * Begin exclusive read/write transaction without auto commit.
-	 *
-	 * @param trx the transaction to use
-	 * @throws SirixThreadedException if the thread is interrupted
-	 * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-	 * @return {@link XdmNodeWriteTrx} instance
-	 */
-	XdmNodeWriteTrx beginNodeWriteTrx();
+  /**
+   * Begin exclusive read/write transaction without auto commit.
+   *
+   * @param trx the transaction to use
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @return {@link XdmNodeWriteTrx} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx();
 
-	/**
-	 * Begin exclusive read/write transaction with auto commit.
-	 *
-	 * @param maxNodes count of node modifications after which a commit is issued
-	 * @param timeUnit unit used for time
-	 * @param maxTime time after which a commit is issued
-	 * @throws SirixThreadedException if the thread is interrupted
-	 * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-	 * @throws IllegalArgumentException if {@code maxNodes < 0}
-	 * @throws NullPointerException if {@code timeUnit} is {@code null}
-	 * @return {@link XdmNodeReaderWriter} instance
-	 */
-	XdmNodeWriteTrx beginNodeReadTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
-			final int maxTime);
+  /**
+   * Begin exclusive read/write transaction with auto commit.
+   *
+   * @param maxNodes count of node modifications after which a commit is issued
+   * @param timeUnit unit used for time
+   * @param maxTime time after which a commit is issued
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @throws IllegalArgumentException if {@code maxNodes < 0}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
+   * @return {@link XdmNodeReaderWriter} instance
+   */
+  XdmNodeWriteTrx beginNodeReadTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
+      final int maxTime);
 
-	/**
-	 * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
-	 *
-	 * @param revision revision key to read from
-	 * @return {@link PathSummaryReader} instance
-	 * @throws IllegalArgumentException if {@code revision < 0}
-	 */
-	PathSummaryReader openPathSummary(@Nonnegative int revision);
+  /**
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   *
+   * @param revision revision key to read from
+   * @return {@link PathSummaryReader} instance
+   * @throws IllegalArgumentException if {@code revision < 0}
+   */
+  PathSummaryReader openPathSummary(@Nonnegative int revision);
 
-	/**
-	 * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
-	 *
-	 * @return {@link PathSummaryReader} instance
-	 * @throws SirixException if can't open path summary
-	 */
-	PathSummaryReader openPathSummary();
+  /**
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   *
+   * @return {@link PathSummaryReader} instance
+   * @throws SirixException if can't open path summary
+   */
+  PathSummaryReader openPathSummary();
 
-	/**
-	 * Safely close resource manager and immediately release all resources. If there are running
-	 * transactions, they will automatically be closed.
-	 *
-	 * This is an idempotent operation and does nothing if the resource manager is already closed.
-	 *
-	 * @throws SirixException if can't close
-	 */
-	@Override
-	void close();
+  /**
+   * Safely close resource manager and immediately release all resources. If there are running
+   * transactions, they will automatically be closed.
+   *
+   * This is an idempotent operation and does nothing if the resource manager is already closed.
+   *
+   * @throws SirixException if can't close
+   */
+  @Override
+  void close();
 
-	/**
-	 * Test if session is closed. Needed for check against database for creation of a new one.
-	 *
-	 * @return if session was closed
-	 */
-	boolean isClosed();
+  /**
+   * Test if session is closed. Needed for check against database for creation of a new one.
+   *
+   * @return if session was closed
+   */
+  boolean isClosed();
 
-	/**
-	 * Returns {@link ResourceConfiguration} that is bound to the session.
-	 *
-	 * @return {@link ResourceConfiguration} instance bound to session
-	 */
-	ResourceConfiguration getResourceConfig();
+  /**
+   * Returns {@link ResourceConfiguration} that is bound to the session.
+   *
+   * @return {@link ResourceConfiguration} instance bound to session
+   */
+  ResourceConfiguration getResourceConfig();
 
-	/**
-	 * Get the most recently commited revision number.
-	 *
-	 * @return most recently commited revision number
-	 */
-	int getMostRecentRevisionNumber();
+  /**
+   * Get the most recently commited revision number.
+   *
+   * @return most recently commited revision number
+   */
+  int getMostRecentRevisionNumber();
 
-	/**
-	 * Get available number of {@link XdmNodeReadTrx}s.
-	 *
-	 * @return available number of {@link XdmNodeReadTrx}s
-	 */
-	int getAvailableNodeReadTrx();
+  /**
+   * Get available number of {@link XdmNodeReadTrx}s.
+   *
+   * @return available number of {@link XdmNodeReadTrx}s
+   */
+  int getAvailableNodeReadTrx();
 
-	/**
-	 * Get available number of {@link XdmNodeWriteTrx}s.
-	 *
-	 * @return available number of {@link XdmNodeWriteTrx}s
-	 */
-	int getAvailableNodeWriteTrx();
+  /**
+   * Get available number of {@link XdmNodeWriteTrx}s.
+   *
+   * @return available number of {@link XdmNodeWriteTrx}s
+   */
+  int getAvailableNodeWriteTrx();
 
-	/**
-	 * Get the index controller.
-	 *
-	 * @return the {@link IndexController} instance
-	 */
-	IndexController getRtxIndexController(int revision);
+  /**
+   * Get the index controller.
+   *
+   * @return the {@link IndexController} instance
+   */
+  IndexController getRtxIndexController(int revision);
 
-	/**
-	 * Get the index controller.
-	 *
-	 * @return the {@link IndexController} instance
-	 */
-	IndexController getWtxIndexController(int revision);
+  /**
+   * Get the index controller.
+   *
+   * @return the {@link IndexController} instance
+   */
+  IndexController getWtxIndexController(int revision);
 
-	/**
-	 * Get the node reader with the given ID wrapped in an optional.
-	 *
-	 * @param ID The ID of the reader.
-	 * @return The node reader if available.
-	 */
-	Optional<XdmNodeReadTrx> getNodeReader(long ID);
+  /**
+   * Get the node reader with the given ID wrapped in an optional.
+   *
+   * @param ID The ID of the reader.
+   * @return The node reader if available.
+   */
+  Optional<XdmNodeReadTrx> getNodeReader(long ID);
 }

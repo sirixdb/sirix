@@ -16,8 +16,7 @@ import org.sirix.xquery.node.DBNode;
  * Function for getting the most recent revision. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:most-recent-revision($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:most-recent-revision($doc as xs:node) as xs:int</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -25,27 +24,25 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class GetMostRecentRevision extends AbstractFunction {
 
-	/** Get most recent revision function name. */
-	public final static QNm MOST_RECENT_REVISION = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "most-recent-revision");
+  /** Get most recent revision function name. */
+  public final static QNm MOST_RECENT_REVISION =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "most-recent-revision");
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public GetMostRecentRevision(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public GetMostRecentRevision(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getResourceManager().getMostRecentRevisionNumber());
-	}
+    return new Int32(doc.getTrx().getResourceManager().getMostRecentRevisionNumber());
+  }
 }

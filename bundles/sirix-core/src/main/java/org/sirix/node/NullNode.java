@@ -22,18 +22,14 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Optional;
-
 import javax.annotation.Nullable;
-
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
-
 import com.google.common.base.Objects;
 
 /**
@@ -44,187 +40,187 @@ import com.google.common.base.Objects;
  */
 public final class NullNode implements StructNode {
 
-	/** The underlying item. */
-	private final ImmutableNode mNode;
+  /** The underlying item. */
+  private final ImmutableNode mNode;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param node the underlying node which is wrapped
-	 * @throws NullPointerException if {@code pNode} is {@code null}
-	 */
-	public NullNode(final ImmutableNode node) {
-		mNode = checkNotNull(node);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param node the underlying node which is wrapped
+   * @throws NullPointerException if {@code pNode} is {@code null}
+   */
+  public NullNode(final ImmutableNode node) {
+    mNode = checkNotNull(node);
+  }
 
-	@Override
-	public long getFirstChildKey() {
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  @Override
+  public long getFirstChildKey() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-	@Override
-	public void setFirstChildKey(long firstChildKey) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setFirstChildKey(long firstChildKey) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void decrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void decrementChildCount() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void incrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void incrementChildCount() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public VisitResultType acceptVisitor(final Visitor visitor) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public VisitResultType acceptVisitor(final Visitor visitor) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void setHash(final long pHash) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setHash(final long pHash) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public long getHash() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public long getHash() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public long getNodeKey() {
-		return mNode.getNodeKey();
-	}
+  @Override
+  public long getNodeKey() {
+    return mNode.getNodeKey();
+  }
 
-	@Override
-	public long getParentKey() {
-		return mNode.getParentKey();
-	}
+  @Override
+  public long getParentKey() {
+    return mNode.getParentKey();
+  }
 
-	@Override
-	public boolean hasParent() {
-		return mNode.hasParent();
-	}
+  @Override
+  public boolean hasParent() {
+    return mNode.hasParent();
+  }
 
-	@Override
-	public Kind getKind() {
-		// Node kind is always of type Kind.
-		return (Kind) mNode.getKind();
-	}
+  @Override
+  public Kind getKind() {
+    // Node kind is always of type Kind.
+    return (Kind) mNode.getKind();
+  }
 
-	@Override
-	public int getTypeKey() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public int getTypeKey() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void setParentKey(long nodeKey) {
-		throw new UnsupportedOperationException();
+  @Override
+  public void setParentKey(long nodeKey) {
+    throw new UnsupportedOperationException();
 
-	}
+  }
 
-	@Override
-	public void setTypeKey(int typeKey) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setTypeKey(int typeKey) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public boolean hasFirstChild() {
-		return false;
-	}
+  @Override
+  public boolean hasFirstChild() {
+    return false;
+  }
 
-	@Override
-	public boolean hasLeftSibling() {
-		return false;
-	}
+  @Override
+  public boolean hasLeftSibling() {
+    return false;
+  }
 
-	@Override
-	public boolean hasRightSibling() {
-		return false;
-	}
+  @Override
+  public boolean hasRightSibling() {
+    return false;
+  }
 
-	@Override
-	public long getChildCount() {
-		return 0;
-	}
+  @Override
+  public long getChildCount() {
+    return 0;
+  }
 
-	@Override
-	public long getLeftSiblingKey() {
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  @Override
+  public long getLeftSiblingKey() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-	@Override
-	public long getRightSiblingKey() {
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  @Override
+  public long getRightSiblingKey() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-	@Override
-	public void setRightSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setRightSiblingKey(long nodeKey) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void setLeftSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setLeftSiblingKey(long nodeKey) {
+    throw new UnsupportedOperationException();
+  }
 
-	/** Get the underlying node. */
-	public ImmutableNode getUnderlyingNode() {
-		return mNode;
-	}
+  /** Get the underlying node. */
+  public ImmutableNode getUnderlyingNode() {
+    return mNode;
+  }
 
-	@Override
-	public long getDescendantCount() {
-		return 0;
-	}
+  @Override
+  public long getDescendantCount() {
+    return 0;
+  }
 
-	@Override
-	public void decrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void decrementDescendantCount() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void incrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void incrementDescendantCount() {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public void setDescendantCount(long descendantCount) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setDescendantCount(long descendantCount) {
+    throw new UnsupportedOperationException();
+  }
 
-	@Override
-	public boolean isSameItem(final @Nullable Node other) {
-		return mNode.isSameItem(other);
-	}
+  @Override
+  public boolean isSameItem(final @Nullable Node other) {
+    return mNode.isSameItem(other);
+  }
 
-	@Override
-	public long getRevision() {
-		return mNode.getRevision();
-	}
+  @Override
+  public long getRevision() {
+    return mNode.getRevision();
+  }
 
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NullNode) {
-			final NullNode other = (NullNode) obj;
-			return Objects.equal(mNode, other.mNode);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof NullNode) {
+      final NullNode other = (NullNode) obj;
+      return Objects.equal(mNode, other.mNode);
+    }
+    return false;
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mNode);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mNode);
+  }
 
-	@Override
-	public Optional<SirixDeweyID> getDeweyID() {
-		return mNode.getDeweyID();
-	}
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    return mNode.getDeweyID();
+  }
 
-	@Override
-	public void setDeweyID(Optional<SirixDeweyID> id) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public void setDeweyID(Optional<SirixDeweyID> id) {
+    throw new UnsupportedOperationException();
+  }
 }

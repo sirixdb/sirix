@@ -22,7 +22,6 @@
 package org.sirix.api;
 
 import java.util.Optional;
-
 import org.sirix.node.interfaces.Node;
 
 /**
@@ -43,29 +42,29 @@ import org.sirix.node.interfaces.Node;
  */
 public interface ItemList<T extends Node> {
 
-	/**
-	 * Adds an item to the item list and assigns a unique item key to the item and return it. The item
-	 * key is the negatived index of the item in the item list. The key is negatived to make it
-	 * distinguishable from a node.
-	 * 
-	 * @param pNode the item to add
-	 * @return the item key
-	 */
-	int addItem(final T pNode);
+  /**
+   * Adds an item to the item list and assigns a unique item key to the item and return it. The item
+   * key is the negatived index of the item in the item list. The key is negatived to make it
+   * distinguishable from a node.
+   * 
+   * @param pNode the item to add
+   * @return the item key
+   */
+  int addItem(final T pNode);
 
-	/**
-	 * Returns the item at a given index in the item list. If the given index is the item key, it has
-	 * to be negated before.
-	 * 
-	 * @param pKey key of the item, that should be returned
-	 * @return item at the given index
-	 */
-	Optional<T> getItem(final long pKey);
+  /**
+   * Returns the item at a given index in the item list. If the given index is the item key, it has
+   * to be negated before.
+   * 
+   * @param pKey key of the item, that should be returned
+   * @return item at the given index
+   */
+  Optional<T> getItem(final long pKey);
 
-	/**
-	 * Determines how many items are in the list.
-	 * 
-	 * @return list size
-	 */
-	int size();
+  /**
+   * Determines how many items are in the list.
+   * 
+   * @return list size
+   */
+  int size();
 }

@@ -1,7 +1,6 @@
 package org.sirix.access;
 
 import java.io.ByteArrayOutputStream;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -19,29 +18,29 @@ import org.sirix.utils.DocumentCreater;
  */
 public class PICommentTest {
 
-	/** {@link Holder} reference. */
-	private Holder mHolder;
+  /** {@link Holder} reference. */
+  private Holder mHolder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createPICommentTestDocument();
-		mHolder = Holder.generateWtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createPICommentTestDocument();
+    mHolder = Holder.generateWtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		mHolder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    mHolder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testPI() throws SirixException {
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer =
-				new XMLSerializer.XMLSerializerBuilder(mHolder.getResourceManager(), out)
-						.emitXMLDeclaration().build();
-		serializer.call();
-		Assert.assertEquals(DocumentCreater.COMMENTPIXML, out.toString());
-	}
+  @Test
+  public void testPI() throws SirixException {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    final XMLSerializer serializer =
+        new XMLSerializer.XMLSerializerBuilder(mHolder.getResourceManager(), out)
+            .emitXMLDeclaration().build();
+    serializer.call();
+    Assert.assertEquals(DocumentCreater.COMMENTPIXML, out.toString());
+  }
 }

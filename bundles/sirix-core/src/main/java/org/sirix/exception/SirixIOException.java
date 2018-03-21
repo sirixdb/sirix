@@ -31,37 +31,37 @@ import java.io.IOException;
  */
 public final class SirixIOException extends SirixRuntimeException {
 
-	/**
-	 * Serializable id.
-	 */
-	private static final long serialVersionUID = 4099242625448155216L;
+  /**
+   * Serializable id.
+   */
+  private static final long serialVersionUID = 4099242625448155216L;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param message to be used
-	 */
-	public SirixIOException(final String message) {
-		super(message);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param message to be used
+   */
+  public SirixIOException(final String message) {
+    super(message);
+  }
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param throwable {@link Throwable} exception
-	 * @param message for the overlaying {@link IOException}
-	 */
-	public SirixIOException(final String message, final Throwable throwable) {
-		super(message, throwable);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param throwable {@link Throwable} exception
+   * @param message for the overlaying {@link IOException}
+   */
+  public SirixIOException(final String message, final Throwable throwable) {
+    super(message, throwable);
+  }
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param throwable {@link Throwable} exception
-	 */
-	public SirixIOException(final Throwable throwable) {
-		super(throwable);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param throwable {@link Throwable} exception
+   */
+  public SirixIOException(final Throwable throwable) {
+    super(throwable);
+  }
 
 }

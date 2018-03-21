@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -42,40 +41,40 @@ import org.sirix.utils.TypedValue;
  */
 public class FNCount extends AbstractFunction {
 
-	/**
-	 * Constructor.
-	 * 
-	 * Initializes internal state and do a statical analysis concerning the function's arguments.
-	 * 
-	 * @param rtx Transaction to operate on
-	 * @param args List of function arguments
-	 * @param min min number of allowed function arguments
-	 * @param max max number of allowed function arguments
-	 * @param returnType the type that the function's result will have
-	 * @throws SirixXPathException if function check fails
-	 */
-	public FNCount(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
-			final int returnType) throws SirixXPathException {
+  /**
+   * Constructor.
+   * 
+   * Initializes internal state and do a statical analysis concerning the function's arguments.
+   * 
+   * @param rtx Transaction to operate on
+   * @param args List of function arguments
+   * @param min min number of allowed function arguments
+   * @param max max number of allowed function arguments
+   * @param returnType the type that the function's result will have
+   * @throws SirixXPathException if function check fails
+   */
+  public FNCount(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+      final int returnType) throws SirixXPathException {
 
-		super(rtx, args, min, max, returnType);
-	}
+    super(rtx, args, min, max, returnType);
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	protected byte[] computeResult() {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  protected byte[] computeResult() {
 
-		final Axis axis = getArgs().get(0);
+    final Axis axis = getArgs().get(0);
 
-		Integer count = 0;
-		while (axis.hasNext()) {
-			axis.next();
-			count++;
-		}
+    Integer count = 0;
+    while (axis.hasNext()) {
+      axis.next();
+      count++;
+    }
 
-		return TypedValue.getBytes(count.toString());
+    return TypedValue.getBytes(count.toString());
 
-	}
+  }
 
 }

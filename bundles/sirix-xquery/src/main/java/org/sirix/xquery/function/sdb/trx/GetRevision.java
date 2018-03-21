@@ -16,8 +16,7 @@ import org.sirix.xquery.node.DBNode;
  * Function for getting the current revision. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:revision($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:revision($doc as xs:node) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -25,27 +24,24 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class GetRevision extends AbstractFunction {
 
-	/** Get most recent revision function name. */
-	public final static QNm REVISION = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "revision");
+  /** Get most recent revision function name. */
+  public final static QNm REVISION = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "revision");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public GetRevision(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public GetRevision(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getRevisionNumber());
-	}
+    return new Int32(doc.getTrx().getRevisionNumber());
+  }
 }

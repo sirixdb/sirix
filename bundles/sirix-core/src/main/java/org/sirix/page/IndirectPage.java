@@ -23,7 +23,6 @@ package org.sirix.page;
 
 import java.io.DataInput;
 import java.io.IOException;
-
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -37,37 +36,37 @@ import org.sirix.settings.Constants;
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-	/** {@link PageDelegate} reference. */
-	private final PageDelegate mDelegate;
+  /** {@link PageDelegate} reference. */
+  private final PageDelegate mDelegate;
 
-	/**
-	 * Create indirect page.
-	 *
-	 */
-	public IndirectPage() {
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
-	}
+  /**
+   * Create indirect page.
+   *
+   */
+  public IndirectPage() {
+    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
+  }
 
-	/**
-	 * Read indirect page.
-	 *
-	 * @param in input source
-	 */
-	protected IndirectPage(final DataInput in, final SerializationType type) throws IOException {
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in, type);
-	}
+  /**
+   * Read indirect page.
+   *
+   * @param in input source
+   */
+  protected IndirectPage(final DataInput in, final SerializationType type) throws IOException {
+    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in, type);
+  }
 
-	/**
-	 * Clone indirect page.
-	 *
-	 * @param page {@link IndirectPage} to clone
-	 */
-	public IndirectPage(final IndirectPage page) {
-		mDelegate = new PageDelegate(page);
-	}
+  /**
+   * Clone indirect page.
+   *
+   * @param page {@link IndirectPage} to clone
+   */
+  public IndirectPage(final IndirectPage page) {
+    mDelegate = new PageDelegate(page);
+  }
 
-	@Override
-	protected Page delegate() {
-		return mDelegate;
-	}
+  @Override
+  protected Page delegate() {
+    return mDelegate;
+  }
 }

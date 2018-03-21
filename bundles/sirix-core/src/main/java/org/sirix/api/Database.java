@@ -23,9 +23,7 @@ package org.sirix.api;
 
 import java.nio.file.Path;
 import java.util.List;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
@@ -49,85 +47,85 @@ import org.sirix.exception.SirixIOException;
  * @author Johannes Lichtenberger
  */
 public interface Database extends AutoCloseable {
-	/**
-	 * Creation of a resource. Since databases can consist out of several resources, those can be
-	 * created within this method. This includes the creation of a suitable folder structure as well
-	 * as the serialization of the configuration of this resource.
-	 *
-	 * @param config the config of the resource
-	 * @return {@code true} if successful, {@code false} otherwise
-	 * @throws SirixIOException if anything happens while creating the resource
-	 */
-	boolean createResource(ResourceConfiguration config) throws SirixIOException;
+  /**
+   * Creation of a resource. Since databases can consist out of several resources, those can be
+   * created within this method. This includes the creation of a suitable folder structure as well
+   * as the serialization of the configuration of this resource.
+   *
+   * @param config the config of the resource
+   * @return {@code true} if successful, {@code false} otherwise
+   * @throws SirixIOException if anything happens while creating the resource
+   */
+  boolean createResource(ResourceConfiguration config) throws SirixIOException;
 
-	/**
-	 * Is the resource within this database existing?
-	 *
-	 * @param name resource to be checked
-	 * @return {@code true}, if existing, {@code false} otherwise
-	 */
-	boolean existsResource(String name);
+  /**
+   * Is the resource within this database existing?
+   *
+   * @param name resource to be checked
+   * @return {@code true}, if existing, {@code false} otherwise
+   */
+  boolean existsResource(String name);
 
-	/**
-	 * List all resources within this database.
-	 *
-	 * @return all resources
-	 */
-	List<Path> listResources();
+  /**
+   * List all resources within this database.
+   *
+   * @return all resources
+   */
+  List<Path> listResources();
 
-	/**
-	 * Getting the resource manager to open and work with a resource stored in this database.
-	 *
-	 * @param config {@link ResourceManagerConfiguration.Builder} reference
-	 * @return the session
-	 * @throws SirixException if can't get session
-	 */
-	ResourceManager getResourceManager(ResourceManagerConfiguration config) throws SirixException;
+  /**
+   * Getting the resource manager to open and work with a resource stored in this database.
+   *
+   * @param config {@link ResourceManagerConfiguration.Builder} reference
+   * @return the session
+   * @throws SirixException if can't get session
+   */
+  ResourceManager getResourceManager(ResourceManagerConfiguration config) throws SirixException;
 
-	/**
-	 * Truncating a resource. This includes the removal of all data stored within this resource.
-	 *
-	 * @param name resource name
-	 */
-	Database truncateResource(String name);
+  /**
+   * Truncating a resource. This includes the removal of all data stored within this resource.
+   *
+   * @param name resource name
+   */
+  Database truncateResource(String name);
 
-	/**
-	 * Closing the database for further access.
-	 *
-	 * @throws SirixException if anything happens within sirix.
-	 */
-	@Override
-	void close() throws SirixException;
+  /**
+   * Closing the database for further access.
+   *
+   * @throws SirixException if anything happens within sirix.
+   */
+  @Override
+  void close() throws SirixException;
 
-	/**
-	 * Get the {@link DatabaseConfiguration} associated with this database.
-	 *
-	 * @return {@link DatabaseConfiguration} reference associated with this database
-	 */
-	DatabaseConfiguration getDatabaseConfig();
+  /**
+   * Get the {@link DatabaseConfiguration} associated with this database.
+   *
+   * @return {@link DatabaseConfiguration} reference associated with this database
+   */
+  DatabaseConfiguration getDatabaseConfig();
 
-	/**
-	 * Begin a database wide transaction.
-	 *
-	 * @return the started transaction
-	 */
-	Transaction beginTransaction();
+  /**
+   * Begin a database wide transaction.
+   *
+   * @return the started transaction
+   */
+  Transaction beginTransaction();
 
-	/**
-	 * Get the resource name associated with the given ID.
-	 *
-	 * @param id unique ID of resource
-	 * @return resource name
-	 * @throws IllegalArgumentException if {@code pID} is negative
-	 */
-	String getResourceName(@Nonnegative long id);
+  /**
+   * Get the resource name associated with the given ID.
+   *
+   * @param id unique ID of resource
+   * @return resource name
+   * @throws IllegalArgumentException if {@code pID} is negative
+   */
+  String getResourceName(@Nonnegative long id);
 
-	/**
-	 * Get the resource-ID associated with the given resource name.
-	 *
-	 * @param name name of resource
-	 * @return ID of resource with the given name
-	 * @throws NullPointerException if {@code pName} is {@code null}
-	 */
-	long getResourceID(String name);
+  /**
+   * Get the resource-ID associated with the given resource name.
+   *
+   * @param name name of resource
+   * @return ID of resource with the given name
+   * @throws NullPointerException if {@code pName} is {@code null}
+   */
+  long getResourceID(String name);
 }

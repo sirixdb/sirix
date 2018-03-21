@@ -1,14 +1,12 @@
 package org.sirix.xquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.update.op.UpdateOp;
@@ -19,46 +17,46 @@ import org.sirix.xquery.node.DBStore;
 
 public final class SirixQueryContext extends QueryContext {
 
-	public enum CommitStrategy {
-		AUTO,
+  public enum CommitStrategy {
+    AUTO,
 
-		EXPLICIT
-	}
+    EXPLICIT
+  }
 
-	private CommitStrategy mCommitStrategy;
+  private CommitStrategy mCommitStrategy;
 
-	public SirixQueryContext(final DBStore store) {
-		this(store, CommitStrategy.AUTO);
-	}
+  public SirixQueryContext(final DBStore store) {
+    this(store, CommitStrategy.AUTO);
+  }
 
-	public SirixQueryContext(final DBStore store, final CommitStrategy commitStrategy) {
-		super(store);
-		mCommitStrategy = checkNotNull(commitStrategy);
-	}
+  public SirixQueryContext(final DBStore store, final CommitStrategy commitStrategy) {
+    super(store);
+    mCommitStrategy = checkNotNull(commitStrategy);
+  }
 
-	@Override
-	public void applyUpdates() throws QueryException {
-		super.applyUpdates();
+  @Override
+  public void applyUpdates() throws QueryException {
+    super.applyUpdates();
 
-		if (mCommitStrategy == CommitStrategy.AUTO) {
-			final List<UpdateOp> updateList =
-					getUpdateList() != null ? getUpdateList().list() : Collections.emptyList();
+    if (mCommitStrategy == CommitStrategy.AUTO) {
+      final List<UpdateOp> updateList =
+          getUpdateList() != null ? getUpdateList().list() : Collections.emptyList();
 
-			if (!updateList.isEmpty()) {
-				final Function<Sequence, Optional<XdmNodeWriteTrx>> mapDBNodeToWtx = sequence -> {
-					if (sequence instanceof DBNode) {
-						return ((DBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
-					}
+      if (!updateList.isEmpty()) {
+        final Function<Sequence, Optional<XdmNodeWriteTrx>> mapDBNodeToWtx = sequence -> {
+          if (sequence instanceof DBNode) {
+            return ((DBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
+          }
 
-					return Optional.empty();
-				};
+          return Optional.empty();
+        };
 
-				final Set<Long> trxIDs = new HashSet<>();
+        final Set<Long> trxIDs = new HashSet<>();
 
-				updateList.stream().map(UpdateOp::getTarget).map(mapDBNodeToWtx).filter(Optional::isPresent)
-						.map(Optional::get).filter(trx -> trxIDs.add(trx.getId()))
-						.forEach(XdmNodeWriteTrx::commit);
-			}
-		}
-	}
+        updateList.stream().map(UpdateOp::getTarget).map(mapDBNodeToWtx).filter(Optional::isPresent)
+            .map(Optional::get).filter(trx -> trxIDs.add(trx.getId()))
+            .forEach(XdmNodeWriteTrx::commit);
+      }
+    }
+  }
 }

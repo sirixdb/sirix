@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -69,98 +68,98 @@ import org.sirix.service.xml.xpath.expr.AbstractExpression;
  */
 public abstract class AbstractFunction extends AbstractExpression {
 
-	/** The function's arguments. */
-	private final List<Axis> mArgs;
+  /** The function's arguments. */
+  private final List<Axis> mArgs;
 
-	/** Minimum number of possible function arguments. */
-	private final int mMin;
+  /** Minimum number of possible function arguments. */
+  private final int mMin;
 
-	/** Maximum number of possible function arguments. */
-	private final int mMax;
+  /** Maximum number of possible function arguments. */
+  private final int mMax;
 
-	/** The function's return type. */
-	private final int mReturnType;
+  /** The function's return type. */
+  private final int mReturnType;
 
-	/**
-	 * Constructor. Initializes internal state and do a statical analysis concerning the function's
-	 * arguments.
-	 * 
-	 * @param rtx Transaction to operate on
-	 * @param args List of function arguments
-	 * @param min min number of allowed function arguments
-	 * @param max max number of allowed function arguments
-	 * @param returnType the type that the function's result will have
-	 * @throws SirixXPathException if the verify process is failing.
-	 */
-	public AbstractFunction(final XdmNodeReadTrx rtx, final List<Axis> args, final int min,
-			final int max, final int returnType) throws SirixXPathException {
+  /**
+   * Constructor. Initializes internal state and do a statical analysis concerning the function's
+   * arguments.
+   * 
+   * @param rtx Transaction to operate on
+   * @param args List of function arguments
+   * @param min min number of allowed function arguments
+   * @param max max number of allowed function arguments
+   * @param returnType the type that the function's result will have
+   * @throws SirixXPathException if the verify process is failing.
+   */
+  public AbstractFunction(final XdmNodeReadTrx rtx, final List<Axis> args, final int min,
+      final int max, final int returnType) throws SirixXPathException {
 
-		super(rtx);
-		mArgs = args;
-		mMin = min;
-		mMax = max;
-		mReturnType = returnType;
-		varifyParam(args.size());
-	}
+    super(rtx);
+    mArgs = args;
+    mMin = min;
+    mMax = max;
+    mReturnType = returnType;
+    varifyParam(args.size());
+  }
 
-	/**
-	 * Checks if the number of input arguments of this function is a valid according to the function
-	 * specification in <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0
-	 * Functions and Operators</a>. Throws an XPath error in case of a non-valid number.
-	 * 
-	 * @param mNumber number of given function arguments
-	 * @throws SirixXPathException if function call fails.
-	 */
-	public final void varifyParam(final int mNumber) throws SirixXPathException {
+  /**
+   * Checks if the number of input arguments of this function is a valid according to the function
+   * specification in <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0
+   * Functions and Operators</a>. Throws an XPath error in case of a non-valid number.
+   * 
+   * @param mNumber number of given function arguments
+   * @throws SirixXPathException if function call fails.
+   */
+  public final void varifyParam(final int mNumber) throws SirixXPathException {
 
-		if (mNumber < mMin || mNumber > mMax) {
-			throw EXPathError.XPST0017.getEncapsulatedException();
-		}
-	}
+    if (mNumber < mMin || mNumber > mMax) {
+      throw EXPathError.XPST0017.getEncapsulatedException();
+    }
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void reset(final long mNodeKey) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void reset(final long mNodeKey) {
 
-		super.reset(mNodeKey);
-		if (mArgs != null) {
-			for (Axis ax : mArgs) {
-				ax.reset(mNodeKey);
-			}
-		}
-	}
+    super.reset(mNodeKey);
+    if (mArgs != null) {
+      for (Axis ax : mArgs) {
+        ax.reset(mNodeKey);
+      }
+    }
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void evaluate() throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void evaluate() throws SirixXPathException {
 
-		// compute the function's result
-		final byte[] value = computeResult();
+    // compute the function's result
+    final byte[] value = computeResult();
 
-		// create an atomic value, add it to the list and move the cursor to it.
-		final int itemKey = getTrx().getItemList().addItem(new AtomicValue(value, mReturnType));
-		mKey = itemKey;
+    // create an atomic value, add it to the list and move the cursor to it.
+    final int itemKey = getTrx().getItemList().addItem(new AtomicValue(value, mReturnType));
+    mKey = itemKey;
 
-	}
+  }
 
-	/**
-	 * Computes the result value of the function. This implementation is acts as a hook operation and
-	 * needs to be overridden by the concrete function classes, otherwise an exception is thrown.
-	 * 
-	 * @return value of the result
-	 * @throws SirixXPathException if anythin odd happens while execution
-	 */
-	protected abstract byte[] computeResult() throws SirixXPathException;
+  /**
+   * Computes the result value of the function. This implementation is acts as a hook operation and
+   * needs to be overridden by the concrete function classes, otherwise an exception is thrown.
+   * 
+   * @return value of the result
+   * @throws SirixXPathException if anythin odd happens while execution
+   */
+  protected abstract byte[] computeResult() throws SirixXPathException;
 
-	/**
-	 * @return the list of function arguments
-	 */
-	protected List<Axis> getArgs() {
-		return mArgs;
-	}
+  /**
+   * @return the list of function arguments
+   */
+  protected List<Axis> getArgs() {
+    return mArgs;
+  }
 
 }

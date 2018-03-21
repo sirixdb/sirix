@@ -22,14 +22,11 @@
 package org.sirix.axis.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
@@ -56,107 +53,107 @@ import org.slf4j.LoggerFactory;
  */
 public class ConcurrentAxis extends AbstractAxis {
 
-	/** Logger. */
-	private static final LogWrapper LOGGER =
-			new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
+  /** Logger. */
+  private static final LogWrapper LOGGER =
+      new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
 
-	/** Axis that is running in an own thread and produces results for this axis. */
-	private final Axis mProducer;
+  /** Axis that is running in an own thread and produces results for this axis. */
+  private final Axis mProducer;
 
-	/**
-	 * Queue that stores result keys already computed by the producer. End of the result sequence is
-	 * marked by the NULL_NODE_KEY.
-	 */
-	private final BlockingQueue<Long> mResults;
+  /**
+   * Queue that stores result keys already computed by the producer. End of the result sequence is
+   * marked by the NULL_NODE_KEY.
+   */
+  private final BlockingQueue<Long> mResults;
 
-	/** Capacity of the mResults queue. */
-	private final int M_CAPACITY = 200;
+  /** Capacity of the mResults queue. */
+  private final int M_CAPACITY = 200;
 
-	/** Has axis already been called? */
-	private boolean mFirst;
+  /** Has axis already been called? */
+  private boolean mFirst;
 
-	/** Runnable in which the producer is running. */
-	private Runnable task;
+  /** Runnable in which the producer is running. */
+  private Runnable task;
 
-	/** Is axis already finished and has no results left? */
-	private boolean mFinished;
+  /** Is axis already finished and has no results left? */
+  private boolean mFinished;
 
-	/** Executor Service holding the execution plan for future tasks. */
-	public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+  /** Executor Service holding the execution plan for future tasks. */
+  public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 * @param childAxis producer axis
-	 */
-	public ConcurrentAxis(final XdmNodeReadTrx rtx, final Axis childAxis) {
-		super(rtx);
-		if (rtx.equals(childAxis.getTrx()) && rtx.getId() == childAxis.getTrx().getId()) {
-			throw new IllegalArgumentException(
-					"The filter must be bound to another transaction but on the same revision/node!");
-		}
-		mResults = new ArrayBlockingQueue<>(M_CAPACITY);
-		mFirst = true;
-		mProducer = checkNotNull(childAxis);
-		task = new ConcurrentAxisHelper(mProducer, mResults);
-		mFinished = false;
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   * @param childAxis producer axis
+   */
+  public ConcurrentAxis(final XdmNodeReadTrx rtx, final Axis childAxis) {
+    super(rtx);
+    if (rtx.equals(childAxis.getTrx()) && rtx.getId() == childAxis.getTrx().getId()) {
+      throw new IllegalArgumentException(
+          "The filter must be bound to another transaction but on the same revision/node!");
+    }
+    mResults = new ArrayBlockingQueue<>(M_CAPACITY);
+    mFirst = true;
+    mProducer = checkNotNull(childAxis);
+    task = new ConcurrentAxisHelper(mProducer, mResults);
+    mFinished = false;
+  }
 
-	@Override
-	public synchronized void reset(final @Nonnegative long nodeKey) {
-		super.reset(nodeKey);
-		mFirst = true;
-		mFinished = false;
+  @Override
+  public synchronized void reset(final @Nonnegative long nodeKey) {
+    super.reset(nodeKey);
+    mFirst = true;
+    mFinished = false;
 
-		if (mProducer != null) {
-			mProducer.reset(nodeKey);
-		}
-		if (mResults != null) {
-			mResults.clear();
-		}
-		if (task != null) {
-			task = new ConcurrentAxisHelper(mProducer, mResults);
-		}
-	}
+    if (mProducer != null) {
+      mProducer.reset(nodeKey);
+    }
+    if (mResults != null) {
+      mResults.clear();
+    }
+    if (task != null) {
+      task = new ConcurrentAxisHelper(mProducer, mResults);
+    }
+  }
 
-	@Override
-	protected long nextKey() {
-		// Start producer on first call.
-		if (mFirst) {
-			mFirst = false;
-			EXECUTOR.submit(task);
-		}
+  @Override
+  protected long nextKey() {
+    // Start producer on first call.
+    if (mFirst) {
+      mFirst = false;
+      EXECUTOR.submit(task);
+    }
 
-		if (mFinished) {
-			return done();
-		}
+    if (mFinished) {
+      return done();
+    }
 
-		long result = Fixed.NULL_NODE_KEY.getStandardProperty();
+    long result = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-		try {
-			// Get result from producer as soon as it is available.
-			result = mResults.take();
-		} catch (final InterruptedException e) {
-			LOGGER.warn(e.getMessage(), e);
-		}
+    try {
+      // Get result from producer as soon as it is available.
+      result = mResults.take();
+    } catch (final InterruptedException e) {
+      LOGGER.warn(e.getMessage(), e);
+    }
 
-		// NULL_NODE_KEY marks end of the sequence computed by the producer.
-		if (result != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			return result;
-		}
+    // NULL_NODE_KEY marks end of the sequence computed by the producer.
+    if (result != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return result;
+    }
 
-		mFinished = true;
-		return done();
-	}
+    mFinished = true;
+    return done();
+  }
 
-	/**
-	 * Determines if axis has more results to deliver or not.
-	 * 
-	 * @return {@code true}, if axis still has results left, {@code false} otherwise
-	 */
-	public boolean isFinished() {
-		return mFinished;
-	}
+  /**
+   * Determines if axis has more results to deliver or not.
+   * 
+   * @return {@code true}, if axis still has results left, {@code false} otherwise
+   */
+  public boolean isFinished() {
+    return mFinished;
+  }
 
 }

@@ -21,16 +21,13 @@
 package org.sirix.diff.service;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
-
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -55,96 +52,96 @@ import org.slf4j.LoggerFactory;
  */
 public final class FMSEImport {
 
-	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER =
-			new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
+  /** {@link LogWrapper} reference. */
+  private static final LogWrapper LOGWRAPPER =
+      new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
 
-	/**
-	 * Shredder new revision as temporal resource.
-	 *
-	 * @param resNewRev {@link File} reference for new revision (XML resource)
-	 * @param newRev {@link File} reference for shreddered new revision (sirix resource)
-	 * @throws SirixException if sirix fails to shredder the file
-	 * @throws IOException if file couldn't be read
-	 * @throws XMLStreamException if XML document isn't well formed
-	 * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
-	 */
-	private void shredder(final Path resNewRev, @Nonnull Path newRev)
-			throws SirixException, IOException, XMLStreamException {
-		assert resNewRev != null;
-		assert newRev != null;
-		final DatabaseConfiguration conf = new DatabaseConfiguration(newRev);
-		Databases.truncateDatabase(conf);
-		Databases.createDatabase(conf);
+  /**
+   * Shredder new revision as temporal resource.
+   *
+   * @param resNewRev {@link File} reference for new revision (XML resource)
+   * @param newRev {@link File} reference for shreddered new revision (sirix resource)
+   * @throws SirixException if sirix fails to shredder the file
+   * @throws IOException if file couldn't be read
+   * @throws XMLStreamException if XML document isn't well formed
+   * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
+   */
+  private void shredder(final Path resNewRev, @Nonnull Path newRev)
+      throws SirixException, IOException, XMLStreamException {
+    assert resNewRev != null;
+    assert newRev != null;
+    final DatabaseConfiguration conf = new DatabaseConfiguration(newRev);
+    Databases.truncateDatabase(conf);
+    Databases.createDatabase(conf);
 
-		try (final Database db = Databases.openDatabase(newRev)) {
-			db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
-			try (
-					final ResourceManager resMgr =
-							db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
-					final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
-				final XMLEventReader fileReader = XMLShredder.createFileReader(resNewRev);
-				final XMLShredder shredder = new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD)
-						.commitAfterwards().build();
-				shredder.call();
-			}
-		}
-	}
+    try (final Database db = Databases.openDatabase(newRev)) {
+      db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
+      try (
+          final ResourceManager resMgr =
+              db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
+        final XMLEventReader fileReader = XMLShredder.createFileReader(resNewRev);
+        final XMLShredder shredder = new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD)
+            .commitAfterwards().build();
+        shredder.call();
+      }
+    }
+  }
 
-	/**
-	 * Import the data.
-	 *
-	 * @param resOldRev {@link File} for old revision (sirix resource)
-	 * @param resNewRev {@link File} for new revision (XML resource)
-	 */
-	private void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
+  /**
+   * Import the data.
+   *
+   * @param resOldRev {@link File} for old revision (sirix resource)
+   * @param resNewRev {@link File} for new revision (XML resource)
+   */
+  private void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
 
-		try {
-			final Path newRevTarget =
-					java.nio.file.Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
-			if (java.nio.file.Files.exists(newRevTarget)) {
-				Files.recursiveRemove(newRevTarget);
-			}
-			shredder(checkNotNull(resNewRev), newRevTarget);
+    try {
+      final Path newRevTarget =
+          java.nio.file.Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
+      if (java.nio.file.Files.exists(newRevTarget)) {
+        Files.recursiveRemove(newRevTarget);
+      }
+      shredder(checkNotNull(resNewRev), newRevTarget);
 
-			try (final Database databaseOld = Databases.openDatabase(resOldRev);
-					final ResourceManager resMgrOld = databaseOld
-							.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
-					final XdmNodeWriteTrx wtx = resMgrOld.beginNodeWriteTrx();
-					final Database databaseNew = Databases.openDatabase(newRevTarget);
-					final ResourceManager resourceNew = databaseNew
-							.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
-					final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
-					final FMSE fmes = new FMSE()) {
-				fmes.diff(wtx, rtx);
-			}
-		} catch (final SirixException | IOException | XMLStreamException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-		}
-	}
+      try (final Database databaseOld = Databases.openDatabase(resOldRev);
+          final ResourceManager resMgrOld = databaseOld
+              .getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final XdmNodeWriteTrx wtx = resMgrOld.beginNodeWriteTrx();
+          final Database databaseNew = Databases.openDatabase(newRevTarget);
+          final ResourceManager resourceNew = databaseNew
+              .getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
+          final FMSE fmes = new FMSE()) {
+        fmes.diff(wtx, rtx);
+      }
+    } catch (final SirixException | IOException | XMLStreamException e) {
+      LOGWRAPPER.error(e.getMessage(), e);
+    }
+  }
 
-	/**
-	 * Main entry point.
-	 *
-	 * @param args
-	 *        <p>
-	 *        arguments:
-	 *        </p>
-	 *        <ul>
-	 *        <li>args[0] - path to resource to update</li>
-	 *        <li>args[1] - path to new XML document</li>
-	 *        </ul>
-	 */
-	public static void main(final String[] args) {
-		if (args.length < 2 || args.length > 4) {
-			throw new IllegalArgumentException(
-					"Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
-		}
+  /**
+   * Main entry point.
+   *
+   * @param args
+   *        <p>
+   *        arguments:
+   *        </p>
+   *        <ul>
+   *        <li>args[0] - path to resource to update</li>
+   *        <li>args[1] - path to new XML document</li>
+   *        </ul>
+   */
+  public static void main(final String[] args) {
+    if (args.length < 2 || args.length > 4) {
+      throw new IllegalArgumentException(
+          "Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
+    }
 
-		final Path resOldRev = Paths.get(args[0]);
-		final Path resNewRev = Paths.get(args[1]);
+    final Path resOldRev = Paths.get(args[0]);
+    final Path resNewRev = Paths.get(args[1]);
 
-		final FMSEImport fmse = new FMSEImport();
-		fmse.dataImport(resOldRev, resNewRev);
-	}
+    final FMSEImport fmse = new FMSEImport();
+    fmse.dataImport(resOldRev, resNewRev);
+  }
 }

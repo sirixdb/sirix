@@ -22,7 +22,6 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,42 +31,42 @@ import org.sirix.exception.SirixException;
 
 public class AttributeAndNamespaceTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testAttribute() throws SirixException {
-		holder.getReader().moveTo(1L);
-		assertEquals(1, holder.getReader().getAttributeCount());
-		holder.getReader().moveToAttribute(0);
-		assertEquals("i", holder.getReader().getName().getLocalName());
+  @Test
+  public void testAttribute() throws SirixException {
+    holder.getReader().moveTo(1L);
+    assertEquals(1, holder.getReader().getAttributeCount());
+    holder.getReader().moveToAttribute(0);
+    assertEquals("i", holder.getReader().getName().getLocalName());
 
-		holder.getReader().moveTo(9L);
-		assertEquals(1, holder.getReader().getAttributeCount());
-		holder.getReader().moveToAttribute(0);
-		assertEquals("p:x", new StringBuilder(holder.getReader().getName().getPrefix()).append(":")
-				.append(holder.getReader().getName().getLocalName()).toString());
-		assertEquals("ns", holder.getReader().getName().getNamespaceURI());
-	}
+    holder.getReader().moveTo(9L);
+    assertEquals(1, holder.getReader().getAttributeCount());
+    holder.getReader().moveToAttribute(0);
+    assertEquals("p:x", new StringBuilder(holder.getReader().getName().getPrefix()).append(":")
+        .append(holder.getReader().getName().getLocalName()).toString());
+    assertEquals("ns", holder.getReader().getName().getNamespaceURI());
+  }
 
-	@Test
-	public void testNamespace() throws SirixException {
-		holder.getReader().moveTo(1L);
-		assertEquals(1, holder.getReader().getNamespaceCount());
-		holder.getReader().moveToNamespace(0);
-		assertEquals("p", holder.getReader().getName().getPrefix());
-		assertEquals("ns", holder.getReader().getName().getNamespaceURI());
-	}
+  @Test
+  public void testNamespace() throws SirixException {
+    holder.getReader().moveTo(1L);
+    assertEquals(1, holder.getReader().getNamespaceCount());
+    holder.getReader().moveToNamespace(0);
+    assertEquals("p", holder.getReader().getName().getPrefix());
+    assertEquals("ns", holder.getReader().getName().getNamespaceURI());
+  }
 }
