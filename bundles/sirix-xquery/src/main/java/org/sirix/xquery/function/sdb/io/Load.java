@@ -2,7 +2,6 @@ package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
 import java.util.Optional;
-
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -47,239 +46,239 @@ import org.sirix.xquery.node.DBStore;
  *
  */
 @FunctionAnnotation(
-		description = "Store the given fragments in a collection. "
-				+ "If explicitly required or if the collection does not exist, "
-				+ "a new collection will be created. ",
-		parameters = {"$coll", "$res", "$fragments", "$create-new"})
+    description = "Store the given fragments in a collection. "
+        + "If explicitly required or if the collection does not exist, "
+        + "a new collection will be created. ",
+    parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
-	/** Load function name. */
-	public final static QNm LOAD = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "load");
+  /** Load function name. */
+  public final static QNm LOAD = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "load");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param createNew determines if a new collection has to be created or not
-	 */
-	public Load(final boolean createNew) {
-		this(LOAD, createNew);
-	}
+  /**
+   * Constructor.
+   *
+   * @param createNew determines if a new collection has to be created or not
+   */
+  public Load(final boolean createNew) {
+    this(LOAD, createNew);
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name the function name
-	 * @param createNew determines if a new collection has to be created or not
-	 */
-	public Load(final QNm name, final boolean createNew) {
-		super(name,
-				createNew
-						? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-								new SequenceType(AtomicType.STR, Cardinality.One),
-								new SequenceType(AtomicType.STR, Cardinality.One),
-								new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
-						: new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-								new SequenceType(AtomicType.STR, Cardinality.One),
-								new SequenceType(AtomicType.STR, Cardinality.One),
-								new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-								new SequenceType(AtomicType.BOOL, Cardinality.One)),
-				true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the function name
+   * @param createNew determines if a new collection has to be created or not
+   */
+  public Load(final QNm name, final boolean createNew) {
+    super(name,
+        createNew
+            ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
+            : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+                new SequenceType(AtomicType.BOOL, Cardinality.One)),
+        true);
+  }
 
-	@Override
-	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-			throws QueryException {
-		try {
-			final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-			final Sequence resources = args[2];
-			if (resources == null)
-				throw new QueryException(new QNm("No sequence of resources specified!"));
-			final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
-			final String resName =
-					FunUtil.getString(args, 1, "resName", "resource", null, createNew ? false : true);
+  @Override
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
+      throws QueryException {
+    try {
+      final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
+      final Sequence resources = args[2];
+      if (resources == null)
+        throw new QueryException(new QNm("No sequence of resources specified!"));
+      final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
+      final String resName =
+          FunUtil.getString(args, 1, "resName", "resource", null, createNew ? false : true);
 
-			final DBStore store = (DBStore) ctx.getStore();
-			DBCollection coll;
-			if (createNew) {
-				coll = (DBCollection) create(store, collName, resName, resources);
-			} else {
-				try {
-					coll = (DBCollection) store.lookup(collName);
-					add(store, coll, resName, resources);
-				} catch (DocumentException e) {
-					// collection does not exist
-					coll = (DBCollection) create(store, collName, resName, resources);
-				}
-			}
+      final DBStore store = (DBStore) ctx.getStore();
+      DBCollection coll;
+      if (createNew) {
+        coll = (DBCollection) create(store, collName, resName, resources);
+      } else {
+        try {
+          coll = (DBCollection) store.lookup(collName);
+          add(store, coll, resName, resources);
+        } catch (DocumentException e) {
+          // collection does not exist
+          coll = (DBCollection) create(store, collName, resName, resources);
+        }
+      }
 
-			return coll;
-		} catch (final Exception e) {
-			throw new QueryException(new QNm(e.getMessage()), e);
-		}
-	}
+      return coll;
+    } catch (final Exception e) {
+      throw new QueryException(new QNm(e.getMessage()), e);
+    }
+  }
 
-	private TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
-			final DBCollection coll, final String resName, final Sequence resources)
-			throws DocumentException, IOException {
-		if (resources instanceof Atomic) {
-			final Atomic res = (Atomic) resources;
-			coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
-			return coll;
-		} else {
-			final ParserStream parsers = new ParserStream(resources);
-			try {
-				for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-					coll.add(resName, parser);
-				}
-			} finally {
-				parsers.close();
-			}
-			return coll;
-		}
-	}
+  private TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
+      final DBCollection coll, final String resName, final Sequence resources)
+      throws DocumentException, IOException {
+    if (resources instanceof Atomic) {
+      final Atomic res = (Atomic) resources;
+      coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+      return coll;
+    } else {
+      final ParserStream parsers = new ParserStream(resources);
+      try {
+        for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
+          coll.add(resName, parser);
+        }
+      } finally {
+        parsers.close();
+      }
+      return coll;
+    }
+  }
 
-	private TemporalCollection<?> create(final DBStore store, final String collName,
-			final String resName, final Sequence resources) throws DocumentException, IOException {
-		if (resources instanceof Atomic) {
-			final Atomic res = (Atomic) resources;
-			return store.create(collName, Optional.of(resName),
-					new DocumentParser(URIHandler.getInputStream(res.stringValue())));
-		} else {
-			return store.create(collName, new ParserStream(resources));
-		}
-	}
+  private TemporalCollection<?> create(final DBStore store, final String collName,
+      final String resName, final Sequence resources) throws DocumentException, IOException {
+    if (resources instanceof Atomic) {
+      final Atomic res = (Atomic) resources;
+      return store.create(collName, Optional.of(resName),
+          new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+    } else {
+      return store.create(collName, new ParserStream(resources));
+    }
+  }
 
-	private static class StoreParser extends StreamSubtreeParser {
-		private final boolean intercept;
+  private static class StoreParser extends StreamSubtreeParser {
+    private final boolean intercept;
 
-		public StoreParser(Node<?> node) throws DocumentException {
-			super(node.getSubtree());
-			intercept = (node.getKind() != Kind.DOCUMENT);
-		}
+    public StoreParser(Node<?> node) throws DocumentException {
+      super(node.getSubtree());
+      intercept = (node.getKind() != Kind.DOCUMENT);
+    }
 
-		@Override
-		public void parse(SubtreeHandler handler) throws DocumentException {
-			if (intercept) {
-				handler = new InterceptorHandler(handler);
-			}
-			super.parse(handler);
-		}
-	}
+    @Override
+    public void parse(SubtreeHandler handler) throws DocumentException {
+      if (intercept) {
+        handler = new InterceptorHandler(handler);
+      }
+      super.parse(handler);
+    }
+  }
 
-	private static class InterceptorHandler implements SubtreeHandler {
-		private final SubtreeHandler handler;
+  private static class InterceptorHandler implements SubtreeHandler {
+    private final SubtreeHandler handler;
 
-		public InterceptorHandler(SubtreeHandler handler) {
-			this.handler = handler;
-		}
+    public InterceptorHandler(SubtreeHandler handler) {
+      this.handler = handler;
+    }
 
-		@Override
-		public void beginFragment() throws DocumentException {
-			handler.beginFragment();
-			handler.startDocument();
-		}
+    @Override
+    public void beginFragment() throws DocumentException {
+      handler.beginFragment();
+      handler.startDocument();
+    }
 
-		@Override
-		public void endFragment() throws DocumentException {
-			handler.endDocument();
-			handler.endFragment();
-		}
+    @Override
+    public void endFragment() throws DocumentException {
+      handler.endDocument();
+      handler.endFragment();
+    }
 
-		@Override
-		public void startDocument() throws DocumentException {
-			handler.startDocument();
-		}
+    @Override
+    public void startDocument() throws DocumentException {
+      handler.startDocument();
+    }
 
-		@Override
-		public void endDocument() throws DocumentException {
-			handler.endDocument();
-		}
+    @Override
+    public void endDocument() throws DocumentException {
+      handler.endDocument();
+    }
 
-		@Override
-		public void text(Atomic content) throws DocumentException {
-			handler.text(content);
-		}
+    @Override
+    public void text(Atomic content) throws DocumentException {
+      handler.text(content);
+    }
 
-		@Override
-		public void comment(Atomic content) throws DocumentException {
-			handler.comment(content);
-		}
+    @Override
+    public void comment(Atomic content) throws DocumentException {
+      handler.comment(content);
+    }
 
-		@Override
-		public void processingInstruction(QNm target, Atomic content) throws DocumentException {
-			handler.processingInstruction(target, content);
-		}
+    @Override
+    public void processingInstruction(QNm target, Atomic content) throws DocumentException {
+      handler.processingInstruction(target, content);
+    }
 
-		@Override
-		public void startMapping(String prefix, String uri) throws DocumentException {
-			handler.startMapping(prefix, uri);
-		}
+    @Override
+    public void startMapping(String prefix, String uri) throws DocumentException {
+      handler.startMapping(prefix, uri);
+    }
 
-		@Override
-		public void endMapping(String prefix) throws DocumentException {
-			handler.endMapping(prefix);
-		}
+    @Override
+    public void endMapping(String prefix) throws DocumentException {
+      handler.endMapping(prefix);
+    }
 
-		@Override
-		public void startElement(QNm name) throws DocumentException {
-			handler.startElement(name);
-		}
+    @Override
+    public void startElement(QNm name) throws DocumentException {
+      handler.startElement(name);
+    }
 
-		@Override
-		public void endElement(QNm name) throws DocumentException {
-			handler.endElement(name);
-		}
+    @Override
+    public void endElement(QNm name) throws DocumentException {
+      handler.endElement(name);
+    }
 
-		@Override
-		public void attribute(QNm name, Atomic value) throws DocumentException {
-			handler.attribute(name, value);
-		}
+    @Override
+    public void attribute(QNm name, Atomic value) throws DocumentException {
+      handler.attribute(name, value);
+    }
 
-		@Override
-		public void begin() throws DocumentException {
-			handler.begin();
-		}
+    @Override
+    public void begin() throws DocumentException {
+      handler.begin();
+    }
 
-		@Override
-		public void end() throws DocumentException {
-			handler.end();
-		}
+    @Override
+    public void end() throws DocumentException {
+      handler.end();
+    }
 
-		@Override
-		public void fail() throws DocumentException {
-			handler.fail();
-		}
-	}
+    @Override
+    public void fail() throws DocumentException {
+      handler.fail();
+    }
+  }
 
-	private static class ParserStream implements Stream<SubtreeParser> {
-		private final Iter it;
+  private static class ParserStream implements Stream<SubtreeParser> {
+    private final Iter it;
 
-		public ParserStream(final Sequence locs) {
-			it = locs.iterate();
-		}
+    public ParserStream(final Sequence locs) {
+      it = locs.iterate();
+    }
 
-		@Override
-		public SubtreeParser next() throws DocumentException {
-			try {
-				final Item i = it.next();
-				if (i == null) {
-					return null;
-				}
-				if (i instanceof Node<?>) {
-					final Node<?> n = (Node<?>) i;
-					return new StoreParser(n);
-				} else {
-					throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
-							"Cannot create subtree parser for item of type: %s", i.itemType());
-				}
-			} catch (QueryException e) {
-				throw new DocumentException(e);
-			}
-		}
+    @Override
+    public SubtreeParser next() throws DocumentException {
+      try {
+        final Item i = it.next();
+        if (i == null) {
+          return null;
+        }
+        if (i instanceof Node<?>) {
+          final Node<?> n = (Node<?>) i;
+          return new StoreParser(n);
+        } else {
+          throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
+              "Cannot create subtree parser for item of type: %s", i.itemType());
+        }
+      } catch (QueryException e) {
+        throw new DocumentException(e);
+      }
+    }
 
-		@Override
-		public void close() {
-			it.close();
-		}
-	}
+    @Override
+    public void close() {
+      it.close();
+    }
+  }
 }

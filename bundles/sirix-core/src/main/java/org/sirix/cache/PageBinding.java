@@ -26,9 +26,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-
 import javax.annotation.Nullable;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.PagePersistenter;
@@ -36,7 +34,6 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.Page;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
@@ -46,48 +43,48 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class PageBinding extends TupleBinding<Page> {
 
-	/** Logger instance. */
-	private static final LogWrapper LOGGER =
-			new LogWrapper(LoggerFactory.getLogger(PageBinding.class));
+  /** Logger instance. */
+  private static final LogWrapper LOGGER =
+      new LogWrapper(LoggerFactory.getLogger(PageBinding.class));
 
-	/** {@link ResourceConfiguration} instance. */
-	private final PageReadTrx mPageReadTrx;
+  /** {@link ResourceConfiguration} instance. */
+  private final PageReadTrx mPageReadTrx;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param pageReadTrx {@link PageReadTrx} instance
-	 */
-	public PageBinding(final PageReadTrx pageReadTrx) {
-		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mPageReadTrx = pageReadTrx;
-	}
+  /**
+   * Constructor.
+   *
+   * @param pageReadTrx {@link PageReadTrx} instance
+   */
+  public PageBinding(final PageReadTrx pageReadTrx) {
+    assert pageReadTrx != null : "pageReadTrx must not be null!";
+    mPageReadTrx = pageReadTrx;
+  }
 
-	@Override
-	public Page entryToObject(final @Nullable TupleInput input) {
-		if (input == null) {
-			return null;
-		}
-		try {
-			return PagePersistenter.deserializePage(new DataInputStream(input), mPageReadTrx,
-					SerializationType.COMMIT);
-		} catch (final IOException e) {
-			LOGGER.error(e.getMessage(), e);
-			return null;
-		}
-	}
+  @Override
+  public Page entryToObject(final @Nullable TupleInput input) {
+    if (input == null) {
+      return null;
+    }
+    try {
+      return PagePersistenter.deserializePage(new DataInputStream(input), mPageReadTrx,
+          SerializationType.COMMIT);
+    } catch (final IOException e) {
+      LOGGER.error(e.getMessage(), e);
+      return null;
+    }
+  }
 
-	@Override
-	public void objectToEntry(final @Nullable Page page, final @Nullable TupleOutput output) {
-		if (page != null && output != null) {
-			final OutputStream target = new ByteArrayOutputStream();
-			final byte[] bytes = output.getBufferBytes();
-			try {
-				target.write(bytes, 0, bytes.length);
-				page.serialize(new DataOutputStream(target), SerializationType.COMMIT);
-			} catch (final IOException e) {
-				LOGGER.error(e.getMessage(), e);
-			}
-		}
-	}
+  @Override
+  public void objectToEntry(final @Nullable Page page, final @Nullable TupleOutput output) {
+    if (page != null && output != null) {
+      final OutputStream target = new ByteArrayOutputStream();
+      final byte[] bytes = output.getBufferBytes();
+      try {
+        target.write(bytes, 0, bytes.length);
+        page.serialize(new DataOutputStream(target), SerializationType.COMMIT);
+      } catch (final IOException e) {
+        LOGGER.error(e.getMessage(), e);
+      }
+    }
+  }
 }

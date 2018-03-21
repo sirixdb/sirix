@@ -31,39 +31,39 @@ import org.sirix.exception.SirixException;
 
 public class FollowingSiblingAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testAxisConventions() throws SirixException {
-		final XdmNodeReadTrx rtx = holder.getReader();
-		rtx.moveTo(9L);
-		AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {13L});
+  @Test
+  public void testAxisConventions() throws SirixException {
+    final XdmNodeReadTrx rtx = holder.getReader();
+    rtx.moveTo(9L);
+    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {13L});
 
-		rtx.moveTo(5L);
-		AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {8L, 9L, 13L});
+    rtx.moveTo(5L);
+    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {8L, 9L, 13L});
 
-		rtx.moveTo(4L);
-		AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {5L, 8L, 9L, 13L});
+    rtx.moveTo(4L);
+    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {5L, 8L, 9L, 13L});
 
-		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
+    rtx.moveTo(1L);
+    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
 
-		rtx.moveTo(9L);
-		rtx.moveToAttribute(0);
-		AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
-	}
+    rtx.moveTo(9L);
+    rtx.moveToAttribute(0);
+    AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {});
+  }
 
 }

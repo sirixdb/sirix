@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.index.find;
 
 import java.util.Optional;
-
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
@@ -38,39 +37,39 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class FindCASIndex extends AbstractFunction {
 
-	/** CAS index function name. */
-	public final static QNm FIND_CAS_INDEX =
-			new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-cas-index");
+  /** CAS index function name. */
+  public final static QNm FIND_CAS_INDEX =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-cas-index");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name the name of the function
-	 * @param signature the signature of the function
-	 */
-	public FindCASIndex(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public FindCASIndex(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = (DBNode) args[0];
-		final XdmNodeReadTrx rtx = doc.getTrx();
-		final IndexController controller =
-				rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = (DBNode) args[0];
+    final XdmNodeReadTrx rtx = doc.getTrx();
+    final IndexController controller =
+        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
-		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
-		}
+    if (controller == null) {
+      throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+    }
 
-		final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
-		final Type type = sctx.getTypes().resolveAtomicType(name);
-		final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
+    final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
+    final Type type = sctx.getTypes().resolveAtomicType(name);
+    final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
+    final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
 
-		if (indexDef.isPresent())
-			return new Int32(indexDef.get().getID());
-		return new Int32(-1);
-	}
+    if (indexDef.isPresent())
+      return new Int32(indexDef.get().getID());
+    return new Int32(-1);
+  }
 }

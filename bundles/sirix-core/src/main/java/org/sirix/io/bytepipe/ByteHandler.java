@@ -13,28 +13,28 @@ import java.io.OutputStream;
  */
 public interface ByteHandler {
 
-	/**
-	 * Method to serialize any byte-chunk.
-	 * 
-	 * @param toSerialize byte to be serialized
-	 * @return result of the serialization
-	 * @throws IOException if a byte handling exception occurs
-	 */
-	OutputStream serialize(OutputStream pToSerialize) throws IOException;
+  /**
+   * Method to serialize any byte-chunk.
+   * 
+   * @param toSerialize byte to be serialized
+   * @return result of the serialization
+   * @throws IOException if a byte handling exception occurs
+   */
+  OutputStream serialize(OutputStream pToSerialize) throws IOException;
 
-	/**
-	 * Method to deserialize any byte-chunk.
-	 * 
-	 * @param toDeserialize to deserialize
-	 * @return result of the deserialization
-	 * @throws IOException if a byte handling exception occurs
-	 */
-	InputStream deserialize(InputStream toDeserialize) throws IOException;
+  /**
+   * Method to deserialize any byte-chunk.
+   * 
+   * @param toDeserialize to deserialize
+   * @return result of the deserialization
+   * @throws IOException if a byte handling exception occurs
+   */
+  InputStream deserialize(InputStream toDeserialize) throws IOException;
 
-	/**
-	 * Method to retrieve a new instance.
-	 * 
-	 * @return new instance
-	 */
-	ByteHandler getInstance();
+  /**
+   * Method to retrieve a new instance.
+   * 
+   * @return new instance
+   */
+  ByteHandler getInstance();
 }

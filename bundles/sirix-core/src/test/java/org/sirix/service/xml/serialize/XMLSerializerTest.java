@@ -22,9 +22,7 @@
 package org.sirix.service.xml.serialize;
 
 import static org.junit.Assert.assertEquals;
-
 import java.io.ByteArrayOutputStream;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,128 +38,128 @@ import org.sirix.utils.DocumentCreater;
 
 public class XMLSerializerTest {
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testXMLSerializer() throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		wtx.close();
+  @Test
+  public void testXMLSerializer() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    wtx.close();
 
-		// Generate from this session.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer =
-				new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
-		serializer.call();
-		assertEquals(DocumentCreater.XML, out.toString());
-		manager.close();
-	}
+    // Generate from this session.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    final XMLSerializer serializer =
+        new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
+    serializer.call();
+    assertEquals(DocumentCreater.XML, out.toString());
+    manager.close();
+  }
 
-	@Test
-	public void testRestSerializer() throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		wtx.close();
+  @Test
+  public void testRestSerializer() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    wtx.close();
 
-		// Generate from this session.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer =
-				XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
-		serializer.call();
-		assertEquals(DocumentCreater.REST, out.toString());
+    // Generate from this session.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    final XMLSerializer serializer =
+        XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
+    serializer.call();
+    assertEquals(DocumentCreater.REST, out.toString());
 
-		manager.close();
-	}
+    manager.close();
+  }
 
-	@Test
-	public void testIDSerializer() throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		wtx.close();
+  @Test
+  public void testIDSerializer() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    wtx.close();
 
-		// Generate from this session.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer =
-				new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
-		serializer.call();
-		assertEquals(DocumentCreater.ID, out.toString());
-		manager.close();
-	}
+    // Generate from this session.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    final XMLSerializer serializer =
+        new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
+    serializer.call();
+    assertEquals(DocumentCreater.ID, out.toString());
+    manager.close();
+  }
 
-	@Test
-	public void testSampleCompleteSerializer() throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+  @Test
+  public void testSampleCompleteSerializer() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-		// generate serialize all from this session
-		DocumentCreater.createVersioned(wtx);
-		wtx.close();
+    // generate serialize all from this session
+    DocumentCreater.createVersioned(wtx);
+    wtx.close();
 
-		XMLSerializer serializerall =
-				new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
-		serializerall.call();
-		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
-		out.reset();
+    XMLSerializer serializerall =
+        new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
+    serializerall.call();
+    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    out.reset();
 
-		serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
-		serializerall.call();
-		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
-		manager.close();
-	}
+    serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+    serializerall.call();
+    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    manager.close();
+  }
 
-	/**
-	 * This test check the XPath //books expression and expects 6 books as result. But the failure is,
-	 * that only the children of the books will be serialized and NOT the book node itself.
-	 */
-	@Test
-	public void testKeyStart() throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+  /**
+   * This test check the XPath //books expression and expects 6 books as result. But the failure is,
+   * that only the children of the books will be serialized and NOT the book node itself.
+   */
+  @Test
+  public void testKeyStart() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
-		// generate serialize all from this session
-		DocumentCreater.createVersioned(wtx);
-		wtx.commit();
-		wtx.close();
+    // generate serialize all from this session
+    DocumentCreater.createVersioned(wtx);
+    wtx.commit();
+    wtx.close();
 
-		XMLSerializer serializerall =
-				new XMLSerializerBuilder(manager, 5l, out, new XMLSerializerProperties())
-						.emitXMLDeclaration().build();
-		serializerall.call();
-		final String result =
-				"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
+    XMLSerializer serializerall =
+        new XMLSerializerBuilder(manager, 5l, out, new XMLSerializerProperties())
+            .emitXMLDeclaration().build();
+    serializerall.call();
+    final String result =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
 
-		assertEquals(result, out.toString());
-		out.reset();
+    assertEquals(result, out.toString());
+    out.reset();
 
-		serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
-		serializerall.call();
-		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
-		manager.close();
-	}
+    serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+    serializerall.call();
+    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    manager.close();
+  }
 }

@@ -29,59 +29,59 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
  * 
  */
 public interface NameNode extends ImmutableNameNode {
-	/**
-	 * Gets key of prefix.
-	 * 
-	 * @return key of prefix of the qualified name
-	 */
-	int getPrefixKey();
+  /**
+   * Gets key of prefix.
+   * 
+   * @return key of prefix of the qualified name
+   */
+  int getPrefixKey();
 
-	/**
-	 * Gets key of local name.
-	 * 
-	 * @return key of local name of the qualified name
-	 */
-	int getLocalNameKey();
+  /**
+   * Gets key of local name.
+   * 
+   * @return key of local name of the qualified name
+   */
+  int getLocalNameKey();
 
-	/**
-	 * Gets key of the URI.
-	 * 
-	 * @return URI key
-	 */
-	int getURIKey();
+  /**
+   * Gets key of the URI.
+   * 
+   * @return URI key
+   */
+  int getURIKey();
 
-	/**
-	 * Get a path node key.
-	 * 
-	 * @return path node key
-	 */
-	long getPathNodeKey();
+  /**
+   * Get a path node key.
+   * 
+   * @return path node key
+   */
+  long getPathNodeKey();
 
-	/**
-	 * Setting the prefix key.
-	 * 
-	 * @param nameKey the prefix key to be set
-	 */
-	void setPrefixKey(int prefixKey);
+  /**
+   * Setting the prefix key.
+   * 
+   * @param nameKey the prefix key to be set
+   */
+  void setPrefixKey(int prefixKey);
 
-	/**
-	 * Setting the local name key.
-	 * 
-	 * @param localNameKey the local name key to be set
-	 */
-	void setLocalNameKey(int localNameKey);
+  /**
+   * Setting the local name key.
+   * 
+   * @param localNameKey the local name key to be set
+   */
+  void setLocalNameKey(int localNameKey);
 
-	/**
-	 * Setting the uri key.
-	 * 
-	 * @param uriKey the urikey to be set
-	 */
-	void setURIKey(int uriKey);
+  /**
+   * Setting the uri key.
+   * 
+   * @param uriKey the urikey to be set
+   */
+  void setURIKey(int uriKey);
 
-	/**
-	 * Set a path node key.
-	 * 
-	 * @param nodeKey
-	 */
-	void setPathNodeKey(long nodeKey);
+  /**
+   * Set a path node key.
+   * 
+   * @param nodeKey
+   */
+  void setPathNodeKey(long nodeKey);
 }

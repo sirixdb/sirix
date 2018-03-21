@@ -38,115 +38,115 @@ import org.sirix.utils.TypedValue;
  */
 public class AddOpAxis extends AbstractObAxis {
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mOp1 First value of the operation
-	 * @param mOp2 Second value of the operation
-	 */
-	public AddOpAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mOp1 First value of the operation
+   * @param mOp2 Second value of the operation
+   */
+  public AddOpAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
 
-		super(rtx, mOp1, mOp2);
-	}
+    super(rtx, mOp1, mOp2);
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 */
-	@Override
-	public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
-			throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   * 
+   */
+  @Override
+  public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
+      throws SirixXPathException {
 
-		final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
-		final int typeKey = getTrx().keyForName(returnType.getStringRepr());
+    final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
+    final int typeKey = getTrx().keyForName(returnType.getStringRepr());
 
-		final byte[] value;
+    final byte[] value;
 
-		switch (returnType) {
-			case DOUBLE:
-			case FLOAT:
-			case DECIMAL:
-			case INTEGER:
-				final double dOp1 = Double.parseDouble(new String(mOperand1.getRawValue()));
-				final double dOp2 = Double.parseDouble(new String(mOperand2.getRawValue()));
-				value = TypedValue.getBytes(dOp1 + dOp2);
-				break;
-			case DATE:
-			case TIME:
-			case DATE_TIME:
-			case YEAR_MONTH_DURATION:
-			case DAY_TIME_DURATION:
-				throw new IllegalStateException(
-						"Add operator is not implemented for the type " + returnType.getStringRepr() + " yet.");
-			default:
-				throw EXPathError.XPTY0004.getEncapsulatedException();
+    switch (returnType) {
+      case DOUBLE:
+      case FLOAT:
+      case DECIMAL:
+      case INTEGER:
+        final double dOp1 = Double.parseDouble(new String(mOperand1.getRawValue()));
+        final double dOp2 = Double.parseDouble(new String(mOperand2.getRawValue()));
+        value = TypedValue.getBytes(dOp1 + dOp2);
+        break;
+      case DATE:
+      case TIME:
+      case DATE_TIME:
+      case YEAR_MONTH_DURATION:
+      case DAY_TIME_DURATION:
+        throw new IllegalStateException(
+            "Add operator is not implemented for the type " + returnType.getStringRepr() + " yet.");
+      default:
+        throw EXPathError.XPTY0004.getEncapsulatedException();
 
-		}
+    }
 
-		return new AtomicValue(value, typeKey);
+    return new AtomicValue(value, typeKey);
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 */
-	@Override
-	protected Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   * 
+   */
+  @Override
+  protected Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException {
 
-		final Type mType1 = Type.getType(mOp1).getPrimitiveBaseType();
-		final Type mType2 = Type.getType(mOp2).getPrimitiveBaseType();
+    final Type mType1 = Type.getType(mOp1).getPrimitiveBaseType();
+    final Type mType2 = Type.getType(mOp2).getPrimitiveBaseType();
 
-		if (mType1.isNumericType() && mType2.isNumericType()) {
+    if (mType1.isNumericType() && mType2.isNumericType()) {
 
-			// if both have the same numeric type, return it
-			if (mType1 == mType2) {
-				return mType1;
-			} else if (mType1 == Type.DOUBLE || mType2 == Type.DOUBLE) {
-				return Type.DOUBLE;
-			} else if (mType1 == Type.FLOAT || mType2 == Type.FLOAT) {
-				return Type.FLOAT;
-			} else {
-				assert (mType1 == Type.DECIMAL || mType2 == Type.DECIMAL);
-				return Type.DECIMAL;
-			}
+      // if both have the same numeric type, return it
+      if (mType1 == mType2) {
+        return mType1;
+      } else if (mType1 == Type.DOUBLE || mType2 == Type.DOUBLE) {
+        return Type.DOUBLE;
+      } else if (mType1 == Type.FLOAT || mType2 == Type.FLOAT) {
+        return Type.FLOAT;
+      } else {
+        assert (mType1 == Type.DECIMAL || mType2 == Type.DECIMAL);
+        return Type.DECIMAL;
+      }
 
-		} else {
+    } else {
 
-			switch (mType1) {
-				case DATE:
-					if (mType2 == Type.YEAR_MONTH_DURATION || mType2 == Type.DAY_TIME_DURATION) {
-						return mType1;
-					}
-					break;
-				case TIME:
-					if (mType2 == Type.DAY_TIME_DURATION) {
-						return mType1;
-					}
-					break;
-				case DATE_TIME:
-					if (mType2 == Type.YEAR_MONTH_DURATION || mType2 == Type.DAY_TIME_DURATION) {
-						return mType1;
-					}
-					break;
-				case YEAR_MONTH_DURATION:
-					if (mType2 == Type.DATE || mType2 == Type.DATE_TIME
-							|| mType2 == Type.YEAR_MONTH_DURATION) {
-						return mType2;
-					}
-					break;
-				case DAY_TIME_DURATION:
-					if (mType2 == Type.DATE || mType2 == Type.TIME || mType2 == Type.DATE_TIME
-							|| mType2 == Type.DAY_TIME_DURATION) {
-						return mType2;
-					}
-					break;
-				default:
-					throw EXPathError.XPTY0004.getEncapsulatedException();
-			}
-			throw EXPathError.XPTY0004.getEncapsulatedException();
-		}
-	}
+      switch (mType1) {
+        case DATE:
+          if (mType2 == Type.YEAR_MONTH_DURATION || mType2 == Type.DAY_TIME_DURATION) {
+            return mType1;
+          }
+          break;
+        case TIME:
+          if (mType2 == Type.DAY_TIME_DURATION) {
+            return mType1;
+          }
+          break;
+        case DATE_TIME:
+          if (mType2 == Type.YEAR_MONTH_DURATION || mType2 == Type.DAY_TIME_DURATION) {
+            return mType1;
+          }
+          break;
+        case YEAR_MONTH_DURATION:
+          if (mType2 == Type.DATE || mType2 == Type.DATE_TIME
+              || mType2 == Type.YEAR_MONTH_DURATION) {
+            return mType2;
+          }
+          break;
+        case DAY_TIME_DURATION:
+          if (mType2 == Type.DATE || mType2 == Type.TIME || mType2 == Type.DATE_TIME
+              || mType2 == Type.DAY_TIME_DURATION) {
+            return mType2;
+          }
+          break;
+        default:
+          throw EXPathError.XPTY0004.getEncapsulatedException();
+      }
+      throw EXPathError.XPTY0004.getEncapsulatedException();
+    }
+  }
 
 }

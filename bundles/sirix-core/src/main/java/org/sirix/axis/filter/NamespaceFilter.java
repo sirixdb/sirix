@@ -32,18 +32,18 @@ import org.sirix.api.XdmNodeReadTrx;
  */
 public final class NamespaceFilter extends AbstractFilter {
 
-	/**
-	 * Default constructor.
-	 *
-	 * @param rtx Transaction this filter is bound to.
-	 */
-	public NamespaceFilter(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Default constructor.
+   *
+   * @param rtx Transaction this filter is bound to.
+   */
+  public NamespaceFilter(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public final boolean filter() {
-		return getTrx().isNamespace();
-	}
+  @Override
+  public final boolean filter() {
+    return getTrx().isNamespace();
+  }
 
 }

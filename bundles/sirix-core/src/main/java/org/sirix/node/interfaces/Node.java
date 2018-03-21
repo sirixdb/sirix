@@ -22,7 +22,6 @@
 package org.sirix.node.interfaces;
 
 import java.util.Optional;
-
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -36,35 +35,35 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  */
 public interface Node extends ImmutableNode {
 
-	@Override
-	public Kind getKind();
+  @Override
+  public Kind getKind();
 
-	/**
-	 * Set a new DeweyID (may only be necessary during moves.)
-	 * 
-	 * @param id new dewey ID
-	 */
-	void setDeweyID(Optional<SirixDeweyID> id);
+  /**
+   * Set a new DeweyID (may only be necessary during moves.)
+   * 
+   * @param id new dewey ID
+   */
+  void setDeweyID(Optional<SirixDeweyID> id);
 
-	/**
-	 * Set the type key.
-	 * 
-	 * @param typeKey the type to set
-	 */
-	void setTypeKey(int typeKey);
+  /**
+   * Set the type key.
+   * 
+   * @param typeKey the type to set
+   */
+  void setTypeKey(int typeKey);
 
-	/**
-	 * Set the actual hash of the structure. The hash of one node should have the entire integrity of
-	 * the related subtree.
-	 * 
-	 * @param hash hash for this node
-	 */
-	void setHash(long hash);
+  /**
+   * Set the actual hash of the structure. The hash of one node should have the entire integrity of
+   * the related subtree.
+   * 
+   * @param hash hash for this node
+   */
+  void setHash(long hash);
 
-	/**
-	 * Set the parent key.
-	 * 
-	 * @param nodeKey the parent nodeKey
-	 */
-	void setParentKey(long nodeKey);
+  /**
+   * Set the parent key.
+   * 
+   * @param nodeKey the parent nodeKey
+   */
+  void setParentKey(long nodeKey);
 }

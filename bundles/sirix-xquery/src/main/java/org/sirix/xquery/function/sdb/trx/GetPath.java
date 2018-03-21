@@ -18,8 +18,7 @@ import org.sirix.xquery.node.DBNode;
  * Function for getting a path. The result is the path. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:getPath($doc as xs:node) as xs:string</code></li>
+ * <li><code>sdb:getPath($doc as xs:node) as xs:string</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -27,37 +26,33 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class GetPath extends AbstractFunction {
 
-	/** Move to function name. */
-	public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "getPath");
+  /** Move to function name. */
+  public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "getPath");
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public GetPath(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public GetPath(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		final XdmNodeReadTrx rtx = doc.getTrx();
+    final XdmNodeReadTrx rtx = doc.getTrx();
 
-		if (rtx.getResourceManager().getResourceConfig().mPathSummary) {
-			try (final PathSummaryReader pathSummaryReader = rtx.getResourceManager()
-					.openPathSummary(rtx.getRevisionNumber())) {
-				pathSummaryReader.moveTo(rtx.getPathNodeKey());
-				return new Str(pathSummaryReader.getPathNode()
-						.getPath(pathSummaryReader).toString());
-			}
-		}
-		return null;
-	}
+    if (rtx.getResourceManager().getResourceConfig().mPathSummary) {
+      try (final PathSummaryReader pathSummaryReader =
+          rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
+        pathSummaryReader.moveTo(rtx.getPathNodeKey());
+        return new Str(pathSummaryReader.getPathNode().getPath(pathSummaryReader).toString());
+      }
+    }
+    return null;
+  }
 }

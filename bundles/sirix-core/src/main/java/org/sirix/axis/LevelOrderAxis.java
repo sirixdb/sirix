@@ -22,12 +22,9 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
@@ -39,209 +36,209 @@ import org.sirix.node.Kind;
  */
 public final class LevelOrderAxis extends AbstractAxis {
 
-	/**
-	 * Determines if structural or structural and non structural nodes should be included.
-	 */
-	private enum IncludeNodes {
-		/** Only structural nodes. */
-		STRUCTURAL,
+  /**
+   * Determines if structural or structural and non structural nodes should be included.
+   */
+  private enum IncludeNodes {
+    /** Only structural nodes. */
+    STRUCTURAL,
 
-		/** Structural and non-structural nodes. */
-		NONSTRUCTURAL
-	}
+    /** Structural and non-structural nodes. */
+    NONSTRUCTURAL
+  }
 
-	/** {@link Deque} for remembering next nodeKey in document order. */
-	private Deque<Long> mFirstChilds;
+  /** {@link Deque} for remembering next nodeKey in document order. */
+  private Deque<Long> mFirstChilds;
 
-	/**
-	 * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
-	 */
-	private IncludeNodes mIncludeNodes;
+  /**
+   * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
+   */
+  private IncludeNodes mIncludeNodes;
 
-	/** Determines if {@code hasNext()} is called for the first time. */
-	private boolean mFirst;
+  /** Determines if {@code hasNext()} is called for the first time. */
+  private boolean mFirst;
 
-	/** Filter by level. */
-	private int mFilterLevel = Integer.MAX_VALUE;
+  /** Filter by level. */
+  private int mFilterLevel = Integer.MAX_VALUE;
 
-	/** Current level. */
-	private int mLevel;
+  /** Current level. */
+  private int mLevel;
 
-	/**
-	 * Get a new builder instance.
-	 * 
-	 * @param rtx the {@link XdmNodeReadTrx} to iterate with
-	 * @return {@link Builder} instance
-	 */
-	public static Builder newBuilder(final XdmNodeReadTrx rtx) {
-		return new Builder(rtx);
-	}
+  /**
+   * Get a new builder instance.
+   * 
+   * @param rtx the {@link XdmNodeReadTrx} to iterate with
+   * @return {@link Builder} instance
+   */
+  public static Builder newBuilder(final XdmNodeReadTrx rtx) {
+    return new Builder(rtx);
+  }
 
-	/** Builder. */
-	public static class Builder {
-		/**
-		 * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
-		 */
-		private IncludeNodes mIncludeNodes = IncludeNodes.STRUCTURAL;
+  /** Builder. */
+  public static class Builder {
+    /**
+     * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
+     */
+    private IncludeNodes mIncludeNodes = IncludeNodes.STRUCTURAL;
 
-		/** Filter by level. */
-		private int mFilterLevel = Integer.MAX_VALUE;
+    /** Filter by level. */
+    private int mFilterLevel = Integer.MAX_VALUE;
 
-		/** Sirix {@link XdmNodeReadTrx}. */
-		private XdmNodeReadTrx mRtx;
+    /** Sirix {@link XdmNodeReadTrx}. */
+    private XdmNodeReadTrx mRtx;
 
-		/** Determines if current start node to traversal should be included or not. */
-		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
+    /** Determines if current start node to traversal should be included or not. */
+    private IncludeSelf mIncludeSelf = IncludeSelf.NO;
 
-		/**
-		 * Constructor.
-		 * 
-		 * @param rtx Sirix {@link XdmNodeReadTrx}
-		 */
-		public Builder(final XdmNodeReadTrx rtx) {
-			mRtx = checkNotNull(rtx);
-		}
+    /**
+     * Constructor.
+     * 
+     * @param rtx Sirix {@link XdmNodeReadTrx}
+     */
+    public Builder(final XdmNodeReadTrx rtx) {
+      mRtx = checkNotNull(rtx);
+    }
 
-		/**
-		 * Determines that non-structural nodes (attributes, namespaces) should be taken into account.
-		 * 
-		 * @return this builder instance
-		 */
-		public Builder includeNonStructuralNodes() {
-			mIncludeNodes = IncludeNodes.NONSTRUCTURAL;
-			return this;
-		}
+    /**
+     * Determines that non-structural nodes (attributes, namespaces) should be taken into account.
+     * 
+     * @return this builder instance
+     */
+    public Builder includeNonStructuralNodes() {
+      mIncludeNodes = IncludeNodes.NONSTRUCTURAL;
+      return this;
+    }
 
-		/**
-		 * Determines that the current node should also be considered.
-		 * 
-		 * @return this builder instance
-		 */
-		public Builder includeSelf() {
-			mIncludeSelf = IncludeSelf.YES;
-			return this;
-		}
+    /**
+     * Determines that the current node should also be considered.
+     * 
+     * @return this builder instance
+     */
+    public Builder includeSelf() {
+      mIncludeSelf = IncludeSelf.YES;
+      return this;
+    }
 
-		/**
-		 * Determines the maximum level to filter.
-		 * 
-		 * @param filterLevel maximum level to filter nodes
-		 * @return this builder instance
-		 */
-		public Builder filterLevel(final @Nonnegative int filterLevel) {
-			checkArgument(filterLevel >= 0, "pFilterLevel must be >= 0!");
-			mFilterLevel = filterLevel;
-			return this;
-		}
+    /**
+     * Determines the maximum level to filter.
+     * 
+     * @param filterLevel maximum level to filter nodes
+     * @return this builder instance
+     */
+    public Builder filterLevel(final @Nonnegative int filterLevel) {
+      checkArgument(filterLevel >= 0, "pFilterLevel must be >= 0!");
+      mFilterLevel = filterLevel;
+      return this;
+    }
 
-		/**
-		 * Build a new instance.
-		 * 
-		 * @return new instance
-		 */
-		public LevelOrderAxis build() {
-			return new LevelOrderAxis(this);
-		}
-	}
+    /**
+     * Build a new instance.
+     * 
+     * @return new instance
+     */
+    public LevelOrderAxis build() {
+      return new LevelOrderAxis(this);
+    }
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param builder the builder reference
-	 */
-	private LevelOrderAxis(final Builder builder) {
-		super(builder.mRtx, builder.mIncludeSelf);
-		mIncludeNodes = builder.mIncludeNodes;
-		mFilterLevel = builder.mFilterLevel;
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param builder the builder reference
+   */
+  private LevelOrderAxis(final Builder builder) {
+    super(builder.mRtx, builder.mIncludeSelf);
+    mIncludeNodes = builder.mIncludeNodes;
+    mFilterLevel = builder.mFilterLevel;
+  }
 
-	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
-		mFirst = true;
-		mFirstChilds = new ArrayDeque<>();
-	}
+  @Override
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
+    mFirst = true;
+    mFirstChilds = new ArrayDeque<>();
+  }
 
-	@Override
-	protected long nextKey() {
-		final XdmNodeReadTrx rtx = getTrx();
-		// Determines if it's the first call to hasNext().
-		if (mFirst) {
-			mFirst = false;
+  @Override
+  protected long nextKey() {
+    final XdmNodeReadTrx rtx = getTrx();
+    // Determines if it's the first call to hasNext().
+    if (mFirst) {
+      mFirst = false;
 
-			if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
-				return done();
-			}
+      if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
+        return done();
+      }
 
-			if (isSelfIncluded() == IncludeSelf.YES) {
-				return rtx.getNodeKey();
-			} else {
-				if (rtx.hasRightSibling()) {
-					return rtx.getRightSiblingKey();
-				} else if (rtx.hasFirstChild()) {
-					return rtx.getFirstChildKey();
-				} else {
-					return done();
-				}
-			}
-		}
-		// Follow right sibling if there is one.
-		if (rtx.hasRightSibling()) {
-			processElement();
-			// Add first child to queue.
-			if (rtx.hasFirstChild()) {
-				mFirstChilds.add(rtx.getFirstChildKey());
-			}
-			return rtx.getRightSiblingKey();
-		}
+      if (isSelfIncluded() == IncludeSelf.YES) {
+        return rtx.getNodeKey();
+      } else {
+        if (rtx.hasRightSibling()) {
+          return rtx.getRightSiblingKey();
+        } else if (rtx.hasFirstChild()) {
+          return rtx.getFirstChildKey();
+        } else {
+          return done();
+        }
+      }
+    }
+    // Follow right sibling if there is one.
+    if (rtx.hasRightSibling()) {
+      processElement();
+      // Add first child to queue.
+      if (rtx.hasFirstChild()) {
+        mFirstChilds.add(rtx.getFirstChildKey());
+      }
+      return rtx.getRightSiblingKey();
+    }
 
-		// Add first child to queue.
-		processElement();
-		if (rtx.hasFirstChild()) {
-			mFirstChilds.add(rtx.getFirstChildKey());
-		}
+    // Add first child to queue.
+    processElement();
+    if (rtx.hasFirstChild()) {
+      mFirstChilds.add(rtx.getFirstChildKey());
+    }
 
-		// Then follow first child on stack.
-		if (!mFirstChilds.isEmpty()) {
-			mLevel++;
+    // Then follow first child on stack.
+    if (!mFirstChilds.isEmpty()) {
+      mLevel++;
 
-			// End traversal if level is reached.
-			if (mLevel > mFilterLevel) {
-				return done();
-			}
+      // End traversal if level is reached.
+      if (mLevel > mFilterLevel) {
+        return done();
+      }
 
-			return mFirstChilds.pollFirst();
-		}
+      return mFirstChilds.pollFirst();
+    }
 
-		// Then follow first child if there is one.
-		if (getTrx().hasFirstChild()) {
-			mLevel++;
+    // Then follow first child if there is one.
+    if (getTrx().hasFirstChild()) {
+      mLevel++;
 
-			// End traversal if level is reached.
-			if (mLevel > mFilterLevel) {
-				return done();
-			}
+      // End traversal if level is reached.
+      if (mLevel > mFilterLevel) {
+        return done();
+      }
 
-			return getTrx().getFirstChildKey();
-		}
+      return getTrx().getFirstChildKey();
+    }
 
-		return done();
-	}
+    return done();
+  }
 
-	/** Process an element node. */
-	private void processElement() {
-		final XdmNodeReadTrx rtx = (XdmNodeReadTrx) getTrx();
-		if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
-			for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
-				rtx.moveToNamespace(i);
-				mFirstChilds.add(rtx.getNodeKey());
-				rtx.moveToParent();
-			}
-			for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
-				rtx.moveToAttribute(i);
-				mFirstChilds.add(rtx.getNodeKey());
-				rtx.moveToParent();
-			}
-		}
-	}
+  /** Process an element node. */
+  private void processElement() {
+    final XdmNodeReadTrx rtx = (XdmNodeReadTrx) getTrx();
+    if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
+      for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+        rtx.moveToNamespace(i);
+        mFirstChilds.add(rtx.getNodeKey());
+        rtx.moveToParent();
+      }
+      for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+        rtx.moveToAttribute(i);
+        mFirstChilds.add(rtx.getNodeKey());
+        rtx.moveToParent();
+      }
+    }
+  }
 }

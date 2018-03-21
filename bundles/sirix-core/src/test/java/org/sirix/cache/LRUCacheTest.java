@@ -23,7 +23,6 @@ package org.sirix.cache;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,33 +36,33 @@ import org.sirix.page.UnorderedKeyValuePage;
  */
 public class LRUCacheTest {
 
-	private Cache<Long, PageContainer> cache;
+  private Cache<Long, PageContainer> cache;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		cache = new LRUCache<>();
-		CacheTestHelper.setUp(cache);
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    cache = new LRUCache<>();
+    CacheTestHelper.setUp(cache);
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		cache.close();
-		CacheTestHelper.PAGE_READ_TRX.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    cache.close();
+    CacheTestHelper.PAGE_READ_TRX.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void test() {
-		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-			final PageContainer cont = cache.get((long) i);
-			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
-			assertEquals(CacheTestHelper.PAGES[i][0], current);
-		}
+  @Test
+  public void test() {
+    for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
+      final PageContainer cont = cache.get((long) i);
+      final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
+      assertEquals(CacheTestHelper.PAGES[i][0], current);
+    }
 
-		final PageContainer page = cache.get(0L);
-		assertNull(page);
-	}
+    final PageContainer page = cache.get(0L);
+    assertNull(page);
+  }
 
 }

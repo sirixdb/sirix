@@ -26,9 +26,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
@@ -36,7 +34,6 @@ import org.sirix.node.Kind;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
 import com.google.common.base.MoreObjects;
 
 /**
@@ -48,256 +45,256 @@ import com.google.common.base.MoreObjects;
  */
 public final class NamePage extends AbstractForwardingPage {
 
-	/** Attribute names. */
-	private final Names mAttributes;
+  /** Attribute names. */
+  private final Names mAttributes;
 
-	/** Element names. */
-	private final Names mElements;
+  /** Element names. */
+  private final Names mElements;
 
-	/** Namespace URIs. */
-	private final Names mNamespaces;
+  /** Namespace URIs. */
+  private final Names mNamespaces;
 
-	/** Processing instruction names. */
-	private final Names mPIs;
+  /** Processing instruction names. */
+  private final Names mPIs;
 
-	/** {@link PageDelegate} instance. */
-	private final PageDelegate mDelegate;
+  /** {@link PageDelegate} instance. */
+  private final PageDelegate mDelegate;
 
-	/** Maximum node keys. */
-	private final Map<Integer, Long> mMaxNodeKeys;
+  /** Maximum node keys. */
+  private final Map<Integer, Long> mMaxNodeKeys;
 
-	/**
-	 * Create name page.
-	 */
-	public NamePage() {
-		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
-		mMaxNodeKeys = new HashMap<>();
-		mAttributes = Names.getInstance();
-		mElements = Names.getInstance();
-		mNamespaces = Names.getInstance();
-		mPIs = Names.getInstance();
-	}
+  /**
+   * Create name page.
+   */
+  public NamePage() {
+    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
+    mMaxNodeKeys = new HashMap<>();
+    mAttributes = Names.getInstance();
+    mElements = Names.getInstance();
+    mNamespaces = Names.getInstance();
+    mPIs = Names.getInstance();
+  }
 
-	/**
-	 * Read name page.
-	 *
-	 * @param in input bytes to read from
-	 */
-	protected NamePage(final DataInput in, final SerializationType type) throws IOException {
-		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
-		final int size = in.readInt();
-		mMaxNodeKeys = new HashMap<>(size);
-		for (int i = 0; i < size; i++) {
-			mMaxNodeKeys.put(i, in.readLong());
-		}
-		mElements = Names.clone(in);
-		mNamespaces = Names.clone(in);
-		mAttributes = Names.clone(in);
-		mPIs = Names.clone(in);
-	}
+  /**
+   * Read name page.
+   *
+   * @param in input bytes to read from
+   */
+  protected NamePage(final DataInput in, final SerializationType type) throws IOException {
+    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
+    final int size = in.readInt();
+    mMaxNodeKeys = new HashMap<>(size);
+    for (int i = 0; i < size; i++) {
+      mMaxNodeKeys.put(i, in.readLong());
+    }
+    mElements = Names.clone(in);
+    mNamespaces = Names.clone(in);
+    mAttributes = Names.clone(in);
+    mPIs = Names.clone(in);
+  }
 
-	/**
-	 * Get raw name belonging to name key.
-	 *
-	 * @param key name key identifying name
-	 * @return raw name of name key
-	 */
-	public byte[] getRawName(final int key, final Kind nodeKind) {
-		byte[] rawName = new byte[] {};
-		switch (nodeKind) {
-			case ELEMENT:
-				rawName = mElements.getRawName(key);
-				break;
-			case NAMESPACE:
-				rawName = mNamespaces.getRawName(key);
-				break;
-			case ATTRIBUTE:
-				rawName = mAttributes.getRawName(key);
-				break;
-			case PROCESSING_INSTRUCTION:
-				rawName = mPIs.getRawName(key);
-				break;
-			default:
-				throw new IllegalStateException("No other node types supported!");
-		}
-		return rawName;
-	}
+  /**
+   * Get raw name belonging to name key.
+   *
+   * @param key name key identifying name
+   * @return raw name of name key
+   */
+  public byte[] getRawName(final int key, final Kind nodeKind) {
+    byte[] rawName = new byte[] {};
+    switch (nodeKind) {
+      case ELEMENT:
+        rawName = mElements.getRawName(key);
+        break;
+      case NAMESPACE:
+        rawName = mNamespaces.getRawName(key);
+        break;
+      case ATTRIBUTE:
+        rawName = mAttributes.getRawName(key);
+        break;
+      case PROCESSING_INSTRUCTION:
+        rawName = mPIs.getRawName(key);
+        break;
+      default:
+        throw new IllegalStateException("No other node types supported!");
+    }
+    return rawName;
+  }
 
-	/**
-	 * Get raw name belonging to name key.
-	 *
-	 * @param key name key identifying name
-	 * @return raw name of name key, or {@code null} if not present
-	 */
-	public String getName(final int key, @Nonnull final Kind nodeKind) {
-		String name;
-		switch (nodeKind) {
-			case ELEMENT:
-				name = mElements.getName(key);
-				break;
-			case NAMESPACE:
-				name = mNamespaces.getName(key);
-				break;
-			case ATTRIBUTE:
-				name = mAttributes.getName(key);
-				break;
-			case PROCESSING_INSTRUCTION:
-				name = mPIs.getName(key);
-				break;
-			default:
-				throw new IllegalStateException("No other node types supported!");
-		}
-		return name;
-	}
+  /**
+   * Get raw name belonging to name key.
+   *
+   * @param key name key identifying name
+   * @return raw name of name key, or {@code null} if not present
+   */
+  public String getName(final int key, @Nonnull final Kind nodeKind) {
+    String name;
+    switch (nodeKind) {
+      case ELEMENT:
+        name = mElements.getName(key);
+        break;
+      case NAMESPACE:
+        name = mNamespaces.getName(key);
+        break;
+      case ATTRIBUTE:
+        name = mAttributes.getName(key);
+        break;
+      case PROCESSING_INSTRUCTION:
+        name = mPIs.getName(key);
+        break;
+      default:
+        throw new IllegalStateException("No other node types supported!");
+    }
+    return name;
+  }
 
-	/**
-	 * Get number of nodes with the given name key.
-	 *
-	 * @param key name key identifying name
-	 * @return number of nodes with the given name key
-	 */
-	public int getCount(final int key, @Nonnull final Kind nodeKind) {
-		int count;
-		switch (nodeKind) {
-			case ELEMENT:
-				count = mElements.getCount(key);
-				break;
-			case NAMESPACE:
-				count = mNamespaces.getCount(key);
-				break;
-			case ATTRIBUTE:
-				count = mAttributes.getCount(key);
-				break;
-			case PROCESSING_INSTRUCTION:
-				count = mPIs.getCount(key);
-				break;
-			default:
-				throw new IllegalStateException("No other node types supported!");
-		}
-		return count;
-	}
+  /**
+   * Get number of nodes with the given name key.
+   *
+   * @param key name key identifying name
+   * @return number of nodes with the given name key
+   */
+  public int getCount(final int key, @Nonnull final Kind nodeKind) {
+    int count;
+    switch (nodeKind) {
+      case ELEMENT:
+        count = mElements.getCount(key);
+        break;
+      case NAMESPACE:
+        count = mNamespaces.getCount(key);
+        break;
+      case ATTRIBUTE:
+        count = mAttributes.getCount(key);
+        break;
+      case PROCESSING_INSTRUCTION:
+        count = mPIs.getCount(key);
+        break;
+      default:
+        throw new IllegalStateException("No other node types supported!");
+    }
+    return count;
+  }
 
-	/**
-	 * Create name key given a name.
-	 *
-	 * @param key key for given name
-	 * @param name name to create key for
-	 * @param nodeKind kind of node
-	 */
-	public void setName(final int key, final String name, final Kind nodeKind) {
-		switch (nodeKind) {
-			case ELEMENT:
-				mElements.setName(key, name);
-				break;
-			case NAMESPACE:
-				mNamespaces.setName(key, name);
-				break;
-			case ATTRIBUTE:
-				mAttributes.setName(key, name);
-				break;
-			case PROCESSING_INSTRUCTION:
-				mPIs.setName(key, name);
-				break;
-			default:
-				throw new IllegalStateException("No other node types supported!");
-		}
-	}
+  /**
+   * Create name key given a name.
+   *
+   * @param key key for given name
+   * @param name name to create key for
+   * @param nodeKind kind of node
+   */
+  public void setName(final int key, final String name, final Kind nodeKind) {
+    switch (nodeKind) {
+      case ELEMENT:
+        mElements.setName(key, name);
+        break;
+      case NAMESPACE:
+        mNamespaces.setName(key, name);
+        break;
+      case ATTRIBUTE:
+        mAttributes.setName(key, name);
+        break;
+      case PROCESSING_INSTRUCTION:
+        mPIs.setName(key, name);
+        break;
+      default:
+        throw new IllegalStateException("No other node types supported!");
+    }
+  }
 
-	@Override
-	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-		super.serialize(out, type);
-		final int size = mMaxNodeKeys.size();
-		out.writeInt(size);
-		for (int i = 0; i < size; i++) {
-			final long keys = mMaxNodeKeys.get(i);
-			out.writeLong(keys);
-		}
-		mElements.serialize(out);
-		mNamespaces.serialize(out);
-		mAttributes.serialize(out);
-		mPIs.serialize(out);
-	}
+  @Override
+  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+    super.serialize(out, type);
+    final int size = mMaxNodeKeys.size();
+    out.writeInt(size);
+    for (int i = 0; i < size; i++) {
+      final long keys = mMaxNodeKeys.get(i);
+      out.writeLong(keys);
+    }
+    mElements.serialize(out);
+    mNamespaces.serialize(out);
+    mAttributes.serialize(out);
+    mPIs.serialize(out);
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("elements", mElements)
-				.add("attributes", mAttributes).add("URIs", mNamespaces).add("PIs", mPIs).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("elements", mElements)
+        .add("attributes", mAttributes).add("URIs", mNamespaces).add("PIs", mPIs).toString();
+  }
 
-	/**
-	 * Remove an attribute-name.
-	 *
-	 * @param key the key to remove
-	 */
-	public void removeName(final int key, final Kind nodeKind) {
-		switch (nodeKind) {
-			case ELEMENT:
-				mElements.removeName(key);
-				break;
-			case NAMESPACE:
-				mNamespaces.removeName(key);
-				break;
-			case ATTRIBUTE:
-				mAttributes.removeName(key);
-				break;
-			case PROCESSING_INSTRUCTION:
-				mPIs.removeName(key);
-				break;
-			default:
-				throw new IllegalStateException("No other node types supported!");
-		}
-	}
+  /**
+   * Remove an attribute-name.
+   *
+   * @param key the key to remove
+   */
+  public void removeName(final int key, final Kind nodeKind) {
+    switch (nodeKind) {
+      case ELEMENT:
+        mElements.removeName(key);
+        break;
+      case NAMESPACE:
+        mNamespaces.removeName(key);
+        break;
+      case ATTRIBUTE:
+        mAttributes.removeName(key);
+        break;
+      case PROCESSING_INSTRUCTION:
+        mPIs.removeName(key);
+        break;
+      default:
+        throw new IllegalStateException("No other node types supported!");
+    }
+  }
 
-	/**
-	 * Initialize name index tree.
-	 *
-	 * @param pageReadTrx {@link PageReadTrx} instance
-	 * @param index the index number
-	 * @param log the transaction intent log
-	 */
-	public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index,
-			final TransactionIntentLog log) {
-		final PageReference reference = getReference(index);
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-				&& reference.getLogKey() == Constants.NULL_ID_INT
-				&& reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
-			PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageReadTrx, log);
-			if (mMaxNodeKeys.get(index) == null) {
-				mMaxNodeKeys.put(index, 0l);
-			} else {
-				mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
-			}
-		}
-	}
+  /**
+   * Initialize name index tree.
+   *
+   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param index the index number
+   * @param log the transaction intent log
+   */
+  public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index,
+      final TransactionIntentLog log) {
+    final PageReference reference = getReference(index);
+    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+        && reference.getLogKey() == Constants.NULL_ID_INT
+        && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
+      PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageReadTrx, log);
+      if (mMaxNodeKeys.get(index) == null) {
+        mMaxNodeKeys.put(index, 0l);
+      } else {
+        mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+      }
+    }
+  }
 
-	/**
-	 * Get indirect page reference.
-	 *
-	 * @param offset the offset of the indirect page, that is the index number
-	 * @return indirect page reference
-	 */
-	public PageReference getIndirectPageReference(int offset) {
-		return getReference(offset);
-	}
+  /**
+   * Get indirect page reference.
+   *
+   * @param offset the offset of the indirect page, that is the index number
+   * @return indirect page reference
+   */
+  public PageReference getIndirectPageReference(int offset) {
+    return getReference(offset);
+  }
 
-	/**
-	 * Get the maximum node key of the specified index by its index number.
-	 *
-	 * @param indexNo the index number
-	 * @return the maximum node key stored
-	 */
-	public long getMaxNodeKey(final int indexNo) {
-		return mMaxNodeKeys.get(indexNo);
-	}
+  /**
+   * Get the maximum node key of the specified index by its index number.
+   *
+   * @param indexNo the index number
+   * @return the maximum node key stored
+   */
+  public long getMaxNodeKey(final int indexNo) {
+    return mMaxNodeKeys.get(indexNo);
+  }
 
-	public long incrementAndGetMaxNodeKey(final int indexNo) {
-		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
-		mMaxNodeKeys.put(indexNo, newMaxNodeKey);
-		return newMaxNodeKey;
-	}
+  public long incrementAndGetMaxNodeKey(final int indexNo) {
+    final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
+    mMaxNodeKeys.put(indexNo, newMaxNodeKey);
+    return newMaxNodeKey;
+  }
 
-	@Override
-	protected Page delegate() {
-		return mDelegate;
-	}
+  @Override
+  protected Page delegate() {
+    return mDelegate;
+  }
 }

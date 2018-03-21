@@ -38,56 +38,56 @@ import org.sirix.settings.Fixed;
  */
 public final class PrecedingSiblingAxis extends AbstractAxis {
 
-	/** Determines if it's the first call. */
-	private boolean mIsFirst;
+  /** Determines if it's the first call. */
+  private boolean mIsFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public PrecedingSiblingAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public PrecedingSiblingAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mIsFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mIsFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		final XdmNodeReadTrx rtx = getTrx();
-		if (mIsFirst) {
-			mIsFirst = false;
-			/*
-			 * If the context node is an attribute or namespace node, the following-sibling axis is empty.
-			 */
-			final Kind kind = rtx.getKind();
-			if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
-				return done();
-			} else {
-				if (rtx.hasParent()) {
-					final long startNodeKey = rtx.getNodeKey();
-					rtx.moveToParent();
-					rtx.moveToFirstChild();
+  @Override
+  protected long nextKey() {
+    final XdmNodeReadTrx rtx = getTrx();
+    if (mIsFirst) {
+      mIsFirst = false;
+      /*
+       * If the context node is an attribute or namespace node, the following-sibling axis is empty.
+       */
+      final Kind kind = rtx.getKind();
+      if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
+        return done();
+      } else {
+        if (rtx.hasParent()) {
+          final long startNodeKey = rtx.getNodeKey();
+          rtx.moveToParent();
+          rtx.moveToFirstChild();
 
-					if (rtx.getNodeKey() == startNodeKey) {
-						return Fixed.NULL_NODE_KEY.getStandardProperty();
-					} else {
-						final long key = rtx.getNodeKey();
-						rtx.moveTo(startNodeKey);
-						return key;
-					}
-				}
-			}
-		}
+          if (rtx.getNodeKey() == startNodeKey) {
+            return Fixed.NULL_NODE_KEY.getStandardProperty();
+          } else {
+            final long key = rtx.getNodeKey();
+            rtx.moveTo(startNodeKey);
+            return key;
+          }
+        }
+      }
+    }
 
-		if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
-			return rtx.getRightSiblingKey();
-		}
+    if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
+      return rtx.getRightSiblingKey();
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

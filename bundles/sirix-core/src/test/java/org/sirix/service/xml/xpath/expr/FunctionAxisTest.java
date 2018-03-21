@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.expr;
 
 import static org.junit.Assert.assertEquals;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,63 +39,63 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class FunctionAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testFunctions() throws SirixException {
+  @Test
+  public void testFunctions() throws SirixException {
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		final AbstractAxis axis1 = new XPathAxis(holder.getReader(), "fn:count(text())");
-		assertEquals(true, axis1.hasNext());
-		axis1.next();
-		assertEquals(3, Integer.parseInt(holder.getReader().getValue()));
-		assertEquals(false, axis1.hasNext());
+    final AbstractAxis axis1 = new XPathAxis(holder.getReader(), "fn:count(text())");
+    assertEquals(true, axis1.hasNext());
+    axis1.next();
+    assertEquals(3, Integer.parseInt(holder.getReader().getValue()));
+    assertEquals(false, axis1.hasNext());
 
-		final AbstractAxis axis2 = new XPathAxis(holder.getReader(), "fn:count(//node())");
-		assertEquals(true, axis2.hasNext());
-		axis2.next();
-		assertEquals(10, Integer.parseInt(holder.getReader().getValue()));
-		assertEquals(false, axis2.hasNext());
+    final AbstractAxis axis2 = new XPathAxis(holder.getReader(), "fn:count(//node())");
+    assertEquals(true, axis2.hasNext());
+    axis2.next();
+    assertEquals(10, Integer.parseInt(holder.getReader().getValue()));
+    assertEquals(false, axis2.hasNext());
 
-		final AbstractAxis axis3 = new XPathAxis(holder.getReader(), "fn:string(//node())");
-		assertEquals(true, axis3.hasNext());
-		axis3.next();
-		assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
-				holder.getReader().getValue());
-		assertEquals(false, axis3.hasNext());
+    final AbstractAxis axis3 = new XPathAxis(holder.getReader(), "fn:string(//node())");
+    assertEquals(true, axis3.hasNext());
+    axis3.next();
+    assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
+        holder.getReader().getValue());
+    assertEquals(false, axis3.hasNext());
 
-		final AbstractAxis axis4 = new XPathAxis(holder.getReader(), "fn:string()");
-		assertEquals(true, axis4.hasNext());
-		axis4.next();
-		assertEquals("oops1 foo oops2 bar oops3", holder.getReader().getValue());
-		assertEquals(false, axis4.hasNext());
+    final AbstractAxis axis4 = new XPathAxis(holder.getReader(), "fn:string()");
+    assertEquals(true, axis4.hasNext());
+    axis4.next();
+    assertEquals("oops1 foo oops2 bar oops3", holder.getReader().getValue());
+    assertEquals(false, axis4.hasNext());
 
-		final AbstractAxis axis5 =
-				new XPathAxis(holder.getReader(), "fn:string(./attribute::attribute())");
-		assertEquals(true, axis5.hasNext());
-		axis5.next();
-		assertEquals("j", holder.getReader().getValue());
-		assertEquals(false, axis5.hasNext());
+    final AbstractAxis axis5 =
+        new XPathAxis(holder.getReader(), "fn:string(./attribute::attribute())");
+    assertEquals(true, axis5.hasNext());
+    axis5.next();
+    assertEquals("j", holder.getReader().getValue());
+    assertEquals(false, axis5.hasNext());
 
-		holder.getReader().moveToAttribute(0);
-		final AbstractAxis axis6 = new XPathAxis(holder.getReader(), "fn:string()");
-		assertEquals(true, axis6.hasNext());
-		axis6.next();
-		assertEquals("j", holder.getReader().getValue());
-		assertEquals(false, axis6.hasNext());
-	}
+    holder.getReader().moveToAttribute(0);
+    final AbstractAxis axis6 = new XPathAxis(holder.getReader(), "fn:string()");
+    assertEquals(true, axis6.hasNext());
+    axis6.next();
+    assertEquals("j", holder.getReader().getValue());
+    assertEquals(false, axis6.hasNext());
+  }
 }

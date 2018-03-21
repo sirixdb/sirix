@@ -22,7 +22,6 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -30,7 +29,6 @@ import org.sirix.io.Storage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -50,85 +48,85 @@ import com.sleepycat.je.OperationStatus;
  */
 public final class BerkeleyStorage implements Storage {
 
-	/** Binding for {@link Long}. */
-	public static final TupleBinding<Long> DATAINFO_VAL_B =
-			TupleBinding.getPrimitiveBinding(Long.class);
+  /** Binding for {@link Long}. */
+  public static final TupleBinding<Long> DATAINFO_VAL_B =
+      TupleBinding.getPrimitiveBinding(Long.class);
 
-	/**
-	 * Berkeley Environment for the database.
-	 */
-	private final Environment mEnv;
+  /**
+   * Berkeley Environment for the database.
+   */
+  private final Environment mEnv;
 
-	/**
-	 * Database instance per session.
-	 */
-	private final Database mDatabase;
+  /**
+   * Database instance per session.
+   */
+  private final Database mDatabase;
 
-	/** Byte handler pipeline. */
-	private final ByteHandlePipeline mByteHandler;
+  /** Byte handler pipeline. */
+  private final ByteHandlePipeline mByteHandler;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param env the Berkeley-DB environment
-	 * @param db the Berkeley-DB database
-	 * @param byteHandlePipe the bye handle pipeline configuration
-	 * @throws NullPointerException if one of the parameters is {@code null}
-	 */
-	public BerkeleyStorage(final Environment env, final Database db,
-			final ByteHandlePipeline byteHandlePipe) {
-		mEnv = checkNotNull(env);
-		mDatabase = checkNotNull(db);
-		mByteHandler = checkNotNull(byteHandlePipe);
-	}
+  /**
+   * Constructor.
+   *
+   * @param env the Berkeley-DB environment
+   * @param db the Berkeley-DB database
+   * @param byteHandlePipe the bye handle pipeline configuration
+   * @throws NullPointerException if one of the parameters is {@code null}
+   */
+  public BerkeleyStorage(final Environment env, final Database db,
+      final ByteHandlePipeline byteHandlePipe) {
+    mEnv = checkNotNull(env);
+    mDatabase = checkNotNull(db);
+    mByteHandler = checkNotNull(byteHandlePipe);
+  }
 
-	@Override
-	public Reader createReader() throws SirixIOException {
-		try {
-			return new BerkeleyReader(mEnv, mDatabase, mByteHandler);
-		} catch (final DatabaseException exc) {
-			throw new SirixIOException(exc);
-		}
-	}
+  @Override
+  public Reader createReader() throws SirixIOException {
+    try {
+      return new BerkeleyReader(mEnv, mDatabase, mByteHandler);
+    } catch (final DatabaseException exc) {
+      throw new SirixIOException(exc);
+    }
+  }
 
-	@Override
-	public Writer createWriter() throws SirixIOException {
-		return new BerkeleyWriter(mEnv, mDatabase, mByteHandler);
-	}
+  @Override
+  public Writer createWriter() throws SirixIOException {
+    return new BerkeleyWriter(mEnv, mDatabase, mByteHandler);
+  }
 
-	@Override
-	public void close() throws SirixIOException {
-		try {
-			mDatabase.close();
-			mEnv.close();
-		} catch (final DatabaseException exc) {
-			throw new SirixIOException(exc);
-		}
-	}
+  @Override
+  public void close() throws SirixIOException {
+    try {
+      mDatabase.close();
+      mEnv.close();
+    } catch (final DatabaseException exc) {
+      throw new SirixIOException(exc);
+    }
+  }
 
-	@Override
-	public boolean exists() throws SirixIOException {
-		final DatabaseEntry valueEntry = new DatabaseEntry();
-		final DatabaseEntry keyEntry = new DatabaseEntry();
-		boolean returnVal = false;
-		try {
-			final Reader reader = new BerkeleyReader(mEnv, mDatabase, mByteHandler);
-			TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
+  @Override
+  public boolean exists() throws SirixIOException {
+    final DatabaseEntry valueEntry = new DatabaseEntry();
+    final DatabaseEntry keyEntry = new DatabaseEntry();
+    boolean returnVal = false;
+    try {
+      final Reader reader = new BerkeleyReader(mEnv, mDatabase, mByteHandler);
+      TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
-			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
-			if (status == OperationStatus.SUCCESS) {
-				returnVal = true;
-			}
-			reader.close();
-		} catch (final DatabaseException exc) {
-			throw new SirixIOException(exc);
-		}
-		return returnVal;
+      final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
+      if (status == OperationStatus.SUCCESS) {
+        returnVal = true;
+      }
+      reader.close();
+    } catch (final DatabaseException exc) {
+      throw new SirixIOException(exc);
+    }
+    return returnVal;
 
-	}
+  }
 
-	@Override
-	public ByteHandler getByteHandler() {
-		return mByteHandler;
-	}
+  @Override
+  public ByteHandler getByteHandler() {
+    return mByteHandler;
+  }
 }

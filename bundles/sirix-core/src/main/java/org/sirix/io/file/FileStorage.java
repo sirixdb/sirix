@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -43,87 +42,87 @@ import org.sirix.page.SerializationType;
  */
 public final class FileStorage implements Storage {
 
-	/** File name. */
-	private static final String FILENAME = "sirix.data";
+  /** File name. */
+  private static final String FILENAME = "sirix.data";
 
-	/** Instance to storage. */
-	private final Path mFile;
+  /** Instance to storage. */
+  private final Path mFile;
 
-	/** Byte handler pipeline. */
-	private final ByteHandlePipeline mByteHandler;
+  /** Byte handler pipeline. */
+  private final ByteHandlePipeline mByteHandler;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param file the location of the database
-	 * @param byteHandler byte handler pipeline
-	 */
-	public FileStorage(final ResourceConfiguration resourceConfig) {
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mFile = resourceConfig.mPath;
-		mByteHandler = resourceConfig.mByteHandler;
-	}
+  /**
+   * Constructor.
+   *
+   * @param file the location of the database
+   * @param byteHandler byte handler pipeline
+   */
+  public FileStorage(final ResourceConfiguration resourceConfig) {
+    assert resourceConfig != null : "resourceConfig must not be null!";
+    mFile = resourceConfig.mPath;
+    mByteHandler = resourceConfig.mByteHandler;
+  }
 
-	@Override
-	public Reader createReader() throws SirixIOException {
-		try {
-			final Path concreteStorage = createDirectoriesAndFile();
+  @Override
+  public Reader createReader() throws SirixIOException {
+    try {
+      final Path concreteStorage = createDirectoriesAndFile();
 
-			return new FileReader(new RandomAccessFile(concreteStorage.toFile(), "r"),
-					new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      return new FileReader(new RandomAccessFile(concreteStorage.toFile(), "r"),
+          new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	private Path createDirectoriesAndFile() throws IOException {
-		final Path concreteStorage = getConcreteStorage();
+  private Path createDirectoriesAndFile() throws IOException {
+    final Path concreteStorage = getConcreteStorage();
 
-		if (!Files.exists(concreteStorage)) {
-			Files.createDirectories(concreteStorage.getParent());
-			Files.createFile(concreteStorage);
-		}
-		return concreteStorage;
-	}
+    if (!Files.exists(concreteStorage)) {
+      Files.createDirectories(concreteStorage.getParent());
+      Files.createFile(concreteStorage);
+    }
+    return concreteStorage;
+  }
 
-	@Override
-	public Writer createWriter() throws SirixIOException {
-		try {
-			final Path concreteStorage = createDirectoriesAndFile();
+  @Override
+  public Writer createWriter() throws SirixIOException {
+    try {
+      final Path concreteStorage = createDirectoriesAndFile();
 
-			return new FileWriter(new RandomAccessFile(concreteStorage.toFile(), "rw"),
-					new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      return new FileWriter(new RandomAccessFile(concreteStorage.toFile(), "rw"),
+          new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public void close() {
-		// not used over here
-	}
+  @Override
+  public void close() {
+    // not used over here
+  }
 
-	/**
-	 * Getting concrete storage for this file.
-	 *
-	 * @return the concrete storage for this database
-	 */
-	private Path getConcreteStorage() {
-		return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve(FILENAME);
-	}
+  /**
+   * Getting concrete storage for this file.
+   *
+   * @return the concrete storage for this database
+   */
+  private Path getConcreteStorage() {
+    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve(FILENAME);
+  }
 
-	@Override
-	public boolean exists() throws SirixIOException {
-		final Path storage = getConcreteStorage();
-		try {
-			return Files.exists(storage) && Files.size(storage) > 0;
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public boolean exists() throws SirixIOException {
+    final Path storage = getConcreteStorage();
+    try {
+      return Files.exists(storage) && Files.size(storage) > 0;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public ByteHandler getByteHandler() {
-		return mByteHandler;
-	}
+  @Override
+  public ByteHandler getByteHandler() {
+    return mByteHandler;
+  }
 }

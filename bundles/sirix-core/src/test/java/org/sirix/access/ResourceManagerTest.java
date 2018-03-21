@@ -26,7 +26,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,201 +44,201 @@ import org.sirix.utils.DocumentCreater;
 
 public class ResourceManagerTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testSingleton() throws SirixException {
-		final Database database = Holder.openResourceManager().getDatabase();
-		assertEquals(database, holder.getDatabase());
-		final ResourceManager session = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		assertEquals(session, holder.getResourceManager());
-		session.close();
-		final ResourceManager session2 = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		assertNotSame(session2, holder.getResourceManager());
-		database.close();
+  @Test
+  public void testSingleton() throws SirixException {
+    final Database database = Holder.openResourceManager().getDatabase();
+    assertEquals(database, holder.getDatabase());
+    final ResourceManager session = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    assertEquals(session, holder.getResourceManager());
+    session.close();
+    final ResourceManager session2 = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    assertNotSame(session2, holder.getResourceManager());
+    database.close();
 
-	}
+  }
 
-	@Test
-	public void testClosed() throws SirixException {
-		XdmNodeReadTrx rtx = holder.getReader();
-		rtx.close();
+  @Test
+  public void testClosed() throws SirixException {
+    XdmNodeReadTrx rtx = holder.getReader();
+    rtx.close();
 
-		try {
-			rtx.getAttributeCount();
-			fail();
-		} catch (final IllegalStateException e) {
-			// Must fail.
-		} finally {
-			holder.getResourceManager().close();
-		}
-	}
+    try {
+      rtx.getAttributeCount();
+      fail();
+    } catch (final IllegalStateException e) {
+      // Must fail.
+    } finally {
+      holder.getResourceManager().close();
+    }
+  }
 
-	@Test
-	public void testNonExisting() throws SirixException, InterruptedException {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		assertTrue(database == database2);
-	}
+  @Test
+  public void testNonExisting() throws SirixException, InterruptedException {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    assertTrue(database == database2);
+  }
 
-	@Test
-	public void testInsertChild() throws SirixException {
-		try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-			DocumentCreater.create(wtx);
-			assertNotNull(wtx.moveToDocumentRoot());
-			assertEquals(Kind.DOCUMENT, wtx.getKind());
+  @Test
+  public void testInsertChild() throws SirixException {
+    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      DocumentCreater.create(wtx);
+      assertNotNull(wtx.moveToDocumentRoot());
+      assertEquals(Kind.DOCUMENT, wtx.getKind());
 
-			assertNotNull(wtx.moveToFirstChild());
-			assertEquals(Kind.ELEMENT, wtx.getKind());
-			assertEquals("p:a", new StringBuilder(wtx.getName().getPrefix()).append(":")
-					.append(wtx.getName().getLocalName()).toString());
+      assertNotNull(wtx.moveToFirstChild());
+      assertEquals(Kind.ELEMENT, wtx.getKind());
+      assertEquals("p:a", new StringBuilder(wtx.getName().getPrefix()).append(":")
+          .append(wtx.getName().getLocalName()).toString());
 
-			wtx.rollback();
-		}
-	}
+      wtx.rollback();
+    }
+  }
 
-	@Test
-	public void testRevision() throws SirixException {
-		XdmNodeReadTrx rtx = holder.getReader();
-		assertEquals(0L, rtx.getRevisionNumber());
+  @Test
+  public void testRevision() throws SirixException {
+    XdmNodeReadTrx rtx = holder.getReader();
+    assertEquals(0L, rtx.getRevisionNumber());
 
-		try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-			assertEquals(1L, wtx.getRevisionNumber());
+    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      assertEquals(1L, wtx.getRevisionNumber());
 
-			// Commit and check.
-			wtx.commit();
-		}
+      // Commit and check.
+      wtx.commit();
+    }
 
-		try {
-			rtx = holder.getResourceManager().beginNodeReadTrx(Constants.UBP_ROOT_REVISION_NUMBER);
+    try {
+      rtx = holder.getResourceManager().beginNodeReadTrx(Constants.UBP_ROOT_REVISION_NUMBER);
 
-			assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
-		} finally {
-			rtx.close();
-		}
+      assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
+    } finally {
+      rtx.close();
+    }
 
-		try (final XdmNodeReadTrx rtx2 = holder.getResourceManager().beginNodeReadTrx()) {
-			assertEquals(1L, rtx2.getRevisionNumber());
-		}
-	}
+    try (final XdmNodeReadTrx rtx2 = holder.getResourceManager().beginNodeReadTrx()) {
+      assertEquals(1L, rtx2.getRevisionNumber());
+    }
+  }
 
-	@Test
-	public void testShreddedRevision() throws SirixException {
-		try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-			DocumentCreater.create(wtx);
-			assertEquals(1L, wtx.getRevisionNumber());
-			wtx.commit();
-		}
+  @Test
+  public void testShreddedRevision() throws SirixException {
+    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      DocumentCreater.create(wtx);
+      assertEquals(1L, wtx.getRevisionNumber());
+      wtx.commit();
+    }
 
-		try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
-			assertEquals(1L, rtx.getRevisionNumber());
-			rtx.moveTo(12L);
-			assertEquals("bar", rtx.getValue());
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+      assertEquals(1L, rtx.getRevisionNumber());
+      rtx.moveTo(12L);
+      assertEquals("bar", rtx.getValue());
 
-			try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-				assertEquals(2L, wtx.getRevisionNumber());
-				wtx.moveTo(12L);
-				wtx.setValue("bar2");
+      try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+        assertEquals(2L, wtx.getRevisionNumber());
+        wtx.moveTo(12L);
+        wtx.setValue("bar2");
 
-				assertEquals("bar", rtx.getValue());
-				assertEquals("bar2", wtx.getValue());
-				wtx.rollback();
-			}
-		}
+        assertEquals("bar", rtx.getValue());
+        assertEquals("bar2", wtx.getValue());
+        wtx.rollback();
+      }
+    }
 
-		try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
-			assertEquals(1L, rtx.getRevisionNumber());
-			rtx.moveTo(12L);
-			assertEquals("bar", rtx.getValue());
-		}
-	}
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+      assertEquals(1L, rtx.getRevisionNumber());
+      rtx.moveTo(12L);
+      assertEquals("bar", rtx.getValue());
+    }
+  }
 
-	@Test
-	public void testExisting() throws SirixException {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager resource = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+  @Test
+  public void testExisting() throws SirixException {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager resource = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 
-		final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
-		DocumentCreater.create(wtx1);
-		assertEquals(1L, wtx1.getRevisionNumber());
-		wtx1.commit();
-		wtx1.close();
-		resource.close();
+    final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
+    DocumentCreater.create(wtx1);
+    assertEquals(1L, wtx1.getRevisionNumber());
+    wtx1.commit();
+    wtx1.close();
+    resource.close();
 
-		final ResourceManager resource2 = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
-		assertEquals(1L, rtx1.getRevisionNumber());
-		rtx1.moveTo(12L);
-		assertEquals("bar", rtx1.getValue());
+    final ResourceManager resource2 = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
+    assertEquals(1L, rtx1.getRevisionNumber());
+    rtx1.moveTo(12L);
+    assertEquals("bar", rtx1.getValue());
 
-		final XdmNodeWriteTrx wtx2 = resource2.beginNodeWriteTrx();
-		assertEquals(2L, wtx2.getRevisionNumber());
-		wtx2.moveTo(12L);
-		wtx2.setValue("bar2");
+    final XdmNodeWriteTrx wtx2 = resource2.beginNodeWriteTrx();
+    assertEquals(2L, wtx2.getRevisionNumber());
+    wtx2.moveTo(12L);
+    wtx2.setValue("bar2");
 
-		assertEquals("bar", rtx1.getValue());
-		assertEquals("bar2", wtx2.getValue());
+    assertEquals("bar", rtx1.getValue());
+    assertEquals("bar2", wtx2.getValue());
 
-		rtx1.close();
-		wtx2.commit();
-		wtx2.close();
+    rtx1.close();
+    wtx2.commit();
+    wtx2.close();
 
-		final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager resource3 = database2
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
-		assertEquals(2L, rtx2.getRevisionNumber());
-		rtx2.moveTo(12L);
-		assertEquals("bar2", rtx2.getValue());
+    final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager resource3 = database2
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
+    assertEquals(2L, rtx2.getRevisionNumber());
+    rtx2.moveTo(12L);
+    assertEquals("bar2", rtx2.getValue());
 
-		rtx2.close();
-		resource3.close();
+    rtx2.close();
+    resource3.close();
 
-	}
+  }
 
-	@Test
-	public void testIdempotentClose() throws SirixException {
-		final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		wtx.close();
-		wtx.close();
+  @Test
+  public void testIdempotentClose() throws SirixException {
+    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    wtx.close();
+    wtx.close();
 
-		final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-		assertEquals(false, rtx.moveTo(14L).hasMoved());
-		rtx.close();
-		rtx.close();
-		holder.getResourceManager().close();
-	}
+    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    assertEquals(false, rtx.moveTo(14L).hasMoved());
+    rtx.close();
+    rtx.close();
+    holder.getResourceManager().close();
+  }
 
-	@Test
-	public void testAutoCommit() throws SirixException {
-		final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-	}
+  @Test
+  public void testAutoCommit() throws SirixException {
+    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+  }
 
-	@Test
-	public void testAutoClose() throws SirixException {
+  @Test
+  public void testAutoClose() throws SirixException {
 
-		final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-		DocumentCreater.create(wtx);
-		wtx.commit();
-		holder.getResourceManager().beginNodeReadTrx();
-	}
+    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    holder.getResourceManager().beginNodeReadTrx();
+  }
 }

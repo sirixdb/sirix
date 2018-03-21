@@ -25,14 +25,12 @@ package org.sirix.node.delegates;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -47,150 +45,150 @@ import com.google.common.base.Objects;
  */
 public class NameNodeDelegate extends AbstractForwardingNode implements NameNode {
 
-	/** Node delegate, containing basic node information. */
-	private final NodeDelegate mDelegate;
+  /** Node delegate, containing basic node information. */
+  private final NodeDelegate mDelegate;
 
-	/** Key of the prefix. */
-	private int mPrefixKey;
+  /** Key of the prefix. */
+  private int mPrefixKey;
 
-	/** Key of the local name */
-	private int mLocalNameKey;
+  /** Key of the local name */
+  private int mLocalNameKey;
 
-	/** URI of the related namespace. */
-	private int mUriKey;
+  /** URI of the related namespace. */
+  private int mUriKey;
 
-	/** Path node key. */
-	private long mPathNodeKey;
+  /** Path node key. */
+  private long mPathNodeKey;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param delegate page delegator
-	 * @param uriKey uriKey to be stored
-	 * @param prefixKey prefixKey to be stored
-	 * @param localNameKey localNameKey to be stored
-	 * @param pathNodeKey path node key associated with node
-	 */
-	public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey,
-			final int localNameKey, final @Nonnegative long pathNodeKey) {
-		assert delegate != null : "delegate must not be null!";
-		mDelegate = delegate;
-		mPrefixKey = prefixKey;
-		mLocalNameKey = localNameKey;
-		mUriKey = uriKey;
-		assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
-		mPathNodeKey = pathNodeKey;
-	}
+  /**
+   * Constructor.
+   *
+   * @param delegate page delegator
+   * @param uriKey uriKey to be stored
+   * @param prefixKey prefixKey to be stored
+   * @param localNameKey localNameKey to be stored
+   * @param pathNodeKey path node key associated with node
+   */
+  public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey,
+      final int localNameKey, final @Nonnegative long pathNodeKey) {
+    assert delegate != null : "delegate must not be null!";
+    mDelegate = delegate;
+    mPrefixKey = prefixKey;
+    mLocalNameKey = localNameKey;
+    mUriKey = uriKey;
+    assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
+    mPathNodeKey = pathNodeKey;
+  }
 
-	/**
-	 * Copy constructor.
-	 *
-	 * @param nameDel old name node delegate
-	 */
-	public NameNodeDelegate(final NameNodeDelegate nameDel) {
-		mDelegate = nameDel.mDelegate;
-		mPrefixKey = nameDel.mPrefixKey;
-		mLocalNameKey = nameDel.mLocalNameKey;
-		mUriKey = nameDel.mUriKey;
-		mPathNodeKey = nameDel.mPathNodeKey;
-	}
+  /**
+   * Copy constructor.
+   *
+   * @param nameDel old name node delegate
+   */
+  public NameNodeDelegate(final NameNodeDelegate nameDel) {
+    mDelegate = nameDel.mDelegate;
+    mPrefixKey = nameDel.mPrefixKey;
+    mLocalNameKey = nameDel.mLocalNameKey;
+    mUriKey = nameDel.mUriKey;
+    mPathNodeKey = nameDel.mPathNodeKey;
+  }
 
-	@Override
-	public Kind getKind() {
-		return Kind.UNKNOWN;
-	}
+  @Override
+  public Kind getKind() {
+    return Kind.UNKNOWN;
+  }
 
-	@Override
-	public VisitResultType acceptVisitor(final Visitor visitor) {
-		return mDelegate.acceptVisitor(visitor);
-	}
+  @Override
+  public VisitResultType acceptVisitor(final Visitor visitor) {
+    return mDelegate.acceptVisitor(visitor);
+  }
 
-	@Override
-	public int getLocalNameKey() {
-		return mLocalNameKey;
-	}
+  @Override
+  public int getLocalNameKey() {
+    return mLocalNameKey;
+  }
 
-	@Override
-	public int getURIKey() {
-		return mUriKey;
-	}
+  @Override
+  public int getURIKey() {
+    return mUriKey;
+  }
 
-	@Override
-	public void setLocalNameKey(final int localNameKey) {
-		mLocalNameKey = localNameKey;
-	}
+  @Override
+  public void setLocalNameKey(final int localNameKey) {
+    mLocalNameKey = localNameKey;
+  }
 
-	@Override
-	public void setURIKey(final int uriKey) {
-		mUriKey = uriKey;
-	}
+  @Override
+  public void setURIKey(final int uriKey) {
+    mUriKey = uriKey;
+  }
 
-	/**
-	 * Setting the class path record.
-	 *
-	 * @param pPCR the path class record to set
-	 */
-	@Override
-	public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
-		assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
-		mPathNodeKey = pathNodeKey;
-	}
+  /**
+   * Setting the class path record.
+   *
+   * @param pPCR the path class record to set
+   */
+  @Override
+  public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
+    assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
+    mPathNodeKey = pathNodeKey;
+  }
 
-	/**
-	 * Get the path class record.
-	 *
-	 * @return path class record the node belongs to
-	 */
-	@Override
-	public long getPathNodeKey() {
-		return mPathNodeKey;
-	}
+  /**
+   * Get the path class record.
+   *
+   * @return path class record the node belongs to
+   */
+  @Override
+  public long getPathNodeKey() {
+    return mPathNodeKey;
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mUriKey, mPrefixKey, mLocalNameKey);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mUriKey, mPrefixKey, mLocalNameKey);
+  }
 
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NameNodeDelegate) {
-			final NameNodeDelegate other = (NameNodeDelegate) obj;
-			return Objects.equal(mUriKey, other.mUriKey) && Objects.equal(mPrefixKey, other.mPrefixKey)
-					&& Objects.equal(mLocalNameKey, other.mLocalNameKey);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof NameNodeDelegate) {
+      final NameNodeDelegate other = (NameNodeDelegate) obj;
+      return Objects.equal(mUriKey, other.mUriKey) && Objects.equal(mPrefixKey, other.mPrefixKey)
+          && Objects.equal(mLocalNameKey, other.mLocalNameKey);
+    }
+    return false;
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("node delegate", mDelegate).add("uriKey", mUriKey)
-				.add("prefixKey", mPrefixKey).add("localNameKey", mLocalNameKey)
-				.add("pathNodeKey", mPathNodeKey).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("node delegate", mDelegate).add("uriKey", mUriKey)
+        .add("prefixKey", mPrefixKey).add("localNameKey", mLocalNameKey)
+        .add("pathNodeKey", mPathNodeKey).toString();
+  }
 
-	@Override
-	protected NodeDelegate delegate() {
-		return mDelegate;
-	}
+  @Override
+  protected NodeDelegate delegate() {
+    return mDelegate;
+  }
 
-	@Override
-	public long getRevision() {
-		return mDelegate.getRevision();
-	}
+  @Override
+  public long getRevision() {
+    return mDelegate.getRevision();
+  }
 
-	@Override
-	public int getPrefixKey() {
-		return mPrefixKey;
-	}
+  @Override
+  public int getPrefixKey() {
+    return mPrefixKey;
+  }
 
-	@Override
-	public void setPrefixKey(int prefixKey) {
-		mPrefixKey = prefixKey;
-	}
+  @Override
+  public void setPrefixKey(int prefixKey) {
+    mPrefixKey = prefixKey;
+  }
 
-	// Override in concrete node-classes, as the type is not known over here.
-	@Override
-	public QNm getName() {
-		return null;
-	}
+  // Override in concrete node-classes, as the type is not known over here.
+  @Override
+  public QNm getName() {
+    return null;
+  }
 }

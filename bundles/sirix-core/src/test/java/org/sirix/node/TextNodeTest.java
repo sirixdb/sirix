@@ -22,14 +22,12 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Optional;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,60 +46,60 @@ import org.sirix.utils.NamePageHash;
  */
 public class TextNodeTest {
 
-	/** {@link Holder} instance. */
-	private Holder mHolder;
+  /** {@link Holder} instance. */
+  private Holder mHolder;
 
-	/** Sirix {@link PageReadTrx} instance. */
-	private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx} instance. */
+  private PageReadTrx mPageReadTrx;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		mHolder = Holder.generateDeweyIDResourceMgr();
-		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		mPageReadTrx.close();
-		mHolder.close();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    mPageReadTrx.close();
+    mHolder.close();
+  }
 
-	@Test
-	public void testTextRootNode() throws IOException {
-		// Create empty node.
-		final byte[] value = {(byte) 17, (byte) 18};
-		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
-		final StructNodeDelegate strucDel =
-				new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-		final TextNode node = new TextNode(valDel, strucDel);
-		check(node);
+  @Test
+  public void testTextRootNode() throws IOException {
+    // Create empty node.
+    final byte[] value = {(byte) 17, (byte) 18};
+    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final StructNodeDelegate strucDel =
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+    final TextNode node = new TextNode(valDel, strucDel);
+    check(node);
 
-		// Serialize and deserialize node.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
-		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(new DataInputStream(in),
-				node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
-		check(node2);
-	}
+    // Serialize and deserialize node.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final TextNode node2 = (TextNode) Kind.TEXT.deserialize(new DataInputStream(in),
+        node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    check(node2);
+  }
 
-	private final static void check(final TextNode node) {
-		// Now compare.
-		assertEquals(13L, node.getNodeKey());
-		assertEquals(14L, node.getParentKey());
-		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-		assertEquals(15L, node.getLeftSiblingKey());
-		assertEquals(16L, node.getRightSiblingKey());
-		assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-		assertEquals(2, node.getRawValue().length);
-		assertEquals(Kind.TEXT, node.getKind());
-		assertEquals(false, node.hasFirstChild());
-		assertEquals(true, node.hasParent());
-		assertEquals(true, node.hasLeftSibling());
-		assertEquals(true, node.hasRightSibling());
-	}
+  private final static void check(final TextNode node) {
+    // Now compare.
+    assertEquals(13L, node.getNodeKey());
+    assertEquals(14L, node.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(15L, node.getLeftSiblingKey());
+    assertEquals(16L, node.getRightSiblingKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
+    assertEquals(2, node.getRawValue().length);
+    assertEquals(Kind.TEXT, node.getKind());
+    assertEquals(false, node.hasFirstChild());
+    assertEquals(true, node.hasParent());
+    assertEquals(true, node.hasLeftSibling());
+    assertEquals(true, node.hasRightSibling());
+  }
 
 }

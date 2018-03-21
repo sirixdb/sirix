@@ -22,7 +22,6 @@
 package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.Axis;
 
 /**
@@ -34,65 +33,65 @@ import org.sirix.api.Axis;
  */
 public final class NestedAxis extends AbstractAxis {
 
-	/** Parent axis. */
-	private final Axis mParentAxis;
+  /** Parent axis. */
+  private final Axis mParentAxis;
 
-	/** Child axis to apply to each node found with parent axis. */
-	private final Axis mChildAxis;
+  /** Child axis to apply to each node found with parent axis. */
+  private final Axis mChildAxis;
 
-	/** Is it the first run of parent axis? */
-	private boolean mIsFirst;
+  /** Is it the first run of parent axis? */
+  private boolean mIsFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param parentAxis inner nested axis
-	 * @param childAxis outer nested axis
-	 */
-	public NestedAxis(final Axis parentAxis, final Axis childAxis) {
-		super(parentAxis.getTrx());
-		mParentAxis = checkNotNull(parentAxis);
-		mChildAxis = checkNotNull(childAxis);
-		mIsFirst = true;
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param parentAxis inner nested axis
+   * @param childAxis outer nested axis
+   */
+  public NestedAxis(final Axis parentAxis, final Axis childAxis) {
+    super(parentAxis.getTrx());
+    mParentAxis = checkNotNull(parentAxis);
+    mChildAxis = checkNotNull(childAxis);
+    mIsFirst = true;
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		if (mParentAxis != null) {
-			mParentAxis.reset(nodeKey);
-		}
-		if (mChildAxis != null) {
-			mChildAxis.reset(nodeKey);
-		}
-		mIsFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    if (mParentAxis != null) {
+      mParentAxis.reset(nodeKey);
+    }
+    if (mChildAxis != null) {
+      mChildAxis.reset(nodeKey);
+    }
+    mIsFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		// Make sure that parent axis is moved for the first time.
-		if (mIsFirst) {
-			mIsFirst = false;
-			if (mParentAxis.hasNext()) {
-				mChildAxis.reset(mParentAxis.next());
-			} else {
-				return done();
-			}
-		}
+  @Override
+  protected long nextKey() {
+    // Make sure that parent axis is moved for the first time.
+    if (mIsFirst) {
+      mIsFirst = false;
+      if (mParentAxis.hasNext()) {
+        mChildAxis.reset(mParentAxis.next());
+      } else {
+        return done();
+      }
+    }
 
-		// Execute child axis for each node found with parent axis.
-		boolean hasNext = false;
-		while (!(hasNext = mChildAxis.hasNext())) {
-			if (mParentAxis.hasNext()) {
-				mChildAxis.reset(mParentAxis.next());
-			} else {
-				break;
-			}
-		}
-		if (hasNext) {
-			return mChildAxis.next();
-		}
+    // Execute child axis for each node found with parent axis.
+    boolean hasNext = false;
+    while (!(hasNext = mChildAxis.hasNext())) {
+      if (mParentAxis.hasNext()) {
+        mChildAxis.reset(mParentAxis.next());
+      } else {
+        break;
+      }
+    }
+    if (hasNext) {
+      return mChildAxis.next();
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

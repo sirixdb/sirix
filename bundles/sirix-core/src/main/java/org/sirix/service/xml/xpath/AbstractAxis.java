@@ -22,12 +22,9 @@
 package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.XdmNodeReadTrx;
@@ -47,256 +44,256 @@ import org.sirix.settings.Fixed;
  */
 public abstract class AbstractAxis implements Axis {
 
-	/** Iterate over transaction exclusive to this step. */
-	private final NodeCursor mRtx;
+  /** Iterate over transaction exclusive to this step. */
+  private final NodeCursor mRtx;
 
-	/** Key of next node. */
-	protected long mKey;
+  /** Key of next node. */
+  protected long mKey;
 
-	/**
-	 * Make sure {@code next()} can only be called after {@code hasNext()} has been called.
-	 */
-	private boolean mNext;
+  /**
+   * Make sure {@code next()} can only be called after {@code hasNext()} has been called.
+   */
+  private boolean mNext;
 
-	/** Key of node where axis started. */
-	private long mStartKey;
+  /** Key of node where axis started. */
+  private long mStartKey;
 
-	/** Include self? */
-	private final IncludeSelf mIncludeSelf;
+  /** Include self? */
+  private final IncludeSelf mIncludeSelf;
 
-	/** Determines if a next node follows or not. */
-	private boolean mHasNext;
+  /** Determines if a next node follows or not. */
+  private boolean mHasNext;
 
-	/**
-	 * Bind axis step to transaction.
-	 * 
-	 * @param pRtx transaction to operate with
-	 * @throws NullPointerException if {@code paramRtx} is {@code null}
-	 */
-	public AbstractAxis(final NodeCursor pRtx) {
-		mRtx = checkNotNull(pRtx);
-		mIncludeSelf = IncludeSelf.NO;
-		mHasNext = true;
-		reset(pRtx.getNodeKey());
-	}
+  /**
+   * Bind axis step to transaction.
+   * 
+   * @param pRtx transaction to operate with
+   * @throws NullPointerException if {@code paramRtx} is {@code null}
+   */
+  public AbstractAxis(final NodeCursor pRtx) {
+    mRtx = checkNotNull(pRtx);
+    mIncludeSelf = IncludeSelf.NO;
+    mHasNext = true;
+    reset(pRtx.getNodeKey());
+  }
 
-	/**
-	 * Bind axis step to transaction.
-	 * 
-	 * @param pRtx transaction to operate with
-	 * @param pIncludeSelf determines if self is included
-	 */
-	public AbstractAxis(final NodeCursor pRtx, final IncludeSelf pIncludeSelf) {
-		mRtx = checkNotNull(pRtx);
-		mIncludeSelf = checkNotNull(pIncludeSelf);
-		mHasNext = true;
-		reset(pRtx.getNodeKey());
-	}
+  /**
+   * Bind axis step to transaction.
+   * 
+   * @param pRtx transaction to operate with
+   * @param pIncludeSelf determines if self is included
+   */
+  public AbstractAxis(final NodeCursor pRtx, final IncludeSelf pIncludeSelf) {
+    mRtx = checkNotNull(pRtx);
+    mIncludeSelf = checkNotNull(pIncludeSelf);
+    mHasNext = true;
+    reset(pRtx.getNodeKey());
+  }
 
-	@Override
-	public final Iterator<Long> iterator() {
-		return this;
-	}
+  @Override
+  public final Iterator<Long> iterator() {
+    return this;
+  }
 
-	/**
-	 * Signals that axis traversal is done, that is {@code hasNext()} must return false. Can be called
-	 * from subclasses to signal that axis is done.
-	 * 
-	 * @return null node key
-	 */
-	protected long done() {
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  /**
+   * Signals that axis traversal is done, that is {@code hasNext()} must return false. Can be called
+   * from subclasses to signal that axis is done.
+   * 
+   * @return null node key
+   */
+  protected long done() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 * <p>
-	 * During the last call to {@code hasNext()}, that is {@code hasNext()} returns false, the
-	 * transaction is reset to the start key.
-	 * </p>
-	 * 
-	 * <p>
-	 * <strong>Implementors should implement {@code nextKey()} instead which is a template method
-	 * called from this {@code hasNext()} method.</strong>
-	 * </p>
-	 */
-	@Override
-	public boolean hasNext() {
-		if (!isHasNext()) {
-			// End of the axis reached.
-			return false;
-		}
-		if (isNext()) {
-			// hasNext() has been called before without an intermediate next()-call.
-			return true;
-		}
+  /**
+   * {@inheritDoc}
+   * 
+   * <p>
+   * During the last call to {@code hasNext()}, that is {@code hasNext()} returns false, the
+   * transaction is reset to the start key.
+   * </p>
+   * 
+   * <p>
+   * <strong>Implementors should implement {@code nextKey()} instead which is a template method
+   * called from this {@code hasNext()} method.</strong>
+   * </p>
+   */
+  @Override
+  public boolean hasNext() {
+    if (!isHasNext()) {
+      // End of the axis reached.
+      return false;
+    }
+    if (isNext()) {
+      // hasNext() has been called before without an intermediate next()-call.
+      return true;
+    }
 
-		// Reset to last node key.
-		resetToLastKey();
+    // Reset to last node key.
+    resetToLastKey();
 
-		// Template method.
-		mKey = nextKey();
+    // Template method.
+    mKey = nextKey();
 
-		if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			// Reset to the start key before invoking the axis.
-			resetToStartKey();
-			return false;
-		} else {
-			return true;
-		}
-	}
+    if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      // Reset to the start key before invoking the axis.
+      resetToStartKey();
+      return false;
+    } else {
+      return true;
+    }
+  }
 
-	/**
-	 * Please do not override {@code hasNext()} directly. Use this template method instead. It
-	 * determines the next node key in the axis. Override this method to simplify {@code hasNext()}.
-	 * Simply return {@code EFixed.NULL_NODE_KEY.getStandardProperty()} if no more node is following
-	 * in the axis, otherwise return the node key of the next node.
-	 * 
-	 * @return next node key
-	 */
-	protected long nextKey() {
-		return 0;
-	}
+  /**
+   * Please do not override {@code hasNext()} directly. Use this template method instead. It
+   * determines the next node key in the axis. Override this method to simplify {@code hasNext()}.
+   * Simply return {@code EFixed.NULL_NODE_KEY.getStandardProperty()} if no more node is following
+   * in the axis, otherwise return the node key of the next node.
+   * 
+   * @return next node key
+   */
+  protected long nextKey() {
+    return 0;
+  }
 
-	@Override
-	public final Long next() {
-		if (!mHasNext) {
-			throw new NoSuchElementException("No more nodes in the axis!");
-		}
-		if (!mNext) {
-			if (!hasNext()) {
-				throw new NoSuchElementException("No more nodes in the axis!");
-			}
-		}
-		if (mKey >= 0) {
-			if (mRtx.hasNode(mKey)) {
-				mRtx.moveTo(mKey);
-			} else {
-				throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
-			}
-		} else {
-			mRtx.moveTo(mKey);
-		}
-		mNext = false;
-		return mKey;
-	}
+  @Override
+  public final Long next() {
+    if (!mHasNext) {
+      throw new NoSuchElementException("No more nodes in the axis!");
+    }
+    if (!mNext) {
+      if (!hasNext()) {
+        throw new NoSuchElementException("No more nodes in the axis!");
+      }
+    }
+    if (mKey >= 0) {
+      if (mRtx.hasNode(mKey)) {
+        mRtx.moveTo(mKey);
+      } else {
+        throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
+      }
+    } else {
+      mRtx.moveTo(mKey);
+    }
+    mNext = false;
+    return mKey;
+  }
 
-	@Override
-	public final void remove() {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public final void remove() {
+    throw new UnsupportedOperationException();
+  }
 
-	/**
-	 * Resetting the nodekey of this axis to a given nodekey.
-	 * 
-	 * @param paramNodeKey the nodekey where the reset should occur to
-	 */
-	@Override
-	public void reset(@Nonnegative final long pNodeKey) {
-		mStartKey = pNodeKey;
-		mKey = pNodeKey;
-		mNext = false;
-		mHasNext = true;
-	}
+  /**
+   * Resetting the nodekey of this axis to a given nodekey.
+   * 
+   * @param paramNodeKey the nodekey where the reset should occur to
+   */
+  @Override
+  public void reset(@Nonnegative final long pNodeKey) {
+    mStartKey = pNodeKey;
+    mKey = pNodeKey;
+    mNext = false;
+    mHasNext = true;
+  }
 
-	/**
-	 * Get current {@link XdmNodeReadTrx}.
-	 * 
-	 * @return the {@link XdmNodeReadTrx} used
-	 */
-	@Override
-	public XdmNodeReadTrx getTrx() {
-		if (mRtx instanceof XdmNodeReadTrx) {
-			return (XdmNodeReadTrx) mRtx;
-		} else {
-			return null;
-		}
-	}
+  /**
+   * Get current {@link XdmNodeReadTrx}.
+   * 
+   * @return the {@link XdmNodeReadTrx} used
+   */
+  @Override
+  public XdmNodeReadTrx getTrx() {
+    if (mRtx instanceof XdmNodeReadTrx) {
+      return (XdmNodeReadTrx) mRtx;
+    } else {
+      return null;
+    }
+  }
 
-	/**
-	 * Determines if axis might have more results.
-	 * 
-	 * @return {@code true} if axis might have more results, {@code false} otherwise
-	 */
-	public boolean isHasNext() {
-		return mHasNext;
-	}
+  /**
+   * Determines if axis might have more results.
+   * 
+   * @return {@code true} if axis might have more results, {@code false} otherwise
+   */
+  public boolean isHasNext() {
+    return mHasNext;
+  }
 
-	/**
-	 * Make sure the transaction points to the node it started with. This must be called just before
-	 * {@code hasNext() == false}.
-	 * 
-	 * @return key of node where transaction was before the first call of {@code hasNext()}
-	 */
-	protected final long resetToStartKey() {
-		// No check because of IAxis Convention 4.
-		mRtx.moveTo(mStartKey);
-		mNext = false;
-		mHasNext = false;
-		return mStartKey;
-	}
+  /**
+   * Make sure the transaction points to the node it started with. This must be called just before
+   * {@code hasNext() == false}.
+   * 
+   * @return key of node where transaction was before the first call of {@code hasNext()}
+   */
+  protected final long resetToStartKey() {
+    // No check because of IAxis Convention 4.
+    mRtx.moveTo(mStartKey);
+    mNext = false;
+    mHasNext = false;
+    return mStartKey;
+  }
 
-	/**
-	 * Make sure the transaction points to the node after the last hasNext(). This must be called
-	 * first in hasNext().
-	 * 
-	 * @return key of node where transaction was after the last call of {@code hasNext()}
-	 */
-	protected final long resetToLastKey() {
-		// No check because of IAxis Convention 4.
-		mRtx.moveTo(mKey);
-		mNext = true;
-		return mKey;
-	}
+  /**
+   * Make sure the transaction points to the node after the last hasNext(). This must be called
+   * first in hasNext().
+   * 
+   * @return key of node where transaction was after the last call of {@code hasNext()}
+   */
+  protected final long resetToLastKey() {
+    // No check because of IAxis Convention 4.
+    mRtx.moveTo(mKey);
+    mNext = true;
+    return mKey;
+  }
 
-	@Override
-	public final long getStartKey() {
-		return mStartKey;
-	}
+  @Override
+  public final long getStartKey() {
+    return mStartKey;
+  }
 
-	@Override
-	public final IncludeSelf isSelfIncluded() {
-		return mIncludeSelf;
-	}
+  @Override
+  public final IncludeSelf isSelfIncluded() {
+    return mIncludeSelf;
+  }
 
-	@Override
-	public Long peek() {
-		return null;
-	}
+  @Override
+  public Long peek() {
+    return null;
+  }
 
-	/**
-	 * Get mNext which determines if {@code hasNext()} has at least been called once before the call
-	 * to {@code next()}.
-	 * 
-	 * @return {@code true} if {@code hasNext()} has been called before calling {@code next()},
-	 *         {@code false} otherwise
-	 */
-	public final boolean isNext() {
-		return mNext;
-	}
+  /**
+   * Get mNext which determines if {@code hasNext()} has at least been called once before the call
+   * to {@code next()}.
+   * 
+   * @return {@code true} if {@code hasNext()} has been called before calling {@code next()},
+   *         {@code false} otherwise
+   */
+  public final boolean isNext() {
+    return mNext;
+  }
 
-	/**
-	 * Implements a simple foreach-method.
-	 * 
-	 * @param pVisitor {@link Visitor} implementation
-	 */
-	@Override
-	public final void foreach(final Visitor pVisitor) {
-		checkNotNull(pVisitor);
-		for (; hasNext(); next()) {
-			mRtx.acceptVisitor(pVisitor);
-		}
-	}
+  /**
+   * Implements a simple foreach-method.
+   * 
+   * @param pVisitor {@link Visitor} implementation
+   */
+  @Override
+  public final void foreach(final Visitor pVisitor) {
+    checkNotNull(pVisitor);
+    for (; hasNext(); next()) {
+      mRtx.acceptVisitor(pVisitor);
+    }
+  }
 
-	@Override
-	public synchronized final long nextNode() {
-		synchronized (mRtx) {
-			long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
-			if (hasNext()) {
-				retVal = next();
-			}
-			return retVal;
-		}
-	}
+  @Override
+  public synchronized final long nextNode() {
+    synchronized (mRtx) {
+      long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
+      if (hasNext()) {
+        retVal = next();
+      }
+      return retVal;
+    }
+  }
 }

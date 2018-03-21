@@ -22,9 +22,7 @@
 package org.sirix.cache;
 
 import java.util.Map;
-
 import javax.annotation.Nonnull;
-
 import com.google.common.collect.ImmutableMap;
 
 /**
@@ -39,54 +37,54 @@ import com.google.common.collect.ImmutableMap;
  * @param V the value
  */
 public interface Cache<K, V> {
-	/**
-	 * Clearing the cache. That is removing all elements.
-	 */
-	void clear();
+  /**
+   * Clearing the cache. That is removing all elements.
+   */
+  void clear();
 
-	/**
-	 * Getting a value related to a given key.
-	 *
-	 * @param key the key for the requested {@link PageContainer}
-	 * @return {@link PageContainer} instance related to this key
-	 */
-	V get(K key);
+  /**
+   * Getting a value related to a given key.
+   *
+   * @param key the key for the requested {@link PageContainer}
+   * @return {@link PageContainer} instance related to this key
+   */
+  V get(K key);
 
-	/**
-	 * Putting a key/value into the cache.
-	 *
-	 * @param key for putting the page in the cache
-	 * @param value should be putted in the cache as well
-	 */
-	void put(K key, @Nonnull V value);
+  /**
+   * Putting a key/value into the cache.
+   *
+   * @param key for putting the page in the cache
+   * @param value should be putted in the cache as well
+   */
+  void put(K key, @Nonnull V value);
 
-	/**
-	 * Put all entries from a map into the cache.
-	 *
-	 * @param map map with entries to put into the cache
-	 */
-	void putAll(Map<? extends K, ? extends V> map);
+  /**
+   * Put all entries from a map into the cache.
+   *
+   * @param map map with entries to put into the cache
+   */
+  void putAll(Map<? extends K, ? extends V> map);
 
-	/**
-	 * Save all entries of this cache in the secondary cache without removing them.
-	 */
-	void toSecondCache();
+  /**
+   * Save all entries of this cache in the secondary cache without removing them.
+   */
+  void toSecondCache();
 
-	/**
-	 * Get all entries corresponding to the keys.
-	 *
-	 * @param keys {@link Iterable} of keys
-	 * @return {@link ImmutableMap} instance with corresponding values
-	 */
-	ImmutableMap<K, V> getAll(Iterable<? extends K> keys);
+  /**
+   * Get all entries corresponding to the keys.
+   *
+   * @param keys {@link Iterable} of keys
+   * @return {@link ImmutableMap} instance with corresponding values
+   */
+  ImmutableMap<K, V> getAll(Iterable<? extends K> keys);
 
-	/**
-	 * Remove key from storage.
-	 *
-	 * @param key key to remove
-	 */
-	void remove(K key);
+  /**
+   * Remove key from storage.
+   *
+   * @param key key to remove
+   */
+  void remove(K key);
 
-	/** Close a cache, might be a file handle for persistent caches. */
-	void close();
+  /** Close a cache, might be a file handle for persistent caches. */
+  void close();
 }

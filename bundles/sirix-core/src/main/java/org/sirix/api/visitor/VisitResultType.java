@@ -6,15 +6,15 @@ package org.sirix.api.visitor;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public enum VisitResultType implements VisitResult {
-	/** Continue without visiting the siblings of this node. */
-	SKIPSIBLINGS,
+  /** Continue without visiting the siblings of this node. */
+  SKIPSIBLINGS,
 
-	/** Continue without visiting the descendants of this node. */
-	SKIPSUBTREE,
+  /** Continue without visiting the descendants of this node. */
+  SKIPSUBTREE,
 
-	/** Continue traversal. */
-	CONTINUE,
+  /** Continue traversal. */
+  CONTINUE,
 
-	/** Terminate traversal. */
-	TERMINATE
+  /** Terminate traversal. */
+  TERMINATE
 }

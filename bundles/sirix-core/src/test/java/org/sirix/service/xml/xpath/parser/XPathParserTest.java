@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.parser;
 
 import static org.junit.Assert.assertEquals;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,105 +33,105 @@ import org.sirix.service.xml.xpath.XPathAxis;
 
 public class XPathParserTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testLiterals() throws SirixException {
+  @Test
+  public void testLiterals() throws SirixException {
 
-		holder.getReader().moveTo(2L);
+    holder.getReader().moveTo(2L);
 
-		AbstractAxis axis;
+    AbstractAxis axis;
 
-		axis = new XPathAxis(holder.getReader(), "\"12.5\"");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals("12.5", holder.getReader().getValue());
-		assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "\"12.5\"");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals("12.5", holder.getReader().getValue());
+    assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
+    assertEquals(false, axis.hasNext());
 
-		axis = new XPathAxis(holder.getReader(), "\"He said, \"\"I don't like it\"\"\"");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals("He said, I don't like it", holder.getReader().getValue());
-		assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "\"He said, \"\"I don't like it\"\"\"");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals("He said, I don't like it", holder.getReader().getValue());
+    assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
+    assertEquals(false, axis.hasNext());
 
-		axis = new XPathAxis(holder.getReader(), "12");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
-		assertEquals("12", holder.getReader().getValue());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "12");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
+    assertEquals("12", holder.getReader().getValue());
+    assertEquals(false, axis.hasNext());
 
-		axis = new XPathAxis(holder.getReader(), "12.5");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals(holder.getReader().keyForName("xs:decimal"), holder.getReader().getTypeKey());
-		assertEquals("12.5", holder.getReader().getValue());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "12.5");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals(holder.getReader().keyForName("xs:decimal"), holder.getReader().getTypeKey());
+    assertEquals("12.5", holder.getReader().getValue());
+    assertEquals(false, axis.hasNext());
 
-		axis = new XPathAxis(holder.getReader(), "12.5E2");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
-		assertEquals("12.5E2", holder.getReader().getValue());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "12.5E2");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
+    assertEquals("12.5E2", holder.getReader().getValue());
+    assertEquals(false, axis.hasNext());
 
-		axis = new XPathAxis(holder.getReader(), "1");
-		assertEquals(true, axis.hasNext());
-		axis.next();
-		assertEquals("1", holder.getReader().getValue());
-		assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
-		assertEquals(false, axis.hasNext());
+    axis = new XPathAxis(holder.getReader(), "1");
+    assertEquals(true, axis.hasNext());
+    axis.next();
+    assertEquals("1", holder.getReader().getValue());
+    assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
+    assertEquals(false, axis.hasNext());
 
-	}
+  }
 
-	@Test
-	public void testEBNF() throws SirixException {
+  @Test
+  public void testEBNF() throws SirixException {
 
-		XPathParser parser = new XPathParser(holder.getReader(), "/p:a");
-		parser.parseQuery();
+    XPathParser parser = new XPathParser(holder.getReader(), "/p:a");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "/p:a/node(), /b/descendant-or-self::adsfj");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "/p:a/node(), /b/descendant-or-self::adsfj");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "for $i in /p:a return $i");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "for $i in /p:a return $i");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "for $i in /p:a return /p:a");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "for $i in /p:a return /p:a");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "child::element(person)");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "child::element(person)");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "child::element(person, xs:string)");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "child::element(person, xs:string)");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), " child::element(*, xs:string)");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), " child::element(*, xs:string)");
+    parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "child::element()");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "child::element()");
+    parser.parseQuery();
 
-		// parser = new XPathParser(holder.getRtx(), ". treat as item()");
-		// parser.parseQuery();
+    // parser = new XPathParser(holder.getRtx(), ". treat as item()");
+    // parser.parseQuery();
 
-		parser = new XPathParser(holder.getReader(), "/b instance of item()");
-		parser.parseQuery();
+    parser = new XPathParser(holder.getReader(), "/b instance of item()");
+    parser.parseQuery();
 
-	}
+  }
 
 }

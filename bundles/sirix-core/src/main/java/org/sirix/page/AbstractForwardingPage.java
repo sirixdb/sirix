@@ -21,17 +21,13 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.DataOutput;
 import java.io.IOException;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-
 import com.google.common.collect.ForwardingObject;
 
 /**
@@ -42,30 +38,30 @@ import com.google.common.collect.ForwardingObject;
  */
 public abstract class AbstractForwardingPage extends ForwardingObject implements Page {
 
-	/** Constructor for use by subclasses. */
-	protected AbstractForwardingPage() {}
+  /** Constructor for use by subclasses. */
+  protected AbstractForwardingPage() {}
 
-	@Override
-	protected abstract Page delegate();
+  @Override
+  protected abstract Page delegate();
 
-	@Override
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			final PageWriteTrx<K, V, S> pageWriteTrx) {
-		delegate().commit(checkNotNull(pageWriteTrx));
-	}
+  @Override
+  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+      final PageWriteTrx<K, V, S> pageWriteTrx) {
+    delegate().commit(checkNotNull(pageWriteTrx));
+  }
 
-	@Override
-	public PageReference[] getReferences() {
-		return delegate().getReferences();
-	}
+  @Override
+  public PageReference[] getReferences() {
+    return delegate().getReferences();
+  }
 
-	@Override
-	public PageReference getReference(final @Nonnegative int offset) {
-		return delegate().getReference(offset);
-	}
+  @Override
+  public PageReference getReference(final @Nonnegative int offset) {
+    return delegate().getReference(offset);
+  }
 
-	@Override
-	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-		delegate().serialize(checkNotNull(out), checkNotNull(type));
-	}
+  @Override
+  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+    delegate().serialize(checkNotNull(out), checkNotNull(type));
+  }
 }

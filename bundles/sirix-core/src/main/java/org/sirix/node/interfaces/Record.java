@@ -7,24 +7,24 @@ package org.sirix.node.interfaces;
  * 
  */
 public interface Record {
-	/**
-	 * Get unique node key.
-	 * 
-	 * @return node key
-	 */
-	long getNodeKey();
+  /**
+   * Get unique node key.
+   * 
+   * @return node key
+   */
+  long getNodeKey();
 
-	/**
-	 * Gets the kind of the node (element node, text node, attribute node....).
-	 * 
-	 * @return kind of node
-	 */
-	RecordPersistenter getKind();
+  /**
+   * Gets the kind of the node (element node, text node, attribute node....).
+   * 
+   * @return kind of node
+   */
+  RecordPersistenter getKind();
 
-	/**
-	 * Get the revision this node has been inserted.
-	 * 
-	 * @return revision this node has been inserted
-	 */
-	long getRevision();
+  /**
+   * Get the revision this node has been inserted.
+   * 
+   * @return revision this node has been inserted
+   */
+  long getRevision();
 }

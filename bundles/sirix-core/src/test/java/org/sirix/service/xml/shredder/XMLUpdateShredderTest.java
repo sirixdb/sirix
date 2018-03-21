@@ -28,7 +28,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
-
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -54,217 +53,217 @@ import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class XMLUpdateShredderTest extends XMLTestCase {
-	private static final Path RESOURCES = Paths.get("src", "test", "resources");
+  private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
-	private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
+  private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
 
-	private static final Path XMLINSERTSECOND = RESOURCES.resolve("revXMLsInsert1");
+  private static final Path XMLINSERTSECOND = RESOURCES.resolve("revXMLsInsert1");
 
-	private static final Path XMLINSERTTHIRD = RESOURCES.resolve("revXMLsInsert2");
+  private static final Path XMLINSERTTHIRD = RESOURCES.resolve("revXMLsInsert2");
 
-	private static final Path XMLDELETEFIRST = RESOURCES.resolve("revXMLsDelete");
+  private static final Path XMLDELETEFIRST = RESOURCES.resolve("revXMLsDelete");
 
-	private static final Path XMLDELETESECOND = RESOURCES.resolve("revXMLsDelete1");
+  private static final Path XMLDELETESECOND = RESOURCES.resolve("revXMLsDelete1");
 
-	private static final Path XMLDELETETHIRD = RESOURCES.resolve("revXMLsDelete2");
+  private static final Path XMLDELETETHIRD = RESOURCES.resolve("revXMLsDelete2");
 
-	private static final Path XMLDELETEFOURTH = RESOURCES.resolve("revXMLsDelete3");
+  private static final Path XMLDELETEFOURTH = RESOURCES.resolve("revXMLsDelete3");
 
-	private static final Path XMLSAME = RESOURCES.resolve("revXMLsSame");
+  private static final Path XMLSAME = RESOURCES.resolve("revXMLsSame");
 
-	private static final Path XMLALLSECOND = RESOURCES.resolve("revXMLsAll1");
+  private static final Path XMLALLSECOND = RESOURCES.resolve("revXMLsAll1");
 
-	private static final Path XMLALLFOURTH = RESOURCES.resolve("revXMLsAll3");
+  private static final Path XMLALLFOURTH = RESOURCES.resolve("revXMLsAll3");
 
-	private static final Path XMLALLFIFTH = RESOURCES.resolve("revXMLsAll4");
+  private static final Path XMLALLFIFTH = RESOURCES.resolve("revXMLsAll4");
 
-	private static final Path XMLALLSEVENTH = RESOURCES.resolve("revXMLsAll6");
+  private static final Path XMLALLSEVENTH = RESOURCES.resolve("revXMLsAll6");
 
-	// private static final String XMLLINGUISTICS = RESOURCES + File.separator +
-	// "linguistics";
+  // private static final String XMLLINGUISTICS = RESOURCES + File.separator +
+  // "linguistics";
 
-	static {
-		XMLUnit.setIgnoreComments(true);
-		XMLUnit.setIgnoreWhitespace(true);
-	}
+  static {
+    XMLUnit.setIgnoreComments(true);
+    XMLUnit.setIgnoreWhitespace(true);
+  }
 
-	@Override
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  @Override
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	@Override
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @Override
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testSame() throws Exception {
-		test(XMLSAME);
-	}
+  @Test
+  public void testSame() throws Exception {
+    test(XMLSAME);
+  }
 
-	@Test
-	public void testInsertsFirst() throws Exception {
-		test(XMLINSERTFIRST);
-	}
+  @Test
+  public void testInsertsFirst() throws Exception {
+    test(XMLINSERTFIRST);
+  }
 
-	@Test
-	public void testInsertsSecond() throws Exception {
-		test(XMLINSERTSECOND);
-	}
+  @Test
+  public void testInsertsSecond() throws Exception {
+    test(XMLINSERTSECOND);
+  }
 
-	@Test
-	public void testInsertsThird() throws Exception {
-		test(XMLINSERTTHIRD);
-	}
+  @Test
+  public void testInsertsThird() throws Exception {
+    test(XMLINSERTTHIRD);
+  }
 
-	@Test
-	public void testDeletesFirst() throws Exception {
-		test(XMLDELETEFIRST);
-	}
+  @Test
+  public void testDeletesFirst() throws Exception {
+    test(XMLDELETEFIRST);
+  }
 
-	@Test
-	public void testDeletesSecond() throws Exception {
-		test(XMLDELETESECOND);
-	}
+  @Test
+  public void testDeletesSecond() throws Exception {
+    test(XMLDELETESECOND);
+  }
 
-	@Test
-	public void testDeletesThird() throws Exception {
-		test(XMLDELETETHIRD);
-	}
+  @Test
+  public void testDeletesThird() throws Exception {
+    test(XMLDELETETHIRD);
+  }
 
-	@Test
-	public void testDeletesFourth() throws Exception {
-		test(XMLDELETEFOURTH);
-	}
+  @Test
+  public void testDeletesFourth() throws Exception {
+    test(XMLDELETEFOURTH);
+  }
 
-	// @Test
-	// public void testAllFirst() throws Exception {
-	// test(XMLALLFIRST);
-	// }
+  // @Test
+  // public void testAllFirst() throws Exception {
+  // test(XMLALLFIRST);
+  // }
 
-	@Test
-	public void testAllSecond() throws Exception {
-		test(XMLALLSECOND);
-	}
+  @Test
+  public void testAllSecond() throws Exception {
+    test(XMLALLSECOND);
+  }
 
-	// /** Not working anymore due to text merging on deletes. */
-	// @Ignore
-	// @Test
-	// public void testAllThird() throws Exception {
-	// test(XMLALLTHIRD);
-	// }
+  // /** Not working anymore due to text merging on deletes. */
+  // @Ignore
+  // @Test
+  // public void testAllThird() throws Exception {
+  // test(XMLALLTHIRD);
+  // }
 
-	@Test
-	public void testAllFourth() throws Exception {
-		test(XMLALLFOURTH);
-	}
+  @Test
+  public void testAllFourth() throws Exception {
+    test(XMLALLFOURTH);
+  }
 
-	@Test
-	public void testAllFifth() throws Exception {
-		test(XMLALLFIFTH);
-	}
+  @Test
+  public void testAllFifth() throws Exception {
+    test(XMLALLFIFTH);
+  }
 
-	// /** Not working anymore due to text merging on deletes. */
-	// @Ignore
-	// @Test
-	// public void testAllSixth() throws Exception {
-	// test(XMLALLSIXTH);
-	// }
+  // /** Not working anymore due to text merging on deletes. */
+  // @Ignore
+  // @Test
+  // public void testAllSixth() throws Exception {
+  // test(XMLALLSIXTH);
+  // }
 
-	@Test
-	public void testAllSeventh() throws Exception {
-		test(XMLALLSEVENTH);
-	}
+  @Test
+  public void testAllSeventh() throws Exception {
+    test(XMLALLSEVENTH);
+  }
 
-	// /** Not working anymore due to text merging on deletes. */
-	// @Ignore
-	// @Test
-	// public void testAllEighth() throws Exception {
-	// test(XMLALLEIGHTH);
-	// }
-	//
-	// /** Not working anymore due to text merging on deletes. */
-	// @Ignore
-	// @Test
-	// public void testAllNineth() throws Exception {
-	// test(XMLALLNINETH);
-	// }
+  // /** Not working anymore due to text merging on deletes. */
+  // @Ignore
+  // @Test
+  // public void testAllEighth() throws Exception {
+  // test(XMLALLEIGHTH);
+  // }
+  //
+  // /** Not working anymore due to text merging on deletes. */
+  // @Ignore
+  // @Test
+  // public void testAllNineth() throws Exception {
+  // test(XMLALLNINETH);
+  // }
 
-	// @Test
-	// public void testLinguistics() throws Exception {
-	// test(XMLLINGUISTICS);
-	// }
+  // @Test
+  // public void testLinguistics() throws Exception {
+  // test(XMLLINGUISTICS);
+  // }
 
-	private void test(final Path folder) throws Exception {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		database.createResource(
-				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		int i = 2;
-		final List<Path> files = Files.list(folder).filter(file -> file.getFileName().endsWith(".xml"))
-				.collect(Collectors.toList());
+  private void test(final Path folder) throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    int i = 2;
+    final List<Path> files = Files.list(folder).filter(file -> file.getFileName().endsWith(".xml"))
+        .collect(Collectors.toList());
 
-		// Sort files array according to file names.
-		files.sort((first, second) -> {
-			final String firstName =
-					first.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
-			final String secondName = second.getFileName().toString().substring(0,
-					second.getFileName().toString().indexOf('.'));
-			if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-				return -1;
-			} else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-				return +1;
-			} else {
-				return 0;
-			}
-		});
+    // Sort files array according to file names.
+    files.sort((first, second) -> {
+      final String firstName =
+          first.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
+      final String secondName = second.getFileName().toString().substring(0,
+          second.getFileName().toString().indexOf('.'));
+      if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
+        return -1;
+      } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
+        return +1;
+      } else {
+        return 0;
+      }
+    });
 
-		boolean first = true;
+    boolean first = true;
 
-		// Shredder files.
-		for (final Path file : files) {
-			if (file.endsWith(".xml")) {
-				final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-				if (first) {
-					final XMLShredder shredder =
-							new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD)
-									.commitAfterwards().build();
-					shredder.call();
-					first = false;
-				} else {
-					@SuppressWarnings("deprecation")
-					final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx,
-							XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
-					shredder.call();
-				}
-				assertEquals(i, wtx.getRevisionNumber());
+    // Shredder files.
+    for (final Path file : files) {
+      if (file.endsWith(".xml")) {
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        if (first) {
+          final XMLShredder shredder =
+              new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD)
+                  .commitAfterwards().build();
+          shredder.call();
+          first = false;
+        } else {
+          @SuppressWarnings("deprecation")
+          final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx,
+              XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
+          shredder.call();
+        }
+        assertEquals(i, wtx.getRevisionNumber());
 
-				i++;
+        i++;
 
-				final OutputStream out = new ByteArrayOutputStream();
-				final XMLSerializer serializer =
-						new XMLSerializerBuilder(manager, out).prettyPrint().build();
-				serializer.call();
-				final StringBuilder sBuilder = TestHelper.readFile(file, false);
+        final OutputStream out = new ByteArrayOutputStream();
+        final XMLSerializer serializer =
+            new XMLSerializerBuilder(manager, out).prettyPrint().build();
+        serializer.call();
+        final StringBuilder sBuilder = TestHelper.readFile(file, false);
 
-				final Diff diff = new Diff(sBuilder.toString(), out.toString());
-				final DetailedDiff detDiff = new DetailedDiff(diff);
-				@SuppressWarnings("unchecked")
-				final List<Difference> differences = detDiff.getAllDifferences();
-				for (final Difference difference : differences) {
-					System.out.println("***********************");
-					System.out.println(difference);
-					System.out.println("***********************");
-				}
+        final Diff diff = new Diff(sBuilder.toString(), out.toString());
+        final DetailedDiff detDiff = new DetailedDiff(diff);
+        @SuppressWarnings("unchecked")
+        final List<Difference> differences = detDiff.getAllDifferences();
+        for (final Difference difference : differences) {
+          System.out.println("***********************");
+          System.out.println(difference);
+          System.out.println("***********************");
+        }
 
-				assertTrue("pieces of XML are similar " + diff, diff.similar());
-				assertTrue("but are they identical? " + diff, diff.identical());
-				wtx.close();
-			}
-		}
-	}
+        assertTrue("pieces of XML are similar " + diff, diff.similar());
+        assertTrue("but are they identical? " + diff, diff.identical());
+        wtx.close();
+      }
+    }
+  }
 }

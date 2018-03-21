@@ -21,12 +21,9 @@
 package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
@@ -41,167 +38,167 @@ import org.sirix.node.Kind;
  */
 public final class Matching {
 
-	/** Forward matching. */
-	private final Map<Long, Long> mMapping;
+  /** Forward matching. */
+  private final Map<Long, Long> mMapping;
 
-	/** Backward machting. */
-	private final Map<Long, Long> mReverseMapping;
+  /** Backward machting. */
+  private final Map<Long, Long> mReverseMapping;
 
-	/**
-	 * Tracks the (grand-)parent-child relation of nodes. We use this to speed up the calculation of
-	 * the number of nodes in the subtree of two nodes that are in the matching.
-	 */
-	private final ConnectionMap<Long> mIsInSubtree;
+  /**
+   * Tracks the (grand-)parent-child relation of nodes. We use this to speed up the calculation of
+   * the number of nodes in the subtree of two nodes that are in the matching.
+   */
+  private final ConnectionMap<Long> mIsInSubtree;
 
-	/** {@link XdmNodeReadTrx} reference on old revision. */
-	private final XdmNodeReadTrx mRtxOld;
+  /** {@link XdmNodeReadTrx} reference on old revision. */
+  private final XdmNodeReadTrx mRtxOld;
 
-	/** {@link XdmNodeReadTrx} reference on new revision. */
-	private final XdmNodeReadTrx mRtxNew;
+  /** {@link XdmNodeReadTrx} reference on new revision. */
+  private final XdmNodeReadTrx mRtxNew;
 
-	/**
-	 * Creates a new matching.
-	 * 
-	 * @param pRtxOld {@link XdmNodeReadTrx} reference on old revision
-	 * @param pRtxNew {@link XdmNodeReadTrx} reference on new revision.
-	 */
-	public Matching(final XdmNodeReadTrx pRtxOld, final XdmNodeReadTrx pRtxNew) {
-		mMapping = new HashMap<>();
-		mReverseMapping = new HashMap<>();
-		mIsInSubtree = new ConnectionMap<>();
-		mRtxOld = checkNotNull(pRtxOld);
-		mRtxNew = checkNotNull(pRtxNew);
-	}
+  /**
+   * Creates a new matching.
+   * 
+   * @param pRtxOld {@link XdmNodeReadTrx} reference on old revision
+   * @param pRtxNew {@link XdmNodeReadTrx} reference on new revision.
+   */
+  public Matching(final XdmNodeReadTrx pRtxOld, final XdmNodeReadTrx pRtxNew) {
+    mMapping = new HashMap<>();
+    mReverseMapping = new HashMap<>();
+    mIsInSubtree = new ConnectionMap<>();
+    mRtxOld = checkNotNull(pRtxOld);
+    mRtxNew = checkNotNull(pRtxNew);
+  }
 
-	/**
-	 * Copy constructor. Creates a new matching with the same state as the matching pMatch.
-	 * 
-	 * @param match the original {@link Matching} reference
-	 */
-	public Matching(final Matching match) {
-		mMapping = new HashMap<>(match.mMapping);
-		mReverseMapping = new HashMap<>(match.mReverseMapping);
-		mIsInSubtree = new ConnectionMap<>(match.mIsInSubtree);
-		mRtxOld = match.mRtxOld;
-		mRtxNew = match.mRtxNew;
-	}
+  /**
+   * Copy constructor. Creates a new matching with the same state as the matching pMatch.
+   * 
+   * @param match the original {@link Matching} reference
+   */
+  public Matching(final Matching match) {
+    mMapping = new HashMap<>(match.mMapping);
+    mReverseMapping = new HashMap<>(match.mReverseMapping);
+    mIsInSubtree = new ConnectionMap<>(match.mIsInSubtree);
+    mRtxOld = match.mRtxOld;
+    mRtxNew = match.mRtxNew;
+  }
 
-	/**
-	 * Adds the matching x -> y.
-	 * 
-	 * @param nodeX source node (in old revision)
-	 * @param nodeY partner of pNodeX (in new revision)
-	 */
-	public void add(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
-		mRtxOld.moveTo(nodeX);
-		mRtxNew.moveTo(nodeY);
-		if (mRtxOld.getKind() != mRtxNew.getKind()) {
-			throw new AssertionError();
-		}
-		mMapping.put(nodeX, nodeY);
-		mReverseMapping.put(nodeY, nodeX);
-		updateSubtreeMap(nodeX, mRtxOld);
-		updateSubtreeMap(nodeY, mRtxNew);
-	}
+  /**
+   * Adds the matching x -> y.
+   * 
+   * @param nodeX source node (in old revision)
+   * @param nodeY partner of pNodeX (in new revision)
+   */
+  public void add(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
+    mRtxOld.moveTo(nodeX);
+    mRtxNew.moveTo(nodeY);
+    if (mRtxOld.getKind() != mRtxNew.getKind()) {
+      throw new AssertionError();
+    }
+    mMapping.put(nodeX, nodeY);
+    mReverseMapping.put(nodeY, nodeX);
+    updateSubtreeMap(nodeX, mRtxOld);
+    updateSubtreeMap(nodeY, mRtxNew);
+  }
 
-	/**
-	 * Remove matching.
-	 * 
-	 * @param nodeX source node for which to remove the connection
-	 */
-	public boolean remove(final @Nonnegative long nodeX) {
-		mReverseMapping.remove(mMapping.get(nodeX));
-		return mMapping.remove(nodeX) == null ? false : true;
-	}
+  /**
+   * Remove matching.
+   * 
+   * @param nodeX source node for which to remove the connection
+   */
+  public boolean remove(final @Nonnegative long nodeX) {
+    mReverseMapping.remove(mMapping.get(nodeX));
+    return mMapping.remove(nodeX) == null ? false : true;
+  }
 
-	/**
-	 * For each anchestor of n: n is in it's subtree.
-	 * 
-	 * @param key key of node in subtree
-	 * @param rtx {@link XdmNodeReadTrx} reference
-	 */
-	private void updateSubtreeMap(final @Nonnegative long key, final XdmNodeReadTrx rtx) {
-		assert key >= 0;
-		assert rtx != null;
+  /**
+   * For each anchestor of n: n is in it's subtree.
+   * 
+   * @param key key of node in subtree
+   * @param rtx {@link XdmNodeReadTrx} reference
+   */
+  private void updateSubtreeMap(final @Nonnegative long key, final XdmNodeReadTrx rtx) {
+    assert key >= 0;
+    assert rtx != null;
 
-		mIsInSubtree.set(key, key, true);
-		rtx.moveTo(key);
-		if (rtx.hasParent()) {
-			while (rtx.hasParent()) {
-				rtx.moveToParent();
-				mIsInSubtree.set(rtx.getNodeKey(), key, true);
-			}
-			rtx.moveTo(key);
-		}
-	}
+    mIsInSubtree.set(key, key, true);
+    rtx.moveTo(key);
+    if (rtx.hasParent()) {
+      while (rtx.hasParent()) {
+        rtx.moveToParent();
+        mIsInSubtree.set(rtx.getNodeKey(), key, true);
+      }
+      rtx.moveTo(key);
+    }
+  }
 
-	/**
-	 * Checks if the matching contains the pair (x, y).
-	 * 
-	 * @param pNodeX source node
-	 * @param pNodeY partner of x
-	 * @return true iff add(x, y) was invoked first
-	 */
-	public boolean contains(final @Nonnegative long pNodeX, final @Nonnegative long pNodeY) {
-		return mMapping.get(pNodeX) == null ? false : mMapping.get(pNodeX).equals(pNodeY);
-	}
+  /**
+   * Checks if the matching contains the pair (x, y).
+   * 
+   * @param pNodeX source node
+   * @param pNodeY partner of x
+   * @return true iff add(x, y) was invoked first
+   */
+  public boolean contains(final @Nonnegative long pNodeX, final @Nonnegative long pNodeY) {
+    return mMapping.get(pNodeX) == null ? false : mMapping.get(pNodeX).equals(pNodeY);
+  }
 
-	/**
-	 * Counts the number of descendant nodes in the subtrees of x and y that are also in the matching.
-	 * 
-	 * @param nodeX first subtree root node
-	 * @param nodeY second subtree root node
-	 * @return number of descendant which have been matched
-	 */
-	public long containedDescendants(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
-		long retVal = 0;
+  /**
+   * Counts the number of descendant nodes in the subtrees of x and y that are also in the matching.
+   * 
+   * @param nodeX first subtree root node
+   * @param nodeY second subtree root node
+   * @return number of descendant which have been matched
+   */
+  public long containedDescendants(final @Nonnegative long nodeX, final @Nonnegative long nodeY) {
+    long retVal = 0;
 
-		mRtxOld.moveTo(nodeX);
-		for (final Axis axis = new DescendantAxis(mRtxOld, IncludeSelf.YES); axis.hasNext();) {
-			axis.next();
-			retVal += mIsInSubtree.get(nodeY, partner(mRtxOld.getNodeKey())) ? 1 : 0;
-			if (mRtxOld.getKind() == Kind.ELEMENT) {
-				for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
-					mRtxOld.moveToNamespace(i);
-					retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
-					mRtxOld.moveToParent();
-				}
-				for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
-					mRtxOld.moveToAttribute(i);
-					retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
-					mRtxOld.moveToParent();
-				}
-			}
-		}
+    mRtxOld.moveTo(nodeX);
+    for (final Axis axis = new DescendantAxis(mRtxOld, IncludeSelf.YES); axis.hasNext();) {
+      axis.next();
+      retVal += mIsInSubtree.get(nodeY, partner(mRtxOld.getNodeKey())) ? 1 : 0;
+      if (mRtxOld.getKind() == Kind.ELEMENT) {
+        for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
+          mRtxOld.moveToNamespace(i);
+          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          mRtxOld.moveToParent();
+        }
+        for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
+          mRtxOld.moveToAttribute(i);
+          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          mRtxOld.moveToParent();
+        }
+      }
+    }
 
-		return retVal;
-	}
+    return retVal;
+  }
 
-	/**
-	 * Returns the partner node of {@code pNode} according to mapping.
-	 * 
-	 * @param node node for which a partner has to be found
-	 * @return the {@code nodeKey} of the other node or {@code null}
-	 */
-	public Long partner(final @Nonnegative long node) {
-		return mMapping.get(node);
-	}
+  /**
+   * Returns the partner node of {@code pNode} according to mapping.
+   * 
+   * @param node node for which a partner has to be found
+   * @return the {@code nodeKey} of the other node or {@code null}
+   */
+  public Long partner(final @Nonnegative long node) {
+    return mMapping.get(node);
+  }
 
-	/**
-	 * Returns the node for which "node" is the partner (normally used for retrieving partners of
-	 * nodes in new revision).
-	 * 
-	 * @param node node for which a reverse partner has to be found
-	 * @return x iff add(x, node) was called before
-	 */
-	public Long reversePartner(final @Nonnegative long node) {
-		return mReverseMapping.get(node);
-	}
+  /**
+   * Returns the node for which "node" is the partner (normally used for retrieving partners of
+   * nodes in new revision).
+   * 
+   * @param node node for which a reverse partner has to be found
+   * @return x iff add(x, node) was called before
+   */
+  public Long reversePartner(final @Nonnegative long node) {
+    return mReverseMapping.get(node);
+  }
 
-	/** Reset internal datastructures. */
-	public void reset() {
-		mMapping.clear();
-		mReverseMapping.clear();
-		mIsInSubtree.reset();
-	}
+  /** Reset internal datastructures. */
+  public void reset() {
+    mMapping.clear();
+    mReverseMapping.clear();
+    mIsInSubtree.reset();
+  }
 }

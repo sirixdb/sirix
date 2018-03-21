@@ -30,12 +30,12 @@ package org.sirix.diff.algorithm.fmse;
  * 
  */
 public interface Comparator<T> {
-	/**
-	 * Compares two instances of type T.
-	 * 
-	 * @param x first instance
-	 * @param y second instance
-	 * @return true iff x and y are equal
-	 */
-	boolean isEqual(T x, T y);
+  /**
+   * Compares two instances of type T.
+   * 
+   * @param x first instance
+   * @param y second instance
+   * @return true iff x and y are equal
+   */
+  boolean isEqual(T x, T y);
 }

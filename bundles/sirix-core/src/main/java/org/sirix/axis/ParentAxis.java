@@ -33,32 +33,32 @@ import org.sirix.settings.Fixed;
  * </p>
  */
 public final class ParentAxis extends AbstractAxis {
-	/** Track number of calls of next. */
-	private boolean mFirst;
+  /** Track number of calls of next. */
+  private boolean mFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with.
-	 */
-	public ParentAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with.
+   */
+  public ParentAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		final XdmNodeReadTrx rtx = getTrx();
-		if (rtx.getKind() != Kind.DOCUMENT && mFirst && rtx.hasParent()
-				&& rtx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-			mFirst = false;
-			return rtx.getParentKey();
-		}
-		return done();
-	}
+  @Override
+  protected long nextKey() {
+    final XdmNodeReadTrx rtx = getTrx();
+    if (rtx.getKind() != Kind.DOCUMENT && mFirst && rtx.hasParent()
+        && rtx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      mFirst = false;
+      return rtx.getParentKey();
+    }
+    return done();
+  }
 }

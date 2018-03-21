@@ -22,7 +22,6 @@ package org.sirix;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -45,208 +44,208 @@ import org.sirix.exception.SirixException;
  */
 public class Holder {
 
-	/** {@link Database} implementation. */
-	private Database mDatabase;
+  /** {@link Database} implementation. */
+  private Database mDatabase;
 
-	/** {@link ResourceManager} implementation. */
-	private ResourceManager mResMgr;
+  /** {@link ResourceManager} implementation. */
+  private ResourceManager mResMgr;
 
-	/** {@link XdmNodeReadTrx} implementation. */
-	private XdmNodeReadTrx mReader;
+  /** {@link XdmNodeReadTrx} implementation. */
+  private XdmNodeReadTrx mReader;
 
-	/** {@link XdmNodeWriteTrx} implementation. */
-	private XdmNodeWriteTrx mWriter;
+  /** {@link XdmNodeWriteTrx} implementation. */
+  private XdmNodeWriteTrx mWriter;
 
-	private Transaction mTrx;
+  private Transaction mTrx;
 
-	/**
-	 * Generate a resource with deweyIDs for resources and open a resource.
-	 *
-	 * @return this holder instance
-	 * @throws SirixException if an error occurs
-	 */
-	public static Holder generateDeweyIDResourceMgr() throws SirixException {
-		final Path file = PATHS.PATH1.getFile();
-		final DatabaseConfiguration config = new DatabaseConfiguration(file);
-		if (!Files.exists(file)) {
-			Databases.createDatabase(config);
-		}
-		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
-		database.createResource(
-				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-						.useDeweyIDs(true).build());
-		final ResourceManager resourceManager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final Holder holder = new Holder();
-		holder.setDatabase(database);
-		holder.setResourceManager(resourceManager);
-		return holder;
-	}
+  /**
+   * Generate a resource with deweyIDs for resources and open a resource.
+   *
+   * @return this holder instance
+   * @throws SirixException if an error occurs
+   */
+  public static Holder generateDeweyIDResourceMgr() throws SirixException {
+    final Path file = PATHS.PATH1.getFile();
+    final DatabaseConfiguration config = new DatabaseConfiguration(file);
+    if (!Files.exists(file)) {
+      Databases.createDatabase(config);
+    }
+    final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
+            .useDeweyIDs(true).build());
+    final ResourceManager resourceManager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final Holder holder = new Holder();
+    holder.setDatabase(database);
+    holder.setResourceManager(resourceManager);
+    return holder;
+  }
 
-	/**
-	 * Generate a resource with a path summary.
-	 *
-	 * @return this holder instance
-	 * @throws SirixException if an error occurs
-	 */
-	public static Holder generatePathSummary() throws SirixException {
-		final Path file = PATHS.PATH1.getFile();
-		final DatabaseConfiguration config = new DatabaseConfiguration(file);
-		if (!Files.exists(file)) {
-			Databases.createDatabase(config);
-		}
-		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
-		database.createResource(
-				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-						.buildPathSummary(true).build());
-		final ResourceManager resourceManager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final Holder holder = new Holder();
-		holder.setDatabase(database);
-		holder.setResourceManager(resourceManager);
-		return holder;
-	}
+  /**
+   * Generate a resource with a path summary.
+   *
+   * @return this holder instance
+   * @throws SirixException if an error occurs
+   */
+  public static Holder generatePathSummary() throws SirixException {
+    final Path file = PATHS.PATH1.getFile();
+    final DatabaseConfiguration config = new DatabaseConfiguration(file);
+    if (!Files.exists(file)) {
+      Databases.createDatabase(config);
+    }
+    final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
+            .buildPathSummary(true).build());
+    final ResourceManager resourceManager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final Holder holder = new Holder();
+    holder.setDatabase(database);
+    holder.setResourceManager(resourceManager);
+    return holder;
+  }
 
-	/**
-	 * Open a resource manager.
-	 *
-	 * @return this holder instance
-	 * @throws SirixException if an error occurs
-	 */
-	public static Holder openResourceManager() throws SirixException {
-		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		final ResourceManager session = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final Holder holder = new Holder();
-		holder.setDatabase(database);
-		holder.setResourceManager(session);
-		return holder;
-	}
+  /**
+   * Open a resource manager.
+   *
+   * @return this holder instance
+   * @throws SirixException if an error occurs
+   */
+  public static Holder openResourceManager() throws SirixException {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final ResourceManager session = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final Holder holder = new Holder();
+    holder.setDatabase(database);
+    holder.setResourceManager(session);
+    return holder;
+  }
 
-	/**
-	 * Generate a {@link XdmNodeReaderWriter}.
-	 *
-	 * @return this holder instance
-	 * @throws SirixException if an error occurs
-	 */
-	public static Holder generateWtx() throws SirixException {
-		final Holder holder = openResourceManager();
-		final XdmNodeWriteTrx writer = holder.mResMgr.beginNodeWriteTrx();
-		holder.setWriter(writer);
-		return holder;
-	}
+  /**
+   * Generate a {@link XdmNodeReaderWriter}.
+   *
+   * @return this holder instance
+   * @throws SirixException if an error occurs
+   */
+  public static Holder generateWtx() throws SirixException {
+    final Holder holder = openResourceManager();
+    final XdmNodeWriteTrx writer = holder.mResMgr.beginNodeWriteTrx();
+    holder.setWriter(writer);
+    return holder;
+  }
 
-	/**
-	 * Generate a {@link XdmNodeReadTrx}.
-	 *
-	 * @return this holder instance
-	 * @throws SirixException if an error occurs
-	 */
-	public static Holder generateRtx() throws SirixException {
-		final Holder holder = openResourceManager();
-		final XdmNodeReadTrx reader = holder.mResMgr.beginNodeReadTrx();
-		holder.setReader(reader);
-		return holder;
-	}
+  /**
+   * Generate a {@link XdmNodeReadTrx}.
+   *
+   * @return this holder instance
+   * @throws SirixException if an error occurs
+   */
+  public static Holder generateRtx() throws SirixException {
+    final Holder holder = openResourceManager();
+    final XdmNodeReadTrx reader = holder.mResMgr.beginNodeReadTrx();
+    holder.setReader(reader);
+    return holder;
+  }
 
-	/**
-	 * Close the database, session, read transaction and/or write transaction.
-	 *
-	 * @throws SirixException if an error occurs
-	 */
-	public void close() throws SirixException {
-		if (mReader != null && !mReader.isClosed()) {
-			mReader.close();
-		}
-		if (mWriter != null && !mWriter.isClosed()) {
-			mWriter.rollback();
-			mWriter.close();
-		}
-		if (mResMgr != null && !mResMgr.isClosed()) {
-			mResMgr.close();
-		}
-		if (mTrx != null) {
-			mTrx.close();
-		}
-		if (mDatabase != null) {
-			mDatabase.close();
-		}
-	}
+  /**
+   * Close the database, session, read transaction and/or write transaction.
+   *
+   * @throws SirixException if an error occurs
+   */
+  public void close() throws SirixException {
+    if (mReader != null && !mReader.isClosed()) {
+      mReader.close();
+    }
+    if (mWriter != null && !mWriter.isClosed()) {
+      mWriter.rollback();
+      mWriter.close();
+    }
+    if (mResMgr != null && !mResMgr.isClosed()) {
+      mResMgr.close();
+    }
+    if (mTrx != null) {
+      mTrx.close();
+    }
+    if (mDatabase != null) {
+      mDatabase.close();
+    }
+  }
 
-	/**
-	 * Get the {@link Database} handle.
-	 *
-	 * @return {@link Database} handle
-	 */
-	public Database getDatabase() {
-		return mDatabase;
-	}
+  /**
+   * Get the {@link Database} handle.
+   *
+   * @return {@link Database} handle
+   */
+  public Database getDatabase() {
+    return mDatabase;
+  }
 
-	/**
-	 * Get the {@link ResourceManager} handle.
-	 *
-	 * @return {@link ResourceManager} handle
-	 */
-	public ResourceManager getResourceManager() {
-		return mResMgr;
-	}
+  /**
+   * Get the {@link ResourceManager} handle.
+   *
+   * @return {@link ResourceManager} handle
+   */
+  public ResourceManager getResourceManager() {
+    return mResMgr;
+  }
 
-	/**
-	 * Get the {@link XdmNodeReadTrx} handle.
-	 *
-	 * @return {@link XdmNodeReadTrx} handle
-	 */
-	public XdmNodeReadTrx getReader() {
-		return mReader;
-	}
+  /**
+   * Get the {@link XdmNodeReadTrx} handle.
+   *
+   * @return {@link XdmNodeReadTrx} handle
+   */
+  public XdmNodeReadTrx getReader() {
+    return mReader;
+  }
 
-	public Transaction getTrx() {
-		return mTrx;
-	}
+  public Transaction getTrx() {
+    return mTrx;
+  }
 
-	/**
-	 * Get the {@link XdmNodeWriteTrx} handle.
-	 *
-	 * @return {@link XdmNodeWriteTrx} handle
-	 */
-	public XdmNodeWriteTrx getWriter() {
-		return mWriter;
-	}
+  /**
+   * Get the {@link XdmNodeWriteTrx} handle.
+   *
+   * @return {@link XdmNodeWriteTrx} handle
+   */
+  public XdmNodeWriteTrx getWriter() {
+    return mWriter;
+  }
 
-	/**
-	 * Set the working {@link XdmNodeReaderWriter}.
-	 *
-	 * @param writer {@link XdmNodeReaderWriter} instance
-	 */
-	private void setWriter(final XdmNodeWriteTrx writer) {
-		mWriter = writer;
-	}
+  /**
+   * Set the working {@link XdmNodeReaderWriter}.
+   *
+   * @param writer {@link XdmNodeReaderWriter} instance
+   */
+  private void setWriter(final XdmNodeWriteTrx writer) {
+    mWriter = writer;
+  }
 
-	/**
-	 * Set the working {@link XdmNodeReadTrx}.
-	 *
-	 * @param pRtx {@link XdmNodeReadTrx} instance
-	 */
-	private void setReader(final XdmNodeReadTrx pRtx) {
-		mReader = pRtx;
-	}
+  /**
+   * Set the working {@link XdmNodeReadTrx}.
+   *
+   * @param pRtx {@link XdmNodeReadTrx} instance
+   */
+  private void setReader(final XdmNodeReadTrx pRtx) {
+    mReader = pRtx;
+  }
 
-	/**
-	 * Set the working {@link ResourceManager}.
-	 *
-	 * @param pRtx {@link XdmNodeReadTrx} instance
-	 */
-	private void setResourceManager(final ResourceManager pSession) {
-		mResMgr = pSession;
-	}
+  /**
+   * Set the working {@link ResourceManager}.
+   *
+   * @param pRtx {@link XdmNodeReadTrx} instance
+   */
+  private void setResourceManager(final ResourceManager pSession) {
+    mResMgr = pSession;
+  }
 
-	/**
-	 * Set the working {@link Database}.
-	 *
-	 * @param pRtx {@link Database} instance
-	 */
-	private void setDatabase(final Database pDatabase) {
-		mDatabase = pDatabase;
-	}
+  /**
+   * Set the working {@link Database}.
+   *
+   * @param pRtx {@link Database} instance
+   */
+  private void setDatabase(final Database pDatabase) {
+    mDatabase = pDatabase;
+  }
 
 }

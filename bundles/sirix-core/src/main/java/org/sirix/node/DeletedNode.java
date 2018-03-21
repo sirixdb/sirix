@@ -22,14 +22,11 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nullable;
-
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
-
 import com.google.common.base.Objects;
 
 /**
@@ -40,57 +37,57 @@ import com.google.common.base.Objects;
  */
 public final class DeletedNode extends AbstractForwardingNode {
 
-	/**
-	 * Delegate for common data.
-	 */
-	private final NodeDelegate mDel;
+  /**
+   * Delegate for common data.
+   */
+  private final NodeDelegate mDel;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param nodeDel node delegate
-	 */
-	public DeletedNode(final NodeDelegate nodeDel) {
-		mDel = checkNotNull(nodeDel);
-	}
+  /**
+   * Constructor.
+   * 
+   * @param nodeDel node delegate
+   */
+  public DeletedNode(final NodeDelegate nodeDel) {
+    mDel = checkNotNull(nodeDel);
+  }
 
-	@Override
-	public Kind getKind() {
-		return Kind.DELETE;
-	}
+  @Override
+  public Kind getKind() {
+    return Kind.DELETE;
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mDel);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mDel);
+  }
 
-	@Override
-	public boolean equals(final Object obj) {
-		if (obj instanceof DeletedNode) {
-			final DeletedNode other = (DeletedNode) obj;
-			return Objects.equal(mDel, other.mDel);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final Object obj) {
+    if (obj instanceof DeletedNode) {
+      final DeletedNode other = (DeletedNode) obj;
+      return Objects.equal(mDel, other.mDel);
+    }
+    return false;
+  }
 
-	@Override
-	public String toString() {
-		return mDel.toString();
-	}
+  @Override
+  public String toString() {
+    return mDel.toString();
+  }
 
-	@Override
-	public boolean isSameItem(final @Nullable Node other) {
-		return mDel.isSameItem(other);
-	}
+  @Override
+  public boolean isSameItem(final @Nullable Node other) {
+    return mDel.isSameItem(other);
+  }
 
-	@Override
-	protected NodeDelegate delegate() {
-		return mDel;
-	}
+  @Override
+  protected NodeDelegate delegate() {
+    return mDel;
+  }
 
-	@Override
-	public VisitResultType acceptVisitor(Visitor visitor) {
-		throw new UnsupportedOperationException();
-	}
+  @Override
+  public VisitResultType acceptVisitor(Visitor visitor) {
+    throw new UnsupportedOperationException();
+  }
 
 }

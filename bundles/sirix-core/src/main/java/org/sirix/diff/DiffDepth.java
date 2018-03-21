@@ -22,9 +22,7 @@
 package org.sirix.diff;
 
 import static com.google.common.base.Preconditions.checkArgument;
-
 import java.io.Serializable;
-
 import javax.annotation.Nonnegative;
 
 /**
@@ -35,45 +33,45 @@ import javax.annotation.Nonnegative;
  * 
  */
 public final class DiffDepth implements Serializable {
-	/**
-	 * Serial version UID.
-	 */
-	private static final long serialVersionUID = 2657000076345449253L;
+  /**
+   * Serial version UID.
+   */
+  private static final long serialVersionUID = 2657000076345449253L;
 
-	/** Depth in new revision. */
-	private final int mNewDepth;
+  /** Depth in new revision. */
+  private final int mNewDepth;
 
-	/** Depth in old revision. */
-	private final int mOldDepth;
+  /** Depth in old revision. */
+  private final int mOldDepth;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param newDepth current depth in new revision
-	 * @param oldDepth current depth in old revision
-	 */
-	public DiffDepth(final @Nonnegative int newDepth, final @Nonnegative int oldDepth) {
-		checkArgument(newDepth >= -1);
-		checkArgument(oldDepth >= -1);
-		mNewDepth = newDepth;
-		mOldDepth = oldDepth;
-	}
+  /**
+   * Constructor.
+   * 
+   * @param newDepth current depth in new revision
+   * @param oldDepth current depth in old revision
+   */
+  public DiffDepth(final @Nonnegative int newDepth, final @Nonnegative int oldDepth) {
+    checkArgument(newDepth >= -1);
+    checkArgument(oldDepth >= -1);
+    mNewDepth = newDepth;
+    mOldDepth = oldDepth;
+  }
 
-	/**
-	 * Get depth in new revision.
-	 * 
-	 * @return depth in new revision
-	 */
-	public int getNewDepth() {
-		return mNewDepth;
-	}
+  /**
+   * Get depth in new revision.
+   * 
+   * @return depth in new revision
+   */
+  public int getNewDepth() {
+    return mNewDepth;
+  }
 
-	/**
-	 * Get depth in old revision.
-	 * 
-	 * @return depth in old revision
-	 */
-	public int getOldDepth() {
-		return mOldDepth;
-	}
+  /**
+   * Get depth in old revision.
+   * 
+   * @return depth in old revision
+   */
+  public int getOldDepth() {
+    return mOldDepth;
+  }
 }

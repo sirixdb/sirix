@@ -33,41 +33,41 @@ import org.sirix.node.Kind;
  */
 public final class AttributeAxis extends AbstractAxis {
 
-	/** Remember next key to visit. */
-	private int mNextIndex;
+  /** Remember next key to visit. */
+  private int mNextIndex;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param paramRtx exclusive (immutable) mTrx to iterate with
-	 */
-	public AttributeAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param paramRtx exclusive (immutable) mTrx to iterate with
+   */
+  public AttributeAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mNextIndex = 0;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mNextIndex = 0;
+  }
 
-	@Override
-	protected long nextKey() {
-		// Move back to element, if there was already an attribute found. In
-		// this case the current node was set to an attribute by resetToLastKey().
-		if (mNextIndex > 0) {
-			assert getTrx().getKind() == Kind.ATTRIBUTE;
-			getTrx().moveToParent();
-		}
+  @Override
+  protected long nextKey() {
+    // Move back to element, if there was already an attribute found. In
+    // this case the current node was set to an attribute by resetToLastKey().
+    if (mNextIndex > 0) {
+      assert getTrx().getKind() == Kind.ATTRIBUTE;
+      getTrx().moveToParent();
+    }
 
-		if (getTrx().getKind() == Kind.ELEMENT) {
-			if (mNextIndex < getTrx().getAttributeCount()) {
-				final long key = getTrx().getAttributeKey(mNextIndex);
-				mNextIndex += 1;
-				return key;
-			}
-		}
+    if (getTrx().getKind() == Kind.ELEMENT) {
+      if (mNextIndex < getTrx().getAttributeCount()) {
+        final long key = getTrx().getAttributeKey(mNextIndex);
+        mNextIndex += 1;
+        return key;
+      }
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

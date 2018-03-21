@@ -33,17 +33,17 @@ import org.sirix.node.Kind;
  */
 public final class ElementFilter extends AbstractFilter {
 
-	/**
-	 * Default constructor.
-	 * 
-	 * @param rtx {@link XdmNodeReadTrx} this filter is bound to
-	 */
-	public ElementFilter(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Default constructor.
+   * 
+   * @param rtx {@link XdmNodeReadTrx} this filter is bound to
+   */
+  public ElementFilter(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public final boolean filter() {
-		return getTrx().getKind() == Kind.ELEMENT;
-	}
+  @Override
+  public final boolean filter() {
+    return getTrx().getKind() == Kind.ELEMENT;
+  }
 }

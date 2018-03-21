@@ -1,10 +1,8 @@
 package org.sirix.access;
 
 import java.util.Optional;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.PageContainer;
@@ -22,7 +20,6 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
-
 import com.google.common.collect.ForwardingObject;
 
 /**
@@ -32,126 +29,126 @@ import com.google.common.collect.ForwardingObject;
  *
  */
 public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
-		implements PageReadTrx {
+    implements PageReadTrx {
 
-	/** Constructor for use by subclasses. */
-	protected AbstractForwardingPageReadTrx() {}
+  /** Constructor for use by subclasses. */
+  protected AbstractForwardingPageReadTrx() {}
 
-	@Override
-	public void clearCaches() {
-		delegate().clearCaches();
-	}
+  @Override
+  public void clearCaches() {
+    delegate().clearCaches();
+  }
 
-	@Override
-	public void closeCaches() {
-		delegate().closeCaches();
-	}
+  @Override
+  public void closeCaches() {
+    delegate().closeCaches();
+  }
 
-	@Override
-	public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
-		return delegate().dereferenceIndirectPageReference(indirectPageReference);
-	}
+  @Override
+  public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
+    return delegate().dereferenceIndirectPageReference(indirectPageReference);
+  }
 
-	@Override
-	public RevisionRootPage loadRevRoot(int lastCommitedRev) {
-		return delegate().loadRevRoot(lastCommitedRev);
-	}
+  @Override
+  public RevisionRootPage loadRevRoot(int lastCommitedRev) {
+    return delegate().loadRevRoot(lastCommitedRev);
+  }
 
-	@Override
-	public PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
-			@Nonnegative long pageKey, int index, @Nonnull PageKind pageKind) throws SirixIOException {
-		return delegate().getPageReferenceForPage(startReference, pageKey, index, pageKind);
-	}
+  @Override
+  public PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
+      @Nonnegative long pageKey, int index, @Nonnull PageKind pageKind) throws SirixIOException {
+    return delegate().getPageReferenceForPage(startReference, pageKey, index, pageKind);
+  }
 
-	@Override
-	public ResourceManager getSession() {
-		return delegate().getSession();
-	}
+  @Override
+  public ResourceManager getSession() {
+    return delegate().getSession();
+  }
 
-	@Override
-	public CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
-		return delegate().getCASPage(revisionRoot);
-	}
+  @Override
+  public CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+    return delegate().getCASPage(revisionRoot);
+  }
 
-	@Override
-	public NamePage getNamePage(RevisionRootPage revisionRoot) throws SirixIOException {
-		return delegate().getNamePage(revisionRoot);
-	}
+  @Override
+  public NamePage getNamePage(RevisionRootPage revisionRoot) throws SirixIOException {
+    return delegate().getNamePage(revisionRoot);
+  }
 
-	@Override
-	public PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot)
-			throws SirixIOException {
-		return delegate().getPathSummaryPage(revisionRoot);
-	}
+  @Override
+  public PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot)
+      throws SirixIOException {
+    return delegate().getPathSummaryPage(revisionRoot);
+  }
 
-	@Override
-	public PathPage getPathPage(RevisionRootPage revisionRoot) throws SirixIOException {
-		return delegate().getPathPage(revisionRoot);
-	}
+  @Override
+  public PathPage getPathPage(RevisionRootPage revisionRoot) throws SirixIOException {
+    return delegate().getPathPage(revisionRoot);
+  }
 
-	@Override
-	public Optional<? extends Record> getRecord(@Nonnegative long key, @Nonnull PageKind page,
-			@Nonnegative int index) throws SirixIOException {
-		return delegate().getRecord(key, page, index);
-	}
+  @Override
+  public Optional<? extends Record> getRecord(@Nonnegative long key, @Nonnull PageKind page,
+      @Nonnegative int index) throws SirixIOException {
+    return delegate().getRecord(key, page, index);
+  }
 
-	@Override
-	public long pageKey(@Nonnegative long recordKey) {
-		return delegate().pageKey(recordKey);
-	}
+  @Override
+  public long pageKey(@Nonnegative long recordKey) {
+    return delegate().pageKey(recordKey);
+  }
 
-	@Override
-	public RevisionRootPage getActualRevisionRootPage() {
-		return delegate().getActualRevisionRootPage();
-	}
+  @Override
+  public RevisionRootPage getActualRevisionRootPage() {
+    return delegate().getActualRevisionRootPage();
+  }
 
-	@Override
-	public String getName(int nameKey, @Nonnull Kind kind) {
-		return delegate().getName(nameKey, kind);
-	}
+  @Override
+  public String getName(int nameKey, @Nonnull Kind kind) {
+    return delegate().getName(nameKey, kind);
+  }
 
-	@Override
-	public int getNameCount(int nameKey, @Nonnull Kind kind) {
-		return delegate().getNameCount(nameKey, kind);
-	}
+  @Override
+  public int getNameCount(int nameKey, @Nonnull Kind kind) {
+    return delegate().getNameCount(nameKey, kind);
+  }
 
-	@Override
-	public byte[] getRawName(int nameKey, @Nonnull Kind kind) {
-		return delegate().getRawName(nameKey, kind);
-	}
+  @Override
+  public byte[] getRawName(int nameKey, @Nonnull Kind kind) {
+    return delegate().getRawName(nameKey, kind);
+  }
 
-	@Override
-	public void close() throws SirixIOException {
-		delegate().close();
-	}
+  @Override
+  public void close() throws SirixIOException {
+    delegate().close();
+  }
 
-	@Override
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
-			@Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
-			throws SirixIOException {
-		return delegate().<K, V, S>getRecordPageContainer(key, index, pageKind);
-	}
+  @Override
+  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
+      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
+      throws SirixIOException {
+    return delegate().<K, V, S>getRecordPageContainer(key, index, pageKind);
+  }
 
-	@Override
-	public UberPage getUberPage() {
-		return delegate().getUberPage();
-	}
+  @Override
+  public UberPage getUberPage() {
+    return delegate().getUberPage();
+  }
 
-	@Override
-	public boolean isClosed() {
-		return delegate().isClosed();
-	}
+  @Override
+  public boolean isClosed() {
+    return delegate().isClosed();
+  }
 
-	@Override
-	public int getRevisionNumber() {
-		return delegate().getRevisionNumber();
-	}
+  @Override
+  public int getRevisionNumber() {
+    return delegate().getRevisionNumber();
+  }
 
-	@Override
-	public Reader getReader() {
-		return delegate().getReader();
-	}
+  @Override
+  public Reader getReader() {
+    return delegate().getReader();
+  }
 
-	@Override
-	protected abstract PageReadTrx delegate();
+  @Override
+  protected abstract PageReadTrx delegate();
 }

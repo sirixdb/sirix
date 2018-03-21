@@ -22,7 +22,6 @@
 package org.sirix.axis;
 
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
@@ -37,49 +36,49 @@ import org.sirix.settings.Fixed;
  */
 public final class AncestorAxis extends AbstractAxis {
 
-	/**
-	 * First touch of node.
-	 */
-	private boolean mFirst;
+  /**
+   * First touch of node.
+   */
+  private boolean mFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param paramRtx exclusive (immutable) trx to iterate with
-	 */
-	public AncestorAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param paramRtx exclusive (immutable) trx to iterate with
+   */
+  public AncestorAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 * @param includeSelf Is self included?
-	 */
-	public AncestorAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-		super(rtx, includeSelf);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   * @param includeSelf Is self included?
+   */
+  public AncestorAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
+    super(rtx, includeSelf);
+  }
 
-	@Override
-	public void reset(final @Nonnegative long nodeKey) {
-		super.reset(nodeKey);
-		mFirst = true;
-	}
+  @Override
+  public void reset(final @Nonnegative long nodeKey) {
+    super.reset(nodeKey);
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		// Self
-		if (mFirst && isSelfIncluded() == IncludeSelf.YES) {
-			mFirst = false;
-			return getTrx().getNodeKey();
-		}
+  @Override
+  protected long nextKey() {
+    // Self
+    if (mFirst && isSelfIncluded() == IncludeSelf.YES) {
+      mFirst = false;
+      return getTrx().getNodeKey();
+    }
 
-		if (getTrx().getKind() != Kind.DOCUMENT && getTrx().hasParent()
-				&& getTrx().getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-			return getTrx().getParentKey();
-		}
+    if (getTrx().getKind() != Kind.DOCUMENT && getTrx().hasParent()
+        && getTrx().getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      return getTrx().getParentKey();
+    }
 
-		return done();
-	}
+    return done();
+  }
 }

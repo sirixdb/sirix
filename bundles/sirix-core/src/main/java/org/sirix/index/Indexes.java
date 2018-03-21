@@ -2,13 +2,10 @@ package org.sirix.index;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
-
 import javax.annotation.Nonnegative;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.FragmentHelper;
 import org.brackit.xquery.util.path.Path;
@@ -24,158 +21,158 @@ import org.brackit.xquery.xdm.Type;
  *
  */
 public final class Indexes implements Materializable {
-	public static final QNm INDEXES_TAG = new QNm("indexes");
+  public static final QNm INDEXES_TAG = new QNm("indexes");
 
-	private final Set<IndexDef> mIndexes;
+  private final Set<IndexDef> mIndexes;
 
-	public Indexes() {
-		mIndexes = new HashSet<>();
-	}
+  public Indexes() {
+    mIndexes = new HashSet<>();
+  }
 
-	public synchronized Set<IndexDef> getIndexDefs() {
-		return new HashSet<>(mIndexes);
-	}
+  public synchronized Set<IndexDef> getIndexDefs() {
+    return new HashSet<>(mIndexes);
+  }
 
-	public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo, final IndexType type) {
-		checkArgument(indexNo >= 0, "indexNo must be >= 0!");
-		for (final IndexDef sid : mIndexes) {
-			if (sid.getID() == indexNo && sid.getType() == type) {
-				return sid;
-			}
-		}
-		return null;
-	}
+  public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo, final IndexType type) {
+    checkArgument(indexNo >= 0, "indexNo must be >= 0!");
+    for (final IndexDef sid : mIndexes) {
+      if (sid.getID() == indexNo && sid.getType() == type) {
+        return sid;
+      }
+    }
+    return null;
+  }
 
-	@Override
-	public synchronized void init(final Node<?> root) throws DocumentException {
-		final QNm name = root.getName();
-		if (!INDEXES_TAG.equals(name)) {
-			throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
-		}
+  @Override
+  public synchronized void init(final Node<?> root) throws DocumentException {
+    final QNm name = root.getName();
+    if (!INDEXES_TAG.equals(name)) {
+      throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
+    }
 
-		final Stream<? extends Node<?>> children = root.getChildren();
+    final Stream<? extends Node<?>> children = root.getChildren();
 
-		try {
-			Node<?> child;
-			while ((child = children.next()) != null) {
-				QNm childName = child.getName();
+    try {
+      Node<?> child;
+      while ((child = children.next()) != null) {
+        QNm childName = child.getName();
 
-				if (!childName.equals(IndexDef.INDEX_TAG)) {
-					throw new DocumentException("Expected tag '%s' but found '%s'", IndexDef.INDEX_TAG,
-							childName);
-				}
+        if (!childName.equals(IndexDef.INDEX_TAG)) {
+          throw new DocumentException("Expected tag '%s' but found '%s'", IndexDef.INDEX_TAG,
+              childName);
+        }
 
-				final IndexDef indexDefinition = new IndexDef();
-				indexDefinition.init(child);
-				mIndexes.add(indexDefinition);
-			}
-		} finally {
-			children.close();
-		}
-	}
+        final IndexDef indexDefinition = new IndexDef();
+        indexDefinition.init(child);
+        mIndexes.add(indexDefinition);
+      }
+    } finally {
+      children.close();
+    }
+  }
 
-	@Override
-	public synchronized Node<?> materialize() throws DocumentException {
-		FragmentHelper helper = new FragmentHelper();
-		helper.openElement(INDEXES_TAG);
+  @Override
+  public synchronized Node<?> materialize() throws DocumentException {
+    FragmentHelper helper = new FragmentHelper();
+    helper.openElement(INDEXES_TAG);
 
-		for (IndexDef idxDef : mIndexes) {
-			helper.insert(idxDef.materialize());
-		}
+    for (IndexDef idxDef : mIndexes) {
+      helper.insert(idxDef.materialize());
+    }
 
-		helper.closeElement();
-		return helper.getRoot();
-	}
+    helper.closeElement();
+    return helper.getRoot();
+  }
 
-	public synchronized void add(IndexDef indexDefinition) {
-		mIndexes.add(indexDefinition);
-	}
+  public synchronized void add(IndexDef indexDefinition) {
+    mIndexes.add(indexDefinition);
+  }
 
-	public synchronized void removeIndex(final @Nonnegative int indexID) {
-		checkArgument(indexID >= 0, "indexID must be >= 0!");
-		for (final IndexDef indexDef : mIndexes) {
-			if (indexDef.getID() == indexID) {
-				mIndexes.remove(indexDef);
-				return;
-			}
-		}
-	}
+  public synchronized void removeIndex(final @Nonnegative int indexID) {
+    checkArgument(indexID >= 0, "indexID must be >= 0!");
+    for (final IndexDef indexDef : mIndexes) {
+      if (indexDef.getID() == indexID) {
+        mIndexes.remove(indexDef);
+        return;
+      }
+    }
+  }
 
-	public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
-		checkNotNull(path);
-		try {
-			for (final IndexDef index : mIndexes) {
-				if (index.isPathIndex()) {
-					if (index.getPaths().isEmpty()) {
-						return Optional.of(index);
-					}
+  public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
+    checkNotNull(path);
+    try {
+      for (final IndexDef index : mIndexes) {
+        if (index.isPathIndex()) {
+          if (index.getPaths().isEmpty()) {
+            return Optional.of(index);
+          }
 
-					for (final Path<QNm> indexedPath : index.getPaths()) {
-						if (indexedPath.matches(path)) {
-							return Optional.of(index);
-						}
-					}
-				}
-			}
-			return Optional.empty();
-		} catch (PathException e) {
-			throw new DocumentException(e);
-		}
-	}
+          for (final Path<QNm> indexedPath : index.getPaths()) {
+            if (indexedPath.matches(path)) {
+              return Optional.of(index);
+            }
+          }
+        }
+      }
+      return Optional.empty();
+    } catch (PathException e) {
+      throw new DocumentException(e);
+    }
+  }
 
-	public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type)
-			throws DocumentException {
-		checkNotNull(path);
-		try {
-			for (final IndexDef index : mIndexes) {
-				if (index.isCasIndex() && index.getContentType().equals(type)) {
-					if (index.getPaths().isEmpty()) {
-						return Optional.of(index);
-					}
+  public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type)
+      throws DocumentException {
+    checkNotNull(path);
+    try {
+      for (final IndexDef index : mIndexes) {
+        if (index.isCasIndex() && index.getContentType().equals(type)) {
+          if (index.getPaths().isEmpty()) {
+            return Optional.of(index);
+          }
 
-					for (final Path<QNm> indexedPath : index.getPaths()) {
-						if (indexedPath.matches(path)) {
-							return Optional.of(index);
-						}
-					}
-				}
-			}
-			return Optional.empty();
-		} catch (PathException e) {
-			throw new DocumentException(e);
-		}
-	}
+          for (final Path<QNm> indexedPath : index.getPaths()) {
+            if (indexedPath.matches(path)) {
+              return Optional.of(index);
+            }
+          }
+        }
+      }
+      return Optional.empty();
+    } catch (PathException e) {
+      throw new DocumentException(e);
+    }
+  }
 
-	public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
-		checkNotNull(names);
-		out: for (final IndexDef index : mIndexes) {
-			if (index.isNameIndex()) {
-				final Set<QNm> incl = index.getIncluded();
-				final Set<QNm> excl = index.getExcluded();
-				if (names.length == 0 && incl.isEmpty() && excl.isEmpty()) {
-					// Require generic name index
-					return Optional.of(index);
-				}
+  public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
+    checkNotNull(names);
+    out: for (final IndexDef index : mIndexes) {
+      if (index.isNameIndex()) {
+        final Set<QNm> incl = index.getIncluded();
+        final Set<QNm> excl = index.getExcluded();
+        if (names.length == 0 && incl.isEmpty() && excl.isEmpty()) {
+          // Require generic name index
+          return Optional.of(index);
+        }
 
-				for (final QNm name : names) {
-					if (!incl.isEmpty() && !incl.contains(name) || !excl.isEmpty() && excl.contains(name)) {
-						continue out;
-					}
-				}
-				return Optional.of(index);
-			}
-		}
-		return Optional.empty();
-	}
+        for (final QNm name : names) {
+          if (!incl.isEmpty() && !incl.contains(name) || !excl.isEmpty() && excl.contains(name)) {
+            continue out;
+          }
+        }
+        return Optional.of(index);
+      }
+    }
+    return Optional.empty();
+  }
 
-	public int getNrOfIndexDefsWithType(final IndexType type) {
-		checkNotNull(type);
-		int nr = 0;
-		for (final IndexDef index : mIndexes) {
-			if (index.getType() == type) {
-				nr++;
-			}
-		}
-		return nr;
-	}
+  public int getNrOfIndexDefsWithType(final IndexType type) {
+    checkNotNull(type);
+    int nr = 0;
+    for (final IndexDef index : mIndexes) {
+      if (index.getType() == type) {
+        nr++;
+      }
+    }
+    return nr;
+  }
 }

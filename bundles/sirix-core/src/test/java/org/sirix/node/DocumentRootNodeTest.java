@@ -22,14 +22,12 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Optional;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,57 +44,57 @@ import org.sirix.settings.Fixed;
  */
 public class DocumentRootNodeTest {
 
-	/** {@link Holder} instance. */
-	private Holder mHolder;
+  /** {@link Holder} instance. */
+  private Holder mHolder;
 
-	/** Sirix {@link PageReadTrx} instance. */
-	private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx} instance. */
+  private PageReadTrx mPageReadTrx;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		mHolder = Holder.generateDeweyIDResourceMgr();
-		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		mPageReadTrx.close();
-		mHolder.close();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    mPageReadTrx.close();
+    mHolder.close();
+  }
 
-	@Test
-	public void testDocumentRootNode() throws IOException {
+  @Test
+  public void testDocumentRootNode() throws IOException {
 
-		// Create empty node.
-		final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
-				Optional.of(SirixDeweyID.newRootID()));
-		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		final DocumentRootNode node = new DocumentRootNode(nodeDel, strucDel);
-		check(node);
+    // Create empty node.
+    final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
+        Optional.of(SirixDeweyID.newRootID()));
+    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final DocumentRootNode node = new DocumentRootNode(nodeDel, strucDel);
+    check(node);
 
-		// Serialize and deserialize node.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
-		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
-				.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
-		check(node2);
-	}
+    // Serialize and deserialize node.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
+        .deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    check(node2);
+  }
 
-	private final static void check(final DocumentRootNode node) {
-		// Now compare.
-		assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
-		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
-		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-		assertEquals(0L, node.getChildCount());
-		assertEquals(Kind.DOCUMENT, node.getKind());
-	}
+  private final static void check(final DocumentRootNode node) {
+    // Now compare.
+    assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+    assertEquals(0L, node.getChildCount());
+    assertEquals(Kind.DOCUMENT, node.getKind());
+  }
 
 }

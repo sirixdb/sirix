@@ -32,10 +32,10 @@ import org.sirix.exception.SirixXPathException;
 @FunctionalInterface
 public interface Expression {
 
-	/**
-	 * Performs the expression dependent evaluation of the expression. (Template method)
-	 * 
-	 * @throws SirixXPathException if evaluation fails
-	 */
-	void evaluate() throws SirixXPathException;
+  /**
+   * Performs the expression dependent evaluation of the expression. (Template method)
+   * 
+   * @throws SirixXPathException if evaluation fails
+   */
+  void evaluate() throws SirixXPathException;
 }

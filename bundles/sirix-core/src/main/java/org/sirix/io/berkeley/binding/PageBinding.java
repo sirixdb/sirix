@@ -25,7 +25,6 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
@@ -34,7 +33,6 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
@@ -49,68 +47,68 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class PageBinding extends TupleBinding<Page> {
 
-	/** Logger. */
-	private static final Logger LOGGER = LoggerFactory.getLogger(PageBinding.class);
+  /** Logger. */
+  private static final Logger LOGGER = LoggerFactory.getLogger(PageBinding.class);
 
-	/** {@link ByteHandlePipeline} reference. */
-	private final ByteHandlePipeline mByteHandler;
+  /** {@link ByteHandlePipeline} reference. */
+  private final ByteHandlePipeline mByteHandler;
 
-	/** {@link PageReadTrx} reference. */
-	private PageReadTrx mPageReadTrx;
+  /** {@link PageReadTrx} reference. */
+  private PageReadTrx mPageReadTrx;
 
-	/**
-	 * Copy constructor.
-	 *
-	 * @param pageBinding page binding
-	 */
-	public PageBinding(final PageBinding pageBinding) {
-		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
-		mPageReadTrx = pageBinding.mPageReadTrx;
-	}
+  /**
+   * Copy constructor.
+   *
+   * @param pageBinding page binding
+   */
+  public PageBinding(final PageBinding pageBinding) {
+    mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
+    mPageReadTrx = pageBinding.mPageReadTrx;
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param byteHandler byte handler pipleine
-	 */
-	public PageBinding(final ByteHandlePipeline byteHandler) {
-		assert byteHandler != null : "byteHandler must not be null!";
-		mByteHandler = byteHandler;
-	}
+  /**
+   * Constructor.
+   *
+   * @param byteHandler byte handler pipleine
+   */
+  public PageBinding(final ByteHandlePipeline byteHandler) {
+    assert byteHandler != null : "byteHandler must not be null!";
+    mByteHandler = byteHandler;
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param byteHandler byte handler pipleine
-	 * @param pageReadTrx page reading transaction
-	 */
-	public PageBinding(final ByteHandlePipeline byteHandler, final PageReadTrx pageReadTrx) {
-		assert byteHandler != null : "byteHandler must not be null!";
-		mByteHandler = byteHandler;
-		mPageReadTrx = pageReadTrx;
-	}
+  /**
+   * Constructor.
+   *
+   * @param byteHandler byte handler pipleine
+   * @param pageReadTrx page reading transaction
+   */
+  public PageBinding(final ByteHandlePipeline byteHandler, final PageReadTrx pageReadTrx) {
+    assert byteHandler != null : "byteHandler must not be null!";
+    mByteHandler = byteHandler;
+    mPageReadTrx = pageReadTrx;
+  }
 
-	@Override
-	public Page entryToObject(final TupleInput input) {
-		try {
-			return PagePersistenter.deserializePage(new DataInputStream(mByteHandler.deserialize(input)),
-					mPageReadTrx, SerializationType.COMMIT);
-		} catch (final IOException e) {
-			LOGGER.error(e.getMessage(), e);
-			return null;
-		}
-	}
+  @Override
+  public Page entryToObject(final TupleInput input) {
+    try {
+      return PagePersistenter.deserializePage(new DataInputStream(mByteHandler.deserialize(input)),
+          mPageReadTrx, SerializationType.COMMIT);
+    } catch (final IOException e) {
+      LOGGER.error(e.getMessage(), e);
+      return null;
+    }
+  }
 
-	@Override
-	public void objectToEntry(final Page page, final TupleOutput output) {
-		try {
-			final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
-			PagePersistenter.serializePage(dataOutput, page, SerializationType.COMMIT);
-			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
-			dataOutput.close();
-		} catch (final IOException e) {
-			LOGGER.error(e.getMessage(), e);
-		}
-	}
+  @Override
+  public void objectToEntry(final Page page, final TupleOutput output) {
+    try {
+      final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
+      PagePersistenter.serializePage(dataOutput, page, SerializationType.COMMIT);
+      ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
+      dataOutput.close();
+    } catch (final IOException e) {
+      LOGGER.error(e.getMessage(), e);
+    }
+  }
 
 }

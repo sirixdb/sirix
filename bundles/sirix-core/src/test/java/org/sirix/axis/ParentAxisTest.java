@@ -31,34 +31,34 @@ import org.sirix.exception.SirixException;
 
 public class ParentAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testIterate() throws SirixException {
-		final XdmNodeReadTrx rtx = holder.getReader();
+  @Test
+  public void testIterate() throws SirixException {
+    final XdmNodeReadTrx rtx = holder.getReader();
 
-		rtx.moveTo(5L);
-		AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {1L});
+    rtx.moveTo(5L);
+    AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {1L});
 
-		rtx.moveTo(8L);
-		AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {1L});
+    rtx.moveTo(8L);
+    AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {1L});
 
-		rtx.moveTo(10L);
-		AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {9L});
+    rtx.moveTo(10L);
+    AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {9L});
 
-	}
+  }
 
 }

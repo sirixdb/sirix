@@ -29,10 +29,8 @@ import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT_SPACES;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_REST;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_XMLDECL;
-
 import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,40 +39,40 @@ import org.sirix.exception.SirixException;
 
 public class XMLSerializerPropertiesTest {
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testXMLSerializerProp() {
-		final XMLSerializerProperties props = new XMLSerializerProperties();
+  @Test
+  public void testXMLSerializerProp() {
+    final XMLSerializerProperties props = new XMLSerializerProperties();
 
-		final ConcurrentHashMap<String, Object> map =
-				(ConcurrentHashMap<String, Object>) props.getProps();
-		final Enumeration<String> keys = map.keys();
+    final ConcurrentHashMap<String, Object> map =
+        (ConcurrentHashMap<String, Object>) props.getProps();
+    final Enumeration<String> keys = map.keys();
 
-		assertNotNull(keys);
+    assertNotNull(keys);
 
-		while (keys.hasMoreElements()) {
-			final String key = keys.nextElement();
+    while (keys.hasMoreElements()) {
+      final String key = keys.nextElement();
 
-			if (key.equals(S_ID[0])) {
-				assertEquals(false, map.get(S_ID[0]));
-			} else if (key.equals(S_REST[0])) {
-				assertEquals(false, map.get(S_REST[0]));
-			} else if (key.equals(S_INDENT[0])) {
-				assertEquals(false, map.get(S_INDENT[0]));
-			} else if (key.equals(S_INDENT_SPACES[0])) {
-				assertSame(2, map.get(S_INDENT_SPACES[0]));
-			} else if (key.equals(S_XMLDECL[0])) {
-				assertEquals(false, map.get(S_XMLDECL[0]));
-			}
-		}
-	}
+      if (key.equals(S_ID[0])) {
+        assertEquals(false, map.get(S_ID[0]));
+      } else if (key.equals(S_REST[0])) {
+        assertEquals(false, map.get(S_REST[0]));
+      } else if (key.equals(S_INDENT[0])) {
+        assertEquals(false, map.get(S_INDENT[0]));
+      } else if (key.equals(S_INDENT_SPACES[0])) {
+        assertSame(2, map.get(S_INDENT_SPACES[0]));
+      } else if (key.equals(S_XMLDECL[0])) {
+        assertEquals(false, map.get(S_XMLDECL[0]));
+      }
+    }
+  }
 }

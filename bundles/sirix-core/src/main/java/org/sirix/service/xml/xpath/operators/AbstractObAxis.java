@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.operators;
 
 import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -40,156 +39,156 @@ import org.sirix.service.xml.xpath.types.Type;
  */
 public abstract class AbstractObAxis extends AbstractAxis {
 
-	/** First arithmetic operand. */
-	private final Axis mOperand1;
+  /** First arithmetic operand. */
+  private final Axis mOperand1;
 
-	/** Second arithmetic operand. */
-	private final Axis mOperand2;
+  /** Second arithmetic operand. */
+  private final Axis mOperand2;
 
-	/** True, if axis has not been evaluated yet. */
-	private boolean mIsFirst;
+  /** True, if axis has not been evaluated yet. */
+  private boolean mIsFirst;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mOp1 First value of the operation
-	 * @param mOp2 Second value of the operation
-	 */
-	public AbstractObAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mOp1 First value of the operation
+   * @param mOp2 Second value of the operation
+   */
+  public AbstractObAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
 
-		super(rtx);
-		mOperand1 = mOp1;
-		mOperand2 = mOp2;
-		mIsFirst = true;
+    super(rtx);
+    mOperand1 = mOp1;
+    mOperand2 = mOp2;
+    mIsFirst = true;
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public final void reset(final long mNodeKey) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public final void reset(final long mNodeKey) {
 
-		super.reset(mNodeKey);
-		mIsFirst = true;
-		if (mOperand1 != null) {
-			mOperand1.reset(mNodeKey);
-		}
+    super.reset(mNodeKey);
+    mIsFirst = true;
+    if (mOperand1 != null) {
+      mOperand1.reset(mNodeKey);
+    }
 
-		if (mOperand2 != null) {
-			mOperand2.reset(mNodeKey);
-		}
-	}
+    if (mOperand2 != null) {
+      mOperand2.reset(mNodeKey);
+    }
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public boolean hasNext() {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public boolean hasNext() {
 
-		resetToLastKey();
+    resetToLastKey();
 
-		if (mIsFirst) {
-			mIsFirst = false;
+    if (mIsFirst) {
+      mIsFirst = false;
 
-			if (mOperand1.hasNext()) {
-				mKey = mOperand1.next();
-				// atomize operand
-				final AtomicValue mItem1 = atomize(mOperand1);
+      if (mOperand1.hasNext()) {
+        mKey = mOperand1.next();
+        // atomize operand
+        final AtomicValue mItem1 = atomize(mOperand1);
 
-				if (mOperand2.hasNext()) {
-					mKey = mOperand2.next();
-					// atomize operand
-					final AtomicValue mItem2 = atomize(mOperand2);
-					try {
-						final AtomicValue result = (AtomicValue) operate(mItem1, mItem2);
-						// add retrieved AtomicValue to item list
-						final int itemKey = getTrx().getItemList().addItem(result);
-						mKey = itemKey;
+        if (mOperand2.hasNext()) {
+          mKey = mOperand2.next();
+          // atomize operand
+          final AtomicValue mItem2 = atomize(mOperand2);
+          try {
+            final AtomicValue result = (AtomicValue) operate(mItem1, mItem2);
+            // add retrieved AtomicValue to item list
+            final int itemKey = getTrx().getItemList().addItem(result);
+            mKey = itemKey;
 
-						return true;
-					} catch (SirixXPathException e) {
-						throw new RuntimeException(e);
-					}
-				}
-			}
+            return true;
+          } catch (SirixXPathException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
 
-			if (XPATH_10_COMP) { // and empty sequence, return NaN
-				final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
-				final int itemKey = getTrx().getItemList().addItem(result);
-				mKey = itemKey;
-				return true;
-			}
+      if (XPATH_10_COMP) { // and empty sequence, return NaN
+        final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
+        final int itemKey = getTrx().getItemList().addItem(result);
+        mKey = itemKey;
+        return true;
+      }
 
-		}
-		// either not the first call, or empty sequence
-		resetToStartKey();
-		return false;
+    }
+    // either not the first call, or empty sequence
+    resetToStartKey();
+    return false;
 
-	}
+  }
 
-	/**
-	 * Atomizes an operand according to the rules specified in the XPath specification.
-	 * 
-	 * @param mOperand the operand to atomize
-	 * @return the atomized operand. (always an atomic value)
-	 */
-	private AtomicValue atomize(final Axis mOperand) {
+  /**
+   * Atomizes an operand according to the rules specified in the XPath specification.
+   * 
+   * @param mOperand the operand to atomize
+   * @return the atomized operand. (always an atomic value)
+   */
+  private AtomicValue atomize(final Axis mOperand) {
 
-		final XdmNodeReadTrx rtx = getTrx();
-		int type = rtx.getTypeKey();
-		AtomicValue atom;
+    final XdmNodeReadTrx rtx = getTrx();
+    int type = rtx.getTypeKey();
+    AtomicValue atom;
 
-		if (XPATH_10_COMP) {
-			if (type == rtx.keyForName("xs:double") || type == rtx.keyForName("xs:untypedAtomic")
-					|| type == rtx.keyForName("xs:boolean") || type == rtx.keyForName("xs:string")
-					|| type == rtx.keyForName("xs:integer") || type == rtx.keyForName("xs:float")
-					|| type == rtx.keyForName("xs:decimal")) {
-				Function.fnnumber(mOperand.getTrx());
-			}
+    if (XPATH_10_COMP) {
+      if (type == rtx.keyForName("xs:double") || type == rtx.keyForName("xs:untypedAtomic")
+          || type == rtx.keyForName("xs:boolean") || type == rtx.keyForName("xs:string")
+          || type == rtx.keyForName("xs:integer") || type == rtx.keyForName("xs:float")
+          || type == rtx.keyForName("xs:decimal")) {
+        Function.fnnumber(mOperand.getTrx());
+      }
 
-			atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
-		} else {
-			// unatomicType is cast to double
-			if (type == rtx.keyForName("xs:untypedAtomic")) {
-				type = rtx.keyForName("xs:double");
-				// TODO: throw error, of cast fails
-			}
+      atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
+    } else {
+      // unatomicType is cast to double
+      if (type == rtx.keyForName("xs:untypedAtomic")) {
+        type = rtx.keyForName("xs:double");
+        // TODO: throw error, of cast fails
+      }
 
-			atom = new AtomicValue(rtx.getValue().getBytes(), type);
-		}
+      atom = new AtomicValue(rtx.getValue().getBytes(), type);
+    }
 
-		// if (!XPATH_10_COMP && operand.hasNext()) {
-		// throw new XPathError(ErrorType.XPTY0004);
-		// }
+    // if (!XPATH_10_COMP && operand.hasNext()) {
+    // throw new XPathError(ErrorType.XPTY0004);
+    // }
 
-		return atom;
-	}
+    return atom;
+  }
 
-	/**
-	 * Performs the operation on the two input operands. First checks if the types of the operands are
-	 * a valid combination for the operation and if so computed the result. Otherwise an XPathError is
-	 * thrown.
-	 * 
-	 * @param mOperand1 first input operand
-	 * @param mOperand2 second input operand
-	 * @return result of the operation
-	 * @throws SirixXPathException if the operations fails
-	 */
-	protected abstract Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
-			throws SirixXPathException;
+  /**
+   * Performs the operation on the two input operands. First checks if the types of the operands are
+   * a valid combination for the operation and if so computed the result. Otherwise an XPathError is
+   * thrown.
+   * 
+   * @param mOperand1 first input operand
+   * @param mOperand2 second input operand
+   * @return result of the operation
+   * @throws SirixXPathException if the operations fails
+   */
+  protected abstract Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
+      throws SirixXPathException;
 
-	/**
-	 * Checks if the types of the operands are a valid combination for the operation and if so returns
-	 * the corresponding result type. Otherwise an XPathError is thrown. This typed check is done
-	 * according to the <a href="http://www.w3.org/TR/xpath20/#mapping">Operator Mapping</a>.
-	 * 
-	 * @param mOp1 first operand's type key
-	 * @param mOp2 second operand's type key
-	 * @return return type of the arithmetic function according to the operand type combination.
-	 * @throws SirixXPathException if type is not specified
-	 */
-	protected abstract Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException;
+  /**
+   * Checks if the types of the operands are a valid combination for the operation and if so returns
+   * the corresponding result type. Otherwise an XPathError is thrown. This typed check is done
+   * according to the <a href="http://www.w3.org/TR/xpath20/#mapping">Operator Mapping</a>.
+   * 
+   * @param mOp1 first operand's type key
+   * @param mOp2 second operand's type key
+   * @return return type of the arithmetic function according to the operand type combination.
+   * @throws SirixXPathException if type is not specified
+   */
+  protected abstract Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException;
 
 }

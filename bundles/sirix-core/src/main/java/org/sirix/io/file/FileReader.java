@@ -22,15 +22,12 @@
 package org.sirix.io.file;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -51,84 +48,84 @@ import org.sirix.page.interfaces.Page;
  */
 public final class FileReader implements Reader {
 
-	/** Beacon of first references. */
-	final static int FIRST_BEACON = 12;
+  /** Beacon of first references. */
+  final static int FIRST_BEACON = 12;
 
-	/** Beacon of the other references. */
-	final static int OTHER_BEACON = 4;
+  /** Beacon of the other references. */
+  final static int OTHER_BEACON = 4;
 
-	/** Random access mFile to work on. */
-	private final RandomAccessFile mFile;
+  /** Random access mFile to work on. */
+  private final RandomAccessFile mFile;
 
-	/** Inflater to decompress. */
-	final ByteHandler mByteHandler;
+  /** Inflater to decompress. */
+  final ByteHandler mByteHandler;
 
-	private final SerializationType mType;
+  private final SerializationType mType;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param concreteStorage storage file
-	 * @param handler {@link ByteHandler} instance
-	 * @throws SirixIOException if something bad happens
-	 */
-	public FileReader(final RandomAccessFile file, final ByteHandler handler,
-			final SerializationType type) {
-		mFile = checkNotNull(file);
-		mByteHandler = checkNotNull(handler);
-		mType = checkNotNull(type);
-	}
+  /**
+   * Constructor.
+   *
+   * @param concreteStorage storage file
+   * @param handler {@link ByteHandler} instance
+   * @throws SirixIOException if something bad happens
+   */
+  public FileReader(final RandomAccessFile file, final ByteHandler handler,
+      final SerializationType type) {
+    mFile = checkNotNull(file);
+    mByteHandler = checkNotNull(handler);
+    mType = checkNotNull(type);
+  }
 
-	@Override
-	public Page read(final @Nonnull PageReference reference, final @Nullable PageReadTrx pageReadTrx)
-			throws SirixIOException {
-		try {
-			// Read page from file.
-			switch (mType) {
-				case COMMIT:
-					mFile.seek(reference.getKey());
-					break;
-				case TRANSACTION_INTENT_LOG:
-					mFile.seek(reference.getPersistentLogKey());
-					break;
-			}
-			final int dataLength = mFile.readInt();
-			reference.setLength(dataLength + FileReader.OTHER_BEACON);
-			final byte[] page = new byte[dataLength];
-			mFile.read(page);
+  @Override
+  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadTrx pageReadTrx)
+      throws SirixIOException {
+    try {
+      // Read page from file.
+      switch (mType) {
+        case COMMIT:
+          mFile.seek(reference.getKey());
+          break;
+        case TRANSACTION_INTENT_LOG:
+          mFile.seek(reference.getPersistentLogKey());
+          break;
+      }
+      final int dataLength = mFile.readInt();
+      reference.setLength(dataLength + FileReader.OTHER_BEACON);
+      final byte[] page = new byte[dataLength];
+      mFile.read(page);
 
-			// Perform byte operations.
-			final DataInputStream input =
-					new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
+      // Perform byte operations.
+      final DataInputStream input =
+          new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
 
-			// Return reader required to instantiate and deserialize page.
-			return PagePersistenter.deserializePage(input, pageReadTrx, mType);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      // Return reader required to instantiate and deserialize page.
+      return PagePersistenter.deserializePage(input, pageReadTrx, mType);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public PageReference readUberPageReference() throws SirixIOException {
-		final PageReference uberPageReference = new PageReference();
-		try {
-			// Read primary beacon.
-			mFile.seek(0);
-			uberPageReference.setKey(mFile.readLong());
-			final UberPage page = (UberPage) read(uberPageReference, null);
-			uberPageReference.setPage(page);
-			return uberPageReference;
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public PageReference readUberPageReference() throws SirixIOException {
+    final PageReference uberPageReference = new PageReference();
+    try {
+      // Read primary beacon.
+      mFile.seek(0);
+      uberPageReference.setKey(mFile.readLong());
+      final UberPage page = (UberPage) read(uberPageReference, null);
+      uberPageReference.setPage(page);
+      return uberPageReference;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public void close() throws SirixIOException {
-		try {
-			mFile.close();
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public void close() throws SirixIOException {
+    try {
+      mFile.close();
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 }

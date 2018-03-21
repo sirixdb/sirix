@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -41,197 +40,197 @@ import org.sirix.settings.Fixed;
 
 public class HashTest {
 
-	private final static String NAME1 = "a";
-	private final static String NAME2 = "b";
+  private final static String NAME1 = "a";
+  private final static String NAME2 = "b";
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testPostorderInsertRemove() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
-		testHashTreeWithInsertAndRemove(wtx);
-	}
+  @Test
+  public void testPostorderInsertRemove() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    testHashTreeWithInsertAndRemove(wtx);
+  }
 
-	@Test
-	public void testPostorderDeep() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
-		testDeepTree(wtx);
-	}
+  @Test
+  public void testPostorderDeep() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    testDeepTree(wtx);
+  }
 
-	@Test
-	public void testPostorderSetter() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
-		testSetter(wtx);
-	}
+  @Test
+  public void testPostorderSetter() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    testSetter(wtx);
+  }
 
-	@Test
-	public void testRollingInsertRemove() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
-		testHashTreeWithInsertAndRemove(wtx);
-	}
+  @Test
+  public void testRollingInsertRemove() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    testHashTreeWithInsertAndRemove(wtx);
+  }
 
-	@Test
-	public void testRollingDeep() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
-		testDeepTree(wtx);
-	}
+  @Test
+  public void testRollingDeep() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    testDeepTree(wtx);
+  }
 
-	@Test
-	public void testRollingSetter() throws SirixException {
-		final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
-		testSetter(wtx);
-	}
+  @Test
+  public void testRollingSetter() throws SirixException {
+    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    testSetter(wtx);
+  }
 
-	/**
-	 * Inserting nodes and removing them.
-	 *
-	 * <pre>
-	 * -a (1)
-	 *  '-test (5)
-	 *  '-a (6)
-	 *    '-attr(7)
-	 *    '-a (8)
-	 *      '-attr (9)
-	 *  '-text (2)
-	 *  '-a (3(x))
-	 *    '-attr(4(x))
-	 * </pre>
-	 *
-	 * @param wtx
-	 * @throws TTException
-	 */
-	@Ignore
-	private void testHashTreeWithInsertAndRemove(final XdmNodeWriteTrx wtx) throws SirixException {
+  /**
+   * Inserting nodes and removing them.
+   *
+   * <pre>
+   * -a (1)
+   *  '-test (5)
+   *  '-a (6)
+   *    '-attr(7)
+   *    '-a (8)
+   *      '-attr (9)
+   *  '-text (2)
+   *  '-a (3(x))
+   *    '-attr(4(x))
+   * </pre>
+   *
+   * @param wtx
+   * @throws TTException
+   */
+  @Ignore
+  private void testHashTreeWithInsertAndRemove(final XdmNodeWriteTrx wtx) throws SirixException {
 
-		// inserting a element as root
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		final long rootKey = wtx.getNodeKey();
-		final long firstRootHash = wtx.getHash();
+    // inserting a element as root
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    final long rootKey = wtx.getNodeKey();
+    final long firstRootHash = wtx.getHash();
 
-		// inserting a text as second child of root
-		wtx.moveTo(rootKey);
-		wtx.insertTextAsFirstChild(NAME1);
-		wtx.moveTo(wtx.getParentKey());
-		final long secondRootHash = wtx.getHash();
+    // inserting a text as second child of root
+    wtx.moveTo(rootKey);
+    wtx.insertTextAsFirstChild(NAME1);
+    wtx.moveTo(wtx.getParentKey());
+    final long secondRootHash = wtx.getHash();
 
-		// inserting a second element on level 2 under the only element
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.insertElementAsRightSibling(new QNm(NAME2));
-		wtx.insertAttribute(new QNm(NAME2), NAME1);
-		wtx.moveTo(rootKey);
-		final long thirdRootHash = wtx.getHash();
+    // inserting a second element on level 2 under the only element
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.insertElementAsRightSibling(new QNm(NAME2));
+    wtx.insertAttribute(new QNm(NAME2), NAME1);
+    wtx.moveTo(rootKey);
+    final long thirdRootHash = wtx.getHash();
 
-		// Checking that all hashes are different
-		assertFalse(firstRootHash == secondRootHash);
-		assertFalse(firstRootHash == thirdRootHash);
-		assertFalse(secondRootHash == thirdRootHash);
+    // Checking that all hashes are different
+    assertFalse(firstRootHash == secondRootHash);
+    assertFalse(firstRootHash == thirdRootHash);
+    assertFalse(secondRootHash == thirdRootHash);
 
-		// removing the second element
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.moveTo(wtx.getRightSiblingKey());
-		wtx.remove();
-		wtx.moveTo(rootKey);
-		assertEquals(secondRootHash, wtx.getHash());
+    // removing the second element
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveTo(wtx.getRightSiblingKey());
+    wtx.remove();
+    wtx.moveTo(rootKey);
+    assertEquals(secondRootHash, wtx.getHash());
 
-		// adding additional element for showing that hashes are computed
-		// incrementilly
-		wtx.insertTextAsFirstChild(NAME1);
-		wtx.insertElementAsRightSibling(new QNm(NAME1));
-		wtx.insertAttribute(new QNm(NAME1), NAME2);
-		wtx.moveToParent();
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.insertAttribute(new QNm(NAME2), NAME1);
+    // adding additional element for showing that hashes are computed
+    // incrementilly
+    wtx.insertTextAsFirstChild(NAME1);
+    wtx.insertElementAsRightSibling(new QNm(NAME1));
+    wtx.insertAttribute(new QNm(NAME1), NAME2);
+    wtx.moveToParent();
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertAttribute(new QNm(NAME2), NAME1);
 
-		wtx.moveTo(rootKey);
-		wtx.moveToFirstChild();
-		wtx.remove();
-		wtx.remove();
+    wtx.moveTo(rootKey);
+    wtx.moveToFirstChild();
+    wtx.remove();
+    wtx.remove();
 
-		wtx.moveTo(rootKey);
-		assertEquals(firstRootHash, wtx.getHash());
-	}
+    wtx.moveTo(rootKey);
+    assertEquals(firstRootHash, wtx.getHash());
+  }
 
-	@Ignore
-	private void testDeepTree(final XdmNodeWriteTrx wtx) throws SirixException {
+  @Ignore
+  private void testDeepTree(final XdmNodeWriteTrx wtx) throws SirixException {
 
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		final long oldHash = wtx.getHash();
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    final long oldHash = wtx.getHash();
 
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.insertElementAsFirstChild(new QNm(NAME2));
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.insertElementAsFirstChild(new QNm(NAME2));
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.remove();
-		wtx.insertElementAsFirstChild(new QNm(NAME2));
-		wtx.insertElementAsFirstChild(new QNm(NAME2));
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertElementAsFirstChild(new QNm(NAME2));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertElementAsFirstChild(new QNm(NAME2));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.remove();
+    wtx.insertElementAsFirstChild(new QNm(NAME2));
+    wtx.insertElementAsFirstChild(new QNm(NAME2));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
 
-		wtx.moveTo(1);
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.remove();
-		assertEquals(oldHash, wtx.getHash());
-	}
+    wtx.moveTo(1);
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.remove();
+    assertEquals(oldHash, wtx.getHash());
+  }
 
-	@Ignore
-	private void testSetter(final XdmNodeWriteTrx wtx) throws SirixException {
+  @Ignore
+  private void testSetter(final XdmNodeWriteTrx wtx) throws SirixException {
 
-		// Testing node inheritance
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.insertElementAsFirstChild(new QNm(NAME1));
-		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		wtx.moveTo(wtx.getFirstChildKey());
-		final long hashRoot1 = wtx.getHash();
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.moveTo(wtx.getFirstChildKey());
-		final long hashLeaf1 = wtx.getHash();
-		wtx.setName(new QNm(NAME2));
-		final long hashLeaf2 = wtx.getHash();
-		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		wtx.moveTo(wtx.getFirstChildKey());
-		final long hashRoot2 = wtx.getHash();
-		assertFalse(hashRoot1 == hashRoot2);
-		assertFalse(hashLeaf1 == hashLeaf2);
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setName(new QNm(NAME1));
-		final long hashLeaf3 = wtx.getHash();
-		assertEquals(hashLeaf1, hashLeaf3);
-		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		wtx.moveTo(wtx.getFirstChildKey());
-		final long hashRoot3 = wtx.getHash();
-		assertEquals(hashRoot1, hashRoot3);
+    // Testing node inheritance
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.insertElementAsFirstChild(new QNm(NAME1));
+    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    wtx.moveTo(wtx.getFirstChildKey());
+    final long hashRoot1 = wtx.getHash();
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveTo(wtx.getFirstChildKey());
+    final long hashLeaf1 = wtx.getHash();
+    wtx.setName(new QNm(NAME2));
+    final long hashLeaf2 = wtx.getHash();
+    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    wtx.moveTo(wtx.getFirstChildKey());
+    final long hashRoot2 = wtx.getHash();
+    assertFalse(hashRoot1 == hashRoot2);
+    assertFalse(hashLeaf1 == hashLeaf2);
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.setName(new QNm(NAME1));
+    final long hashLeaf3 = wtx.getHash();
+    assertEquals(hashLeaf1, hashLeaf3);
+    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    wtx.moveTo(wtx.getFirstChildKey());
+    final long hashRoot3 = wtx.getHash();
+    assertEquals(hashRoot1, hashRoot3);
 
-		// Testing root inheritance
-		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setName(new QNm(NAME2));
-		final long hashRoot4 = wtx.getHash();
-		assertFalse(hashRoot4 == hashRoot2);
-		assertFalse(hashRoot4 == hashRoot1);
-		assertFalse(hashRoot4 == hashRoot3);
-		assertFalse(hashRoot4 == hashLeaf1);
-		assertFalse(hashRoot4 == hashLeaf2);
-		assertFalse(hashRoot4 == hashLeaf3);
-	}
+    // Testing root inheritance
+    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.setName(new QNm(NAME2));
+    final long hashRoot4 = wtx.getHash();
+    assertFalse(hashRoot4 == hashRoot2);
+    assertFalse(hashRoot4 == hashRoot1);
+    assertFalse(hashRoot4 == hashRoot3);
+    assertFalse(hashRoot4 == hashLeaf1);
+    assertFalse(hashRoot4 == hashLeaf2);
+    assertFalse(hashRoot4 == hashLeaf3);
+  }
 
-	private XdmNodeWriteTrx createWtx(final HashKind kind) throws SirixException {
-		final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-		database.createResource(
-				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final ResourceManager manager = database
-				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
-		return wTrx;
-	}
+  private XdmNodeWriteTrx createWtx(final HashKind kind) throws SirixException {
+    final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final ResourceManager manager = database
+        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
+    return wTrx;
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
 }

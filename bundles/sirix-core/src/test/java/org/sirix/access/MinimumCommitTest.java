@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,45 +34,45 @@ import org.sirix.utils.DocumentCreater;
 
 public final class MinimumCommitTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		holder = Holder.generateWtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    holder = Holder.generateWtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void test() throws SirixException {
-		assertEquals(1L, holder.getWriter().getRevisionNumber());
-		holder.getWriter().commit();
-		holder.close();
+  @Test
+  public void test() throws SirixException {
+    assertEquals(1L, holder.getWriter().getRevisionNumber());
+    holder.getWriter().commit();
+    holder.close();
 
-		holder = Holder.generateWtx();
-		assertEquals(2L, holder.getWriter().getRevisionNumber());
-		DocumentCreater.create(holder.getWriter());
-		holder.getWriter().commit();
-		holder.close();
+    holder = Holder.generateWtx();
+    assertEquals(2L, holder.getWriter().getRevisionNumber());
+    DocumentCreater.create(holder.getWriter());
+    holder.getWriter().commit();
+    holder.close();
 
-		holder = Holder.generateWtx();
-		assertEquals(3L, holder.getWriter().getRevisionNumber());
-		holder.getWriter().commit();
-		holder.close();
+    holder = Holder.generateWtx();
+    assertEquals(3L, holder.getWriter().getRevisionNumber());
+    holder.getWriter().commit();
+    holder.close();
 
-		holder = Holder.generateRtx();
-		assertEquals(3L, holder.getReader().getRevisionNumber());
-	}
+    holder = Holder.generateRtx();
+    assertEquals(3L, holder.getReader().getRevisionNumber());
+  }
 
-	@Test
-	public void testTimestamp() throws SirixException {
-		final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-		assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
-		rtx.close();
-	}
+  @Test
+  public void testTimestamp() throws SirixException {
+    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
+    rtx.close();
+  }
 }

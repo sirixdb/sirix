@@ -22,14 +22,12 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Optional;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -46,54 +44,54 @@ import org.sirix.node.delegates.NodeDelegate;
  */
 public class NamespaceNodeTest {
 
-	/** {@link Holder} instance. */
-	private Holder mHolder;
+  /** {@link Holder} instance. */
+  private Holder mHolder;
 
-	/** Sirix {@link PageReadTrx} instance. */
-	private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx} instance. */
+  private PageReadTrx mPageReadTrx;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		mHolder = Holder.generateDeweyIDResourceMgr();
-		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		mPageReadTrx.close();
-		mHolder.close();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    mPageReadTrx.close();
+    mHolder.close();
+  }
 
-	@Test
-	public void testNamespaceNode() throws IOException {
-		final NodeDelegate nodeDel =
-				new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
+  @Test
+  public void testNamespaceNode() throws IOException {
+    final NodeDelegate nodeDel =
+        new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
-		// Create empty node.
-		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
+    // Create empty node.
+    final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
 
-		// Serialize and deserialize node.
-		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
-		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in),
-				node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
-		check(node2);
-	}
+    // Serialize and deserialize node.
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+    final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in),
+        node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    check(node2);
+  }
 
-	private final static void check(final NamespaceNode node) {
-		// Now compare.
-		assertEquals(99L, node.getNodeKey());
-		assertEquals(13L, node.getParentKey());
+  private final static void check(final NamespaceNode node) {
+    // Now compare.
+    assertEquals(99L, node.getNodeKey());
+    assertEquals(13L, node.getParentKey());
 
-		assertEquals(13, node.getURIKey());
-		assertEquals(14, node.getPrefixKey());
-		assertEquals(15, node.getLocalNameKey());
-		assertEquals(Kind.NAMESPACE, node.getKind());
-		assertEquals(true, node.hasParent());
-	}
+    assertEquals(13, node.getURIKey());
+    assertEquals(14, node.getPrefixKey());
+    assertEquals(15, node.getLocalNameKey());
+    assertEquals(Kind.NAMESPACE, node.getKind());
+    assertEquals(true, node.hasParent());
+  }
 
 }

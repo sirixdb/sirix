@@ -35,40 +35,40 @@ import org.sirix.service.xml.xpath.XPathAxis;
 
 public class TypeFilterTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testFilterConvetions() throws Exception {
+  @Test
+  public void testFilterConvetions() throws Exception {
 
-		final AbstractAxis axis = new XPathAxis(holder.getReader(), "a");
-		final XdmNodeReadTrx xtx = ((XdmNodeReadTrx) axis.getTrx());
+    final AbstractAxis axis = new XPathAxis(holder.getReader(), "a");
+    final XdmNodeReadTrx xtx = ((XdmNodeReadTrx) axis.getTrx());
 
-		xtx.moveTo(9L);
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:long"), false);
+    xtx.moveTo(9L);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:long"), false);
 
-		xtx.moveTo(4L);
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:double"), false);
+    xtx.moveTo(4L);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:double"), false);
 
-		xtx.moveTo(1L);
-		xtx.moveToAttribute(0);
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+    xtx.moveTo(1L);
+    xtx.moveToAttribute(0);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
 
-		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
+    FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
 
-	}
+  }
 }

@@ -23,17 +23,13 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
-
 import com.google.common.base.MoreObjects;
 
 /**
@@ -51,284 +47,284 @@ import com.google.common.base.MoreObjects;
  */
 public abstract class AbstractAxis implements Axis {
 
-	/** Iterate over transaction exclusive to this step. */
-	protected final XdmNodeReadTrx mRtx;
+  /** Iterate over transaction exclusive to this step. */
+  protected final XdmNodeReadTrx mRtx;
 
-	/** Key of next node. */
-	private long mKey;
+  /** Key of next node. */
+  private long mKey;
 
-	/** Key of node where axis started. */
-	private long mStartKey;
+  /** Key of node where axis started. */
+  private long mStartKey;
 
-	/** Include self? */
-	private final IncludeSelf mIncludeSelf;
+  /** Include self? */
+  private final IncludeSelf mIncludeSelf;
 
-	/** Current state. */
-	private State mState = State.NOT_READY;
+  /** Current state. */
+  private State mState = State.NOT_READY;
 
-	/** State of the iterator. */
-	private enum State {
-		/** We have computed the next element and haven't returned it yet. */
-		READY,
+  /** State of the iterator. */
+  private enum State {
+    /** We have computed the next element and haven't returned it yet. */
+    READY,
 
-		/** We haven't yet computed or have already returned the element. */
-		NOT_READY,
+    /** We haven't yet computed or have already returned the element. */
+    NOT_READY,
 
-		/** We have reached the end of the data and are finished. */
-		DONE,
+    /** We have reached the end of the data and are finished. */
+    DONE,
 
-		/** We've suffered an exception and are kaput. */
-		FAILED,
-	}
+    /** We've suffered an exception and are kaput. */
+    FAILED,
+  }
 
-	/**
-	 * Bind axis step to transaction.
-	 *
-	 * @param rtx transaction to operate with
-	 * @throws NullPointerException if {@code paramRtx} is {@code null}
-	 */
-	public AbstractAxis(final XdmNodeReadTrx rtx) {
-		mRtx = checkNotNull(rtx);
-		mIncludeSelf = IncludeSelf.NO;
-		reset(rtx.getNodeKey());
-	}
+  /**
+   * Bind axis step to transaction.
+   *
+   * @param rtx transaction to operate with
+   * @throws NullPointerException if {@code paramRtx} is {@code null}
+   */
+  public AbstractAxis(final XdmNodeReadTrx rtx) {
+    mRtx = checkNotNull(rtx);
+    mIncludeSelf = IncludeSelf.NO;
+    reset(rtx.getNodeKey());
+  }
 
-	/**
-	 * Bind axis step to transaction.
-	 *
-	 * @param rtx transaction to operate with
-	 * @param includeSelf determines if self is included
-	 * @throws NullPointerException if {@code rtx} or {@code includeSelf} is {@code null}
-	 */
-	public AbstractAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-		mRtx = checkNotNull(rtx);
-		mIncludeSelf = checkNotNull(includeSelf);
-		reset(rtx.getNodeKey());
-	}
+  /**
+   * Bind axis step to transaction.
+   *
+   * @param rtx transaction to operate with
+   * @param includeSelf determines if self is included
+   * @throws NullPointerException if {@code rtx} or {@code includeSelf} is {@code null}
+   */
+  public AbstractAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
+    mRtx = checkNotNull(rtx);
+    mIncludeSelf = checkNotNull(includeSelf);
+    reset(rtx.getNodeKey());
+  }
 
-	@Override
-	public final Iterator<Long> iterator() {
-		return this;
-	}
+  @Override
+  public final Iterator<Long> iterator() {
+    return this;
+  }
 
-	/**
-	 * Signals that axis traversal is done, that is {@code hasNext()} must return false. Is callable
-	 * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done
-	 * and {@link #hasNext()} must return false.
-	 *
-	 * @return null node key to indicate that the travesal is done
-	 */
-	protected final long done() {
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  /**
+   * Signals that axis traversal is done, that is {@code hasNext()} must return false. Is callable
+   * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done
+   * and {@link #hasNext()} must return false.
+   *
+   * @return null node key to indicate that the travesal is done
+   */
+  protected final long done() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-	/**
-	 * {@inheritDoc}
-	 *
-	 * <p>
-	 * During the last call to {@code hasNext()}, that is {@code hasNext()} returns false, the
-	 * transaction is reset to the start key.
-	 * </p>
-	 *
-	 * <p>
-	 * <strong>Implementors must implement {@code nextKey()} instead which is a template method called
-	 * from this {@code hasNext()} method.</strong>
-	 * </p>
-	 */
-	@Override
-	public final boolean hasNext() {
-		// First check the state.
-		checkState(mState != State.FAILED);
-		switch (mState) {
-			case DONE:
-				return false;
-			case READY:
-				return true;
-			default:
-		}
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * During the last call to {@code hasNext()}, that is {@code hasNext()} returns false, the
+   * transaction is reset to the start key.
+   * </p>
+   *
+   * <p>
+   * <strong>Implementors must implement {@code nextKey()} instead which is a template method called
+   * from this {@code hasNext()} method.</strong>
+   * </p>
+   */
+  @Override
+  public final boolean hasNext() {
+    // First check the state.
+    checkState(mState != State.FAILED);
+    switch (mState) {
+      case DONE:
+        return false;
+      case READY:
+        return true;
+      default:
+    }
 
-		// Reset to last node key.
-		resetToLastKey();
+    // Reset to last node key.
+    resetToLastKey();
 
-		final boolean hasNext = tryToComputeNext();
-		if (hasNext) {
-			return true;
-		} else {
-			// Reset to the start key before invoking the axis.
-			resetToStartKey();
-			return false;
-		}
-	}
+    final boolean hasNext = tryToComputeNext();
+    if (hasNext) {
+      return true;
+    } else {
+      // Reset to the start key before invoking the axis.
+      resetToStartKey();
+      return false;
+    }
+  }
 
-	/**
-	 * Try to compute the next node key.
-	 *
-	 * @return {@code true} if next node key exists, {@code false} otherwise
-	 */
-	private boolean tryToComputeNext() {
-		mState = State.FAILED; // temporary pessimism
-		// Template method.
-		mKey = nextKey();
-		if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			mState = State.DONE;
-		}
-		if (mState == State.DONE) {
-			return false;
-		}
-		mState = State.READY;
-		return true;
-	}
+  /**
+   * Try to compute the next node key.
+   *
+   * @return {@code true} if next node key exists, {@code false} otherwise
+   */
+  private boolean tryToComputeNext() {
+    mState = State.FAILED; // temporary pessimism
+    // Template method.
+    mKey = nextKey();
+    if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      mState = State.DONE;
+    }
+    if (mState == State.DONE) {
+      return false;
+    }
+    mState = State.READY;
+    return true;
+  }
 
-	/**
-	 * Returns the next node key. <strong>Note:</strong> the implementation must either call
-	 * {@link #done()} when there are no elements left in the iteration or return the node key
-	 * {@code EFixed.NULL_NODE.getStandardProperty()}.
-	 *
-	 * <p>
-	 * The initial invocation of {@link #hasNext()} or {@link #next()} calls this method, as does the
-	 * first invocation of {@code hasNext} or {@code next} following each successful call to
-	 * {@code next}. Once the implementation either invokes {@link #done()}, returns
-	 * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception, {@code nextKey()} is
-	 * guaranteed to never be called again.
-	 * </p>
-	 *
-	 * <p>
-	 * If this method throws an exception, it will propagate outward to the {@code hasNext} or
-	 * {@code next} invocation that invoked this method. Any further attempts to use the iterator will
-	 * result in an {@link IllegalStateException}.
-	 * </p>
-	 *
-	 * <p>
-	 * The implementation of this method may not invoke the {@code hasNext}, {@code next}, or
-	 * {@link #peek()} methods on this instance; if it does, an {@code IllegalStateException} will
-	 * result.
-	 * </p>
-	 *
-	 * @return the next node key
-	 * @throws RuntimeException if any unrecoverable error happens. This exception will propagate
-	 *         outward to the {@code hasNext()}, {@code next()}, or {@code peek()} invocation that
-	 *         invoked this method. Any further attempts to use the iterator will result in an
-	 *         {@link IllegalStateException}.
-	 */
-	protected abstract long nextKey();
+  /**
+   * Returns the next node key. <strong>Note:</strong> the implementation must either call
+   * {@link #done()} when there are no elements left in the iteration or return the node key
+   * {@code EFixed.NULL_NODE.getStandardProperty()}.
+   *
+   * <p>
+   * The initial invocation of {@link #hasNext()} or {@link #next()} calls this method, as does the
+   * first invocation of {@code hasNext} or {@code next} following each successful call to
+   * {@code next}. Once the implementation either invokes {@link #done()}, returns
+   * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception, {@code nextKey()} is
+   * guaranteed to never be called again.
+   * </p>
+   *
+   * <p>
+   * If this method throws an exception, it will propagate outward to the {@code hasNext} or
+   * {@code next} invocation that invoked this method. Any further attempts to use the iterator will
+   * result in an {@link IllegalStateException}.
+   * </p>
+   *
+   * <p>
+   * The implementation of this method may not invoke the {@code hasNext}, {@code next}, or
+   * {@link #peek()} methods on this instance; if it does, an {@code IllegalStateException} will
+   * result.
+   * </p>
+   *
+   * @return the next node key
+   * @throws RuntimeException if any unrecoverable error happens. This exception will propagate
+   *         outward to the {@code hasNext()}, {@code next()}, or {@code peek()} invocation that
+   *         invoked this method. Any further attempts to use the iterator will result in an
+   *         {@link IllegalStateException}.
+   */
+  protected abstract long nextKey();
 
-	@Override
-	public final Long next() {
-		if (!hasNext()) {
-			throw new NoSuchElementException();
-		}
-		mState = State.NOT_READY;
+  @Override
+  public final Long next() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+    mState = State.NOT_READY;
 
-		// Move to next.
-		if (mKey >= 0) {
-			if (!mRtx.moveTo(mKey).hasMoved()) {
-				throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
-			}
-		} else {
-			mRtx.moveTo(mKey);
-		}
-		return mKey;
-	}
+    // Move to next.
+    if (mKey >= 0) {
+      if (!mRtx.moveTo(mKey).hasMoved()) {
+        throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
+      }
+    } else {
+      mRtx.moveTo(mKey);
+    }
+    return mKey;
+  }
 
-	/**
-	 * Remove is not supported.
-	 */
-	@Override
-	public final void remove() {
-		throw new UnsupportedOperationException();
-	}
+  /**
+   * Remove is not supported.
+   */
+  @Override
+  public final void remove() {
+    throw new UnsupportedOperationException();
+  }
 
-	/**
-	 * Resetting the nodekey of this axis to a given nodekey.
-	 *
-	 * @param nodeKey the nodekey where the reset should occur to
-	 */
-	@Override
-	public void reset(@Nonnegative final long nodeKey) {
-		mStartKey = nodeKey;
-		mKey = nodeKey;
-		mState = State.NOT_READY;
-	}
+  /**
+   * Resetting the nodekey of this axis to a given nodekey.
+   *
+   * @param nodeKey the nodekey where the reset should occur to
+   */
+  @Override
+  public void reset(@Nonnegative final long nodeKey) {
+    mStartKey = nodeKey;
+    mKey = nodeKey;
+    mState = State.NOT_READY;
+  }
 
-	/**
-	 * Get current {@link XdmNodeReadTrx}.
-	 *
-	 * @return the {@link XdmNodeReadTrx} used
-	 */
-	@Override
-	public XdmNodeReadTrx getTrx() {
-		return mRtx;
-	}
+  /**
+   * Get current {@link XdmNodeReadTrx}.
+   *
+   * @return the {@link XdmNodeReadTrx} used
+   */
+  @Override
+  public XdmNodeReadTrx getTrx() {
+    return mRtx;
+  }
 
-	/**
-	 * Make sure the transaction points to the node it started with. This must be called just before
-	 * {@code hasNext() == false}.
-	 *
-	 * @return key of node where transaction was before the first call of {@code hasNext()}
-	 */
-	private final long resetToStartKey() {
-		// No check because of IAxis Convention 4.
-		mRtx.moveTo(mStartKey);
-		return mStartKey;
-	}
+  /**
+   * Make sure the transaction points to the node it started with. This must be called just before
+   * {@code hasNext() == false}.
+   *
+   * @return key of node where transaction was before the first call of {@code hasNext()}
+   */
+  private final long resetToStartKey() {
+    // No check because of IAxis Convention 4.
+    mRtx.moveTo(mStartKey);
+    return mStartKey;
+  }
 
-	/**
-	 * Make sure the transaction points to the node after the last hasNext(). This must be called
-	 * first in hasNext().
-	 *
-	 * @return key of node where transaction was after the last call of {@code hasNext()}
-	 */
-	private final long resetToLastKey() {
-		// No check because of IAxis Convention 4.
-		mRtx.moveTo(mKey);
-		return mKey;
-	}
+  /**
+   * Make sure the transaction points to the node after the last hasNext(). This must be called
+   * first in hasNext().
+   *
+   * @return key of node where transaction was after the last call of {@code hasNext()}
+   */
+  private final long resetToLastKey() {
+    // No check because of IAxis Convention 4.
+    mRtx.moveTo(mKey);
+    return mKey;
+  }
 
-	@Override
-	public final Long peek() {
-		if (!hasNext()) {
-			throw new NoSuchElementException();
-		}
-		return mKey;
-	}
+  @Override
+  public final Long peek() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+    return mKey;
+  }
 
-	@Override
-	public final long getStartKey() {
-		return mStartKey;
-	}
+  @Override
+  public final long getStartKey() {
+    return mStartKey;
+  }
 
-	@Override
-	public final IncludeSelf isSelfIncluded() {
-		return mIncludeSelf;
-	}
+  @Override
+  public final IncludeSelf isSelfIncluded() {
+    return mIncludeSelf;
+  }
 
-	/**
-	 * Implements a simple foreach-method.
-	 *
-	 * @param visitor {@link IVisitor} implementation
-	 */
-	@Override
-	public final void foreach(final Visitor visitor) {
-		checkNotNull(visitor);
-		while (hasNext()) {
-			next();
-			mRtx.acceptVisitor(visitor);
-		}
-	}
+  /**
+   * Implements a simple foreach-method.
+   *
+   * @param visitor {@link IVisitor} implementation
+   */
+  @Override
+  public final void foreach(final Visitor visitor) {
+    checkNotNull(visitor);
+    while (hasNext()) {
+      next();
+      mRtx.acceptVisitor(visitor);
+    }
+  }
 
-	@Override
-	public synchronized final long nextNode() {
-		synchronized (mRtx) {
-			long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
-			if (hasNext()) {
-				retVal = next();
-			}
-			return retVal;
-		}
-	}
+  @Override
+  public synchronized final long nextNode() {
+    synchronized (mRtx) {
+      long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
+      if (hasNext()) {
+        retVal = next();
+      }
+      return retVal;
+    }
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("trx", mRtx).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("trx", mRtx).toString();
+  }
 }

@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,9 +34,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import javax.annotation.Nonnegative;
-
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
@@ -53,7 +50,6 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -69,298 +65,298 @@ import com.google.common.collect.Maps;
  */
 public final class DatabaseImpl implements Database {
 
-	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER =
-			new LogWrapper(LoggerFactory.getLogger(DatabaseImpl.class));
+  /** {@link LogWrapper} reference. */
+  private static final LogWrapper LOGWRAPPER =
+      new LogWrapper(LoggerFactory.getLogger(DatabaseImpl.class));
 
-	/** Unique ID of a resource. */
-	private final AtomicLong mResourceID = new AtomicLong();
+  /** Unique ID of a resource. */
+  private final AtomicLong mResourceID = new AtomicLong();
 
-	/** The resource store to open/close resource-managers. */
-	private final ResourceStore mResourceStore;
+  /** The resource store to open/close resource-managers. */
+  private final ResourceStore mResourceStore;
 
-	/** Buffers / page cache for each resource. */
-	private final ConcurrentMap<Path, BufferManager> mBufferManagers;
+  /** Buffers / page cache for each resource. */
+  private final ConcurrentMap<Path, BufferManager> mBufferManagers;
 
-	/** Central repository of all resource-ID/resource-name tuples. */
-	private final BiMap<Long, String> mResources;
+  /** Central repository of all resource-ID/resource-name tuples. */
+  private final BiMap<Long, String> mResources;
 
-	/** DatabaseConfiguration with fixed settings. */
-	private final DatabaseConfiguration mDBConfig;
+  /** DatabaseConfiguration with fixed settings. */
+  private final DatabaseConfiguration mDBConfig;
 
-	/** The transaction manager. */
-	private TransactionManager mTransactionManager;
+  /** The transaction manager. */
+  private TransactionManager mTransactionManager;
 
-	/**
-	 * Package private constructor.
-	 *
-	 * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
-	 * @throws SirixException if something weird happens
-	 */
-	DatabaseImpl(final DatabaseConfiguration dbConfig) {
-		mDBConfig = checkNotNull(dbConfig);
-		mResources = Maps.synchronizedBiMap(HashBiMap.create());
-		mBufferManagers = new ConcurrentHashMap<>();
-		mResourceStore = new ResourceStore(new Semaphore(mDBConfig.getMaxResourceReadTrx()),
-				new Semaphore(DatabaseConfiguration.MAX_RESOURCE_WTX));
-		mTransactionManager = new TransactionManagerImpl();
-	}
+  /**
+   * Package private constructor.
+   *
+   * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @throws SirixException if something weird happens
+   */
+  DatabaseImpl(final DatabaseConfiguration dbConfig) {
+    mDBConfig = checkNotNull(dbConfig);
+    mResources = Maps.synchronizedBiMap(HashBiMap.create());
+    mBufferManagers = new ConcurrentHashMap<>();
+    mResourceStore = new ResourceStore(new Semaphore(mDBConfig.getMaxResourceReadTrx()),
+        new Semaphore(DatabaseConfiguration.MAX_RESOURCE_WTX));
+    mTransactionManager = new TransactionManagerImpl();
+  }
 
-	// //////////////////////////////////////////////////////////
-	// START Creation/Deletion of Resources /////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // START Creation/Deletion of Resources /////////////////////
+  // //////////////////////////////////////////////////////////
 
-	@Override
-	public synchronized boolean createResource(final ResourceConfiguration resConfig) {
-		boolean returnVal = true;
-		final Path path = mDBConfig.getFile()
-				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.mPath);
-		// If file is existing, skip.
-		if (java.nio.file.Files.exists(path)) {
-			return false;
-		} else {
-			try {
-				Files.createDirectory(path);
-			} catch (UnsupportedOperationException | IOException | SecurityException e) {
-				returnVal = false;
-			}
+  @Override
+  public synchronized boolean createResource(final ResourceConfiguration resConfig) {
+    boolean returnVal = true;
+    final Path path = mDBConfig.getFile()
+        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.mPath);
+    // If file is existing, skip.
+    if (java.nio.file.Files.exists(path)) {
+      return false;
+    } else {
+      try {
+        Files.createDirectory(path);
+      } catch (UnsupportedOperationException | IOException | SecurityException e) {
+        returnVal = false;
+      }
 
-			if (returnVal) {
-				// Creation of the folder structure.
-				for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths
-						.values()) {
-					final Path toCreate = path.resolve(resourcePath.getFile());
-					if (resourcePath.isFolder()) {
-						try {
-							Files.createDirectory(toCreate);
-						} catch (UnsupportedOperationException | IOException | SecurityException e) {
-							returnVal = false;
-						}
-					} else {
-						try {
-							returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile()
-									.equals(resourcePath.getFile()) ? true : Files.createFile(toCreate) != null;
-						} catch (final IOException e) {
-							org.sirix.utils.Files.recursiveRemove(path);
-							throw new SirixIOException(e);
-						}
-					}
-					if (!returnVal) {
-						break;
-					}
-				}
-			}
+      if (returnVal) {
+        // Creation of the folder structure.
+        for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths
+            .values()) {
+          final Path toCreate = path.resolve(resourcePath.getFile());
+          if (resourcePath.isFolder()) {
+            try {
+              Files.createDirectory(toCreate);
+            } catch (UnsupportedOperationException | IOException | SecurityException e) {
+              returnVal = false;
+            }
+          } else {
+            try {
+              returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile()
+                  .equals(resourcePath.getFile()) ? true : Files.createFile(toCreate) != null;
+            } catch (final IOException e) {
+              org.sirix.utils.Files.recursiveRemove(path);
+              throw new SirixIOException(e);
+            }
+          }
+          if (!returnVal) {
+            break;
+          }
+        }
+      }
 
-			if (returnVal) {
-				// If everything was correct so far, initialize storage.
+      if (returnVal) {
+        // If everything was correct so far, initialize storage.
 
-				// Serialization of the config.
-				mResourceID.set(mDBConfig.getMaxResourceID());
-				ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
-				mDBConfig.setMaximumResourceID(mResourceID.get());
-				mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
+        // Serialization of the config.
+        mResourceID.set(mDBConfig.getMaxResourceID());
+        ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
+        mDBConfig.setMaximumResourceID(mResourceID.get());
+        mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
 
-				try {
-					try (
-							final ResourceManager resourceTrxManager =
-									this.getResourceManager(new ResourceManagerConfiguration.Builder(
-											resConfig.getResource().getFileName().toString()).build());
-							final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
-						wtx.commit();
-					}
-				} catch (final SirixException e) {
-					LOGWRAPPER.error(e.getMessage(), e);
-					returnVal = false;
-				}
-			}
+        try {
+          try (
+              final ResourceManager resourceTrxManager =
+                  this.getResourceManager(new ResourceManagerConfiguration.Builder(
+                      resConfig.getResource().getFileName().toString()).build());
+              final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+            wtx.commit();
+          }
+        } catch (final SirixException e) {
+          LOGWRAPPER.error(e.getMessage(), e);
+          returnVal = false;
+        }
+      }
 
-			if (!returnVal) {
-				// If something was not correct, delete the partly created substructure.
-				org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
-			}
+      if (!returnVal) {
+        // If something was not correct, delete the partly created substructure.
+        org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
+      }
 
-			return returnVal;
-		}
-	}
+      return returnVal;
+    }
+  }
 
-	@Override
-	public synchronized Database truncateResource(final String name) {
-		final Path resourceFile = mDBConfig.getFile()
-				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
-		// Check that database must be closed beforehand.
-		if (!Databases.hasOpenResourceManagers(resourceFile)) {
-			// If file is existing and folder is a Sirix-dataplace, delete it.
-			if (Files.exists(resourceFile)
-					&& ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
-				// Instantiate the database for deletion.
-				org.sirix.utils.Files.recursiveRemove(resourceFile);
+  @Override
+  public synchronized Database truncateResource(final String name) {
+    final Path resourceFile = mDBConfig.getFile()
+        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
+    // Check that database must be closed beforehand.
+    if (!Databases.hasOpenResourceManagers(resourceFile)) {
+      // If file is existing and folder is a Sirix-dataplace, delete it.
+      if (Files.exists(resourceFile)
+          && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+        // Instantiate the database for deletion.
+        org.sirix.utils.Files.recursiveRemove(resourceFile);
 
-				// mReadSemaphores.remove(resourceFile);
-				// mWriteSemaphores.remove(resourceFile);
-				mBufferManagers.remove(resourceFile);
-			}
-		}
+        // mReadSemaphores.remove(resourceFile);
+        // mWriteSemaphores.remove(resourceFile);
+        mBufferManagers.remove(resourceFile);
+      }
+    }
 
-		return this;
-	}
+    return this;
+  }
 
-	// //////////////////////////////////////////////////////////
-	// END Creation/Deletion of Resources ///////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // END Creation/Deletion of Resources ///////////////////////
+  // //////////////////////////////////////////////////////////
 
-	// //////////////////////////////////////////////////////////
-	// START resource name <=> ID handling //////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // START resource name <=> ID handling //////////////////////
+  // //////////////////////////////////////////////////////////
 
-	@Override
-	public synchronized String getResourceName(final @Nonnegative long id) {
-		checkArgument(id >= 0, "pID must be >= 0!");
-		return mResources.get(id);
-	}
+  @Override
+  public synchronized String getResourceName(final @Nonnegative long id) {
+    checkArgument(id >= 0, "pID must be >= 0!");
+    return mResources.get(id);
+  }
 
-	@Override
-	public synchronized long getResourceID(final String name) {
-		return mResources.inverse().get(checkNotNull(name));
-	}
+  @Override
+  public synchronized long getResourceID(final String name) {
+    return mResources.inverse().get(checkNotNull(name));
+  }
 
-	// //////////////////////////////////////////////////////////
-	// END resource name <=> ID handling ////////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // END resource name <=> ID handling ////////////////////////
+  // //////////////////////////////////////////////////////////
 
-	// //////////////////////////////////////////////////////////
-	// START DB-Operations //////////////////////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // START DB-Operations //////////////////////////////////////
+  // //////////////////////////////////////////////////////////
 
-	@Override
-	public synchronized ResourceManager getResourceManager(
-			final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
-		final Path resourceFile =
-				mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-						.resolve(resourceManagerConfig.getResource());
+  @Override
+  public synchronized ResourceManager getResourceManager(
+      final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
+    final Path resourceFile =
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+            .resolve(resourceManagerConfig.getResource());
 
-		if (!Files.exists(resourceFile)) {
-			throw new SirixUsageException(
-					"Resource could not be opened (since it was not created?) at location",
-					resourceFile.toString());
-		}
+    if (!Files.exists(resourceFile)) {
+      throw new SirixUsageException(
+          "Resource could not be opened (since it was not created?) at location",
+          resourceFile.toString());
+    }
 
-		if (mResourceStore.hasOpenResourceManager(resourceFile))
-			return mResourceStore.getOpenResourceManager(resourceFile);
+    if (mResourceStore.hasOpenResourceManager(resourceFile))
+      return mResourceStore.getOpenResourceManager(resourceFile);
 
-		final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+    final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
-		// Resource of must be associated to this database.
-		assert resourceConfig.mPath.getParent().getParent().equals(mDBConfig.getFile());
+    // Resource of must be associated to this database.
+    assert resourceConfig.mPath.getParent().getParent().equals(mDBConfig.getFile());
 
-		if (!mBufferManagers.containsKey(resourceFile))
-			mBufferManagers.put(resourceFile, new BufferManagerImpl());
+    if (!mBufferManagers.containsKey(resourceFile))
+      mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
-		final ResourceManager resourceManager = mResourceStore.openResource(this, resourceConfig,
-				resourceManagerConfig, mBufferManagers.get(resourceFile), resourceFile);
+    final ResourceManager resourceManager = mResourceStore.openResource(this, resourceConfig,
+        resourceManagerConfig, mBufferManagers.get(resourceFile), resourceFile);
 
-		return resourceManager;
-	}
+    return resourceManager;
+  }
 
-	@Override
-	public synchronized void close() throws SirixException {
-		mResourceStore.close();
-		mTransactionManager.close();
+  @Override
+  public synchronized void close() throws SirixException {
+    mResourceStore.close();
+    mTransactionManager.close();
 
-		// Remove from database mapping.
-		Databases.removeDatabase(mDBConfig.getFile());
+    // Remove from database mapping.
+    Databases.removeDatabase(mDBConfig.getFile());
 
-		// Remove lock file.
-		org.sirix.utils.Files.recursiveRemove(
-				mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
-	}
+    // Remove lock file.
+    org.sirix.utils.Files.recursiveRemove(
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+  }
 
-	@Override
-	public DatabaseConfiguration getDatabaseConfig() {
-		return mDBConfig;
-	}
+  @Override
+  public DatabaseConfiguration getDatabaseConfig() {
+    return mDBConfig;
+  }
 
-	@Override
-	public synchronized boolean existsResource(final String pResourceName) {
+  @Override
+  public synchronized boolean existsResource(final String pResourceName) {
 
-		final Path resourceFile = mDBConfig.getFile()
-				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(pResourceName);
-		return Files.exists(resourceFile)
-				&& ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0 ? true : false;
-	}
+    final Path resourceFile = mDBConfig.getFile()
+        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(pResourceName);
+    return Files.exists(resourceFile)
+        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0 ? true : false;
+  }
 
-	@Override
-	public List<Path> listResources() {
-		try (final Stream<Path> stream = Files
-				.list(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
-			return stream.collect(Collectors.toList());
-		} catch (IOException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public List<Path> listResources() {
+    try (final Stream<Path> stream = Files
+        .list(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+      return stream.collect(Collectors.toList());
+    } catch (IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	// @Override
-	// public synchronized Database commitAll() throws SirixException {
-	// // Commit all sessions.
-	// for (final Set<ResourceManager> sessions : mSessions.values()) {
-	// for (final ResourceManager session : sessions) {
-	// if (!session.isClosed()) {
-	// session.commitAll();
-	// }
-	// }
-	// }
-	// return this;
-	// }
+  // @Override
+  // public synchronized Database commitAll() throws SirixException {
+  // // Commit all sessions.
+  // for (final Set<ResourceManager> sessions : mSessions.values()) {
+  // for (final ResourceManager session : sessions) {
+  // if (!session.isClosed()) {
+  // session.commitAll();
+  // }
+  // }
+  // }
+  // return this;
+  // }
 
-	// /**
-	// * Closing a resource. This callback is necessary due to centralized handling of all sessions
-	// * within a database.
-	// *
-	// * @param resourceFile {@link File} to be closed
-	// * @param resourceManagerCfg the session configuration
-	// * @return {@code true} if close successful, {@code false} otherwise
-	// */
-	// protected boolean closeResource(final File resourceFile,
-	// final ResourceManagerConfiguration resourceManagerCfg) {
-	// return mResourceStore.closeResource(resourceFile);
-	// }
+  // /**
+  // * Closing a resource. This callback is necessary due to centralized handling of all sessions
+  // * within a database.
+  // *
+  // * @param resourceFile {@link File} to be closed
+  // * @param resourceManagerCfg the session configuration
+  // * @return {@code true} if close successful, {@code false} otherwise
+  // */
+  // protected boolean closeResource(final File resourceFile,
+  // final ResourceManagerConfiguration resourceManagerCfg) {
+  // return mResourceStore.closeResource(resourceFile);
+  // }
 
-	// //////////////////////////////////////////////////////////
-	// END DB-Operations ////////////////////////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // END DB-Operations ////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
 
-	// //////////////////////////////////////////////////////////
-	// START general methods ////////////////////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // START general methods ////////////////////////////////////
+  // //////////////////////////////////////////////////////////
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
+  }
 
-	// @Override
-	// public int hashCode() {
-	// return Objects.hashCode(mDBConfig);
-	// }
-	//
-	// @Override
-	// public boolean equals(final @Nullable Object obj) {
-	// if (obj instanceof DatabaseImpl) {
-	// final DatabaseImpl other = (DatabaseImpl) obj;
-	// return other.mDBConfig.equals(mDBConfig);
-	// }
-	// return false;
-	// }
+  // @Override
+  // public int hashCode() {
+  // return Objects.hashCode(mDBConfig);
+  // }
+  //
+  // @Override
+  // public boolean equals(final @Nullable Object obj) {
+  // if (obj instanceof DatabaseImpl) {
+  // final DatabaseImpl other = (DatabaseImpl) obj;
+  // return other.mDBConfig.equals(mDBConfig);
+  // }
+  // return false;
+  // }
 
-	// //////////////////////////////////////////////////////////
-	// END general methods //////////////////////////////////////
-	// //////////////////////////////////////////////////////////
+  // //////////////////////////////////////////////////////////
+  // END general methods //////////////////////////////////////
+  // //////////////////////////////////////////////////////////
 
-	BufferManager getPageCache(File resourceFile) {
-		return mBufferManagers.get(resourceFile);
-	}
+  BufferManager getPageCache(File resourceFile) {
+    return mBufferManagers.get(resourceFile);
+  }
 
-	@Override
-	public Transaction beginTransaction() {
-		return null;
-	}
+  @Override
+  public Transaction beginTransaction() {
+    return null;
+  }
 }

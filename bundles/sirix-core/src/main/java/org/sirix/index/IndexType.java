@@ -6,12 +6,12 @@ package org.sirix.index;
  * @author Johannes Lichtenberger
  */
 public enum IndexType {
-	/** Path index. */
-	PATH,
+  /** Path index. */
+  PATH,
 
-	/** Content and structure index. */
-	CAS,
+  /** Content and structure index. */
+  CAS,
 
-	/** Name index. */
-	NAME;
+  /** Name index. */
+  NAME;
 }

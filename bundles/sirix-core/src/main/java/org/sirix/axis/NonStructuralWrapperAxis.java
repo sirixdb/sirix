@@ -22,7 +22,6 @@
 package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.settings.Fixed;
@@ -38,82 +37,82 @@ import org.sirix.settings.Fixed;
  */
 public final class NonStructuralWrapperAxis extends AbstractAxis {
 
-	/** Parent axis. */
-	private final Axis mParentAxis;
+  /** Parent axis. */
+  private final Axis mParentAxis;
 
-	/** Namespace index. */
-	private int mNspIndex;
+  /** Namespace index. */
+  private int mNspIndex;
 
-	/** Attribute index. */
-	private int mAttIndex;
+  /** Attribute index. */
+  private int mAttIndex;
 
-	/** Determines if transaction has moved to the next structural node at first. */
-	private boolean mFirst;
+  /** Determines if transaction has moved to the next structural node at first. */
+  private boolean mFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param parentAxis inner nested axis
-	 * @param pChildAxis outer nested axis
-	 */
-	public NonStructuralWrapperAxis(final Axis parentAxis) {
-		super(parentAxis.getTrx());
-		mParentAxis = checkNotNull(parentAxis);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param parentAxis inner nested axis
+   * @param pChildAxis outer nested axis
+   */
+  public NonStructuralWrapperAxis(final Axis parentAxis) {
+    super(parentAxis.getTrx());
+    mParentAxis = checkNotNull(parentAxis);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		if (mParentAxis != null) {
-			mParentAxis.reset(nodeKey);
-		}
-		mNspIndex = 0;
-		mAttIndex = 0;
-		mFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    if (mParentAxis != null) {
+      mParentAxis.reset(nodeKey);
+    }
+    mNspIndex = 0;
+    mAttIndex = 0;
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		final XdmNodeReadTrx trx = mParentAxis.getTrx();
-		if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
-			final long nodeKey = nonStructural(trx);
-			if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-				return nodeKey;
-			}
-		}
+  @Override
+  protected long nextKey() {
+    final XdmNodeReadTrx trx = mParentAxis.getTrx();
+    if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
+      final long nodeKey = nonStructural(trx);
+      if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        return nodeKey;
+      }
+    }
 
-		if (mParentAxis.hasNext()) {
-			long key = mParentAxis.next();
-			mFirst = false;
-			mNspIndex = 0;
-			mAttIndex = 0;
-			return key;
-		}
+    if (mParentAxis.hasNext()) {
+      long key = mParentAxis.next();
+      mFirst = false;
+      mNspIndex = 0;
+      mAttIndex = 0;
+      return key;
+    }
 
-		return done();
-	}
+    return done();
+  }
 
-	/**
-	 * Determine if non structural nodes must be emitted.
-	 * 
-	 * @param trx Sirix {@link XdmNodeReadTrx}
-	 * @return the node key of the non structural node, or the {@code NULL_NODE_KEY}
-	 */
-	private long nonStructural(final XdmNodeReadTrx trx) {
-		if (trx.isNamespace()) {
-			trx.moveToParent();
-		}
-		if (trx.isElement() && mNspIndex < trx.getNamespaceCount()) {
-			trx.moveToNamespace(mNspIndex++);
-			return trx.getNodeKey();
-		}
-		if (trx.isAttribute()) {
-			trx.moveToParent();
-		}
-		if (trx.isElement() && mAttIndex < trx.getAttributeCount()) {
-			trx.moveToAttribute(mAttIndex++);
-			return trx.getNodeKey();
-		}
-		return Fixed.NULL_NODE_KEY.getStandardProperty();
-	}
+  /**
+   * Determine if non structural nodes must be emitted.
+   * 
+   * @param trx Sirix {@link XdmNodeReadTrx}
+   * @return the node key of the non structural node, or the {@code NULL_NODE_KEY}
+   */
+  private long nonStructural(final XdmNodeReadTrx trx) {
+    if (trx.isNamespace()) {
+      trx.moveToParent();
+    }
+    if (trx.isElement() && mNspIndex < trx.getNamespaceCount()) {
+      trx.moveToNamespace(mNspIndex++);
+      return trx.getNodeKey();
+    }
+    if (trx.isAttribute()) {
+      trx.moveToParent();
+    }
+    if (trx.isElement() && mAttIndex < trx.getAttributeCount()) {
+      trx.moveToAttribute(mAttIndex++);
+      return trx.getNodeKey();
+    }
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 }

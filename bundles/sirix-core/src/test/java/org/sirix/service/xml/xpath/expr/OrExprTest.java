@@ -23,7 +23,6 @@ package org.sirix.service.xml.xpath.expr;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,102 +41,102 @@ import org.sirix.service.xml.xpath.XPathError;
  */
 public class OrExprTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testOr() throws SirixException {
+  @Test
+  public void testOr() throws SirixException {
 
-		long iTrue = holder.getReader().getItemList().addItem(new AtomicValue(true));
-		long iFalse = holder.getReader().getItemList().addItem(new AtomicValue(false));
+    long iTrue = holder.getReader().getItemList().addItem(new AtomicValue(true));
+    long iFalse = holder.getReader().getItemList().addItem(new AtomicValue(false));
 
-		AbstractAxis trueLit1 = new LiteralExpr(holder.getReader(), iTrue);
-		AbstractAxis trueLit2 = new LiteralExpr(holder.getReader(), iTrue);
-		AbstractAxis falseLit1 = new LiteralExpr(holder.getReader(), iFalse);
-		AbstractAxis falseLit2 = new LiteralExpr(holder.getReader(), iFalse);
+    AbstractAxis trueLit1 = new LiteralExpr(holder.getReader(), iTrue);
+    AbstractAxis trueLit2 = new LiteralExpr(holder.getReader(), iTrue);
+    AbstractAxis falseLit1 = new LiteralExpr(holder.getReader(), iFalse);
+    AbstractAxis falseLit2 = new LiteralExpr(holder.getReader(), iFalse);
 
-		AbstractAxis axis1 = new OrExpr(holder.getReader(), trueLit1, trueLit2);
-		assertEquals(true, axis1.hasNext());
-		axis1.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis1.hasNext());
+    AbstractAxis axis1 = new OrExpr(holder.getReader(), trueLit1, trueLit2);
+    assertEquals(true, axis1.hasNext());
+    axis1.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis1.hasNext());
 
-		AbstractAxis axis2 = new OrExpr(holder.getReader(), trueLit1, falseLit1);
-		assertEquals(true, axis2.hasNext());
-		axis2.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis2.hasNext());
+    AbstractAxis axis2 = new OrExpr(holder.getReader(), trueLit1, falseLit1);
+    assertEquals(true, axis2.hasNext());
+    axis2.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis2.hasNext());
 
-		AbstractAxis axis3 = new OrExpr(holder.getReader(), falseLit1, trueLit1);
-		assertEquals(true, axis3.hasNext());
-		axis3.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis3.hasNext());
+    AbstractAxis axis3 = new OrExpr(holder.getReader(), falseLit1, trueLit1);
+    assertEquals(true, axis3.hasNext());
+    axis3.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis3.hasNext());
 
-		AbstractAxis axis4 = new OrExpr(holder.getReader(), falseLit1, falseLit2);
-		assertEquals(true, axis4.hasNext());
-		axis4.next();
-		assertEquals(false, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis4.hasNext());
-	}
+    AbstractAxis axis4 = new OrExpr(holder.getReader(), falseLit1, falseLit2);
+    assertEquals(true, axis4.hasNext());
+    axis4.next();
+    assertEquals(false, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis4.hasNext());
+  }
 
-	@Test
-	public void testOrQuery() throws SirixException {
+  @Test
+  public void testOrQuery() throws SirixException {
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		final AbstractAxis axis1 = new XPathAxis(holder.getReader(), "text() or node()");
-		assertEquals(true, axis1.hasNext());
-		axis1.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis1.hasNext());
+    final AbstractAxis axis1 = new XPathAxis(holder.getReader(), "text() or node()");
+    assertEquals(true, axis1.hasNext());
+    axis1.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis1.hasNext());
 
-		final AbstractAxis axis2 = new XPathAxis(holder.getReader(), "comment() or node()");
-		assertEquals(true, axis2.hasNext());
-		axis2.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis2.hasNext());
+    final AbstractAxis axis2 = new XPathAxis(holder.getReader(), "comment() or node()");
+    assertEquals(true, axis2.hasNext());
+    axis2.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis2.hasNext());
 
-		final AbstractAxis axis3 = new XPathAxis(holder.getReader(), "1 eq 1 or 2 eq 2");
-		assertEquals(true, axis3.hasNext());
-		axis3.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis3.hasNext());
+    final AbstractAxis axis3 = new XPathAxis(holder.getReader(), "1 eq 1 or 2 eq 2");
+    assertEquals(true, axis3.hasNext());
+    axis3.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis3.hasNext());
 
-		final AbstractAxis axis4 = new XPathAxis(holder.getReader(), "1 eq 1 or 2 eq 3");
-		assertEquals(true, axis4.hasNext());
-		axis4.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
-		assertEquals(false, axis4.hasNext());
+    final AbstractAxis axis4 = new XPathAxis(holder.getReader(), "1 eq 1 or 2 eq 3");
+    assertEquals(true, axis4.hasNext());
+    axis4.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    assertEquals(false, axis4.hasNext());
 
-		final AbstractAxis axis5 = new XPathAxis(holder.getReader(), "1 eq 2 or (3 idiv 0 = 1)");
-		try {
-			assertEquals(true, axis5.hasNext());
-			axis5.next();
-			assertEquals(false, Boolean.parseBoolean(holder.getReader().getValue()));
-			assertEquals(false, axis5.hasNext());
-			axis5.next();
-			fail("Exprected XPathError");
-		} catch (XPathError e) {
-			assertEquals("err:FOAR0001: Division by zero.", e.getMessage());
-		}
+    final AbstractAxis axis5 = new XPathAxis(holder.getReader(), "1 eq 2 or (3 idiv 0 = 1)");
+    try {
+      assertEquals(true, axis5.hasNext());
+      axis5.next();
+      assertEquals(false, Boolean.parseBoolean(holder.getReader().getValue()));
+      assertEquals(false, axis5.hasNext());
+      axis5.next();
+      fail("Exprected XPathError");
+    } catch (XPathError e) {
+      assertEquals("err:FOAR0001: Division by zero.", e.getMessage());
+    }
 
-		final AbstractAxis axis6 = new XPathAxis(holder.getReader(), "1 eq 1 or (3 idiv 0 = 1)");
-		assertEquals(true, axis6.hasNext());
-		axis6.next();
-		assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
+    final AbstractAxis axis6 = new XPathAxis(holder.getReader(), "1 eq 1 or (3 idiv 0 = 1)");
+    assertEquals(true, axis6.hasNext());
+    axis6.next();
+    assertEquals(true, Boolean.parseBoolean(holder.getReader().getValue()));
 
-	}
+  }
 }

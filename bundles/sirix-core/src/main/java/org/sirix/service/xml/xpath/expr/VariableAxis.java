@@ -22,12 +22,9 @@
 package org.sirix.service.xml.xpath.expr;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -42,65 +39,65 @@ import org.sirix.service.xml.xpath.AbstractAxis;
  */
 public class VariableAxis extends AbstractAxis {
 
-	/** Sequence that defines the values, the variable is bound to. */
-	private final Axis mBindingSeq;
+  /** Sequence that defines the values, the variable is bound to. */
+  private final Axis mBindingSeq;
 
-	private final List<VarRefExpr> mVarRefs;
+  private final List<VarRefExpr> mVarRefs;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param pRtx exclusive (immutable) trx to iterate with
-	 * @param pInSeq sequence, the variable is bound to
-	 */
-	public VariableAxis(final XdmNodeReadTrx pRtx, @Nonnull final Axis pInSeq) {
-		super(pRtx);
-		mBindingSeq = checkNotNull(pInSeq);
-		mVarRefs = new ArrayList<VarRefExpr>();
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param pRtx exclusive (immutable) trx to iterate with
+   * @param pInSeq sequence, the variable is bound to
+   */
+  public VariableAxis(final XdmNodeReadTrx pRtx, @Nonnull final Axis pInSeq) {
+    super(pRtx);
+    mBindingSeq = checkNotNull(pInSeq);
+    mVarRefs = new ArrayList<VarRefExpr>();
+  }
 
-	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
-		if (mBindingSeq != null) {
-			mBindingSeq.reset(pNodeKey);
-		}
-	}
+  @Override
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
+    if (mBindingSeq != null) {
+      mBindingSeq.reset(pNodeKey);
+    }
+  }
 
-	@Override
-	public boolean hasNext() {
-		if (isNext()) {
-			return true;
-		}
+  @Override
+  public boolean hasNext() {
+    if (isNext()) {
+      return true;
+    }
 
-		resetToLastKey();
+    resetToLastKey();
 
-		if (mBindingSeq.hasNext()) {
-			mKey = mBindingSeq.next();
-			notifyObs();
-			return true;
-		}
+    if (mBindingSeq.hasNext()) {
+      mKey = mBindingSeq.next();
+      notifyObs();
+      return true;
+    }
 
-		resetToStartKey();
-		return false;
-	}
+    resetToStartKey();
+    return false;
+  }
 
-	/**
-	 * Tell all observers that a new item of the binding sequence has been evaluated.
-	 */
-	private void notifyObs() {
-		for (final VarRefExpr varRef : mVarRefs) {
-			varRef.update(getTrx().getNodeKey());
-		}
-	}
+  /**
+   * Tell all observers that a new item of the binding sequence has been evaluated.
+   */
+  private void notifyObs() {
+    for (final VarRefExpr varRef : mVarRefs) {
+      varRef.update(getTrx().getNodeKey());
+    }
+  }
 
-	/**
-	 * Add an observer to the list.
-	 * 
-	 * @param mObserver axis that wants to be notified of any change of this axis
-	 */
-	public void addObserver(final VarRefExpr pObserver) {
-		mVarRefs.add(checkNotNull(pObserver));
-	}
+  /**
+   * Add an observer to the list.
+   * 
+   * @param mObserver axis that wants to be notified of any change of this axis
+   */
+  public void addObserver(final VarRefExpr pObserver) {
+    mVarRefs.add(checkNotNull(pObserver));
+  }
 
 }

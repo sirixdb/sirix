@@ -23,7 +23,6 @@ package org.sirix.node;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
@@ -31,7 +30,6 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -44,117 +42,117 @@ import com.google.common.base.Objects;
  */
 public final class NamespaceNode extends AbstractForwardingNode implements NameNode {
 
-	/** Delegate for name node information. */
-	private final NameNodeDelegate mNameDel;
+  /** Delegate for name node information. */
+  private final NameNodeDelegate mNameDel;
 
-	/** {@link NodeDelegate} reference. */
-	private final NodeDelegate mNodeDel;
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
 
-	/** The qualified name. */
-	private final QNm mQNm;
+  /** The qualified name. */
+  private final QNm mQNm;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param nodeDel {@link NodeDelegate} reference
-	 * @param nameDel {@link NameNodeDelegate} reference
-	 * @param qNm The qualified name.
-	 */
-	public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final QNm qNm) {
-		assert nodeDel != null;
-		assert nameDel != null;
-		assert qNm != null;
-		mNodeDel = nodeDel;
-		mNameDel = nameDel;
-		mQNm = qNm;
-	}
+  /**
+   * Constructor.
+   *
+   * @param nodeDel {@link NodeDelegate} reference
+   * @param nameDel {@link NameNodeDelegate} reference
+   * @param qNm The qualified name.
+   */
+  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final QNm qNm) {
+    assert nodeDel != null;
+    assert nameDel != null;
+    assert qNm != null;
+    mNodeDel = nodeDel;
+    mNameDel = nameDel;
+    mQNm = qNm;
+  }
 
-	@Override
-	public Kind getKind() {
-		return Kind.NAMESPACE;
-	}
+  @Override
+  public Kind getKind() {
+    return Kind.NAMESPACE;
+  }
 
-	@Override
-	public int getPrefixKey() {
-		return mNameDel.getPrefixKey();
-	}
+  @Override
+  public int getPrefixKey() {
+    return mNameDel.getPrefixKey();
+  }
 
-	@Override
-	public int getLocalNameKey() {
-		return mNameDel.getLocalNameKey();
-	}
+  @Override
+  public int getLocalNameKey() {
+    return mNameDel.getLocalNameKey();
+  }
 
-	@Override
-	public int getURIKey() {
-		return mNameDel.getURIKey();
-	}
+  @Override
+  public int getURIKey() {
+    return mNameDel.getURIKey();
+  }
 
-	@Override
-	public void setPrefixKey(final int prefixKey) {
-		mNameDel.setPrefixKey(prefixKey);
-	}
+  @Override
+  public void setPrefixKey(final int prefixKey) {
+    mNameDel.setPrefixKey(prefixKey);
+  }
 
-	@Override
-	public void setLocalNameKey(final int localNameKey) {
-		mNameDel.setLocalNameKey(localNameKey);
-	}
+  @Override
+  public void setLocalNameKey(final int localNameKey) {
+    mNameDel.setLocalNameKey(localNameKey);
+  }
 
-	@Override
-	public void setURIKey(final int uriKey) {
-		mNameDel.setURIKey(uriKey);
-	}
+  @Override
+  public void setURIKey(final int uriKey) {
+    mNameDel.setURIKey(uriKey);
+  }
 
-	@Override
-	public VisitResult acceptVisitor(final Visitor visitor) {
-		return visitor.visit(ImmutableNamespace.of(this));
-	}
+  @Override
+  public VisitResult acceptVisitor(final Visitor visitor) {
+    return visitor.visit(ImmutableNamespace.of(this));
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mNodeDel, mNameDel);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mNodeDel, mNameDel);
+  }
 
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NamespaceNode) {
-			final NamespaceNode other = (NamespaceNode) obj;
-			return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameDel, other.mNameDel);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof NamespaceNode) {
+      final NamespaceNode other = (NamespaceNode) obj;
+      return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameDel, other.mNameDel);
+    }
+    return false;
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel)
-				.toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel)
+        .toString();
+  }
 
-	@Override
-	public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
-		mNameDel.setPathNodeKey(pathNodeKey);
-	}
+  @Override
+  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+    mNameDel.setPathNodeKey(pathNodeKey);
+  }
 
-	@Override
-	public long getPathNodeKey() {
-		return mNameDel.getPathNodeKey();
-	}
+  @Override
+  public long getPathNodeKey() {
+    return mNameDel.getPathNodeKey();
+  }
 
-	/**
-	 * Getting the inlying {@link NameNodeDelegate}.
-	 *
-	 * @return {@link NameNodeDelegate} instance
-	 */
-	NameNodeDelegate getNameNodeDelegate() {
-		return mNameDel;
-	}
+  /**
+   * Getting the inlying {@link NameNodeDelegate}.
+   *
+   * @return {@link NameNodeDelegate} instance
+   */
+  NameNodeDelegate getNameNodeDelegate() {
+    return mNameDel;
+  }
 
-	@Override
-	protected NodeDelegate delegate() {
-		return mNodeDel;
-	}
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
+  }
 
-	@Override
-	public QNm getName() {
-		return mQNm;
-	}
+  @Override
+  public QNm getName() {
+    return mQNm;
+  }
 }

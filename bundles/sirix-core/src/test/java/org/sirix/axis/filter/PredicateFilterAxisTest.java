@@ -37,83 +37,83 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class PredicateFilterAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testPredicates() throws SirixException {
+  @Test
+  public void testPredicates() throws SirixException {
 
-		// Find descendants starting from nodeKey 0L (root).
-		holder.getReader().moveToDocumentRoot();
+    // Find descendants starting from nodeKey 0L (root).
+    holder.getReader().moveToDocumentRoot();
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a[@i]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a[@i]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/b[@p:x]"),
-				new long[] {9L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/b[@p:x]"),
+        new long[] {9L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[text()]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[text()]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[element()]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[element()]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[node()/text()]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[node()/text()]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[./node()]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[./node()]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "p:a[./node()/node()/node()]"), new long[] {});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "p:a[./node()/node()/node()]"), new long[] {});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[//element()]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[//element()]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[/text()]"),
-				new long[] {});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[/text()]"),
+        new long[] {});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3<4]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3<4]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13>=4]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13>=4]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13.0>=4]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13.0>=4]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[4 = 4]"),
-				new long[] {1L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[4 = 4]"),
+        new long[] {1L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3=4]"), new long[] {});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3=4]"), new long[] {});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3.2 = 3.22]"),
-				new long[] {});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3.2 = 3.22]"),
+        new long[] {});
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::b[child::c]"),
-				new long[] {5L, 9L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::b[child::c]"),
+        new long[] {5L, 9L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::*[text() or c]"),
-				new long[] {5l, 9L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::*[text() or c]"),
+        new long[] {5l, 9L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "child::*[text() or c], /node(), //c"),
-				new long[] {5l, 9L, 1L, 7L, 11L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "child::*[text() or c], /node(), //c"),
+        new long[] {5l, 9L, 1L, 7L, 11L});
 
-	}
+  }
 
 }

@@ -10,18 +10,18 @@ import org.sirix.node.interfaces.RecordPersistenter;
  * 
  */
 public class VoidValue implements Record {
-	@Override
-	public long getNodeKey() {
-		return 0;
-	}
+  @Override
+  public long getNodeKey() {
+    return 0;
+  }
 
-	@Override
-	public RecordPersistenter getKind() {
-		return null;
-	}
+  @Override
+  public RecordPersistenter getKind() {
+    return null;
+  }
 
-	@Override
-	public long getRevision() {
-		return 0;
-	}
+  @Override
+  public long getRevision() {
+    return 0;
+  }
 }

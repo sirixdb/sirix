@@ -23,7 +23,6 @@ package org.sirix.service.xml.xpath.xmark;
 
 import java.util.HashSet;
 import java.util.Set;
-
 import org.perfidix.AbstractConfig;
 import org.perfidix.element.KindOfArrangement;
 import org.perfidix.meter.AbstractMeter;
@@ -35,21 +34,21 @@ import org.perfidix.ouput.AbstractOutput;
 
 public class BenchConfigClass extends AbstractConfig {
 
-	private final static int RUNS = 10;
-	private final static Set<AbstractMeter> METERS = new HashSet<>(2);
+  private final static int RUNS = 10;
+  private final static Set<AbstractMeter> METERS = new HashSet<>(2);
 
-	private final static Set<AbstractOutput> OUTPUT = new HashSet<>();
+  private final static Set<AbstractOutput> OUTPUT = new HashSet<>();
 
-	private final static KindOfArrangement ARRAN = KindOfArrangement.SequentialMethodArrangement;
-	private final static double GCPROB = 1.0d;
+  private final static KindOfArrangement ARRAN = KindOfArrangement.SequentialMethodArrangement;
+  private final static double GCPROB = 1.0d;
 
-	static {
-		METERS.add(new TimeMeter(Time.Seconds));
-		METERS.add(new MemMeter(Memory.Mebibyte));
-	}
+  static {
+    METERS.add(new TimeMeter(Time.Seconds));
+    METERS.add(new MemMeter(Memory.Mebibyte));
+  }
 
-	public BenchConfigClass() {
-		super(RUNS, METERS, OUTPUT, ARRAN, GCPROB);
-	}
+  public BenchConfigClass() {
+    super(RUNS, METERS, OUTPUT, ARRAN, GCPROB);
+  }
 
 }

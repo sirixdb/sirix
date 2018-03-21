@@ -22,7 +22,6 @@
 package org.sirix.service.xml.shredder;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -32,7 +31,6 @@ import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
-
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
@@ -45,7 +43,6 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -72,322 +69,322 @@ import org.slf4j.LoggerFactory;
  */
 public final class XMLShredder extends AbstractShredder implements Callable<Long> {
 
-	/** {@link LogWrapper} reference. */
-	private static final LogWrapper LOGWRAPPER =
-			new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
+  /** {@link LogWrapper} reference. */
+  private static final LogWrapper LOGWRAPPER =
+      new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
 
-	/** {@link XdmNodeWriteTrx}. */
-	protected final XdmNodeWriteTrx mWtx;
+  /** {@link XdmNodeWriteTrx}. */
+  protected final XdmNodeWriteTrx mWtx;
 
-	/** {@link XMLEventReader}. */
-	protected final XMLEventReader mReader;
+  /** {@link XMLEventReader}. */
+  protected final XMLEventReader mReader;
 
-	/** Determines if changes are going to be commit right after shredding. */
-	private final ShredderCommit mCommit;
+  /** Determines if changes are going to be commit right after shredding. */
+  private final ShredderCommit mCommit;
 
-	/** Insertion position. */
-	protected final Insert mInsert;
+  /** Insertion position. */
+  protected final Insert mInsert;
 
-	/** Determines if comments should be included. */
-	private boolean mIncludeComments;
+  /** Determines if comments should be included. */
+  private boolean mIncludeComments;
 
-	/** Determines if processing instructions should be included. */
-	private boolean mIncludePIs;
+  /** Determines if processing instructions should be included. */
+  private boolean mIncludePIs;
 
-	/**
-	 * Builder to build an {@link XMLShredder} instance.
-	 */
-	public static class Builder {
+  /**
+   * Builder to build an {@link XMLShredder} instance.
+   */
+  public static class Builder {
 
-		/** {@link XdmNodeWriteTrx} implementation. */
-		private final XdmNodeWriteTrx mWtx;
+    /** {@link XdmNodeWriteTrx} implementation. */
+    private final XdmNodeWriteTrx mWtx;
 
-		/** {@link XMLEventReader} implementation. */
-		private final XMLEventReader mReader;
+    /** {@link XMLEventReader} implementation. */
+    private final XMLEventReader mReader;
 
-		/** Insertion position. */
-		private final Insert mInsert;
+    /** Insertion position. */
+    private final Insert mInsert;
 
-		/** Determines if comments should be included. */
-		private boolean mIncludeComments = true;
+    /** Determines if comments should be included. */
+    private boolean mIncludeComments = true;
 
-		/** Determines if processing instructions should be included. */
-		private boolean mIncludePIs = true;
+    /** Determines if processing instructions should be included. */
+    private boolean mIncludePIs = true;
 
-		/**
-		 * Determines if after shredding the transaction should be immediately commited.
-		 */
-		private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
+    /**
+     * Determines if after shredding the transaction should be immediately commited.
+     */
+    private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
 
-		/**
-		 * Constructor.
-		 *
-		 * @param wtx {@link XdmNodeWriteTrx} implementation
-		 * @param reader {@link XMLEventReader} implementation
-		 * @param insert insertion position
-		 */
-		public Builder(final XdmNodeWriteTrx wtx, final XMLEventReader reader, final Insert insert) {
-			mWtx = checkNotNull(wtx);
-			mReader = checkNotNull(reader);
-			mInsert = checkNotNull(insert);
-		}
+    /**
+     * Constructor.
+     *
+     * @param wtx {@link XdmNodeWriteTrx} implementation
+     * @param reader {@link XMLEventReader} implementation
+     * @param insert insertion position
+     */
+    public Builder(final XdmNodeWriteTrx wtx, final XMLEventReader reader, final Insert insert) {
+      mWtx = checkNotNull(wtx);
+      mReader = checkNotNull(reader);
+      mInsert = checkNotNull(insert);
+    }
 
-		/**
-		 * Include comments or not (default: yes).
-		 *
-		 * @param include include comments
-		 * @return this builder instance
-		 */
-		public Builder includeComments(final boolean include) {
-			mIncludeComments = include;
-			return this;
-		}
+    /**
+     * Include comments or not (default: yes).
+     *
+     * @param include include comments
+     * @return this builder instance
+     */
+    public Builder includeComments(final boolean include) {
+      mIncludeComments = include;
+      return this;
+    }
 
-		/**
-		 * Include processing instructions or not (default: yes).
-		 *
-		 * @param nclude processing instructions
-		 * @return this builder instance
-		 */
-		public Builder includePIs(final boolean include) {
-			mIncludePIs = include;
-			return this;
-		}
+    /**
+     * Include processing instructions or not (default: yes).
+     *
+     * @param nclude processing instructions
+     * @return this builder instance
+     */
+    public Builder includePIs(final boolean include) {
+      mIncludePIs = include;
+      return this;
+    }
 
-		/**
-		 * Commit afterwards.
-		 *
-		 * @return this builder instance
-		 */
-		public Builder commitAfterwards() {
-			mCommit = ShredderCommit.COMMIT;
-			return this;
-		}
+    /**
+     * Commit afterwards.
+     *
+     * @return this builder instance
+     */
+    public Builder commitAfterwards() {
+      mCommit = ShredderCommit.COMMIT;
+      return this;
+    }
 
-		/**
-		 * Build an instance.
-		 *
-		 * @return {@link XMLShredder} instance
-		 */
-		public XMLShredder build() {
-			return new XMLShredder(this);
-		}
-	}
+    /**
+     * Build an instance.
+     *
+     * @return {@link XMLShredder} instance
+     */
+    public XMLShredder build() {
+      return new XMLShredder(this);
+    }
+  }
 
-	/**
-	 * Private constructor.
-	 *
-	 * @param builder builder reference
-	 */
-	private XMLShredder(final Builder builder) {
-		super(builder.mWtx, builder.mInsert);
-		mWtx = builder.mWtx;
-		mReader = builder.mReader;
-		mInsert = builder.mInsert;
-		mIncludeComments = builder.mIncludeComments;
-		mIncludePIs = builder.mIncludePIs;
-		mCommit = builder.mCommit;
-	}
+  /**
+   * Private constructor.
+   *
+   * @param builder builder reference
+   */
+  private XMLShredder(final Builder builder) {
+    super(builder.mWtx, builder.mInsert);
+    mWtx = builder.mWtx;
+    mReader = builder.mReader;
+    mInsert = builder.mInsert;
+    mIncludeComments = builder.mIncludeComments;
+    mIncludePIs = builder.mIncludePIs;
+    mCommit = builder.mCommit;
+  }
 
-	/**
-	 * Invoking the shredder.
-	 *
-	 * @throws SirixException if any kind of sirix exception which has occured
-	 * @return revision of file
-	 */
-	@Override
-	public Long call() throws SirixException {
-		final long revision = mWtx.getRevisionNumber();
-		insertNewContent();
-		mCommit.commit(mWtx);
-		return revision;
-	}
+  /**
+   * Invoking the shredder.
+   *
+   * @throws SirixException if any kind of sirix exception which has occured
+   * @return revision of file
+   */
+  @Override
+  public Long call() throws SirixException {
+    final long revision = mWtx.getRevisionNumber();
+    insertNewContent();
+    mCommit.commit(mWtx);
+    return revision;
+  }
 
-	/**
-	 * Insert new content based on a StAX parser {@link XMLStreamReader}.
-	 *
-	 * @throws SirixException if something went wrong while inserting
-	 */
-	protected final void insertNewContent() throws SirixException {
-		try {
-			boolean firstElement = true;
-			int level = 0;
-			QName rootElement = null;
-			boolean endElemReached = false;
-			final StringBuilder sBuilder = new StringBuilder();
-			long insertedRootNodeKey = -1;
+  /**
+   * Insert new content based on a StAX parser {@link XMLStreamReader}.
+   *
+   * @throws SirixException if something went wrong while inserting
+   */
+  protected final void insertNewContent() throws SirixException {
+    try {
+      boolean firstElement = true;
+      int level = 0;
+      QName rootElement = null;
+      boolean endElemReached = false;
+      final StringBuilder sBuilder = new StringBuilder();
+      long insertedRootNodeKey = -1;
 
-			// Iterate over all nodes.
-			while (mReader.hasNext() && !endElemReached) {
-				final XMLEvent event = mReader.nextEvent();
+      // Iterate over all nodes.
+      while (mReader.hasNext() && !endElemReached) {
+        final XMLEvent event = mReader.nextEvent();
 
-				switch (event.getEventType()) {
-					case XMLStreamConstants.START_ELEMENT:
-						level++;
-						addNewElement(event.asStartElement());
-						if (firstElement) {
-							firstElement = false;
-							insertedRootNodeKey = mWtx.getNodeKey();
-							rootElement = event.asStartElement().getName();
-						}
-						break;
-					case XMLStreamConstants.END_ELEMENT:
-						level--;
-						if (level == 0 && rootElement != null
-								&& rootElement.equals(event.asEndElement().getName())) {
-							endElemReached = true;
-						}
-						final QName name = event.asEndElement().getName();
-						processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
-						break;
-					case XMLStreamConstants.CHARACTERS:
-						if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
-							sBuilder.append(event.asCharacters().getData().trim());
-						} else {
-							sBuilder.append(event.asCharacters().getData().trim());
-							processText(sBuilder.toString());
-							sBuilder.setLength(0);
-						}
-						break;
-					case XMLStreamConstants.COMMENT:
-						if (mIncludeComments) {
-							processComment(((Comment) event).getText());
-						}
-						break;
-					case XMLStreamConstants.PROCESSING_INSTRUCTION:
-						if (mIncludePIs) {
-							final ProcessingInstruction pi = (ProcessingInstruction) event;
-							processPI(pi.getData(), pi.getTarget());
-						}
-						break;
-					default:
-						// Node kind not known.
-				}
-			}
+        switch (event.getEventType()) {
+          case XMLStreamConstants.START_ELEMENT:
+            level++;
+            addNewElement(event.asStartElement());
+            if (firstElement) {
+              firstElement = false;
+              insertedRootNodeKey = mWtx.getNodeKey();
+              rootElement = event.asStartElement().getName();
+            }
+            break;
+          case XMLStreamConstants.END_ELEMENT:
+            level--;
+            if (level == 0 && rootElement != null
+                && rootElement.equals(event.asEndElement().getName())) {
+              endElemReached = true;
+            }
+            final QName name = event.asEndElement().getName();
+            processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
+            break;
+          case XMLStreamConstants.CHARACTERS:
+            if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
+              sBuilder.append(event.asCharacters().getData().trim());
+            } else {
+              sBuilder.append(event.asCharacters().getData().trim());
+              processText(sBuilder.toString());
+              sBuilder.setLength(0);
+            }
+            break;
+          case XMLStreamConstants.COMMENT:
+            if (mIncludeComments) {
+              processComment(((Comment) event).getText());
+            }
+            break;
+          case XMLStreamConstants.PROCESSING_INSTRUCTION:
+            if (mIncludePIs) {
+              final ProcessingInstruction pi = (ProcessingInstruction) event;
+              processPI(pi.getData(), pi.getTarget());
+            }
+            break;
+          default:
+            // Node kind not known.
+        }
+      }
 
-			mWtx.moveTo(insertedRootNodeKey);
-		} catch (final XMLStreamException e) {
-			throw new SirixIOException(e);
-		}
-	}
+      mWtx.moveTo(insertedRootNodeKey);
+    } catch (final XMLStreamException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	/**
-	 * Add a new element node.
-	 *
-	 * @param pLeftSiblingKeyStack stack used to determine if the new element has to be inserted as a
-	 *        right sibling or as a new child (in the latter case is NULL on top of the stack)
-	 * @param event the current event from the StAX parser
-	 * @return the modified stack
-	 * @throws SirixException if adding {@link ElementNode} fails
-	 */
-	private void addNewElement(final StartElement event) throws SirixException {
-		assert event != null;
-		final QName qName = event.getName();
-		final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(), qName.getLocalPart());
-		processStartTag(name);
+  /**
+   * Add a new element node.
+   *
+   * @param pLeftSiblingKeyStack stack used to determine if the new element has to be inserted as a
+   *        right sibling or as a new child (in the latter case is NULL on top of the stack)
+   * @param event the current event from the StAX parser
+   * @return the modified stack
+   * @throws SirixException if adding {@link ElementNode} fails
+   */
+  private void addNewElement(final StartElement event) throws SirixException {
+    assert event != null;
+    final QName qName = event.getName();
+    final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(), qName.getLocalPart());
+    processStartTag(name);
 
-		// Parse namespaces.
-		for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
-			final Namespace namespace = (Namespace) it.next();
-			mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace.getPrefix(), ""));
-			mWtx.moveToParent();
-		}
+    // Parse namespaces.
+    for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
+      final Namespace namespace = (Namespace) it.next();
+      mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace.getPrefix(), ""));
+      mWtx.moveToParent();
+    }
 
-		// Parse attributes.
-		for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
-			final Attribute attribute = (Attribute) it.next();
-			final QName attName = attribute.getName();
-			mWtx.insertAttribute(
-					new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
-					attribute.getValue());
-			mWtx.moveToParent();
-		}
-	}
+    // Parse attributes.
+    for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
+      final Attribute attribute = (Attribute) it.next();
+      final QName attName = attribute.getName();
+      mWtx.insertAttribute(
+          new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
+          attribute.getValue());
+      mWtx.moveToParent();
+    }
+  }
 
-	/**
-	 * Main method.
-	 *
-	 * @param args input and output files
-	 * @throws XMLStreamException if the XML stream isn't valid
-	 * @throws IOException if an I/O error occurs
-	 * @throws SirixException if a Sirix error occurs
-	 */
-	public static void main(final String... args)
-			throws SirixException, IOException, XMLStreamException {
-		if (args.length != 2 && args.length != 3) {
-			throw new IllegalArgumentException(
-					"Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
-		}
-		LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
-		final long time = System.nanoTime();
-		final Path target = Paths.get(args[1]);
-		final DatabaseConfiguration config = new DatabaseConfiguration(target);
-		Databases.truncateDatabase(config);
-		Databases.createDatabase(config);
+  /**
+   * Main method.
+   *
+   * @param args input and output files
+   * @throws XMLStreamException if the XML stream isn't valid
+   * @throws IOException if an I/O error occurs
+   * @throws SirixException if a Sirix error occurs
+   */
+  public static void main(final String... args)
+      throws SirixException, IOException, XMLStreamException {
+    if (args.length != 2 && args.length != 3) {
+      throw new IllegalArgumentException(
+          "Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
+    }
+    LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
+    final long time = System.nanoTime();
+    final Path target = Paths.get(args[1]);
+    final DatabaseConfiguration config = new DatabaseConfiguration(target);
+    Databases.truncateDatabase(config);
+    Databases.createDatabase(config);
 
-		try (final Database db = Databases.openDatabase(target)) {
-			db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-			try (
-					final ResourceManager resMgr =
-							db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
-					final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
-				final XMLEventReader reader = createFileReader(Paths.get(args[0]));
-				final boolean includeCoPI = args.length == 3 ? Boolean.parseBoolean(args[2]) : false;
-				final XMLShredder shredder = new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD)
-						.commitAfterwards().includeComments(includeCoPI).includePIs(includeCoPI).build();
-				shredder.call();
-			}
-		}
+    try (final Database db = Databases.openDatabase(target)) {
+      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+      try (
+          final ResourceManager resMgr =
+              db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
+        final XMLEventReader reader = createFileReader(Paths.get(args[0]));
+        final boolean includeCoPI = args.length == 3 ? Boolean.parseBoolean(args[2]) : false;
+        final XMLShredder shredder = new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD)
+            .commitAfterwards().includeComments(includeCoPI).includePIs(includeCoPI).build();
+        shredder.call();
+      }
+    }
 
-		LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
-	}
+    LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
+  }
 
-	/**
-	 * Create a new StAX reader on a file.
-	 *
-	 * @param xmlFile the XML file to parse
-	 * @return an {@link XMLEventReader}
-	 * @throws IOException if I/O operation fails
-	 * @throws XMLStreamException if any parsing error occurs
-	 */
-	public static synchronized XMLEventReader createFileReader(final Path xmlFile)
-			throws IOException, XMLStreamException {
-		checkNotNull(xmlFile);
-		final XMLInputFactory factory = XMLInputFactory.newInstance();
-		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-		factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-		final InputStream in = new FileInputStream(xmlFile.toFile());
-		return factory.createXMLEventReader(in);
-	}
+  /**
+   * Create a new StAX reader on a file.
+   *
+   * @param xmlFile the XML file to parse
+   * @return an {@link XMLEventReader}
+   * @throws IOException if I/O operation fails
+   * @throws XMLStreamException if any parsing error occurs
+   */
+  public static synchronized XMLEventReader createFileReader(final Path xmlFile)
+      throws IOException, XMLStreamException {
+    checkNotNull(xmlFile);
+    final XMLInputFactory factory = XMLInputFactory.newInstance();
+    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
+    final InputStream in = new FileInputStream(xmlFile.toFile());
+    return factory.createXMLEventReader(in);
+  }
 
-	/**
-	 * Create a new StAX reader on a string.
-	 *
-	 * @param xmlString the XML file as a string to parse
-	 * @return an {@link XMLEventReader}
-	 * @throws IOException if I/O operation fails
-	 * @throws XMLStreamException if any parsing error occurs
-	 */
-	public static synchronized XMLEventReader createStringReader(final String xmlString)
-			throws IOException, XMLStreamException {
-		checkNotNull(xmlString);
-		final XMLInputFactory factory = XMLInputFactory.newInstance();
-		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-		factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-		final InputStream in = new ByteArrayInputStream(xmlString.getBytes());
-		return factory.createXMLEventReader(in);
-	}
+  /**
+   * Create a new StAX reader on a string.
+   *
+   * @param xmlString the XML file as a string to parse
+   * @return an {@link XMLEventReader}
+   * @throws IOException if I/O operation fails
+   * @throws XMLStreamException if any parsing error occurs
+   */
+  public static synchronized XMLEventReader createStringReader(final String xmlString)
+      throws IOException, XMLStreamException {
+    checkNotNull(xmlString);
+    final XMLInputFactory factory = XMLInputFactory.newInstance();
+    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
+    final InputStream in = new ByteArrayInputStream(xmlString.getBytes());
+    return factory.createXMLEventReader(in);
+  }
 
-	/**
-	 * Create a new StAX reader based on a List of {@link XMLEvent}s.
-	 *
-	 * @param events {@link XMLEvent}s
-	 * @return an {@link XMLEventReader}
-	 * @throws IOException if I/O operation fails
-	 * @throws XMLStreamException if any parsing error occurs
-	 */
-	public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> events)
-			throws IOException, XMLStreamException {
-		return new QueueEventReader(checkNotNull(events));
-	}
+  /**
+   * Create a new StAX reader based on a List of {@link XMLEvent}s.
+   *
+   * @param events {@link XMLEvent}s
+   * @return an {@link XMLEventReader}
+   * @throws IOException if I/O operation fails
+   * @throws XMLStreamException if any parsing error occurs
+   */
+  public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> events)
+      throws IOException, XMLStreamException {
+    return new QueueEventReader(checkNotNull(events));
+  }
 }

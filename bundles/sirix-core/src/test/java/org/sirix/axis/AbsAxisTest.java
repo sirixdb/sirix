@@ -24,10 +24,8 @@ package org.sirix.axis;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -40,90 +38,90 @@ import org.sirix.settings.Fixed;
 
 public class AbsAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	public static void testIAxisConventions(final Axis axis, final long[] expectedKeys) {
-		// Axis Convention 1.
-		final long startKey = axis.getTrx().getNodeKey();
+  public static void testIAxisConventions(final Axis axis, final long[] expectedKeys) {
+    // Axis Convention 1.
+    final long startKey = axis.getTrx().getNodeKey();
 
-		final long[] keys = new long[expectedKeys.length];
-		int offset = 0;
-		while (axis.hasNext()) {
-			axis.next();
-			// Axis results.
-			assertTrue(offset < expectedKeys.length);
-			keys[offset++] = axis.getTrx().getNodeKey();
+    final long[] keys = new long[expectedKeys.length];
+    int offset = 0;
+    while (axis.hasNext()) {
+      axis.next();
+      // Axis results.
+      assertTrue(offset < expectedKeys.length);
+      keys[offset++] = axis.getTrx().getNodeKey();
 
-			// Axis Convention 3.
-			axis.getTrx().moveToDocumentRoot();
-		}
+      // Axis Convention 3.
+      axis.getTrx().moveToDocumentRoot();
+    }
 
-		// Axis Convention 5.
-		assertEquals(startKey, axis.getTrx().getNodeKey());
+    // Axis Convention 5.
+    assertEquals(startKey, axis.getTrx().getNodeKey());
 
-		// Axis results.
-		assertArrayEquals(expectedKeys, keys);
-	}
+    // Axis results.
+    assertArrayEquals(expectedKeys, keys);
+  }
 
-	public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
-		// IAxis Convention 1.
-		final long startKey = axis.getTrx().getNodeKey();
+  public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
+    // IAxis Convention 1.
+    final long startKey = axis.getTrx().getNodeKey();
 
-		final long[] keys = new long[expectedKeys.length];
-		int offset = 0;
+    final long[] keys = new long[expectedKeys.length];
+    int offset = 0;
 
-		try {
-			while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-				// Axis results.
-				assertTrue(offset < expectedKeys.length);
-				keys[offset++] = axis.getTrx().getNodeKey();
-			}
-		} catch (final NoSuchElementException e) {
-		}
+    try {
+      while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        // Axis results.
+        assertTrue(offset < expectedKeys.length);
+        keys[offset++] = axis.getTrx().getNodeKey();
+      }
+    } catch (final NoSuchElementException e) {
+    }
 
-		// Axis Convention 5.
-		assertEquals(startKey, axis.getTrx().getNodeKey());
+    // Axis Convention 5.
+    assertEquals(startKey, axis.getTrx().getNodeKey());
 
-		// Axis results.
-		assertArrayEquals(expectedKeys, keys);
-	}
+    // Axis results.
+    assertArrayEquals(expectedKeys, keys);
+  }
 
-	public static void testIterable(final Iterator<Long> axis, final long[] expectedKeys) {
-		final long[] keys = new long[expectedKeys.length];
-		int offset = 0;
-		while (axis.hasNext()) {
-			final long key = axis.next();
-			// Iterable results.
-			assertTrue(offset < expectedKeys.length);
-			keys[offset++] = key;
-		}
+  public static void testIterable(final Iterator<Long> axis, final long[] expectedKeys) {
+    final long[] keys = new long[expectedKeys.length];
+    int offset = 0;
+    while (axis.hasNext()) {
+      final long key = axis.next();
+      // Iterable results.
+      assertTrue(offset < expectedKeys.length);
+      keys[offset++] = key;
+    }
 
-		// Iterable results.
-		assertArrayEquals(expectedKeys, keys);
-	}
+    // Iterable results.
+    assertArrayEquals(expectedKeys, keys);
+  }
 
-	@Test
-	public void testAxisUserExample() throws SirixException {
-		final Axis axis = new DescendantAxis(holder.getReader());
-		long count = 0L;
-		while (axis.hasNext()) {
-			axis.next();
-			count += 1;
-		}
-		Assert.assertEquals(10L, count);
-	}
+  @Test
+  public void testAxisUserExample() throws SirixException {
+    final Axis axis = new DescendantAxis(holder.getReader());
+    long count = 0L;
+    while (axis.hasNext()) {
+      axis.next();
+      count += 1;
+    }
+    Assert.assertEquals(10L, count);
+  }
 
 }

@@ -13,12 +13,10 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for getting the number of namespaces of the current node. Supported
- * signature is:
+ * Function for getting the number of namespaces of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:get-namespace-count($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:get-namespace-count($doc as xs:node) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -26,27 +24,25 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class GetNamespaceCount extends AbstractFunction {
 
-	/** Get namespcae count function name. */
-	public final static QNm GET_NAMESPACE_COUNT = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "get-namespace-count");
+  /** Get namespcae count function name. */
+  public final static QNm GET_NAMESPACE_COUNT =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "get-namespace-count");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public GetNamespaceCount(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public GetNamespaceCount(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getNamespaceCount());
-	}
+    return new Int32(doc.getTrx().getNamespaceCount());
+  }
 }

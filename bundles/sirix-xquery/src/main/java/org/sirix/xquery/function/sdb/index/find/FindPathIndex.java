@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.index.find;
 
 import java.util.Optional;
-
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
@@ -34,37 +33,37 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class FindPathIndex extends AbstractFunction {
 
-	/** CAS index function name. */
-	public final static QNm FIND_PATH_INDEX =
-			new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-path-index");
+  /** CAS index function name. */
+  public final static QNm FIND_PATH_INDEX =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-path-index");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name the name of the function
-	 * @param signature the signature of the function
-	 */
-	public FindPathIndex(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public FindPathIndex(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = (DBNode) args[0];
-		final XdmNodeReadTrx rtx = doc.getTrx();
-		final IndexController controller =
-				rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = (DBNode) args[0];
+    final XdmNodeReadTrx rtx = doc.getTrx();
+    final IndexController controller =
+        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
-		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
-		}
+    if (controller == null) {
+      throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+    }
 
-		final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
+    final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
+    final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
 
-		if (indexDef.isPresent())
-			return new Int32(indexDef.get().getID());
-		return new Int32(-1);
-	}
+    if (indexDef.isPresent())
+      return new Int32(indexDef.get().getID());
+    return new Int32(-1);
+  }
 }

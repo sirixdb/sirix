@@ -7,17 +7,17 @@ package org.sirix.node.interfaces.immutable;
  *
  */
 public interface ImmutableValueNode {
-	/**
-	 * Return a byte array representation of the node value.
-	 * 
-	 * @return the value of the node
-	 */
-	byte[] getRawValue();
+  /**
+   * Return a byte array representation of the node value.
+   * 
+   * @return the value of the node
+   */
+  byte[] getRawValue();
 
-	/**
-	 * Return the string value of the node.
-	 * 
-	 * @return the string value of the node
-	 */
-	String getValue();
+  /**
+   * Return the string value of the node.
+   * 
+   * @return the string value of the node
+   */
+  String getValue();
 }

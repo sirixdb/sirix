@@ -8,10 +8,8 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AbstractForwardingPage;
@@ -22,7 +20,6 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
 import com.google.common.io.ByteArrayDataInput;
 
 /**
@@ -34,185 +31,185 @@ import com.google.common.io.ByteArrayDataInput;
  * @param <V> the value
  */
 public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V extends Record>
-		extends AbstractForwardingPage implements KeyValuePage<K, V> {
+    extends AbstractForwardingPage implements KeyValuePage<K, V> {
 
-	/** Key of record page. This is the base key of all contained nodes. */
-	private final long mRecordPageKey;
+  /** Key of record page. This is the base key of all contained nodes. */
+  private final long mRecordPageKey;
 
-	/** Key/Value records. */
-	private final Map<K, V> mRecords;
+  /** Key/Value records. */
+  private final Map<K, V> mRecords;
 
-	/** Sirix {@link PageReadTrx}. */
-	private final PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx}. */
+  private final PageReadTrx mPageReadTrx;
 
-	/** Optional left page reference (leaf page). */
-	private Optional<PageReference> mLeftPage;
+  /** Optional left page reference (leaf page). */
+  private Optional<PageReference> mLeftPage;
 
-	/** Optional right page reference (inner node page). */
-	private Optional<PageReference> mRightPage;
+  /** Optional right page reference (inner node page). */
+  private Optional<PageReference> mRightPage;
 
-	private final PageDelegate mDelegate;
+  private final PageDelegate mDelegate;
 
-	private final PageKind mPageKind;
+  private final PageKind mPageKind;
 
-	/** Determines the node kind. */
-	public enum Kind {
-		/** Leaf node. */
-		LEAF,
+  /** Determines the node kind. */
+  public enum Kind {
+    /** Leaf node. */
+    LEAF,
 
-		/** Inner node. */
-		INNERNODE
-	}
+    /** Inner node. */
+    INNERNODE
+  }
 
-	/**
-	 * Create record page.
-	 *
-	 * @param recordPageKey base key assigned to this node page
-	 * @param pageReadTrx Sirix page reading transaction
-	 * @param kind determines if it's a leaf or inner node page
-	 */
-	public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
-			final long previousPageRefKey, final PageReadTrx pageReadTrx) {
-		// Assertions instead of checkNotNull(...) checks as it's part of the
-		// internal flow.
-		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
-		assert pageKind != null;
-		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mRecordPageKey = recordPageKey;
-		mRecords = new TreeMap<>();
-		mPageReadTrx = pageReadTrx;
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
-		mPageKind = pageKind;
-	}
+  /**
+   * Create record page.
+   *
+   * @param recordPageKey base key assigned to this node page
+   * @param pageReadTrx Sirix page reading transaction
+   * @param kind determines if it's a leaf or inner node page
+   */
+  public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
+      final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+    // Assertions instead of checkNotNull(...) checks as it's part of the
+    // internal flow.
+    assert recordPageKey >= 0 : "recordPageKey must not be negative!";
+    assert pageKind != null;
+    assert pageReadTrx != null : "pageReadTrx must not be null!";
+    mRecordPageKey = recordPageKey;
+    mRecords = new TreeMap<>();
+    mPageReadTrx = pageReadTrx;
+    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
+    mPageKind = pageKind;
+  }
 
-	/**
-	 * Read node page.
-	 *
-	 * @param in input bytes to read page from
-	 * @param pageReadTrx {@link
-	 */
-	protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadTrx pageReadTrx) {
-		mDelegate = null;
-		// mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
-		mRecordPageKey = in.readLong();
-		final int size = in.readInt();
-		mRecords = new TreeMap<>();
-		pageReadTrx.getSession().getResourceConfig();
-		for (int offset = 0; offset < size; offset++) {
-			new VoidValue();
-		}
-		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mPageReadTrx = pageReadTrx;
-		mPageKind = PageKind.getKind(in.readByte());
-	}
+  /**
+   * Read node page.
+   *
+   * @param in input bytes to read page from
+   * @param pageReadTrx {@link
+   */
+  protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadTrx pageReadTrx) {
+    mDelegate = null;
+    // mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
+    mRecordPageKey = in.readLong();
+    final int size = in.readInt();
+    mRecords = new TreeMap<>();
+    pageReadTrx.getSession().getResourceConfig();
+    for (int offset = 0; offset < size; offset++) {
+      new VoidValue();
+    }
+    assert pageReadTrx != null : "pageReadTrx must not be null!";
+    mPageReadTrx = pageReadTrx;
+    mPageKind = PageKind.getKind(in.readByte());
+  }
 
-	public void setLeftPage(final Optional<PageReference> leftPage) {
-		mLeftPage = leftPage;
-	}
+  public void setLeftPage(final Optional<PageReference> leftPage) {
+    mLeftPage = leftPage;
+  }
 
-	public void setRightPage(final Optional<PageReference> rightPage) {
-		mLeftPage = rightPage;
-	}
+  public void setRightPage(final Optional<PageReference> rightPage) {
+    mLeftPage = rightPage;
+  }
 
-	@Override
-	public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-		super.serialize(out, type);
-		out.writeLong(mRecordPageKey);
-		out.writeInt(mRecords.size());
-		serializePointer(mLeftPage, out);
-		serializePointer(mRightPage, out);
-		mPageReadTrx.getSession().getResourceConfig();
-		// for (final K record : mRecords.keySet()) {
-		// persistenter.serialize(out, record, mPageReadTrx);
-		// }
-		out.writeByte(mPageKind.getID());
-	}
+  @Override
+  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
+    super.serialize(out, type);
+    out.writeLong(mRecordPageKey);
+    out.writeInt(mRecords.size());
+    serializePointer(mLeftPage, out);
+    serializePointer(mRightPage, out);
+    mPageReadTrx.getSession().getResourceConfig();
+    // for (final K record : mRecords.keySet()) {
+    // persistenter.serialize(out, record, mPageReadTrx);
+    // }
+    out.writeByte(mPageKind.getID());
+  }
 
-	private void serializePointer(final Optional<PageReference> page, final DataOutput out)
-			throws IOException {
-		if (page.isPresent()) {
-			out.writeBoolean(
-					page.get().getKey() == org.sirix.settings.Constants.NULL_ID_LONG ? false : true);
-		} else {
-			out.writeBoolean(false);
-		}
-	}
+  private void serializePointer(final Optional<PageReference> page, final DataOutput out)
+      throws IOException {
+    if (page.isPresent()) {
+      out.writeBoolean(
+          page.get().getKey() == org.sirix.settings.Constants.NULL_ID_LONG ? false : true);
+    } else {
+      out.writeBoolean(false);
+    }
+  }
 
-	@Override
-	public Set<Entry<K, V>> entrySet() {
-		return mRecords.entrySet();
-	}
+  @Override
+  public Set<Entry<K, V>> entrySet() {
+    return mRecords.entrySet();
+  }
 
-	@Override
-	public Collection<V> values() {
-		return mRecords.values();
-	}
+  @Override
+  public Collection<V> values() {
+    return mRecords.values();
+  }
 
-	@Override
-	public long getPageKey() {
-		return mRecordPageKey;
-	}
+  @Override
+  public long getPageKey() {
+    return mRecordPageKey;
+  }
 
-	@Override
-	public V getValue(final K key) {
-		return mRecords.get(key);
-	}
+  @Override
+  public V getValue(final K key) {
+    return mRecords.get(key);
+  }
 
-	@Override
-	public void setEntry(final K key, final @Nullable V value) {
-		mRecords.put(key, value);
-	}
+  @Override
+  public void setEntry(final K key, final @Nullable V value) {
+    mRecords.put(key, value);
+  }
 
-	@SuppressWarnings("unchecked")
-	@Override
-	public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final long previousPageRefKey, final PageReadTrx pageReadTrx) {
-		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, previousPageRefKey,
-				pageReadTrx);
-	}
+  @SuppressWarnings("unchecked")
+  @Override
+  public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
+      final PageKind pageKind, final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+    return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, previousPageRefKey,
+        pageReadTrx);
+  }
 
-	@Override
-	public PageReadTrx getPageReadTrx() {
-		return mPageReadTrx;
-	}
+  @Override
+  public PageReadTrx getPageReadTrx() {
+    return mPageReadTrx;
+  }
 
-	@Override
-	protected Page delegate() {
-		return mDelegate;
-	}
+  @Override
+  protected Page delegate() {
+    return mDelegate;
+  }
 
-	@Override
-	public PageKind getPageKind() {
-		return mPageKind;
-	}
+  @Override
+  public PageKind getPageKind() {
+    return mPageKind;
+  }
 
-	@Override
-	public int size() {
-		// TODO Auto-generated method stub
-		return 0;
-	}
+  @Override
+  public int size() {
+    // TODO Auto-generated method stub
+    return 0;
+  }
 
-	@Override
-	public Set<Entry<K, PageReference>> referenceEntrySet() {
-		// TODO Auto-generated method stub
-		return null;
-	}
+  @Override
+  public Set<Entry<K, PageReference>> referenceEntrySet() {
+    // TODO Auto-generated method stub
+    return null;
+  }
 
-	@Override
-	public void setPageReference(K key, PageReference reference) {
-		// TODO Auto-generated method stub
+  @Override
+  public void setPageReference(K key, PageReference reference) {
+    // TODO Auto-generated method stub
 
-	}
+  }
 
-	@Override
-	public PageReference getPageReference(K key) {
-		// TODO Auto-generated method stub
-		return null;
-	}
+  @Override
+  public PageReference getPageReference(K key) {
+    // TODO Auto-generated method stub
+    return null;
+  }
 
-	@Override
-	public long getPreviousReferenceKey() {
-		// TODO Auto-generated method stub
-		return -1;
-	}
+  @Override
+  public long getPreviousReferenceKey() {
+    // TODO Auto-generated method stub
+    return -1;
+  }
 }

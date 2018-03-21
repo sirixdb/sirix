@@ -1,7 +1,6 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
@@ -16,41 +15,41 @@ import org.sirix.axis.AbstractTemporalAxis;
  */
 public final class AllTimeAxis extends AbstractTemporalAxis {
 
-	/** The revision number. */
-	private int mRevision;
+  /** The revision number. */
+  private int mRevision;
 
-	/** Sirix {@link ResourceManager}. */
-	private final ResourceManager mSession;
+  /** Sirix {@link ResourceManager}. */
+  private final ResourceManager mSession;
 
-	/** Node key to lookup and retrieve. */
-	private long mNodeKey;
+  /** Node key to lookup and retrieve. */
+  private long mNodeKey;
 
-	/** Sirix {@link XdmNodeReadTrx}. */
-	private XdmNodeReadTrx mRtx;
+  /** Sirix {@link XdmNodeReadTrx}. */
+  private XdmNodeReadTrx mRtx;
 
-	/**
-	 * Constructor.
-	 * 
-	 * @param rtx Sirix {@link XdmNodeReadTrx}
-	 */
-	public AllTimeAxis(final XdmNodeReadTrx rtx) {
-		mSession = checkNotNull(rtx.getResourceManager());
-		mRevision = 1;
-		mNodeKey = rtx.getNodeKey();
-	}
+  /**
+   * Constructor.
+   * 
+   * @param rtx Sirix {@link XdmNodeReadTrx}
+   */
+  public AllTimeAxis(final XdmNodeReadTrx rtx) {
+    mSession = checkNotNull(rtx.getResourceManager());
+    mRevision = 1;
+    mNodeKey = rtx.getNodeKey();
+  }
 
-	@Override
-	protected XdmNodeReadTrx computeNext() {
-		if (mRevision <= mSession.getMostRecentRevisionNumber()) {
-			mRtx = mSession.beginNodeReadTrx(mRevision++);
-			return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
-		} else {
-			return endOfData();
-		}
-	}
+  @Override
+  protected XdmNodeReadTrx computeNext() {
+    if (mRevision <= mSession.getMostRecentRevisionNumber()) {
+      mRtx = mSession.beginNodeReadTrx(mRevision++);
+      return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
+    } else {
+      return endOfData();
+    }
+  }
 
-	@Override
-	public XdmNodeReadTrx getTrx() {
-		return mRtx;
-	}
+  @Override
+  public XdmNodeReadTrx getTrx() {
+    return mRtx;
+  }
 }

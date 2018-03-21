@@ -22,13 +22,11 @@
 package org.sirix.cache;
 
 import javax.annotation.Nullable;
-
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -53,104 +51,104 @@ import com.google.common.base.Objects;
  */
 public final class PageContainer {
 
-	/** Logger. */
-	private static final LogWrapper LOGGER =
-			new LogWrapper(LoggerFactory.getLogger(PageContainer.class));
+  /** Logger. */
+  private static final LogWrapper LOGGER =
+      new LogWrapper(LoggerFactory.getLogger(PageContainer.class));
 
-	/**
-	 * {@link UnorderedKeyValuePage} reference, which references the complete key/value page.
-	 */
-	private final Page mComplete;
+  /**
+   * {@link UnorderedKeyValuePage} reference, which references the complete key/value page.
+   */
+  private final Page mComplete;
 
-	/**
-	 * {@link UnorderedKeyValuePage} reference, which references the modified key/value page.
-	 */
-	private final Page mModified;
+  /**
+   * {@link UnorderedKeyValuePage} reference, which references the modified key/value page.
+   */
+  private final Page mModified;
 
-	/** Empty instance. */
-	private static final PageContainer EMPTY_INSTANCE = new PageContainer();
+  /** Empty instance. */
+  private static final PageContainer EMPTY_INSTANCE = new PageContainer();
 
-	/** Private constructor for empty instance. */
-	private PageContainer() {
-		mComplete = null;
-		mModified = null;
-	}
+  /** Private constructor for empty instance. */
+  private PageContainer() {
+    mComplete = null;
+    mModified = null;
+  }
 
-	/**
-	 * Get the empty instance (parameterized).
-	 *
-	 * @return the empty instance
-	 */
-	public static final PageContainer emptyInstance() {
-		return EMPTY_INSTANCE;
-	}
+  /**
+   * Get the empty instance (parameterized).
+   *
+   * @return the empty instance
+   */
+  public static final PageContainer emptyInstance() {
+    return EMPTY_INSTANCE;
+  }
 
-	/**
-	 * Constructor with both, complete and modifying page.
-	 *
-	 * @param complete to be used as a base for this container
-	 * @param modifying to be used as a base for this container
-	 */
-	public PageContainer(final Page complete, final Page modifying) {
-		// Assertions as it's not part of the public API.
-		assert complete != null;
-		assert modifying != null;
-		mComplete = complete;
-		mModified = modifying;
-	}
+  /**
+   * Constructor with both, complete and modifying page.
+   *
+   * @param complete to be used as a base for this container
+   * @param modifying to be used as a base for this container
+   */
+  public PageContainer(final Page complete, final Page modifying) {
+    // Assertions as it's not part of the public API.
+    assert complete != null;
+    assert modifying != null;
+    mComplete = complete;
+    mModified = modifying;
+  }
 
-	/**
-	 * Getting the complete page.
-	 *
-	 * @return the complete page
-	 */
-	public Page getComplete() {
-		return mComplete;
-	}
+  /**
+   * Getting the complete page.
+   *
+   * @return the complete page
+   */
+  public Page getComplete() {
+    return mComplete;
+  }
 
-	/**
-	 * Getting the modified page.
-	 *
-	 * @return the modified page
-	 */
-	public Page getModified() {
-		return mModified;
-	}
+  /**
+   * Getting the modified page.
+   *
+   * @return the modified page
+   */
+  public Page getModified() {
+    return mModified;
+  }
 
-	// /**
-	// * Serializing the container to the cache.
-	// *
-	// * @param out for serialization
-	// */
-	// public void serialize(final TupleOutput out) {
-	// final ByteArrayOutputStream sink = new ByteArrayOutputStream();
-	// final DataOutputStream dataOut = new DataOutputStream(sink);
-	// try {
-	// PagePersistenter.serializePage(dataOut, mComplete);
-	// PagePersistenter.serializePage(dataOut, mModified);
-	// } catch (final IOException e) {
-	// LOGGER.error(e.getMessage(), e);
-	// }
-	// out.write(sink.toByteArray());
-	// }
+  // /**
+  // * Serializing the container to the cache.
+  // *
+  // * @param out for serialization
+  // */
+  // public void serialize(final TupleOutput out) {
+  // final ByteArrayOutputStream sink = new ByteArrayOutputStream();
+  // final DataOutputStream dataOut = new DataOutputStream(sink);
+  // try {
+  // PagePersistenter.serializePage(dataOut, mComplete);
+  // PagePersistenter.serializePage(dataOut, mModified);
+  // } catch (final IOException e) {
+  // LOGGER.error(e.getMessage(), e);
+  // }
+  // out.write(sink.toByteArray());
+  // }
 
-	@Override
-	public int hashCode() {
-		return Objects.hashCode(mComplete, mModified);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mComplete, mModified);
+  }
 
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof PageContainer) {
-			final PageContainer other = (PageContainer) obj;
-			return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof PageContainer) {
+      final PageContainer other = (PageContainer) obj;
+      return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
+    }
+    return false;
+  }
 
-	@Override
-	public String toString() {
-		return MoreObjects.toStringHelper(this).add("complete page", mComplete)
-				.add("modified page", mModified).toString();
-	}
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("complete page", mComplete)
+        .add("modified page", mModified).toString();
+  }
 }

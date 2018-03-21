@@ -38,43 +38,43 @@ import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.deleteEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.deleteEverything();
+  }
 
-	@Test
-	public void testFilterConvetions() throws SirixException {
-		holder.getReader().moveTo(9L);
-		FilterTest
-				.testFilterConventions(
-						new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
-								new ElementFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
-						true);
-		FilterTest.testFilterConventions(
-				new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
-						new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
-				false);
+  @Test
+  public void testFilterConvetions() throws SirixException {
+    holder.getReader().moveTo(9L);
+    FilterTest
+        .testFilterConventions(
+            new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
+                new ElementFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
+            true);
+    FilterTest.testFilterConventions(
+        new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
+            new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
+        false);
 
-		holder.getReader().moveTo(4L);
-		FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-				new NodeFilter(holder.getReader()), new ElementFilter(holder.getReader())), false);
-		FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-				new NodeFilter(holder.getReader()), new TextFilter(holder.getReader())), true);
+    holder.getReader().moveTo(4L);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
+        new NodeFilter(holder.getReader()), new ElementFilter(holder.getReader())), false);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
+        new NodeFilter(holder.getReader()), new TextFilter(holder.getReader())), true);
 
-		holder.getReader().moveTo(1L);
-		holder.getReader().moveToAttribute(0);
-		FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-				new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "i")), true);
-	}
+    holder.getReader().moveTo(1L);
+    holder.getReader().moveToAttribute(0);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
+        new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "i")), true);
+  }
 }

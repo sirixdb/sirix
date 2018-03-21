@@ -14,13 +14,11 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for selecting a node denoted by its node key. The first parameter is
- * the context node. Supported signature is:
+ * Function for selecting a node denoted by its node key. The first parameter is the context node.
+ * Supported signature is:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:select-node($doc as xs:node, $nodeKey as xs:integer) as xs:node</code>
- * </li>
+ * <li><code>sdb:select-node($doc as xs:node, $nodeKey as xs:integer) as xs:node</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -28,33 +26,30 @@ import org.sirix.xquery.node.DBNode;
  */
 public final class SelectNode extends AbstractFunction {
 
-	/** Move to function name. */
-	public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "select-node");
+  /** Move to function name. */
+  public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-node");
 
-	/**
-	 * Constructor.
-	 *
-	 * @param name
-	 *          the name of the function
-	 * @param signature
-	 *          the signature of the function
-	 */
-	public SelectNode(QNm name, Signature signature) {
-		super(name, signature, true);
-	}
+  /**
+   * Constructor.
+   *
+   * @param name the name of the function
+   * @param signature the signature of the function
+   */
+  public SelectNode(QNm name, Signature signature) {
+    super(name, signature, true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode node = ((DBNode) args[0]);
-		final XdmNodeReadTrx rtx = node.getTrx();
-		final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode node = ((DBNode) args[0]);
+    final XdmNodeReadTrx rtx = node.getTrx();
+    final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-		if (rtx.moveTo(nodeKey).hasMoved()) {
-			return new DBNode(rtx, node.getCollection());
-		} else {
-			throw new QueryException(new QNm("Couldn't select node."));
-		}
-	}
+    if (rtx.moveTo(nodeKey).hasMoved()) {
+      return new DBNode(rtx, node.getCollection());
+    } else {
+      throw new QueryException(new QNm("Couldn't select node."));
+    }
+  }
 }

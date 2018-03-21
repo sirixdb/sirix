@@ -42,78 +42,78 @@ import org.sirix.service.xml.xpath.functions.Function;
  */
 public class IfAxis extends AbstractAxis {
 
-	private final Axis mIf;
-	private final Axis mThen;
-	private final Axis mElse;
-	private boolean mFirst;
-	private Axis mResult;
+  private final Axis mIf;
+  private final Axis mThen;
+  private final Axis mElse;
+  private boolean mFirst;
+  private Axis mResult;
 
-	/**
-	 * 
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx Exclusive (immutable) trx to iterate with.
-	 * @param mIfAxis Test expression
-	 * @param mThenAxis Will be evaluated if test expression evaluates to true.
-	 * @param mElseAxis Will be evaluated if test expression evaluates to false.
-	 */
-	public IfAxis(final XdmNodeReadTrx rtx, final Axis mIfAxis, final Axis mThenAxis,
-			final Axis mElseAxis) {
+  /**
+   * 
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx Exclusive (immutable) trx to iterate with.
+   * @param mIfAxis Test expression
+   * @param mThenAxis Will be evaluated if test expression evaluates to true.
+   * @param mElseAxis Will be evaluated if test expression evaluates to false.
+   */
+  public IfAxis(final XdmNodeReadTrx rtx, final Axis mIfAxis, final Axis mThenAxis,
+      final Axis mElseAxis) {
 
-		super(rtx);
-		mIf = mIfAxis;
-		mThen = mThenAxis;
-		mElse = mElseAxis;
-		mFirst = true;
-	}
+    super(rtx);
+    mIf = mIfAxis;
+    mThen = mThenAxis;
+    mElse = mElseAxis;
+    mFirst = true;
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public void reset(final long mNodeKey) {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void reset(final long mNodeKey) {
 
-		super.reset(mNodeKey);
-		mFirst = true;
+    super.reset(mNodeKey);
+    mFirst = true;
 
-		if (mIf != null) {
-			mIf.reset(mNodeKey);
-		}
+    if (mIf != null) {
+      mIf.reset(mNodeKey);
+    }
 
-		if (mThen != null) {
-			mThen.reset(mNodeKey);
-		}
+    if (mThen != null) {
+      mThen.reset(mNodeKey);
+    }
 
-		if (mElse != null) {
-			mElse.reset(mNodeKey);
-		}
+    if (mElse != null) {
+      mElse.reset(mNodeKey);
+    }
 
-	}
+  }
 
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public boolean hasNext() {
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public boolean hasNext() {
 
-		resetToLastKey();
+    resetToLastKey();
 
-		if (mFirst) {
-			mFirst = false;
-			try {
-				mResult = (Function.ebv(mIf)) ? mThen : mElse;
-			} catch (SirixXPathException e) {
-				throw new RuntimeException(e);
-			}
-		}
+    if (mFirst) {
+      mFirst = false;
+      try {
+        mResult = (Function.ebv(mIf)) ? mThen : mElse;
+      } catch (SirixXPathException e) {
+        throw new RuntimeException(e);
+      }
+    }
 
-		if (mResult.hasNext()) {
-			mKey = mResult.next();
-			return true;
-		} else {
-			resetToStartKey();
-			return false;
-		}
-	}
+    if (mResult.hasNext()) {
+      mKey = mResult.next();
+      return true;
+    } else {
+      resetToStartKey();
+      return false;
+    }
+  }
 
 }

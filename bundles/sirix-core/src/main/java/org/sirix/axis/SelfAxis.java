@@ -32,32 +32,32 @@ import org.sirix.api.XdmNodeReadTrx;
  */
 public final class SelfAxis extends AbstractAxis {
 
-	/** Track number of calls of next. */
-	private boolean mFirst;
+  /** Track number of calls of next. */
+  private boolean mFirst;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public SelfAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public SelfAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mFirst = true;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mFirst = true;
+  }
 
-	@Override
-	protected long nextKey() {
-		if (mFirst) {
-			mFirst = false;
-			return getTrx().getNodeKey();
-		}
+  @Override
+  protected long nextKey() {
+    if (mFirst) {
+      mFirst = false;
+      return getTrx().getNodeKey();
+    }
 
-		return done();
-	}
+    return done();
+  }
 
 }

@@ -22,7 +22,6 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -40,91 +39,91 @@ import org.sirix.utils.DocumentCreater;
 
 public class MultipleCommitTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		holder = Holder.generateWtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    holder = Holder.generateWtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void test() throws SirixException {
-		assertEquals(1L, holder.getWriter().getRevisionNumber());
-		holder.getWriter().commit();
+  @Test
+  public void test() throws SirixException {
+    assertEquals(1L, holder.getWriter().getRevisionNumber());
+    holder.getWriter().commit();
 
-		holder.getWriter().insertElementAsFirstChild(new QNm("foo"));
-		assertEquals(2L, holder.getWriter().getRevisionNumber());
-		holder.getWriter().moveTo(1);
-		assertEquals(new QNm("foo"), holder.getWriter().getName());
-		holder.getWriter().rollback();
+    holder.getWriter().insertElementAsFirstChild(new QNm("foo"));
+    assertEquals(2L, holder.getWriter().getRevisionNumber());
+    holder.getWriter().moveTo(1);
+    assertEquals(new QNm("foo"), holder.getWriter().getName());
+    holder.getWriter().rollback();
 
-		assertEquals(2L, holder.getWriter().getRevisionNumber());
-	}
+    assertEquals(2L, holder.getWriter().getRevisionNumber());
+  }
 
-	@Test
-	public void testAutoCommit() throws SirixException {
-		DocumentCreater.create(holder.getWriter());
-		holder.getWriter().commit();
+  @Test
+  public void testAutoCommit() throws SirixException {
+    DocumentCreater.create(holder.getWriter());
+    holder.getWriter().commit();
 
-		final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-		rtx.close();
-	}
+    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    rtx.close();
+  }
 
-	@Test
-	public void testRemove() throws SirixException {
-		DocumentCreater.create(holder.getWriter());
-		holder.getWriter().commit();
-		assertEquals(2L, holder.getWriter().getRevisionNumber());
+  @Test
+  public void testRemove() throws SirixException {
+    DocumentCreater.create(holder.getWriter());
+    holder.getWriter().commit();
+    assertEquals(2L, holder.getWriter().getRevisionNumber());
 
-		holder.getWriter().moveToDocumentRoot();
-		holder.getWriter().moveToFirstChild();
-		holder.getWriter().remove();
-		holder.getWriter().commit();
-		assertEquals(3L, holder.getWriter().getRevisionNumber());
-	}
+    holder.getWriter().moveToDocumentRoot();
+    holder.getWriter().moveToFirstChild();
+    holder.getWriter().remove();
+    holder.getWriter().commit();
+    assertEquals(3L, holder.getWriter().getRevisionNumber());
+  }
 
-	@Test
-	public void testAttributeRemove() throws SirixException {
-		DocumentCreater.create(holder.getWriter());
-		holder.getWriter().commit();
-		holder.getWriter().moveToDocumentRoot();
+  @Test
+  public void testAttributeRemove() throws SirixException {
+    DocumentCreater.create(holder.getWriter());
+    holder.getWriter().commit();
+    holder.getWriter().moveToDocumentRoot();
 
-		final AbstractAxis postorderAxis = new PostOrderAxis(holder.getWriter());
-		while (postorderAxis.hasNext()) {
-			postorderAxis.next();
-			if (holder.getWriter().getKind() == Kind.ELEMENT
-					&& holder.getWriter().getAttributeCount() > 0) {
-				for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
-					holder.getWriter().moveToAttribute(i);
-					holder.getWriter().remove();
-				}
-			}
-		}
-		holder.getWriter().commit();
-		holder.getWriter().moveToDocumentRoot();
+    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getWriter());
+    while (postorderAxis.hasNext()) {
+      postorderAxis.next();
+      if (holder.getWriter().getKind() == Kind.ELEMENT
+          && holder.getWriter().getAttributeCount() > 0) {
+        for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
+          holder.getWriter().moveToAttribute(i);
+          holder.getWriter().remove();
+        }
+      }
+    }
+    holder.getWriter().commit();
+    holder.getWriter().moveToDocumentRoot();
 
-		int attrTouch = 0;
-		final Axis descAxis = new DescendantAxis(holder.getWriter());
-		while (descAxis.hasNext()) {
-			descAxis.next();
-			if (holder.getWriter().getKind() == Kind.ELEMENT) {
-				for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
-					if (holder.getWriter().moveToAttribute(i).hasMoved()) {
-						attrTouch++;
-					} else {
-						throw new IllegalStateException("Should never occur!");
-					}
-				}
-			}
-		}
-		assertEquals(0, attrTouch);
+    int attrTouch = 0;
+    final Axis descAxis = new DescendantAxis(holder.getWriter());
+    while (descAxis.hasNext()) {
+      descAxis.next();
+      if (holder.getWriter().getKind() == Kind.ELEMENT) {
+        for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
+          if (holder.getWriter().moveToAttribute(i).hasMoved()) {
+            attrTouch++;
+          } else {
+            throw new IllegalStateException("Should never occur!");
+          }
+        }
+      }
+    }
+    assertEquals(0, attrTouch);
 
-	}
+  }
 }

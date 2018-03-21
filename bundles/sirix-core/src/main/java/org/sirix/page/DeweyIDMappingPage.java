@@ -10,9 +10,9 @@ import org.sirix.page.interfaces.Page;
  */
 public class DeweyIDMappingPage extends AbstractForwardingPage {
 
-	@Override
-	protected Page delegate() {
-		return null;
-	}
+  @Override
+  protected Page delegate() {
+    return null;
+  }
 
 }

@@ -38,45 +38,45 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class ExceptAxisTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testExcept() throws SirixException {
+  @Test
+  public void testExcept() throws SirixException {
 
-		holder.getReader().moveTo(1L);
+    holder.getReader().moveTo(1L);
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::node() except b"),
-				new long[] {4L, 8L, 13L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::node() except b"),
+        new long[] {4L, 8L, 13L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "child::node() except child::node()[attribute::p:x]"),
-				new long[] {4L, 5L, 8L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "child::node() except child::node()[attribute::p:x]"),
+        new long[] {4L, 5L, 8L, 13L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "child::node()/parent::node() except self::node()"),
-				new long[] {});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "child::node()/parent::node() except self::node()"),
+        new long[] {});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "//node() except //text()"),
-				new long[] {1L, 5L, 9L, 7L, 11L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "//node() except //text()"),
+        new long[] {1L, 5L, 9L, 7L, 11L});
 
-		holder.getReader().moveTo(1L);
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "b/preceding::node() except text()"),
-				new long[] {7L, 6L, 5L});
+    holder.getReader().moveTo(1L);
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "b/preceding::node() except text()"),
+        new long[] {7L, 6L, 5L});
 
-	}
+  }
 
 }

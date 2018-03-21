@@ -22,9 +22,7 @@
 package org.sirix.diff;
 
 import java.io.IOException;
-
 import javax.xml.stream.XMLStreamException;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,72 +40,72 @@ import org.sirix.exception.SirixException;
  */
 public class FullDiffTest {
 
-	/** Holder for testing. */
-	private Holder mHolder;
+  /** Holder for testing. */
+  private Holder mHolder;
 
-	/** Observer. */
-	private DiffObserver mObserver;
+  /** Observer. */
+  private DiffObserver mObserver;
 
-	@Before
-	public void setUp() throws SirixException {
-		DiffTestHelper.setUp();
-		mHolder = Holder.generateWtx();
-		mObserver = DiffTestHelper.createMock();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    DiffTestHelper.setUp();
+    mHolder = Holder.generateWtx();
+    mObserver = DiffTestHelper.createMock();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testFullDiffFirst() throws SirixException, InterruptedException {
-		DiffTestHelper.setUpFirst(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyFullDiffFirst(mObserver);
-	}
+  @Test
+  public void testFullDiffFirst() throws SirixException, InterruptedException {
+    DiffTestHelper.setUpFirst(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyFullDiffFirst(mObserver);
+  }
 
-	@Test
-	public void testOptimizedFirst() throws InterruptedException, SirixException {
-		DiffTestHelper.setUpFirst(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.HASHED);
-		DiffTestHelper.verifyOptimizedFullDiffFirst(mObserver);
-	}
+  @Test
+  public void testOptimizedFirst() throws InterruptedException, SirixException {
+    DiffTestHelper.setUpFirst(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.HASHED);
+    DiffTestHelper.verifyOptimizedFullDiffFirst(mObserver);
+  }
 
-	@Test
-	public void testFullDiffSecond()
-			throws SirixException, InterruptedException, IOException, XMLStreamException {
-		DiffTestHelper.setUpSecond(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffSecond(mObserver);
-	}
+  @Test
+  public void testFullDiffSecond()
+      throws SirixException, InterruptedException, IOException, XMLStreamException {
+    DiffTestHelper.setUpSecond(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyDiffSecond(mObserver);
+  }
 
-	@Test
-	public void testFullDiffThird()
-			throws SirixException, IOException, XMLStreamException, InterruptedException {
-		DiffTestHelper.setUpThird(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffThird(mObserver);
-	}
+  @Test
+  public void testFullDiffThird()
+      throws SirixException, IOException, XMLStreamException, InterruptedException {
+    DiffTestHelper.setUpThird(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyDiffThird(mObserver);
+  }
 
-	@Test
-	public void testFullDiffFourth() throws Exception {
-		DiffTestHelper.setUpFourth(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffFourth(mObserver);
-	}
+  @Test
+  public void testFullDiffFourth() throws Exception {
+    DiffTestHelper.setUpFourth(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyDiffFourth(mObserver);
+  }
 
-	@Test
-	public void testFullDiffFifth() throws Exception {
-		DiffTestHelper.setUpFifth(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffFifth(mObserver);
-	}
+  @Test
+  public void testFullDiffFifth() throws Exception {
+    DiffTestHelper.setUpFifth(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyDiffFifth(mObserver);
+  }
 
-	@Test
-	public void testFullDiffSixth() throws Exception {
-		DiffTestHelper.setUpSixth(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffSixth(mObserver);
-	}
+  @Test
+  public void testFullDiffSixth() throws Exception {
+    DiffTestHelper.setUpSixth(mHolder);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
+    DiffTestHelper.verifyDiffSixth(mObserver);
+  }
 }

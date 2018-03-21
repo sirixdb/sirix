@@ -22,9 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -42,64 +40,64 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
  */
 public class UnionAxis extends AbstractAxis {
 
-	/** First operand sequence. */
-	private final Axis mOp1;
+  /** First operand sequence. */
+  private final Axis mOp1;
 
-	/** Second operand sequence. */
-	private final Axis mOp2;
+  /** Second operand sequence. */
+  private final Axis mOp2;
 
-	/**
-	 * Constructor. Initializes the internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 * @param operand1 first operand
-	 * @param operand2 second operand
-	 */
-	public UnionAxis(final XdmNodeReadTrx rtx, @Nonnull final Axis operand1,
-			@Nonnull final Axis operand2) {
-		super(rtx);
-		mOp1 = checkNotNull(operand1);
-		mOp2 = checkNotNull(operand2);
-	}
+  /**
+   * Constructor. Initializes the internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   * @param operand1 first operand
+   * @param operand2 second operand
+   */
+  public UnionAxis(final XdmNodeReadTrx rtx, @Nonnull final Axis operand1,
+      @Nonnull final Axis operand2) {
+    super(rtx);
+    mOp1 = checkNotNull(operand1);
+    mOp2 = checkNotNull(operand2);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
 
-		if (mOp1 != null) {
-			mOp1.reset(nodeKey);
-		}
-		if (mOp2 != null) {
-			mOp2.reset(nodeKey);
-		}
-	}
+    if (mOp1 != null) {
+      mOp1.reset(nodeKey);
+    }
+    if (mOp2 != null) {
+      mOp2.reset(nodeKey);
+    }
+  }
 
-	@Override
-	public boolean hasNext() {
-		resetToLastKey();
-		// first return all values of the first operand
-		while (mOp1.hasNext()) {
-			mKey = mOp1.next();
+  @Override
+  public boolean hasNext() {
+    resetToLastKey();
+    // first return all values of the first operand
+    while (mOp1.hasNext()) {
+      mKey = mOp1.next();
 
-			if (getTrx().getNodeKey() < 0) { // only nodes are
-				// allowed
-				throw new XPathError(ErrorType.XPTY0004);
-			}
-			return true;
-		}
+      if (getTrx().getNodeKey() < 0) { // only nodes are
+        // allowed
+        throw new XPathError(ErrorType.XPTY0004);
+      }
+      return true;
+    }
 
-		// then all values of the second operand.
-		while (mOp2.hasNext()) {
-			mKey = mOp2.next();
+    // then all values of the second operand.
+    while (mOp2.hasNext()) {
+      mKey = mOp2.next();
 
-			if (getTrx().getNodeKey() < 0) { // only nodes are
-				// allowed
-				throw new XPathError(ErrorType.XPTY0004);
-			}
-			return true;
-		}
+      if (getTrx().getNodeKey() < 0) { // only nodes are
+        // allowed
+        throw new XPathError(ErrorType.XPTY0004);
+      }
+      return true;
+    }
 
-		return false;
-	}
+    return false;
+  }
 
 }

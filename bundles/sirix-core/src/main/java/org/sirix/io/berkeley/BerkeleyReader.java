@@ -22,12 +22,9 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Objects;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -36,7 +33,6 @@ import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -56,111 +52,111 @@ import com.sleepycat.je.Transaction;
  */
 public final class BerkeleyReader implements Reader {
 
-	/** {@link Database} reference. */
-	private final Database mDatabase;
+  /** {@link Database} reference. */
+  private final Database mDatabase;
 
-	/** {@link Transaction} reference. */
-	private final Transaction mTxn;
+  /** {@link Transaction} reference. */
+  private final Transaction mTxn;
 
-	/** {@link PageBinding} reference. */
-	private PageBinding mPageBinding;
+  /** {@link PageBinding} reference. */
+  private PageBinding mPageBinding;
 
-	/** {@link ByteHandlePipeline} reference. */
-	private final ByteHandlePipeline mByteHandler;
+  /** {@link ByteHandlePipeline} reference. */
+  private final ByteHandlePipeline mByteHandler;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param database {@link Database} reference to be connected to
-	 * @param trx {@link Transaction} to be used
-	 * @param pageBinding page binding
-	 * @throws NullPointerException if {@code pDatabase}, {@code pTxn} or {@code pBinding} is
-	 *         {@code null}
-	 */
-	public BerkeleyReader(final Database database, final Transaction trx,
-			final ByteHandlePipeline byteHandler) {
-		mTxn = checkNotNull(trx);
-		mDatabase = checkNotNull(database);
-		mByteHandler = byteHandler;
-	}
+  /**
+   * Constructor.
+   *
+   * @param database {@link Database} reference to be connected to
+   * @param trx {@link Transaction} to be used
+   * @param pageBinding page binding
+   * @throws NullPointerException if {@code pDatabase}, {@code pTxn} or {@code pBinding} is
+   *         {@code null}
+   */
+  public BerkeleyReader(final Database database, final Transaction trx,
+      final ByteHandlePipeline byteHandler) {
+    mTxn = checkNotNull(trx);
+    mDatabase = checkNotNull(database);
+    mByteHandler = byteHandler;
+  }
 
-	/**
-	 * Constructor.
-	 *
-	 * @param env {@link Envirenment} to be used
-	 * @param database {@link Database} to be connected to
-	 * @param pPageBinding page binding
-	 * @throws DatabaseException if something weird happens
-	 */
-	public BerkeleyReader(final Environment env, @Nonnull final Database database,
-			final ByteHandlePipeline byteHandler) throws DatabaseException {
-		this(database, env.beginTransaction(null, null), byteHandler);
-	}
+  /**
+   * Constructor.
+   *
+   * @param env {@link Envirenment} to be used
+   * @param database {@link Database} to be connected to
+   * @param pPageBinding page binding
+   * @throws DatabaseException if something weird happens
+   */
+  public BerkeleyReader(final Environment env, @Nonnull final Database database,
+      final ByteHandlePipeline byteHandler) throws DatabaseException {
+    this(database, env.beginTransaction(null, null), byteHandler);
+  }
 
-	@Override
-	public Page read(final PageReference key, final PageReadTrx pageReadTrx) throws SirixIOException {
-		mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
-		final DatabaseEntry valueEntry = new DatabaseEntry();
-		final DatabaseEntry keyEntry = new DatabaseEntry();
+  @Override
+  public Page read(final PageReference key, final PageReadTrx pageReadTrx) throws SirixIOException {
+    mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
+    final DatabaseEntry valueEntry = new DatabaseEntry();
+    final DatabaseEntry keyEntry = new DatabaseEntry();
 
-		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(key.getKey(), keyEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(key.getKey(), keyEntry);
 
-		Page page = null;
-		try {
-			final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
-			if (status == OperationStatus.SUCCESS) {
-				page = mPageBinding.entryToObject(valueEntry);
-			}
-			return page;
-		} catch (final DatabaseException exc) {
-			throw new SirixIOException(exc);
-		}
-	}
+    Page page = null;
+    try {
+      final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
+      if (status == OperationStatus.SUCCESS) {
+        page = mPageBinding.entryToObject(valueEntry);
+      }
+      return page;
+    } catch (final DatabaseException exc) {
+      throw new SirixIOException(exc);
+    }
+  }
 
-	@Override
-	public PageReference readUberPageReference() throws SirixIOException {
-		final DatabaseEntry valueEntry = new DatabaseEntry();
-		final DatabaseEntry keyEntry = new DatabaseEntry();
-		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
+  @Override
+  public PageReference readUberPageReference() throws SirixIOException {
+    final DatabaseEntry valueEntry = new DatabaseEntry();
+    final DatabaseEntry keyEntry = new DatabaseEntry();
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
-		try {
-			final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
-			PageReference uberPageReference = new PageReference();
-			if (status == OperationStatus.SUCCESS) {
-				uberPageReference
-						.setKey(TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
-			}
-			final UberPage page = (UberPage) read(uberPageReference, null);
-			if (uberPageReference != null) {
-				uberPageReference.setPage(page);
-			}
-			return uberPageReference;
-		} catch (final DatabaseException e) {
-			throw new SirixIOException(e);
-		}
-	}
+    try {
+      final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
+      PageReference uberPageReference = new PageReference();
+      if (status == OperationStatus.SUCCESS) {
+        uberPageReference
+            .setKey(TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
+      }
+      final UberPage page = (UberPage) read(uberPageReference, null);
+      if (uberPageReference != null) {
+        uberPageReference.setPage(page);
+      }
+      return uberPageReference;
+    } catch (final DatabaseException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public void close() throws SirixIOException {
-		try {
-			mTxn.abort();
-		} catch (final DatabaseException e) {
-			throw new SirixIOException(e);
-		}
-	}
+  @Override
+  public void close() throws SirixIOException {
+    try {
+      mTxn.abort();
+    } catch (final DatabaseException e) {
+      throw new SirixIOException(e);
+    }
+  }
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(mDatabase, mTxn);
-	}
+  @Override
+  public int hashCode() {
+    return Objects.hash(mDatabase, mTxn);
+  }
 
-	@Override
-	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof BerkeleyReader) {
-			final BerkeleyReader other = (BerkeleyReader) obj;
-			return Objects.equals(mDatabase, other.mDatabase) && Objects.equals(mTxn, other.mTxn);
-		}
-		return false;
-	}
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof BerkeleyReader) {
+      final BerkeleyReader other = (BerkeleyReader) obj;
+      return Objects.equals(mDatabase, other.mDatabase) && Objects.equals(mTxn, other.mTxn);
+    }
+    return false;
+  }
 
 }

@@ -30,23 +30,23 @@ package org.sirix.utils;
  */
 public final class NamePageHash {
 
-	/**
-	 * Private Constructor, class should not be instantiated.
-	 */
-	private NamePageHash() {
-		throw new AssertionError();
-	}
+  /**
+   * Private Constructor, class should not be instantiated.
+   */
+  private NamePageHash() {
+    throw new AssertionError();
+  }
 
-	public static int[] generateOffsets(final int key) {
-		final int[] returnval = new int[2];
-		returnval[0] = key & 127;
+  public static int[] generateOffsets(final int key) {
+    final int[] returnval = new int[2];
+    returnval[0] = key & 127;
 
-		// final int secondKey = stringKey*(stringKey+3) % 67;
-		returnval[1] = (key >> 7) & 127;
-		return returnval;
-	}
+    // final int secondKey = stringKey*(stringKey+3) % 67;
+    returnval[1] = (key >> 7) & 127;
+    return returnval;
+  }
 
-	public static int generateHashForString(final String name) {
-		return name.hashCode();
-	}
+  public static int generateHashForString(final String name) {
+    return name.hashCode();
+  }
 }

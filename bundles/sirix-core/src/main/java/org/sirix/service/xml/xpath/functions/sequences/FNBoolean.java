@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -44,73 +43,73 @@ import org.sirix.utils.TypedValue;
  */
 public class FNBoolean extends AbstractFunction {
 
-	/**
-	 * Constructor. Initializes internal state and do a statical analysis concerning the function's
-	 * arguments.
-	 * 
-	 * @param rtx Transaction to operate on
-	 * @param args List of function arguments
-	 * @param min min number of allowed function arguments
-	 * @param max max number of allowed function arguments
-	 * @param returnType the type that the function's result will have
-	 * @throws SirixXPathException if function check fails
-	 */
-	public FNBoolean(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
-			final int returnType) throws SirixXPathException {
+  /**
+   * Constructor. Initializes internal state and do a statical analysis concerning the function's
+   * arguments.
+   * 
+   * @param rtx Transaction to operate on
+   * @param args List of function arguments
+   * @param min min number of allowed function arguments
+   * @param max max number of allowed function arguments
+   * @param returnType the type that the function's result will have
+   * @throws SirixXPathException if function check fails
+   */
+  public FNBoolean(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+      final int returnType) throws SirixXPathException {
 
-		super(rtx, args, min, max, returnType);
-	}
+    super(rtx, args, min, max, returnType);
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 */
-	@Override
-	protected byte[] computeResult() throws SirixXPathException {
+  /**
+   * {@inheritDoc}
+   * 
+   */
+  @Override
+  protected byte[] computeResult() throws SirixXPathException {
 
-		final Axis axis = getArgs().get(0);
-		boolean value = false;
+    final Axis axis = getArgs().get(0);
+    boolean value = false;
 
-		if (axis.hasNext()) {
-			mKey = axis.next();
+    if (axis.hasNext()) {
+      mKey = axis.next();
 
-			final XdmNodeReadTrx rtx = axis.getTrx();
+      final XdmNodeReadTrx rtx = axis.getTrx();
 
-			if (rtx.getNodeKey() >= 0) { // first item is a real node
-																		// ->
-				// true
-				value = true;
-			} else {
+      if (rtx.getNodeKey() >= 0) { // first item is a real node
+                                   // ->
+        // true
+        value = true;
+      } else {
 
-				final Type type = Type.getType(rtx.getTypeKey());
+        final Type type = Type.getType(rtx.getTypeKey());
 
-				if (type.derivesFrom(Type.BOOLEAN)) {
-					value = Boolean.parseBoolean(rtx.getValue());
-					// value = TypedValue.parseBoolean(rtx.getRawValue());
-				} else if (type.derivesFrom(Type.STRING) || type.derivesFrom(Type.ANY_URI)
-						|| type.derivesFrom(Type.UNTYPED_ATOMIC)) {
-					// if length = 0 -> false
-					value = (rtx.getValue().length() > 0);
-				} else if (type.isNumericType()) {
-					final double dValue = Double.parseDouble(rtx.getValue());
-					value = !(Double.isNaN(dValue) || dValue == 0.0d);
-				} else {
-					// for all other types throw error FORG0006
-					throw EXPathError.FORG0006.getEncapsulatedException();
-				}
+        if (type.derivesFrom(Type.BOOLEAN)) {
+          value = Boolean.parseBoolean(rtx.getValue());
+          // value = TypedValue.parseBoolean(rtx.getRawValue());
+        } else if (type.derivesFrom(Type.STRING) || type.derivesFrom(Type.ANY_URI)
+            || type.derivesFrom(Type.UNTYPED_ATOMIC)) {
+          // if length = 0 -> false
+          value = (rtx.getValue().length() > 0);
+        } else if (type.isNumericType()) {
+          final double dValue = Double.parseDouble(rtx.getValue());
+          value = !(Double.isNaN(dValue) || dValue == 0.0d);
+        } else {
+          // for all other types throw error FORG0006
+          throw EXPathError.FORG0006.getEncapsulatedException();
+        }
 
-				// if is not a singleton
-				if (axis.hasNext()) {
-					throw EXPathError.FORG0006.getEncapsulatedException();
-				}
-			}
+        // if is not a singleton
+        if (axis.hasNext()) {
+          throw EXPathError.FORG0006.getEncapsulatedException();
+        }
+      }
 
-		} else {
-			// expression is an empty sequence -> false
-			value = false;
-		}
+    } else {
+      // expression is an empty sequence -> false
+      value = false;
+    }
 
-		return TypedValue.getBytes(Boolean.toString(value));
+    return TypedValue.getBytes(Boolean.toString(value));
 
-	}
+  }
 }

@@ -24,7 +24,6 @@ package org.sirix.service.xml.xpath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-
 import org.sirix.api.ItemList;
 
 /**
@@ -45,59 +44,59 @@ import org.sirix.api.ItemList;
  */
 public final class ItemListImpl implements ItemList<AtomicValue> {
 
-	/**
-	 * Internal storage of items.
-	 */
-	private final List<AtomicValue> mList;
+  /**
+   * Internal storage of items.
+   */
+  private final List<AtomicValue> mList;
 
-	/**
-	 * Constructor. Initializes the list.
-	 */
-	public ItemListImpl() {
-		mList = new ArrayList<>();
-	}
+  /**
+   * Constructor. Initializes the list.
+   */
+  public ItemListImpl() {
+    mList = new ArrayList<>();
+  }
 
-	@Override
-	public int addItem(final AtomicValue item) {
-		final int key = mList.size();
-		item.setNodeKey(key);
-		// TODO: +2 is necessary, because key -1 is the NULL_NODE
-		final int itemKey = (key + 2) * (-1);
-		item.setNodeKey(itemKey);
+  @Override
+  public int addItem(final AtomicValue item) {
+    final int key = mList.size();
+    item.setNodeKey(key);
+    // TODO: +2 is necessary, because key -1 is the NULL_NODE
+    final int itemKey = (key + 2) * (-1);
+    item.setNodeKey(itemKey);
 
-		mList.add(item);
-		return itemKey;
-	}
+    mList.add(item);
+    return itemKey;
+  }
 
-	@Override
-	public Optional<AtomicValue> getItem(final long key) {
-		assert key <= Integer.MAX_VALUE;
+  @Override
+  public Optional<AtomicValue> getItem(final long key) {
+    assert key <= Integer.MAX_VALUE;
 
-		int index = (int) key; // cast to integer, because the list only
-														// accepts
-		// int
+    int index = (int) key; // cast to integer, because the list only
+                           // accepts
+    // int
 
-		if (index < 0) {
-			index = index * (-1);
-		}
+    if (index < 0) {
+      index = index * (-1);
+    }
 
-		// TODO: This is necessary, because key -1 is the NULL_NODE
-		index = index - 2;
+    // TODO: This is necessary, because key -1 is the NULL_NODE
+    index = index - 2;
 
-		if (index >= 0 && index < mList.size()) {
-			return Optional.of(mList.get(index));
-		} else {
-			return Optional.empty();
-		}
-	}
+    if (index >= 0 && index < mList.size()) {
+      return Optional.of(mList.get(index));
+    } else {
+      return Optional.empty();
+    }
+  }
 
-	public int size() {
-		return mList.size();
-	}
+  public int size() {
+    return mList.size();
+  }
 
-	@Override
-	public String toString() {
-		return new StringBuilder("ItemList: ").append(mList.toString()).toString();
-	}
+  @Override
+  public String toString() {
+    return new StringBuilder("ItemList: ").append(mList.toString()).toString();
+  }
 
 }

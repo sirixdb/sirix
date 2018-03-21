@@ -41,112 +41,112 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
  *
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.",
-		parameters = {"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths"})
+    parameters = {"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths"})
 public final class ScanCASIndex extends AbstractFunction {
 
-	public final static QNm DEFAULT_NAME =
-			new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-cas-index");
+  public final static QNm DEFAULT_NAME =
+      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-cas-index");
 
-	public ScanCASIndex() {
-		super(DEFAULT_NAME,
-				new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-						SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
-						new SequenceType(AtomicType.ANA, Cardinality.One),
-						new SequenceType(AtomicType.BOOL, Cardinality.One),
-						new SequenceType(AtomicType.INR, Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
-				true);
-	}
+  public ScanCASIndex() {
+    super(DEFAULT_NAME,
+        new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
+            SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AtomicType.ANA, Cardinality.One),
+            new SequenceType(AtomicType.BOOL, Cardinality.One),
+            new SequenceType(AtomicType.INR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
+        true);
+  }
 
-	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
-		final DBNode doc = (DBNode) args[0];
-		final XdmNodeReadTrx rtx = doc.getTrx();
-		final IndexController controller =
-				rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+  @Override
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+      throws QueryException {
+    final DBNode doc = (DBNode) args[0];
+    final XdmNodeReadTrx rtx = doc.getTrx();
+    final IndexController controller =
+        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
-		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
-		}
+    if (controller == null) {
+      throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+    }
 
-		final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
+    final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
 
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.CAS);
+    final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.CAS);
 
-		if (indexDef == null) {
-			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
-					"Index no %s for collection %s and document %s not found.", idx,
-					doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-							.getResource().getFileName().toString());
-		}
-		if (indexDef.getType() != IndexType.CAS) {
-			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-					"Index no %s for collection %s and document %s is not a CAS index.", idx,
-					doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-							.getResource().getFileName().toString());
-		}
+    if (indexDef == null) {
+      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
+          "Index no %s for collection %s and document %s not found.", idx,
+          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
+              .getResource().getFileName().toString());
+    }
+    if (indexDef.getType() != IndexType.CAS) {
+      throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
+          "Index no %s for collection %s and document %s is not a CAS index.", idx,
+          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
+              .getResource().getFileName().toString());
+    }
 
-		final Type keyType = indexDef.getContentType();
-		final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-		FunUtil.getBoolean(args, 3, "$include-low-key", true, true);
-		final int[] searchModes = new int[] {-2, -1, 0, 1, 2};
-		final int searchMode = FunUtil.getInt(args, 4, "$search-mode", 0, searchModes, true);
+    final Type keyType = indexDef.getContentType();
+    final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
+    FunUtil.getBoolean(args, 3, "$include-low-key", true, true);
+    final int[] searchModes = new int[] {-2, -1, 0, 1, 2};
+    final int searchMode = FunUtil.getInt(args, 4, "$search-mode", 0, searchModes, true);
 
-		final SearchMode mode;
-		switch (searchMode) {
-			case -2:
-				mode = SearchMode.LESS;
-				break;
-			case -1:
-				mode = SearchMode.LESS_OR_EQUAL;
-				break;
-			case 0:
-				mode = SearchMode.EQUAL;
-				break;
-			case 1:
-				mode = SearchMode.GREATER;
-				break;
-			case 2:
-				mode = SearchMode.GREATER_OR_EQUAL;
-				break;
-			default:
-				// May never happen.
-				mode = SearchMode.EQUAL;
-		}
+    final SearchMode mode;
+    switch (searchMode) {
+      case -2:
+        mode = SearchMode.LESS;
+        break;
+      case -1:
+        mode = SearchMode.LESS_OR_EQUAL;
+        break;
+      case 0:
+        mode = SearchMode.EQUAL;
+        break;
+      case 1:
+        mode = SearchMode.GREATER;
+        break;
+      case 2:
+        mode = SearchMode.GREATER_OR_EQUAL;
+        break;
+      default:
+        // May never happen.
+        mode = SearchMode.EQUAL;
+    }
 
-		final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);
-		final CASFilter filter = (paths != null)
-				? controller.createCASFilter(paths.split(";"), key, mode, new PCRCollectorImpl(rtx))
-				: controller.createCASFilter(new String[] {}, key, mode, new PCRCollectorImpl(rtx));
+    final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);
+    final CASFilter filter = (paths != null)
+        ? controller.createCASFilter(paths.split(";"), key, mode, new PCRCollectorImpl(rtx))
+        : controller.createCASFilter(new String[] {}, key, mode, new PCRCollectorImpl(rtx));
 
-		final IndexController ic = controller;
-		final DBNode node = doc;
+    final IndexController ic = controller;
+    final DBNode node = doc;
 
-		return new LazySequence() {
-			@Override
-			public Iter iterate() {
-				return new BaseIter() {
-					Stream<?> s;
+    return new LazySequence() {
+      @Override
+      public Iter iterate() {
+        return new BaseIter() {
+          Stream<?> s;
 
-					@Override
-					public Item next() throws QueryException {
-						if (s == null) {
-							s = new SirixNodeKeyStream(
-									ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
-									node.getCollection(), node.getTrx());
-						}
-						return (Item) s.next();
-					}
+          @Override
+          public Item next() throws QueryException {
+            if (s == null) {
+              s = new SirixNodeKeyStream(
+                  ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
+                  node.getCollection(), node.getTrx());
+            }
+            return (Item) s.next();
+          }
 
-					@Override
-					public void close() {
-						if (s != null) {
-							s.close();
-						}
-					}
-				};
-			}
-		};
-	}
+          @Override
+          public void close() {
+            if (s != null) {
+              s.close();
+            }
+          }
+        };
+      }
+    };
+  }
 }

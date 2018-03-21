@@ -30,19 +30,19 @@ package org.sirix.node.interfaces;
  * 
  */
 public interface ValueNode extends Node {
-	/**
-	 * Return a byte array representation of the item's value.
-	 * 
-	 * @return the value of the node
-	 */
-	byte[] getRawValue();
+  /**
+   * Return a byte array representation of the item's value.
+   * 
+   * @return the value of the node
+   */
+  byte[] getRawValue();
 
-	/**
-	 * Setting the value key.
-	 * 
-	 * @param value the value to be set
-	 */
-	void setValue(byte[] value);
+  /**
+   * Setting the value key.
+   * 
+   * @param value the value to be set
+   */
+  void setValue(byte[] value);
 
-	String getValue();
+  String getValue();
 }

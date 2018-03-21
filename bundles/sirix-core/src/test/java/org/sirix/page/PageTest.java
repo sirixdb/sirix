@@ -4,14 +4,12 @@
 package org.sirix.page;
 
 import static org.testng.AssertJUnit.assertTrue;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
-
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.PageReadTrx;
@@ -36,88 +34,88 @@ import org.testng.annotations.Test;
  */
 public class PageTest {
 
-	/** {@link Holder} instance. */
-	private Holder mHolder;
+  /** {@link Holder} instance. */
+  private Holder mHolder;
 
-	/** Sirix {@link PageReadTrx} instance. */
-	private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadTrx} instance. */
+  private PageReadTrx mPageReadTrx;
 
-	@BeforeClass
-	public void setUp() throws SirixException {
-		TestHelper.closeEverything();
-		TestHelper.deleteEverything();
-		TestHelper.createTestDocument();
-		mHolder = Holder.generateDeweyIDResourceMgr();
-		mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
-	}
+  @BeforeClass
+  public void setUp() throws SirixException {
+    TestHelper.closeEverything();
+    TestHelper.deleteEverything();
+    TestHelper.createTestDocument();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+  }
 
-	@AfterClass
-	public void tearDown() throws SirixException {
-		mPageReadTrx.close();
-		mHolder.close();
-	}
+  @AfterClass
+  public void tearDown() throws SirixException {
+    mPageReadTrx.close();
+    mHolder.close();
+  }
 
-	/**
-	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
-	 * {@link org.Page.page.IPage#getByteRepresentation()}.
-	 *
-	 * @param clazz page as class
-	 * @param handlers different pages
-	 * @throws IOException
-	 */
-	@Test(dataProvider = "instantiatePages")
-	public void testByteRepresentation(final Class<Page> clazz, final Page[] handlers)
-			throws IOException {
-		for (final Page handler : handlers) {
-			final ByteArrayOutputStream out = new ByteArrayOutputStream();
-			handler.serialize(new DataOutputStream(out), SerializationType.COMMIT);
-			final byte[] pageBytes = out.toByteArray();
+  /**
+   * Test method for {@link org.Page.page.IPage#IPage(long)} and
+   * {@link org.Page.page.IPage#getByteRepresentation()}.
+   *
+   * @param clazz page as class
+   * @param handlers different pages
+   * @throws IOException
+   */
+  @Test(dataProvider = "instantiatePages")
+  public void testByteRepresentation(final Class<Page> clazz, final Page[] handlers)
+      throws IOException {
+    for (final Page handler : handlers) {
+      final ByteArrayOutputStream out = new ByteArrayOutputStream();
+      handler.serialize(new DataOutputStream(out), SerializationType.COMMIT);
+      final byte[] pageBytes = out.toByteArray();
 
-			final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
-			final Page serializedPage = PageKind.getKind(handler.getClass()).deserializePage(
-					new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx,
-					SerializationType.COMMIT);
-			serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.COMMIT);
-			assertTrue(
-					new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
-					Arrays.equals(pageBytes, serializedOutput.toByteArray()));
-		}
-	}
+      final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
+      final Page serializedPage = PageKind.getKind(handler.getClass()).deserializePage(
+          new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx,
+          SerializationType.COMMIT);
+      serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.COMMIT);
+      assertTrue(
+          new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+          Arrays.equals(pageBytes, serializedOutput.toByteArray()));
+    }
+  }
 
-	/**
-	 * Providing different implementations of the {@link Page} as Dataprovider to the test class.
-	 *
-	 * @return different classes of the {@link ByteHandler}
-	 * @throws SirixIOException if an I/O error occurs
-	 */
-	@DataProvider(name = "instantiatePages")
-	public Object[][] instantiatePages() throws SirixIOException {
-		// IndirectPage setup.
-		final IndirectPage indirectPage = new IndirectPage();
-		// RevisionRootPage setup.
-		// final RevisionRootPage revRootPage = new RevisionRootPage();
+  /**
+   * Providing different implementations of the {@link Page} as Dataprovider to the test class.
+   *
+   * @return different classes of the {@link ByteHandler}
+   * @throws SirixIOException if an I/O error occurs
+   */
+  @DataProvider(name = "instantiatePages")
+  public Object[][] instantiatePages() throws SirixIOException {
+    // IndirectPage setup.
+    final IndirectPage indirectPage = new IndirectPage();
+    // RevisionRootPage setup.
+    // final RevisionRootPage revRootPage = new RevisionRootPage();
 
-		// NodePage setup.
-		final UnorderedKeyValuePage nodePage =
-				new UnorderedKeyValuePage(TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
-						Constants.NULL_ID_LONG, mPageReadTrx);
-		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-			final Record record = TestHelper.generateOne();
-			nodePage.setEntry(record.getNodeKey(), record);
-		}
-		// NamePage setup.
-		final NamePage namePage = new NamePage();
-		namePage.setName(TestHelper.random.nextInt(), new String(TestHelper.generateRandomBytes(256)),
-				Kind.ELEMENT);
+    // NodePage setup.
+    final UnorderedKeyValuePage nodePage =
+        new UnorderedKeyValuePage(TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
+            Constants.NULL_ID_LONG, mPageReadTrx);
+    for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
+      final Record record = TestHelper.generateOne();
+      nodePage.setEntry(record.getNodeKey(), record);
+    }
+    // NamePage setup.
+    final NamePage namePage = new NamePage();
+    namePage.setName(TestHelper.random.nextInt(), new String(TestHelper.generateRandomBytes(256)),
+        Kind.ELEMENT);
 
-		// ValuePage setup.
-		final PathPage valuePage = new PathPage();
+    // ValuePage setup.
+    final PathPage valuePage = new PathPage();
 
-		// PathSummaryPage setup.
-		final PathSummaryPage pathSummaryPage = new PathSummaryPage();
+    // PathSummaryPage setup.
+    final PathSummaryPage pathSummaryPage = new PathSummaryPage();
 
-		Object[][] returnVal =
-				{{Page.class, new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}}};
-		return returnVal;
-	}
+    Object[][] returnVal =
+        {{Page.class, new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}}};
+    return returnVal;
+  }
 }

@@ -1,7 +1,6 @@
 package org.sirix.axis.temporal;
 
 import java.util.Iterator;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -10,7 +9,6 @@ import org.sirix.TestHelper;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -23,35 +21,35 @@ import com.google.common.collect.testing.IteratorTester;
  */
 public final class FirstAxisTest {
 
-	/** Number of iterations. */
-	private static final int ITERATIONS = 5;
+  /** Number of iterations. */
+  private static final int ITERATIONS = 5;
 
-	/** The {@link Holder} instance. */
-	private Holder holder;
+  /** The {@link Holder} instance. */
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		DocumentCreater.createVersioned(Holder.generateWtx().getWriter());
-		holder = Holder.generateRtx();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    DocumentCreater.createVersioned(Holder.generateWtx().getWriter());
+    holder = Holder.generateRtx();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testAxis() throws SirixException {
-		final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
+  @Test
+  public void testAxis() throws SirixException {
+    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
 
-		new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(firstRtx), null) {
-			@Override
-			protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-				return new FirstAxis(holder.getReader());
-			}
-		}.test();
-	}
+    new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(firstRtx), null) {
+      @Override
+      protected Iterator<XdmNodeReadTrx> newTargetIterator() {
+        return new FirstAxis(holder.getReader());
+      }
+    }.test();
+  }
 }

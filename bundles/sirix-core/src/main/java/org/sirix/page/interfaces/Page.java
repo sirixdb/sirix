@@ -22,10 +22,8 @@ package org.sirix.page.interfaces;
 
 import java.io.DataOutput;
 import java.io.IOException;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
@@ -41,36 +39,36 @@ import org.sirix.page.SerializationType;
  */
 public interface Page {
 
-	/**
-	 * Serialize a page
-	 *
-	 * @param out {@link DataOutput} to serialize to
-	 * @param type serialization type (currently transaction intent log or normal commit)
-	 * @throws IOException if serialization fails
-	 */
-	void serialize(DataOutput out, SerializationType type) throws IOException;
+  /**
+   * Serialize a page
+   *
+   * @param out {@link DataOutput} to serialize to
+   * @param type serialization type (currently transaction intent log or normal commit)
+   * @throws IOException if serialization fails
+   */
+  void serialize(DataOutput out, SerializationType type) throws IOException;
 
-	/**
-	 * Get all page references.
-	 *
-	 * @return all page references
-	 */
-	PageReference[] getReferences();
+  /**
+   * Get all page references.
+   *
+   * @return all page references
+   */
+  PageReference[] getReferences();
 
-	/**
-	 * Commit page.
-	 *
-	 * @param pageWriteTrx {@link PageWriteTrx} implementation
-	 * @throws SirixIOException if an I/O exception occured
-	 */
-	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx);
+  /**
+   * Commit page.
+   *
+   * @param pageWriteTrx {@link PageWriteTrx} implementation
+   * @throws SirixIOException if an I/O exception occured
+   */
+  <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+      @Nonnull PageWriteTrx<K, V, S> pageWriteTrx);
 
-	/**
-	 * Get the {@link PageReference} at the specified offset
-	 *
-	 * @param offset the offset
-	 * @return the {@link PageReference} at the specified offset
-	 */
-	PageReference getReference(@Nonnegative int offset);
+  /**
+   * Get the {@link PageReference} at the specified offset
+   *
+   * @param offset the offset
+   * @return the {@link PageReference} at the specified offset
+   */
+  PageReference getReference(@Nonnegative int offset);
 }

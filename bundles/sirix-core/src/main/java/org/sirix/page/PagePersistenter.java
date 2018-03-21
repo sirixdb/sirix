@@ -24,9 +24,7 @@ package org.sirix.page;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.interfaces.Page;
 
@@ -38,28 +36,28 @@ import org.sirix.page.interfaces.Page;
  */
 public final class PagePersistenter {
 
-	/**
-	 * Deserialize page.
-	 *
-	 * @param source source to read from
-	 * @param pageReadTrx instance of class, which implements the {@link PageReadTrx} interface
-	 * @return {@link Page} instance
-	 * @throws IOException if an exception during deserialization of a page occurs
-	 */
-	public static @Nonnull Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
-			final SerializationType type) throws IOException {
-		return PageKind.getKind(source.readByte()).deserializePage(source, pageReadTrx, type);
-	}
+  /**
+   * Deserialize page.
+   *
+   * @param source source to read from
+   * @param pageReadTrx instance of class, which implements the {@link PageReadTrx} interface
+   * @return {@link Page} instance
+   * @throws IOException if an exception during deserialization of a page occurs
+   */
+  public static @Nonnull Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+      final SerializationType type) throws IOException {
+    return PageKind.getKind(source.readByte()).deserializePage(source, pageReadTrx, type);
+  }
 
-	/**
-	 * Serialize page.
-	 *
-	 * @param sink output sink
-	 * @param page the {@link Page} to serialize
-	 * @throws IOException if an exception during serialization of a page occurs
-	 */
-	public static void serializePage(final DataOutput sink, final Page page,
-			final SerializationType type) throws IOException {
-		PageKind.getKind(page.getClass()).serializePage(sink, page, type);
-	}
+  /**
+   * Serialize page.
+   *
+   * @param sink output sink
+   * @param page the {@link Page} to serialize
+   * @throws IOException if an exception during serialization of a page occurs
+   */
+  public static void serializePage(final DataOutput sink, final Page page,
+      final SerializationType type) throws IOException {
+    PageKind.getKind(page.getClass()).serializePage(sink, page, type);
+  }
 }

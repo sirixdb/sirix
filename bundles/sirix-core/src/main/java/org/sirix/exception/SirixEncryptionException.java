@@ -28,12 +28,12 @@ package org.sirix.exception;
  *
  */
 public class SirixEncryptionException extends SirixException {
-	/**
-	 * Constructor.
-	 *
-	 * @param message message as string, they are concatenated with spaces in between
-	 */
-	public SirixEncryptionException(final String... message) {
-		super(message);
-	}
+  /**
+   * Constructor.
+   *
+   * @param message message as string, they are concatenated with spaces in between
+   */
+  public SirixEncryptionException(final String... message) {
+    super(message);
+  }
 }

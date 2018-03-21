@@ -22,7 +22,6 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -35,60 +34,60 @@ import org.sirix.utils.DocumentCreater;
 
 public final class RevertTest {
 
-	private Holder holder;
+  private Holder holder;
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-		holder = Holder.openResourceManager();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+    holder = Holder.openResourceManager();
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		holder.close();
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void test() throws SirixException {
-		XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-		assertEquals(1L, wtx.getRevisionNumber());
-		DocumentCreater.create(wtx);
-		assertEquals(1L, wtx.getRevisionNumber());
-		wtx.commit();
-		assertEquals(2L, wtx.getRevisionNumber());
-		wtx.close();
+  @Test
+  public void test() throws SirixException {
+    XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    assertEquals(1L, wtx.getRevisionNumber());
+    DocumentCreater.create(wtx);
+    assertEquals(1L, wtx.getRevisionNumber());
+    wtx.commit();
+    assertEquals(2L, wtx.getRevisionNumber());
+    wtx.close();
 
-		wtx = holder.getResourceManager().beginNodeWriteTrx();
-		assertEquals(2L, wtx.getRevisionNumber());
-		wtx.moveToFirstChild();
-		wtx.insertElementAsFirstChild(new QNm("bla"));
-		wtx.commit();
-		assertEquals(3L, wtx.getRevisionNumber());
-		wtx.close();
+    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    assertEquals(2L, wtx.getRevisionNumber());
+    wtx.moveToFirstChild();
+    wtx.insertElementAsFirstChild(new QNm("bla"));
+    wtx.commit();
+    assertEquals(3L, wtx.getRevisionNumber());
+    wtx.close();
 
-		wtx = holder.getResourceManager().beginNodeWriteTrx();
-		assertEquals(3L, wtx.getRevisionNumber());
-		wtx.revertTo(1);
-		wtx.commit();
-		assertEquals(4L, wtx.getRevisionNumber());
-		wtx.close();
+    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    assertEquals(3L, wtx.getRevisionNumber());
+    wtx.revertTo(1);
+    wtx.commit();
+    assertEquals(4L, wtx.getRevisionNumber());
+    wtx.close();
 
-		wtx = holder.getResourceManager().beginNodeWriteTrx();
-		assertEquals(4L, wtx.getRevisionNumber());
-		final long rev3MaxNodeKey = wtx.getMaxNodeKey();
-		wtx.close();
+    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    assertEquals(4L, wtx.getRevisionNumber());
+    final long rev3MaxNodeKey = wtx.getMaxNodeKey();
+    wtx.close();
 
-		wtx = holder.getResourceManager().beginNodeWriteTrx();
-		assertEquals(4L, wtx.getRevisionNumber());
-		wtx.revertTo(1);
-		wtx.moveToFirstChild();
-		final long maxNodeKey = wtx.getMaxNodeKey();
-		assertEquals(rev3MaxNodeKey, maxNodeKey);
-		wtx.insertElementAsFirstChild(new QNm(""));
-		assertEquals(maxNodeKey + 1, wtx.getNodeKey());
-		assertEquals(maxNodeKey + 1, wtx.getMaxNodeKey());
-		wtx.commit();
-		wtx.close();
-	}
+    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    assertEquals(4L, wtx.getRevisionNumber());
+    wtx.revertTo(1);
+    wtx.moveToFirstChild();
+    final long maxNodeKey = wtx.getMaxNodeKey();
+    assertEquals(rev3MaxNodeKey, maxNodeKey);
+    wtx.insertElementAsFirstChild(new QNm(""));
+    assertEquals(maxNodeKey + 1, wtx.getNodeKey());
+    assertEquals(maxNodeKey + 1, wtx.getMaxNodeKey());
+    wtx.commit();
+    wtx.close();
+  }
 }

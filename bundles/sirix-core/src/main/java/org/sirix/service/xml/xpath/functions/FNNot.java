@@ -22,7 +22,6 @@
 package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
-
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
@@ -41,36 +40,36 @@ import org.sirix.utils.TypedValue;
  */
 public class FNNot extends AbstractFunction {
 
-	/**
-	 * Constructor.
-	 * 
-	 * Initializes internal state and do a statical analysis concerning the function's arguments.
-	 * 
-	 * @param rtx Transaction to operate on
-	 * @param args List of function arguments
-	 * @param min min number of allowed function arguments
-	 * @param max max number of allowed function arguments
-	 * @param returnType the type that the function's result will have
-	 * @throws SirixXPathException if function check fails
-	 */
-	public FNNot(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
-			final int returnType) throws SirixXPathException {
+  /**
+   * Constructor.
+   * 
+   * Initializes internal state and do a statical analysis concerning the function's arguments.
+   * 
+   * @param rtx Transaction to operate on
+   * @param args List of function arguments
+   * @param min min number of allowed function arguments
+   * @param max max number of allowed function arguments
+   * @param returnType the type that the function's result will have
+   * @throws SirixXPathException if function check fails
+   */
+  public FNNot(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+      final int returnType) throws SirixXPathException {
 
-		super(rtx, args, min, max, returnType);
-	}
+    super(rtx, args, min, max, returnType);
+  }
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 * @throws SirixXPathException
-	 */
-	@Override
-	protected byte[] computeResult() throws SirixXPathException {
-		final Axis axis = getArgs().get(0);
-		final boolean value = !Function.ebv(axis);
+  /**
+   * {@inheritDoc}
+   * 
+   * @throws SirixXPathException
+   */
+  @Override
+  protected byte[] computeResult() throws SirixXPathException {
+    final Axis axis = getArgs().get(0);
+    final boolean value = !Function.ebv(axis);
 
-		return TypedValue.getBytes(Boolean.toString(value));
+    return TypedValue.getBytes(Boolean.toString(value));
 
-	}
+  }
 
 }

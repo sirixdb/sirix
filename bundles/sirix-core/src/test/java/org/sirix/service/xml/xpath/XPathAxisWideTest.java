@@ -22,10 +22,8 @@
 package org.sirix.service.xml.xpath;
 
 import static org.junit.Assert.assertEquals;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,218 +36,218 @@ import org.sirix.service.xml.shredder.XMLShredder;
 
 public class XPathAxisWideTest {
 
-	private static final Path XML = Paths.get("src", "test", "resources", "factbook.xml");
+  private static final Path XML = Paths.get("src", "test", "resources", "factbook.xml");
 
-	@Before
-	public void setUp() throws Exception {
-		TestHelper.deleteEverything();
-		// Setup parsed session.
-		XMLShredder.main(XML.toAbsolutePath().toString(),
-				PATHS.PATH1.getFile().toAbsolutePath().toString());
+  @Before
+  public void setUp() throws Exception {
+    TestHelper.deleteEverything();
+    // Setup parsed session.
+    XMLShredder.main(XML.toAbsolutePath().toString(),
+        PATHS.PATH1.getFile().toAbsolutePath().toString());
 
-	}
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 
-	@Test
-	public void testIterateFactbook() throws Exception {
-		// Verify.
-		final Holder holder = Holder.generateRtx();
-		holder.getReader().moveToDocumentRoot();
+  @Test
+  public void testIterateFactbook() throws Exception {
+    // Verify.
+    final Holder holder = Holder.generateRtx();
+    holder.getReader().moveToDocumentRoot();
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/mondial/continent[@id]"),
-				new long[] {2L, 5L, 8L, 11L, 14L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/mondial/continent[@id]"),
+        new long[] {2L, 5L, 8L, 11L, 14L});
 
-		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "mondial/continent[@name]"),
-				new long[] {2L, 5L, 8L, 11L, 14L});
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "mondial/continent[@name]"),
+        new long[] {2L, 5L, 8L, 11L, 14L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
 
-		AbsAxisTest.testIAxisConventions(
-				new XPathAxis(holder.getReader(), "/mondial/continent[@name = \"Africa\"]"),
-				new long[] {14L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "/mondial/continent[@name = \"Africa\"]"),
+        new long[] {14L});
 
-		final AbstractAxis axis5 = new XPathAxis(holder.getReader(), "mondial/lake/node()");
-		for (int i = 0; i < 61; i++) {
-			assertEquals(true, axis5.hasNext());
-			axis5.next();
-		}
-		// assertEquals(29891L, axis5.next());
-		assertEquals(false, axis5.hasNext());
+    final AbstractAxis axis5 = new XPathAxis(holder.getReader(), "mondial/lake/node()");
+    for (int i = 0; i < 61; i++) {
+      assertEquals(true, axis5.hasNext());
+      axis5.next();
+    }
+    // assertEquals(29891L, axis5.next());
+    assertEquals(false, axis5.hasNext());
 
-		final AbstractAxis axis6 =
-				new XPathAxis(holder.getReader(), "mondial/country/religions/node()");
-		for (int i = 0; i < 446; i++) {
-			assertEquals(true, axis6.hasNext());
-			axis6.next();
-		}
-		assertEquals(false, axis6.hasNext());
+    final AbstractAxis axis6 =
+        new XPathAxis(holder.getReader(), "mondial/country/religions/node()");
+    for (int i = 0; i < 446; i++) {
+      assertEquals(true, axis6.hasNext());
+      axis6.next();
+    }
+    assertEquals(false, axis6.hasNext());
 
-		final AbstractAxis axis7 =
-				new XPathAxis(holder.getReader(), "child::mondial/child::lake/child::node()");
-		for (int i = 0; i < 60; i++) {
-			assertEquals(true, axis7.hasNext());
-			axis7.next();
-		}
-		assertEquals(true, axis7.hasNext());
-		// assertEquals(29891L, axis7.next());
-		axis7.next();
-		assertEquals(false, axis7.hasNext());
+    final AbstractAxis axis7 =
+        new XPathAxis(holder.getReader(), "child::mondial/child::lake/child::node()");
+    for (int i = 0; i < 60; i++) {
+      assertEquals(true, axis7.hasNext());
+      axis7.next();
+    }
+    assertEquals(true, axis7.hasNext());
+    // assertEquals(29891L, axis7.next());
+    axis7.next();
+    assertEquals(false, axis7.hasNext());
 
-		final AbstractAxis axis8 = new XPathAxis(holder.getReader(), "//*[@id]");
-		for (int i = 0; i < 5562; i++) {
-			assertEquals(true, axis8.hasNext());
-			axis8.next();
-		}
-		assertEquals(false, axis8.hasNext());
+    final AbstractAxis axis8 = new XPathAxis(holder.getReader(), "//*[@id]");
+    for (int i = 0; i < 5562; i++) {
+      assertEquals(true, axis8.hasNext());
+      axis8.next();
+    }
+    assertEquals(false, axis8.hasNext());
 
-		final AbstractAxis axis9 =
-				new XPathAxis(holder.getReader(), "/mondial/country/attribute::car_code");
-		for (int i = 0; i < 194; i++) {
-			assertEquals(true, axis9.hasNext());
-			axis9.next();
-		}
-		assertEquals(false, axis9.hasNext());
+    final AbstractAxis axis9 =
+        new XPathAxis(holder.getReader(), "/mondial/country/attribute::car_code");
+    for (int i = 0; i < 194; i++) {
+      assertEquals(true, axis9.hasNext());
+      axis9.next();
+    }
+    assertEquals(false, axis9.hasNext());
 
-		final AbstractAxis axis10 = new XPathAxis(holder.getReader(), "//country[@*]");
-		for (int i = 0; i < 231; i++) {
-			assertEquals(true, axis10.hasNext());
-			axis10.next();
-		}
-		assertEquals(false, axis10.hasNext());
+    final AbstractAxis axis10 = new XPathAxis(holder.getReader(), "//country[@*]");
+    for (int i = 0; i < 231; i++) {
+      assertEquals(true, axis10.hasNext());
+      axis10.next();
+    }
+    assertEquals(false, axis10.hasNext());
 
-		holder.close();
-	}
-	//
-	// // lasts too long
-	// @Test
-	// public void testIterateShakespreare() throws IOException,
-	// XMLStreamException {
-	// // Setup parsed session.
-	// XMLShredder.shred(XML2, new SessionConfiguration(PATH2));
-	//
-	// // Verify.
-	// final ISession session2 = Session.beginSession(PATH2);
-	// final IReadTransaction rtx2 = session2.beginReadTransaction();
-	// rtx2.moveToDocumentRoot();
-	//
-	// XPathStringChecker.testIAxisConventions(
-	// new XPathAxis(rtx2, "fn:count(//PLAY)"),
-	// new String[] { "37" });
-	//
-	// rtx2.moveTo(2L);
-	// XPathStringChecker.testIAxisConventions(
-	// new XPathAxis(rtx2, "fn:count(TITLE)"),
-	// new String[] { "1" });
-	//
-	// XPathStringChecker.testIAxisConventions(
-	// new XPathAxis(rtx2, "fn:string(TITLE)"),
-	// new String[] { "The Tragedy of Antony and Cleopatra" });
-	//
-	// XPathStringChecker.testIAxisConventions(
-	// new XPathAxis(rtx2, "fn:count(//*)"),
-	// new String[] { "179619" });
-	//
-	// XPathStringChecker.testIAxisConventions(new XPathAxis(
-	// rtx2,
-	// "fn:count(/PLAYS/PLAY/PERSONAE)"), new String[] { "37" });
-	//
-	// final IAxis axis1 = new XPathAxis(rtx2, "//PERSONA");
-	// for (int i = 0; i < 969; i++) {
-	// assertEquals(true, axis1.hasNext());
-	// axis1.next();
-	// }
-	// assertEquals(false, axis1.hasNext());
-	//
-	// final IAxis axis2 = new XPathAxis(rtx2, "/PLAYS/PLAY//SPEECH");
-	// for (int i = 0; i < 31014; i++) {
-	// assertEquals(true, axis2.hasNext());
-	// axis2.next();
-	// }
-	// assertEquals(false, axis2.hasNext());
-	//
-	// final IAxis axis3 = new XPathAxis(rtx2, "/PLAYS/PLAY//STAGEDIR");
-	// for (int i = 0; i < 6257; i++) {
-	// assertEquals(true, axis3.hasNext());
-	// axis3.next();
-	// }
-	// assertEquals(false, axis3.hasNext());
-	//
-	// rtx2.moveToDocumentRoot();
-	// final IAxis axis4 = new XPathAxis(rtx2, "PLAYS/PLAY//STAGEDIR/text()");
-	// for (int i = 0; i < 6257; i++) {
-	// assertEquals(true, axis4.hasNext());
-	// axis4.next();
-	// }
-	// assertEquals(false, axis4.hasNext());
-	//
-	// final IAxis axis5 = new XPathAxis(rtx2, "/PLAYS/PLAY//SCNDESCR");
-	// for (int i = 0; i < 37; i++) {
-	// assertEquals(true, axis5.hasNext());
-	// axis5.next();
-	// }
-	// assertEquals(false, axis5.hasNext());
-	//
-	// final IAxis axis6 = new XPathAxis(rtx2, "//SPEECH/SPEAKER");
-	// for (int i = 0; i < 31067; i++) {
-	// assertEquals(true, axis6.hasNext());
-	// axis6.next();
-	// }
-	// assertEquals(false, axis6.hasNext());
-	//
-	// XPathStringChecker.testIAxisConventions(new XPathAxis(
-	// rtx2,
-	// "PLAYS/PLAY/TITLE/text()"), new String[] {
-	// "The Tragedy of Antony and Cleopatra",
-	// "All's Well That Ends Well",
-	// "As You Like It",
-	// "The Comedy of Errors",
-	// "The Tragedy of Coriolanus",
-	// "Cymbeline",
-	// "A Midsummer Night's Dream",
-	// "The Tragedy of Hamlet, Prince of Denmark",
-	// "The First Part of Henry the Fourth",
-	// "The Second Part of Henry the Fourth",
-	// "The Life of Henry the Fifth",
-	// "The First Part of Henry the Sixth",
-	// "The Second Part of Henry the Sixth",
-	// "The Third Part of Henry the Sixth",
-	// "The Famous History of the Life of Henry the Eighth",
-	// "The Tragedy of Julius Caesar",
-	// "The Life and Death of King John",
-	// "The Tragedy of King Lear",
-	// "Love's Labor's Lost",
-	// "Measure for Measure",
-	// "The Merry Wives of Windsor",
-	// "The Tragedy of Macbeth",
-	// "The Merchant of Venice",
-	// "Much Ado about Nothing",
-	// "The Tragedy of Othello, the Moor of Venice",
-	// "Pericles, Prince of Tyre",
-	// "The Tragedy of Romeo and Juliet",
-	// "The Tragedy of King Richard the Second",
-	// "The Tragedy of Richard the Third",
-	// "Twelfth Night, or What You Will",
-	// "The Taming of the Shrew",
-	// "The Tempest",
-	// "The Life of Timon of Athens",
-	// "The Tragedy of Titus Andronicus",
-	// "The History of Troilus and Cressida",
-	// "The Two Gentlemen of Verona",
-	// "The Winter's Tale" });
-	//
-	// final IAxis axis7 = new XPathAxis(rtx2, "PLAYS/PLAY");
-	// for (int i = 0; i < 37; i++) {
-	// assertEquals(true, axis7.hasNext());
-	// axis7.next();
-	// }
-	// assertEquals(false, axis7.hasNext());
-	//
-	// rtx2.close();
-	// session2.close();
-	// }
+    holder.close();
+  }
+  //
+  // // lasts too long
+  // @Test
+  // public void testIterateShakespreare() throws IOException,
+  // XMLStreamException {
+  // // Setup parsed session.
+  // XMLShredder.shred(XML2, new SessionConfiguration(PATH2));
+  //
+  // // Verify.
+  // final ISession session2 = Session.beginSession(PATH2);
+  // final IReadTransaction rtx2 = session2.beginReadTransaction();
+  // rtx2.moveToDocumentRoot();
+  //
+  // XPathStringChecker.testIAxisConventions(
+  // new XPathAxis(rtx2, "fn:count(//PLAY)"),
+  // new String[] { "37" });
+  //
+  // rtx2.moveTo(2L);
+  // XPathStringChecker.testIAxisConventions(
+  // new XPathAxis(rtx2, "fn:count(TITLE)"),
+  // new String[] { "1" });
+  //
+  // XPathStringChecker.testIAxisConventions(
+  // new XPathAxis(rtx2, "fn:string(TITLE)"),
+  // new String[] { "The Tragedy of Antony and Cleopatra" });
+  //
+  // XPathStringChecker.testIAxisConventions(
+  // new XPathAxis(rtx2, "fn:count(//*)"),
+  // new String[] { "179619" });
+  //
+  // XPathStringChecker.testIAxisConventions(new XPathAxis(
+  // rtx2,
+  // "fn:count(/PLAYS/PLAY/PERSONAE)"), new String[] { "37" });
+  //
+  // final IAxis axis1 = new XPathAxis(rtx2, "//PERSONA");
+  // for (int i = 0; i < 969; i++) {
+  // assertEquals(true, axis1.hasNext());
+  // axis1.next();
+  // }
+  // assertEquals(false, axis1.hasNext());
+  //
+  // final IAxis axis2 = new XPathAxis(rtx2, "/PLAYS/PLAY//SPEECH");
+  // for (int i = 0; i < 31014; i++) {
+  // assertEquals(true, axis2.hasNext());
+  // axis2.next();
+  // }
+  // assertEquals(false, axis2.hasNext());
+  //
+  // final IAxis axis3 = new XPathAxis(rtx2, "/PLAYS/PLAY//STAGEDIR");
+  // for (int i = 0; i < 6257; i++) {
+  // assertEquals(true, axis3.hasNext());
+  // axis3.next();
+  // }
+  // assertEquals(false, axis3.hasNext());
+  //
+  // rtx2.moveToDocumentRoot();
+  // final IAxis axis4 = new XPathAxis(rtx2, "PLAYS/PLAY//STAGEDIR/text()");
+  // for (int i = 0; i < 6257; i++) {
+  // assertEquals(true, axis4.hasNext());
+  // axis4.next();
+  // }
+  // assertEquals(false, axis4.hasNext());
+  //
+  // final IAxis axis5 = new XPathAxis(rtx2, "/PLAYS/PLAY//SCNDESCR");
+  // for (int i = 0; i < 37; i++) {
+  // assertEquals(true, axis5.hasNext());
+  // axis5.next();
+  // }
+  // assertEquals(false, axis5.hasNext());
+  //
+  // final IAxis axis6 = new XPathAxis(rtx2, "//SPEECH/SPEAKER");
+  // for (int i = 0; i < 31067; i++) {
+  // assertEquals(true, axis6.hasNext());
+  // axis6.next();
+  // }
+  // assertEquals(false, axis6.hasNext());
+  //
+  // XPathStringChecker.testIAxisConventions(new XPathAxis(
+  // rtx2,
+  // "PLAYS/PLAY/TITLE/text()"), new String[] {
+  // "The Tragedy of Antony and Cleopatra",
+  // "All's Well That Ends Well",
+  // "As You Like It",
+  // "The Comedy of Errors",
+  // "The Tragedy of Coriolanus",
+  // "Cymbeline",
+  // "A Midsummer Night's Dream",
+  // "The Tragedy of Hamlet, Prince of Denmark",
+  // "The First Part of Henry the Fourth",
+  // "The Second Part of Henry the Fourth",
+  // "The Life of Henry the Fifth",
+  // "The First Part of Henry the Sixth",
+  // "The Second Part of Henry the Sixth",
+  // "The Third Part of Henry the Sixth",
+  // "The Famous History of the Life of Henry the Eighth",
+  // "The Tragedy of Julius Caesar",
+  // "The Life and Death of King John",
+  // "The Tragedy of King Lear",
+  // "Love's Labor's Lost",
+  // "Measure for Measure",
+  // "The Merry Wives of Windsor",
+  // "The Tragedy of Macbeth",
+  // "The Merchant of Venice",
+  // "Much Ado about Nothing",
+  // "The Tragedy of Othello, the Moor of Venice",
+  // "Pericles, Prince of Tyre",
+  // "The Tragedy of Romeo and Juliet",
+  // "The Tragedy of King Richard the Second",
+  // "The Tragedy of Richard the Third",
+  // "Twelfth Night, or What You Will",
+  // "The Taming of the Shrew",
+  // "The Tempest",
+  // "The Life of Timon of Athens",
+  // "The Tragedy of Titus Andronicus",
+  // "The History of Troilus and Cressida",
+  // "The Two Gentlemen of Verona",
+  // "The Winter's Tale" });
+  //
+  // final IAxis axis7 = new XPathAxis(rtx2, "PLAYS/PLAY");
+  // for (int i = 0; i < 37; i++) {
+  // assertEquals(true, axis7.hasNext());
+  // axis7.next();
+  // }
+  // assertEquals(false, axis7.hasNext());
+  //
+  // rtx2.close();
+  // session2.close();
+  // }
 }

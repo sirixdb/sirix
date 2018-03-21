@@ -22,7 +22,6 @@
 package org.sirix.axis.filter;
 
 import static org.junit.Assert.assertEquals;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,30 +32,30 @@ import org.sirix.exception.SirixException;
 
 public class FilterTest {
 
-	@Before
-	public void setUp() throws SirixException {
-		TestHelper.deleteEverything();
-	}
+  @Before
+  public void setUp() throws SirixException {
+    TestHelper.deleteEverything();
+  }
 
-	public static void testFilterConventions(final Filter filter, final boolean expected) {
-		final XdmNodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
+  public static void testFilterConventions(final Filter filter, final boolean expected) {
+    final XdmNodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
 
-		// Filter Convention 1.
-		final long startKey = rtx.getNodeKey();
+    // Filter Convention 1.
+    final long startKey = rtx.getNodeKey();
 
-		assertEquals(expected, filter.filter());
+    assertEquals(expected, filter.filter());
 
-		// Axis Convention 2.
-		assertEquals(startKey, rtx.getNodeKey());
-	}
+    // Axis Convention 2.
+    assertEquals(startKey, rtx.getNodeKey());
+  }
 
-	@Test
-	public void testFilterExample() {
-		// Do nothing. This class is only used with other test cases.
-	}
+  @Test
+  public void testFilterExample() {
+    // Do nothing. This class is only used with other test cases.
+  }
 
-	@After
-	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
-	}
+  @After
+  public void tearDown() throws SirixException {
+    TestHelper.closeEverything();
+  }
 }

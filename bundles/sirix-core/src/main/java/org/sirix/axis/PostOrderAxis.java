@@ -33,91 +33,91 @@ import org.sirix.settings.Fixed;
  */
 public final class PostOrderAxis extends AbstractAxis {
 
-	/** Determines if transaction moved to the parent before. */
-	private boolean mMovedToParent;
+  /** Determines if transaction moved to the parent before. */
+  private boolean mMovedToParent;
 
-	/** Determines if current key is the start node key before the traversal. */
-	private boolean mIsStartKey;
+  /** Determines if current key is the start node key before the traversal. */
+  private boolean mIsStartKey;
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public PostOrderAxis(final XdmNodeReadTrx rtx) {
-		super(rtx);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public PostOrderAxis(final XdmNodeReadTrx rtx) {
+    super(rtx);
+  }
 
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param rtx exclusive (immutable) trx to iterate with
-	 */
-	public PostOrderAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-		super(rtx, includeSelf);
-	}
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param rtx exclusive (immutable) trx to iterate with
+   */
+  public PostOrderAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
+    super(rtx, includeSelf);
+  }
 
-	@Override
-	public void reset(final long nodeKey) {
-		super.reset(nodeKey);
-		mMovedToParent = false;
-		mIsStartKey = false;
-	}
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    mMovedToParent = false;
+    mIsStartKey = false;
+  }
 
-	@Override
-	protected long nextKey() {
-		final XdmNodeReadTrx rtx = getTrx();
+  @Override
+  protected long nextKey() {
+    final XdmNodeReadTrx rtx = getTrx();
 
-		// No subtree.
-		if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey() || mIsStartKey) {
-			if (!mIsStartKey && isSelfIncluded() == IncludeSelf.YES) {
-				mIsStartKey = true;
-				return rtx.getNodeKey();
-			} else {
-				return done();
-			}
-		}
+    // No subtree.
+    if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey() || mIsStartKey) {
+      if (!mIsStartKey && isSelfIncluded() == IncludeSelf.YES) {
+        mIsStartKey = true;
+        return rtx.getNodeKey();
+      } else {
+        return done();
+      }
+    }
 
-		final long currKey = rtx.getNodeKey();
+    final long currKey = rtx.getNodeKey();
 
-		// Move down in the tree if it hasn't moved down before.
-		if ((!mMovedToParent && rtx.hasFirstChild())
-				|| (rtx.hasRightSibling() && (rtx.moveToRightSibling().hasMoved()))) {
-			while (rtx.hasFirstChild()) {
-				rtx.moveToFirstChild();
-			}
+    // Move down in the tree if it hasn't moved down before.
+    if ((!mMovedToParent && rtx.hasFirstChild())
+        || (rtx.hasRightSibling() && (rtx.moveToRightSibling().hasMoved()))) {
+      while (rtx.hasFirstChild()) {
+        rtx.moveToFirstChild();
+      }
 
-			final long key = rtx.getNodeKey();
-			getTrx().moveTo(currKey);
-			return key;
-		}
+      final long key = rtx.getNodeKey();
+      getTrx().moveTo(currKey);
+      return key;
+    }
 
-		// Move to the right sibling or parent node after walking down.
-		long key = 0;
-		if (rtx.hasRightSibling()) {
-			key = rtx.getRightSiblingKey();
-		} else {
-			key = rtx.getParentKey();
-			mMovedToParent = true;
-		}
+    // Move to the right sibling or parent node after walking down.
+    long key = 0;
+    if (rtx.hasRightSibling()) {
+      key = rtx.getRightSiblingKey();
+    } else {
+      key = rtx.getParentKey();
+      mMovedToParent = true;
+    }
 
-		// Stop traversal if needed.
-		if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			return key;
-		}
+    // Stop traversal if needed.
+    if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return key;
+    }
 
-		// Traversal is at start key.
-		if (key == getStartKey()) {
-			if (isSelfIncluded() == IncludeSelf.YES) {
-				mIsStartKey = true;
-				return key;
-			} else {
-				return done();
-			}
-		}
+    // Traversal is at start key.
+    if (key == getStartKey()) {
+      if (isSelfIncluded() == IncludeSelf.YES) {
+        mIsStartKey = true;
+        return key;
+      } else {
+        return done();
+      }
+    }
 
-		// Move back to current node.
-		rtx.moveTo(currKey);
-		return key;
-	}
+    // Move back to current node.
+    rtx.moveTo(currKey);
+    return key;
+  }
 }
