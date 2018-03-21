@@ -24,7 +24,7 @@ import java.io.RandomAccessFile;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.berkeley.BerkeleyStorageFactory;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
 
@@ -47,7 +47,7 @@ public enum StorageType {
 	/** {@link RandomAccessFile} backend. */
 	FILE {
 		@Override
-		public Storage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
+		public Storage getInstance(final ResourceConfiguration resourceConf) {
 			return new FileStorage(resourceConf);
 		}
 	},
@@ -55,8 +55,8 @@ public enum StorageType {
 	/** BerkeleyDB backend. */
 	BERKELEY_DB {
 		@Override
-		public Storage getInstance(final ResourceConfiguration resourceConf) throws SirixIOException {
-			return new BerkeleyStorage(resourceConf);
+		public Storage getInstance(final ResourceConfiguration resourceConf) {
+			return new BerkeleyStorageFactory().createStorage(resourceConf);
 		}
 	};
 
@@ -67,8 +67,7 @@ public enum StorageType {
 	 * @return instance of a storage backend specified within the {@link ResourceConfiguration}
 	 * @throws SirixIOException if an IO-error occured
 	 */
-	public abstract Storage getInstance(final ResourceConfiguration resourceConf)
-			throws SirixIOException;
+	public abstract Storage getInstance(final ResourceConfiguration resourceConf);
 
 	/**
 	 * Factory method to retrieve suitable {@link Storage} instances based upon the suitable
@@ -76,11 +75,10 @@ public enum StorageType {
 	 *
 	 * @param resourceConf determining the storage
 	 * @return an implementation of the {@link Storage} interface
-	 * @throws SirixIOException if an IO-error occurs
-	 * @throws NullPointerException if {@code pResourceConf} is {@code null}
+	 * @throws SirixIOException if an IO-exception occurs
+	 * @throws NullPointerException if {@code resourceConf} is {@code null}
 	 */
-	public static final Storage getStorage(final ResourceConfiguration resourceConf)
-			throws SirixIOException {
+	public static final Storage getStorage(final ResourceConfiguration resourceConf) {
 		return resourceConf.mStorage.getInstance(resourceConf);
 	}
 }

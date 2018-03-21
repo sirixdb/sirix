@@ -2,12 +2,12 @@ package org.sirix.xquery.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
@@ -131,13 +131,13 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
 	@Override
 	public DBNode getDocument(final @Nonnegative int revision) throws DocumentException {
-		final String[] resources = mDatabase.listResources();
-		if (resources.length > 1) {
+		final List<Path> resources = mDatabase.listResources();
+		if (resources.size() > 1) {
 			throw new DocumentException("More than one document stored in database/collection!");
 		}
 		try {
-			final ResourceManager session = mDatabase
-					.getResourceManager(ResourceManagerConfiguration.newBuilder(resources[0]).build());
+			final ResourceManager session = mDatabase.getResourceManager(ResourceManagerConfiguration
+					.newBuilder(resources.get(0).getFileName().toString()).build());
 			final int version = revision == -1 ? session.getMostRecentRevisionNumber() : revision;
 			final XdmNodeReadTrx rtx = session.beginNodeReadTrx(version);
 			return new DBNode(rtx, this);
@@ -150,7 +150,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			final String resource = new StringBuilder(2).append("resource")
-					.append(mDatabase.listResources().length + 1).toString();
+					.append(mDatabase.listResources().size() + 1).toString();
 			mDatabase
 					.createResource(ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
 							.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
@@ -177,7 +177,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 	public DBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
 		try {
 			final String resourceName = new StringBuilder(2).append("resource")
-					.append(mDatabase.listResources().length + 1).toString();
+					.append(mDatabase.listResources().size() + 1).toString();
 			mDatabase.createResource(
 					ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
 							.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
@@ -225,7 +225,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
 	@Override
 	public long getDocumentCount() {
-		return mDatabase.listResources().length;
+		return mDatabase.listResources().size();
 	}
 
 	@Override
@@ -291,13 +291,13 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
 	@Override
 	public DBNode getDocument(final int revision, final boolean updatable) throws DocumentException {
-		final String[] resources = mDatabase.listResources();
-		if (resources.length > 1) {
+		final List<Path> resources = mDatabase.listResources();
+		if (resources.size() > 1) {
 			throw new DocumentException("More than one document stored in database/collection!");
 		}
 		try {
-			final ResourceManagerConfiguration sessionConfig =
-					ResourceManagerConfiguration.newBuilder(resources[0]).build();
+			final ResourceManagerConfiguration sessionConfig = ResourceManagerConfiguration
+					.newBuilder(resources.get(0).getFileName().toString()).build();
 
 			return getDocumentInternal(sessionConfig, revision, updatable);
 		} catch (final SirixException e) {
@@ -307,10 +307,12 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
 	@Override
 	public Stream<DBNode> getDocuments(final boolean updatable) throws DocumentException {
-		final String[] resources = mDatabase.listResources();
-		final List<DBNode> documents = new ArrayList<>(resources.length);
-		for (final String resourceName : resources) {
+		final List<Path> resources = mDatabase.listResources();
+		final List<DBNode> documents = new ArrayList<>(resources.size());
+
+		for (final Path resourcePath : resources) {
 			try {
+				final String resourceName = resourcePath.getFileName().toString();
 				final ResourceManager resource = mDatabase
 						.getResourceManager(ResourceManagerConfiguration.newBuilder(resourceName).build());
 				final XdmNodeReadTrx trx =
@@ -320,7 +322,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 				throw new DocumentException(e.getCause());
 			}
 		}
+
 		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents.size()]));
+
 	}
 
 	@Override

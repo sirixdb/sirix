@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -30,22 +30,24 @@ import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_REST;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_XMLDECL;
 
 import java.io.BufferedOutputStream;
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nonnegative;
 
+import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
 import org.sirix.utils.Files;
@@ -55,7 +57,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XMLSerializer</h1>
- * 
+ *
  * <p>
  * Most efficient way to serialize a subtree into an OutputStream. The encoding always is UTF-8.
  * Note that the OutputStream internally is wrapped by a BufferedOutputStream. There is no need to
@@ -98,7 +100,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	/**
 	 * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
 	 * XMLStreamReader starts to read.
-	 * 
+	 *
 	 * @param session session for read XML
 	 * @param nodeKey start node key
 	 * @param builder builder of XML Serializer
@@ -118,7 +120,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Emit node (start element or characters).
-	 * 
+	 *
 	 * @param rtx Sirix {@link XdmNodeReadTrx}
 	 */
 	@Override
@@ -223,7 +225,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Emit end element.
-	 * 
+	 *
 	 * @param rtx Sirix {@link XdmNodeReadTrx}
 	 */
 	@Override
@@ -316,7 +318,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Indentation of output.
-	 * 
+	 *
 	 * @throws IOException if can't indent output
 	 */
 	private void indent() throws IOException {
@@ -329,7 +331,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Write characters of string.
-	 * 
+	 *
 	 * @param pString String to write
 	 * @throws IOException if can't write to string
 	 * @throws UnsupportedEncodingException if unsupport encoding
@@ -340,7 +342,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Write non-negative non-zero long as UTF-8 bytes.
-	 * 
+	 *
 	 * @param value value to write
 	 * @throws IOException if can't write to string
 	 */
@@ -357,7 +359,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Main method.
-	 * 
+	 *
 	 * @param args args[0] specifies the input-TT file/folder; args[1] specifies the output XML file.
 	 * @throws Exception any exception
 	 */
@@ -368,14 +370,16 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		LOGWRAPPER.info("Serializing '" + args[0] + "' to '" + args[1] + "' ... ");
 		final long time = System.nanoTime();
-		final File target = new File(args[1]);
-		Files.recursiveRemove(target.toPath());
-		target.getParentFile().mkdirs();
-		target.createNewFile();
-		try (final FileOutputStream outputStream = new FileOutputStream(target)) {
-			final DatabaseConfiguration config = new DatabaseConfiguration(new File(args[0]));
+		final Path target = Paths.get(args[1]);
+		Files.recursiveRemove(target);
+		java.nio.file.Files.createDirectories(target.getParent());
+		java.nio.file.Files.createFile(target);
+
+		try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
+			final Path databaseFile = Paths.get(args[0]);
+			final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
 			Databases.createDatabase(config);
-			try (final Database db = Databases.openDatabase(new File(args[0]))) {
+			try (final Database db = Databases.openDatabase(databaseFile)) {
 				db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
 				final ResourceManager session =
 						db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
@@ -391,7 +395,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Constructor, setting the necessary stuff.
-	 * 
+	 *
 	 * @param session Sirix {@link ResourceManager}
 	 * @param stream {@link OutputStream} to write to
 	 * @param revisions revisions to serialize
@@ -403,7 +407,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param session Sirix {@link ResourceManager}
 	 * @param nodeKey root node key of subtree to shredder
 	 * @param stream {@link OutputStream} to write to
@@ -462,7 +466,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Constructor, setting the necessary stuff.
-		 * 
+		 *
 		 * @param session Sirix {@link ResourceManager}
 		 * @param stream {@link OutputStream} to write to
 		 * @param revisions revisions to serialize
@@ -485,7 +489,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Constructor.
-		 * 
+		 *
 		 * @param session Sirix {@link ResourceManager}
 		 * @param nodeKey root node key of subtree to shredder
 		 * @param stream {@link OutputStream} to write to
@@ -518,7 +522,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Specify the start node key.
-		 * 
+		 *
 		 * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
 		 * @return XMLSerializerBuilder reference
 		 */
@@ -529,7 +533,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Pretty prints the output.
-		 * 
+		 *
 		 * @return XMLSerializerBuilder reference
 		 */
 		public XMLSerializerBuilder prettyPrint() {
@@ -539,7 +543,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Emit RESTful output.
-		 * 
+		 *
 		 * @return XMLSerializerBuilder reference
 		 */
 		public XMLSerializerBuilder emitRESTful() {
@@ -549,7 +553,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Emit an XML declaration.
-		 * 
+		 *
 		 * @return {@link XMLSerializerBuilder} reference
 		 */
 		public XMLSerializerBuilder emitXMLDeclaration() {
@@ -559,7 +563,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Emit the unique nodeKeys / IDs of nodes.
-		 * 
+		 *
 		 * @return XMLSerializerBuilder reference
 		 */
 		public XMLSerializerBuilder emitIDs() {
@@ -569,7 +573,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * The versions to serialize.
-		 * 
+		 *
 		 * @param versions versions to serialize
 		 * @return XMLSerializerBuilder reference
 		 */
@@ -580,7 +584,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
 		/**
 		 * Building new {@link Serializer} instance.
-		 * 
+		 *
 		 * @return a new {@link Serializer} instance
 		 */
 		public XMLSerializer build() {

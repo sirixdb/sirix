@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -20,14 +20,16 @@
  */
 package org.sirix.diff;
 
-import static org.mockito.Matchers.eq;
-import static org.mockito.Matchers.isA;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import javax.xml.stream.XMLStreamException;
 
@@ -49,8 +51,7 @@ import com.google.common.collect.ImmutableSet;
 
 public final class DiffTestHelper {
 
-	protected static final String RESOURCES =
-			"src" + File.separator + "test" + File.separator + "resources";
+	protected static final Path RESOURCES = Paths.get("src", "test", "resources");
 	protected static final long TIMEOUT_S = 5;
 
 	static void setUp() throws SirixException {
@@ -63,16 +64,15 @@ public final class DiffTestHelper {
 
 	static void setUpSecond(final Holder holder)
 			throws SirixException, IOException, XMLStreamException {
-		initializeData(holder,
-				new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator + "1.xml"),
-				new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator + "2.xml"));
+		initializeData(holder, RESOURCES.resolve("revXMLsAll4").resolve("1.xml"),
+				RESOURCES.resolve("revXMLsAll4").resolve("2.xml"));
 	}
 
 	static void setUpThird(final Holder holder)
 			throws SirixException, IOException, XMLStreamException {
 		new XMLShredder.Builder(holder.getWriter(),
 				XMLShredder.createFileReader(
-						new File(RESOURCES + File.separator + "revXMLsDelete1" + File.separator + "1.xml")),
+						Paths.get(RESOURCES + File.separator + "revXMLsDelete1" + File.separator + "1.xml")),
 				Insert.ASFIRSTCHILD).commitAfterwards().build().call();
 		final XdmNodeWriteTrx wtx = holder.getWriter();
 		wtx.moveToDocumentRoot();
@@ -90,23 +90,20 @@ public final class DiffTestHelper {
 
 	static void setUpFourth(final Holder holder)
 			throws SirixException, IOException, XMLStreamException {
-		initializeData(holder,
-				new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator + "1.xml"),
-				new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator + "2.xml"));
+		initializeData(holder, RESOURCES.resolve("revXMLsAll3").resolve("1.xml"),
+				RESOURCES.resolve("revXMLsAll3").resolve("2.xml"));
 	}
 
 	static void setUpFifth(final Holder holder)
 			throws SirixException, IOException, XMLStreamException {
-		initializeData(holder,
-				new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator + "1.xml"),
-				new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator + "2.xml"));
+		initializeData(holder, RESOURCES.resolve("revXMLsAll2").resolve("1.xml"),
+				RESOURCES.resolve("revXMLsAll2").resolve("2.xml"));
 	}
 
 	static void setUpSixth(final Holder holder)
 			throws SirixException, IOException, XMLStreamException {
-		initializeData(holder,
-				new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator + "1.xml"),
-				new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator + "2.xml"));
+		initializeData(holder, RESOURCES.resolve("revXMLsDelete2").resolve("1.xml"),
+				RESOURCES.resolve("revXMLsDelete2").resolve("2.xml"));
 	}
 
 	static void setUpSeventh(final Holder holder)
@@ -135,11 +132,11 @@ public final class DiffTestHelper {
 		rtx.close();
 	}
 
-	private static void initializeData(final Holder holder, final File... pFile)
+	private static void initializeData(final Holder holder, final Path... files)
 			throws SirixException, IOException, XMLStreamException {
 
 		int i = 0;
-		for (final File file : pFile) {
+		for (final Path file : files) {
 			if (i == 0) {
 				final XMLShredder init = new XMLShredder.Builder(holder.getWriter(),
 						XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();

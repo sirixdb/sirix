@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
+import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Optional;
@@ -45,7 +46,7 @@ public final class XQueryUsage {
 	private static final String USER_HOME = System.getProperty("user.home");
 
 	/** Storage for databases: Sirix data in home directory. */
-	private static final File LOCATION = new File(USER_HOME, "sirix-data");
+	private static final java.nio.file.Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
 	/** Severity used to build a random sample document. */
 	enum Severity {
@@ -79,9 +80,8 @@ public final class XQueryUsage {
 	 * Load a document and query it.
 	 */
 	private static void loadDocumentAndQuery() throws QueryException, IOException, SirixException {
-		final File doc = new File(
-				new StringBuilder("src").append(File.separator).append("main").append(File.separator)
-						.append("resources").append(File.separator).append("test.xml").toString());
+		final java.nio.file.Path doc =
+				Paths.get("src").resolve("main").resolve("resources").resolve("test.xml");
 
 		// Initialize query context and store.
 		final DBStore store = DBStore.newBuilder().build();
@@ -89,13 +89,12 @@ public final class XQueryUsage {
 
 		// Use XQuery to load sample document into store.
 		System.out.println("Loading document:");
-		URI docUri = doc.toURI();
+		URI docUri = doc.toUri();
 		String xq1 = String.format("bit:load('mydoc.xml', '%s')", docUri.toString());
 		System.out.println(xq1);
 		new XQuery(xq1).evaluate(ctx);
 
-		try (final Database database = Databases.openDatabase(new File(new StringBuilder(3)
-				.append(LOCATION).append(File.separator).append("mydoc.xml").toString()))) {
+		try (final Database database = Databases.openDatabase(LOCATION.resolve("mydoc.xml"))) {
 			// Reuse store and query loaded document.
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
@@ -455,8 +454,7 @@ public final class XQueryUsage {
 			final String xq4 = "doc('mydocs.col', 1)";
 			q = new XQuery(xq4);
 			try (final PrintStream out = new PrintStream(
-					new FileOutputStream(new File(new StringBuilder(LOCATION.getAbsolutePath())
-							.append(File.separator).append("output-revision-1.xml").toString())))) {
+					new FileOutputStream(LOCATION.resolve("output-revision-1.xml").toFile()))) {
 				q.prettyPrint().serialize(ctx4, out);
 			}
 			System.out.println();
@@ -475,8 +473,7 @@ public final class XQueryUsage {
 					"for $i in ((doc('mydocs.col', 1), doc('mydocs.col', 2), doc('mydocs.col', 3))) return $i";
 			q = new XQuery(xq6);
 			try (final PrintStream out = new PrintStream(
-					new FileOutputStream(new File(new StringBuilder(LOCATION.getAbsolutePath())
-							.append(File.separator).append("output-revisions.xml").toString())))) {
+					new FileOutputStream(LOCATION.resolve("output-revisions.xml").toFile()))) {
 				q.prettyPrint().serialize(ctx6, out);
 			}
 			System.out.println();

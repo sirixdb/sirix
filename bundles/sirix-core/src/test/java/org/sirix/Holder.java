@@ -20,7 +20,8 @@
  */
 package org.sirix;
 
-import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Databases;
@@ -65,9 +66,9 @@ public class Holder {
 	 * @throws SirixException if an error occurs
 	 */
 	public static Holder generateDeweyIDResourceMgr() throws SirixException {
-		final File file = PATHS.PATH1.getFile();
+		final Path file = PATHS.PATH1.getFile();
 		final DatabaseConfiguration config = new DatabaseConfiguration(file);
-		if (!file.exists()) {
+		if (!Files.exists(file)) {
 			Databases.createDatabase(config);
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
@@ -89,9 +90,9 @@ public class Holder {
 	 * @throws SirixException if an error occurs
 	 */
 	public static Holder generatePathSummary() throws SirixException {
-		final File file = PATHS.PATH1.getFile();
+		final Path file = PATHS.PATH1.getFile();
 		final DatabaseConfiguration config = new DatabaseConfiguration(file);
-		if (!file.exists()) {
+		if (!Files.exists(file)) {
 			Databases.createDatabase(config);
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());

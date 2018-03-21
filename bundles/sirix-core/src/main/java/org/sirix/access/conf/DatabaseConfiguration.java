@@ -24,10 +24,12 @@ package org.sirix.access.conf;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import javax.annotation.Nullable;
 
@@ -54,19 +56,19 @@ public final class DatabaseConfiguration {
 	 * Paths for a {@link org.Database.Database}. Each {@link org.Database.Database} has the same
 	 * folder layout.
 	 */
-	public enum Paths {
+	public enum DatabasePaths {
 
 		/** File to store db settings. */
-		CONFIGBINARY(new File("dbsetting.obj"), false),
+		CONFIGBINARY(Paths.get("dbsetting.obj"), false),
 		/** File to store encryption db settings. */
-		KEYSELECTOR(new File("keyselector"), true),
+		KEYSELECTOR(Paths.get("keyselector"), true),
 		/** File to store the data. */
-		DATA(new File("resources"), true),
+		DATA(Paths.get("resources"), true),
 		/** Lock file. */
-		LOCK(new File(".lock"), false);
+		LOCK(Paths.get(".lock"), false);
 
 		/** Location of the file. */
-		private final File mFile;
+		private final Path mFile;
 
 		/** Is the location a folder or no? */
 		private final boolean mIsFolder;
@@ -77,7 +79,7 @@ public final class DatabaseConfiguration {
 		 * @param file to be set
 		 * @param isFolder determines if the file is a folder instead
 		 */
-		private Paths(final File file, final boolean isFolder) {
+		private DatabasePaths(final Path file, final boolean isFolder) {
 			mFile = checkNotNull(file);
 			mIsFolder = isFolder;
 		}
@@ -87,7 +89,7 @@ public final class DatabaseConfiguration {
 		 *
 		 * @return the file to the kind
 		 */
-		public File getFile() {
+		public Path getFile() {
 			return mFile;
 		}
 
@@ -107,12 +109,12 @@ public final class DatabaseConfiguration {
 		 * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
 		 *         the structure has more folders
 		 */
-		public static int compareStructure(final File file) {
+		public static int compareStructure(final Path file) {
 			checkNotNull(file);
 			int existing = 0;
-			for (final Paths paths : values()) {
-				final File currentFile = new File(file, paths.getFile().getName());
-				if (currentFile.exists() && !Paths.LOCK.getFile().getName().equals(currentFile.getName())) {
+			for (final DatabasePaths paths : values()) {
+				final Path currentFile = file.resolve(paths.getFile());
+				if (Files.exists(currentFile) && !DatabasePaths.LOCK.getFile().equals(currentFile)) {
 					existing++;
 				}
 			}
@@ -131,7 +133,7 @@ public final class DatabaseConfiguration {
 	private final String mBinaryVersion;
 
 	/** Path to file. */
-	private final File mFile;
+	private final Path mFile;
 
 	/** Maximum unique resource ID. */
 	private long mMaxResourceID;
@@ -144,9 +146,9 @@ public final class DatabaseConfiguration {
 	 *
 	 * @param file file to be set
 	 */
-	public DatabaseConfiguration(final File file) {
+	public DatabaseConfiguration(final Path file) {
 		mBinaryVersion = BINARY;
-		mFile = file.getAbsoluteFile();
+		mFile = file;
 		mMaxResourceReadTrx = 512;
 	}
 
@@ -197,7 +199,7 @@ public final class DatabaseConfiguration {
 	 *
 	 * @return the database file
 	 */
-	public File getFile() {
+	public Path getFile() {
 		return mFile;
 	}
 
@@ -227,8 +229,8 @@ public final class DatabaseConfiguration {
 	 *
 	 * @return configuration file
 	 */
-	public File getConfigFile() {
-		return new File(mFile, Paths.CONFIGBINARY.getFile().getName());
+	public Path getConfigFile() {
+		return mFile.resolve(DatabasePaths.CONFIGBINARY.getFile());
 	}
 
 	/**
@@ -238,10 +240,10 @@ public final class DatabaseConfiguration {
 	 * @throws SirixIOException if an I/O error occurs
 	 */
 	public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
-		try (final FileWriter fileWriter = new FileWriter(config.getConfigFile());
+		try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
 			jsonWriter.beginObject();
-			final String filePath = config.mFile.getAbsolutePath();
+			final String filePath = config.mFile.toAbsolutePath().toString();
 			jsonWriter.name("file").value(filePath);
 			jsonWriter.name("ID").value(config.mMaxResourceID);
 			jsonWriter.name("max-resource-read-trx").value(config.mMaxResourceReadTrx);
@@ -258,15 +260,15 @@ public final class DatabaseConfiguration {
 	 * @return a new {@link DatabaseConfiguration} class
 	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static DatabaseConfiguration deserialize(final File file) throws SirixIOException {
+	public static DatabaseConfiguration deserialize(final Path file) throws SirixIOException {
 		try (
 				final FileReader fileReader =
-						new FileReader(new File(file, Paths.CONFIGBINARY.getFile().getName()));
+						new FileReader(file.resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
 			final String fileName = jsonReader.nextName();
 			assert fileName.equals("file");
-			final File dbFile = new File(jsonReader.nextString());
+			final Path dbFile = Paths.get(jsonReader.nextString());
 			final String IDName = jsonReader.nextName();
 			assert IDName.equals("ID");
 			final int ID = jsonReader.nextInt();

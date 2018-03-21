@@ -21,10 +21,9 @@
 
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -61,6 +60,7 @@ import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
+import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -133,11 +133,11 @@ public final class WikipediaImport implements Import<StartElement> {
 	 * @param sirixDatabase The sirix destination storage directory.
 	 *
 	 */
-	public WikipediaImport(final File xmlFile, final File sirixDatabase) throws SirixException {
+	public WikipediaImport(final Path xmlFile, final Path sirixDatabase) throws SirixException {
 		mPageEvents = new ArrayDeque<>();
 		final XMLInputFactory xmlif = XMLInputFactory.newInstance();
 		try {
-			mReader = xmlif.createXMLEventReader(new FileInputStream(checkNotNull(xmlFile)));
+			mReader = xmlif.createXMLEventReader(new FileInputStream(checkNotNull(xmlFile.toFile())));
 		} catch (XMLStreamException | FileNotFoundException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
@@ -278,12 +278,11 @@ public final class WikipediaImport implements Import<StartElement> {
 
 	/** Update shredder. */
 	private void updateShredder() throws SirixException, IOException, XMLStreamException {
-		final Path path =
-				Files.createTempDirectory(Paths.get(System.getProperty("java.io.tmpdir")), "sdbtmp");
-		final DatabaseConfiguration dbConf = new DatabaseConfiguration(path.toFile());
+		final Path path = Files.createTempDirectory("sdbtmp");
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
 		Databases.truncateDatabase(dbConf);
 		Databases.createDatabase(dbConf);
-		final Database db = Databases.openDatabase(path.toFile());
+		final Database db = Databases.openDatabase(path);
 		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
 		final ResourceManager resourceManager =
 				db.getResourceManager(new ResourceManagerConfiguration.Builder("wiki").build());
@@ -567,9 +566,9 @@ public final class WikipediaImport implements Import<StartElement> {
 		LOGWRAPPER.info("Importing wikipedia...");
 		final long start = System.nanoTime();
 
-		final File xml = new File(args[0]);
-		final File tnk = new File(args[1]);
-		Databases.truncateDatabase(new DatabaseConfiguration(tnk));
+		final Path xml = Paths.get(args[0]);
+		final Path resource = Paths.get(args[1]);
+		Databases.truncateDatabase(new DatabaseConfiguration(resource));
 
 		// Create necessary element nodes.
 		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";
@@ -594,7 +593,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		list.add(text);
 
 		// Invoke import.
-		new WikipediaImport(xml, tnk).importData(DateBy.HOURS, list);
+		new WikipediaImport(xml, resource).importData(DateBy.HOURS, list);
 
 		LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000 + "[s].");
 	}

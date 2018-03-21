@@ -24,7 +24,6 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -34,7 +33,6 @@ import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 
@@ -137,10 +135,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		mIndexController = resourceManager.getWtxIndexController(representRev);
 
 		// Deserialize index definitions.
-		final File indexes = new File(resourceManager.getResourceConfig().mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + lastStoredRev + ".xml");
-		if (indexes.exists()) {
-			try (final InputStream in = new FileInputStream(indexes)) {
+		final Path indexes = resourceManager.getResourceConfig().mPath
+				.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getFile()
+						+ String.valueOf(lastStoredRev) + ".xml");
+		if (Files.exists(indexes)) {
+			try (final InputStream in = new FileInputStream(indexes.toFile())) {
 				mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
 			} catch (IOException | DocumentException | SirixException e) {
 				throw new SirixIOException("Index definitions couldn't be deserialized!", e);
@@ -214,8 +213,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 	}
 
 	private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
-		final Path logFile = Paths.get(resourceManager.getResourceConfig().mPath.toPath().toString(),
-				"log", "intent-log");
+		final Path logFile =
+				resourceManager.getResourceConfig().mPath.resolve("log").resolve("intent-log");
+
 		try {
 			if (Files.exists(logFile)) {
 				Files.delete(logFile);
@@ -398,12 +398,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
 		mPageRtx.mResourceManager.getCommitLock().lock();
 
-		final File commitFile = mPageRtx.mResourceManager.commitFile();
-		commitFile.deleteOnExit();
+		final Path commitFile = mPageRtx.mResourceManager.commitFile();
+		commitFile.toFile().deleteOnExit();
 		// Issues with windows that it's not created in the first time?
-		while (!commitFile.exists()) {
+		while (!Files.exists(commitFile)) {
 			try {
-				commitFile.createNewFile();
+				Files.createFile(commitFile);
 			} catch (final IOException e) {
 				throw new SirixIOException(e);
 			}
@@ -426,9 +426,18 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		mPageWriter.writeUberPageReference(uberPageReference);
 		uberPageReference.setPage(null);
 
-		final File indexes = new File(mPageRtx.mResourceConfig.mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
-		try (final OutputStream out = new FileOutputStream(indexes)) {
+		final Path indexes = mPageRtx.mResourceConfig.mPath.resolve(
+				ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision) + ".xml");
+
+		if (!Files.exists(indexes)) {
+			try {
+				Files.createFile(indexes);
+			} catch (final IOException e) {
+				throw new SirixIOException(e);
+			}
+		}
+
+		try (final OutputStream out = new FileOutputStream(indexes.toFile())) {
 			mIndexController.serialize(out);
 		} catch (final IOException e) {
 			throw new SirixIOException("Index definitions couldn't be serialized!", e);
@@ -439,8 +448,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 		mLog = createTrxIntentLog(mPageRtx.mResourceManager);
 
 		// Delete commit file which denotes that a commit must write the log in the data file.
-		final boolean deleted = commitFile.delete();
-		if (!deleted) {
+
+		try {
+			Files.delete(commitFile);
+		} catch (final IOException e) {
 			throw new SirixIOException("Commit file couldn't be deleted!");
 		}
 

@@ -2,12 +2,12 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -130,19 +130,25 @@ public final class IndexController {
 	public boolean containsIndex(final IndexType type, final ResourceManager resourceManager,
 			final int revision) throws SirixIOException {
 		final Indexes indexes = new Indexes();
-		final File indexesFile = new File(resourceManager.getResourceConfig().mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
-		if (indexesFile.length() != 0) {
-			try (final InputStream in = new FileInputStream(indexesFile)) {
-				indexes.init(deserialize(in).getFirstChild());
-			} catch (IOException | DocumentException | SirixException e) {
-				throw new SirixIOException("Index definitions couldn't be deserialized!", e);
+
+		final java.nio.file.Path indexesFile = resourceManager.getResourceConfig().mPath.resolve(
+				ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision) + ".xml");
+
+		try {
+			if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {
+				try (final InputStream in = new FileInputStream(indexesFile.toFile())) {
+					indexes.init(deserialize(in).getFirstChild());
+				}
 			}
+		} catch (IOException | DocumentException | SirixException e) {
+			throw new SirixIOException("Index definitions couldn't be deserialized!", e);
 		}
+
 		for (final IndexDef indexDef : indexes.getIndexDefs()) {
 			if (indexDef.getType() == type)
 				return true;
 		}
+
 		return false;
 	}
 

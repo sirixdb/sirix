@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,7 +23,8 @@ package org.sirix.service.xml.shredder;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -45,21 +46,18 @@ import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 
 /**
  * Test WikipediaImport.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public class WikipediaImportTest {
 
 	/** Wikipedia file. */
-	public static final String WIKIPEDIA =
-			new StringBuilder("src").append(File.separator).append("test").append(File.separator)
-					.append("resources").append(File.separator).append("testWikipedia.xml").toString();
+	public static final Path WIKIPEDIA = Paths.get("src", "test", "resources", "testWikipedia.xml");
 
 	/** Wikipedia expected file. */
-	public static final String EXPECTED = new StringBuilder("src").append(File.separator)
-			.append("test").append(File.separator).append("resources").append(File.separator)
-			.append("testWikipediaExpected.xml").toString();
+	public static final Path EXPECTED =
+			Paths.get("src", "test", "resources", "testWikipediaExpected.xml");
 
 	@Before
 	public void setUp() throws SirixException {
@@ -98,13 +96,12 @@ public class WikipediaImportTest {
 		list.add(text);
 
 		// Invoke import.
-		new WikipediaImport(new File(WIKIPEDIA), PATHS.PATH2.getFile()).importData(DateBy.HOURS, list);
-		XMLSerializer.main(PATHS.PATH2.getFile().getAbsolutePath(),
-				PATHS.PATH3.getFile().getAbsolutePath());
+		new WikipediaImport(WIKIPEDIA, PATHS.PATH2.getFile()).importData(DateBy.HOURS, list);
+		XMLSerializer.main(PATHS.PATH2.getFile().toAbsolutePath().toString(),
+				PATHS.PATH3.getFile().toAbsolutePath().toString());
 
-		final StringBuilder actual =
-				TestHelper.readFile(PATHS.PATH3.getFile().getAbsoluteFile(), false);
-		final StringBuilder expected = TestHelper.readFile(new File(EXPECTED), false);
+		final StringBuilder actual = TestHelper.readFile(PATHS.PATH3.getFile().toAbsolutePath(), false);
+		final StringBuilder expected = TestHelper.readFile(EXPECTED, false);
 		assertEquals("XML files match", expected.toString(), actual.toString());
 	}
 }

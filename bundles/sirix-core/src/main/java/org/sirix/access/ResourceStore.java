@@ -3,6 +3,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
@@ -26,7 +27,7 @@ import org.sirix.page.UberPage;
  */
 public final class ResourceStore implements AutoCloseable {
 	/** Central repository of all open resource managers. */
-	private final ConcurrentMap<File, ResourceManager> mResourceManagers;
+	private final ConcurrentMap<Path, ResourceManager> mResourceManagers;
 
 	/** Makes sure there is at maximum a specific number of readers per resource. */
 	private final Semaphore mReadSemaphore;
@@ -60,7 +61,7 @@ public final class ResourceStore implements AutoCloseable {
 	public ResourceManager openResource(final @Nonnull DatabaseImpl database,
 			final @Nonnull ResourceConfiguration resourceConfig,
 			final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
-			final @Nonnull BufferManager bufferManager, final @Nonnull File resourceFile) {
+			final @Nonnull BufferManager bufferManager, final @Nonnull Path resourceFile) {
 		checkNotNull(database);
 		checkNotNull(resourceConfig);
 		return mResourceManagers.computeIfAbsent(resourceFile, k -> {
@@ -82,19 +83,19 @@ public final class ResourceStore implements AutoCloseable {
 			}
 
 			final ResourceManager resourceManager = new XdmResourceManager(database, this, resourceConfig,
-					resourceManagerConfig, bufferManager, resourceFile,
-					StorageType.getStorage(resourceConfig), uberPage, mReadSemaphore, mWriteSempahore);
+					resourceManagerConfig, bufferManager, StorageType.getStorage(resourceConfig), uberPage,
+					mReadSemaphore, mWriteSempahore);
 			Databases.putResourceManager(resourceFile, resourceManager);
 			return resourceManager;
 		});
 	}
 
-	public boolean hasOpenResourceManager(File resourceFile) {
+	public boolean hasOpenResourceManager(Path resourceFile) {
 		checkNotNull(resourceFile);
 		return mResourceManagers.containsKey(resourceFile);
 	}
 
-	public ResourceManager getOpenResourceManager(File resourceFile) {
+	public ResourceManager getOpenResourceManager(Path resourceFile) {
 		checkNotNull(resourceFile);
 		return mResourceManagers.get(resourceFile);
 	}
@@ -104,7 +105,7 @@ public final class ResourceStore implements AutoCloseable {
 		mResourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
 	}
 
-	public boolean closeResource(File resourceFile) {
+	public boolean closeResource(Path resourceFile) {
 		final ResourceManager manager = mResourceManagers.remove(resourceFile);
 		Databases.removeResourceManager(resourceFile, manager);
 		return manager != null;

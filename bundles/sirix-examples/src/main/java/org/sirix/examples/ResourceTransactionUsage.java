@@ -1,9 +1,11 @@
 package org.sirix.examples;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import javax.xml.stream.XMLStreamException;
 
@@ -24,12 +26,12 @@ public final class ResourceTransactionUsage {
 	private static final String USER_HOME = System.getProperty("user.home");
 
 	/** Storage for databases: Sirix data in home directory. */
-	private static final File LOCATION = new File(USER_HOME, "sirix-data");
+	private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
 	public static void main(final String[] args) {
-		final File file = new File(LOCATION, "db");
+		final Path file = LOCATION.resolve("db");
 		final DatabaseConfiguration config = new DatabaseConfiguration(file);
-		if (file.exists()) {
+		if (Files.exists(file)) {
 			Databases.truncateDatabase(config);
 		}
 		Databases.createDatabase(config);
@@ -41,8 +43,7 @@ public final class ResourceTransactionUsage {
 					final ResourceManager resource = database
 							.getResourceManager(new ResourceManagerConfiguration.Builder("resource").build());
 					final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
-				wtx.insertSubtreeAsFirstChild(
-						XMLShredder.createFileReader(new File(LOCATION, "input.xml")));
+				wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
 				wtx.moveTo(2);
 				wtx.moveSubtreeToFirstChild(4).commit();
 

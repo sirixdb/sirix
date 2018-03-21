@@ -1,12 +1,14 @@
 package org.sirix.diff.algorithm;
 
+import static java.util.stream.Collectors.toList;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 import org.custommonkey.xmlunit.DetailedDiff;
@@ -213,38 +215,31 @@ public final class FMSETest extends XMLTestCase {
 		Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		ResourceManager resource = database
 				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final File folder = new File(FOLDER);
-		final File[] filesList = folder.listFiles();
-		final List<File> list = new ArrayList<File>();
-		for (final File file : filesList) {
-			if (file.getName().endsWith(".xml")) {
-				list.add(file);
-			}
-		}
+		final Path folder = Paths.get(FOLDER);
+		final List<Path> list =
+				Files.list(folder).filter(path -> path.getFileName().endsWith(".xml")).collect(toList());
 
 		// Sort files list according to file names.
-		Collections.sort(list, new Comparator<File>() {
-			@Override
-			public int compare(final File paramFirst, final File paramSecond) {
-				final String firstName = paramFirst.getName().toString().substring(0,
-						paramFirst.getName().toString().indexOf('.'));
-				final String secondName = paramSecond.getName().toString().substring(0,
-						paramSecond.getName().toString().indexOf('.'));
-				if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-					return -1;
-				} else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-					return +1;
-				} else {
-					return 0;
-				}
+		list.sort((first, second) -> {
+			final String firstName =
+					first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+			final String secondName = second.getFileName().toString().substring(0,
+					second.getFileName().toString().indexOf('.'));
+
+			if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
+				return -1;
+			} else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
+				return +1;
+			} else {
+				return 0;
 			}
 		});
 
 		boolean first = true;
 
 		// Shredder files.
-		for (final File file : list) {
-			if (file.getName().endsWith(".xml")) {
+		for (final Path file : list) {
+			if (file.getFileName().endsWith(".xml")) {
 				if (first) {
 					first = false;
 					try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
@@ -253,8 +248,8 @@ public final class FMSETest extends XMLTestCase {
 						shredder.call();
 					}
 				} else {
-					FMSEImport
-							.main(new String[] {PATHS.PATH1.getFile().getAbsolutePath(), file.getAbsolutePath()});
+					FMSEImport.main(new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(),
+							file.toAbsolutePath().toString()});
 				}
 
 				resource.close();
@@ -264,7 +259,7 @@ public final class FMSETest extends XMLTestCase {
 				final OutputStream out = new ByteArrayOutputStream();
 				final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
 				serializer.call();
-				final StringBuilder sBuilder = TestHelper.readFile(file.getAbsoluteFile(), false);
+				final StringBuilder sBuilder = TestHelper.readFile(file, false);
 
 				final Diff diff = new Diff(sBuilder.toString(), out.toString());
 				final DetailedDiff detDiff = new DetailedDiff(diff);

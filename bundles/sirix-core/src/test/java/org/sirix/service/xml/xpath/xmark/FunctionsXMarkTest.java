@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,7 +21,8 @@
 
 package org.sirix.service.xml.xpath.xmark;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.junit.After;
 import org.junit.Before;
@@ -39,36 +40,36 @@ import org.sirix.service.xml.xpath.XPathStringChecker;
 /**
  * This class performs tests for XQuery functions used for XMark bench test and XPathMark bench
  * test.
- * 
+ *
  * @author Patrick Lang, Konstanz University
- * 
+ *
  */
 public class FunctionsXMarkTest {
 	/** XML file name to test. */
 	private static final String XMLFILE = "10mb.xml";
 	/** Path to XML file. */
-	private static final String XML =
-			"src" + File.separator + "test" + File.separator + "resources" + File.separator + XMLFILE;
+	private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
 
 	private Holder holder;
 
 	/**
 	 * Method is called once before each test. It deletes all states, shreds XML file to database and
 	 * initializes the required variables.
-	 * 
+	 *
 	 * @throws Exception
 	 */
 	@Before
 	@Ignore
 	public void setUp() throws Exception {
 		TestHelper.deleteEverything();
-		XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+		XMLShredder.main(XML.toAbsolutePath().toString(),
+				PATHS.PATH1.getFile().toAbsolutePath().toString());
 		holder = Holder.generateRtx();
 	}
 
 	/**
 	 * Test function string().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -82,7 +83,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test comment.
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -96,7 +97,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function node().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -110,7 +111,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function text().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -124,7 +125,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function count().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -139,7 +140,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function position().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -153,7 +154,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function not().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -167,7 +168,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function id().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -181,7 +182,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function data().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -195,7 +196,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function contains().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -210,7 +211,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function exactly-one(). alternative query: exactly-one('a') -> result: a
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -224,7 +225,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function sum().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -238,7 +239,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function zero-or-one(). alternative query: zero-or-one('a') -> result: a
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -253,7 +254,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function max().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -268,7 +269,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function min().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -283,7 +284,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function empty().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -298,7 +299,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function one-or-more().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -312,7 +313,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function exists().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -326,7 +327,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function substring-after().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -340,7 +341,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function substring-before().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -354,7 +355,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function last().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -368,7 +369,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function boolean().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -382,7 +383,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function number().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -397,7 +398,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function distinct-values().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -412,7 +413,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function root().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -426,7 +427,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test function floor().
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -440,7 +441,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Test <element attribute=""/> in return statement.
-	 * 
+	 *
 	 * @throws SirixXPathException
 	 */
 	@Ignore
@@ -455,7 +456,7 @@ public class FunctionsXMarkTest {
 
 	/**
 	 * Close all connections.
-	 * 
+	 *
 	 * @throws SirixException
 	 */
 	@After

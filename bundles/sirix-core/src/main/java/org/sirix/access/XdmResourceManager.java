@@ -24,7 +24,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -151,9 +151,9 @@ public final class XdmResourceManager implements ResourceManager {
 	XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
 			final @Nonnull ResourceConfiguration resourceConf,
 			final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
-			final @Nonnull BufferManager bufferManager, final @Nonnull File resourceFile,
-			final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
-			final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
+			final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage,
+			final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
+			final @Nonnull Semaphore writeSemaphore) {
 		mDatabase = checkNotNull(database);
 		mResourceStore = checkNotNull(resourceStore);
 		mResourceConfig = checkNotNull(resourceConf);
@@ -242,10 +242,9 @@ public final class XdmResourceManager implements ResourceManager {
 	 * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting
 	 * or not.
 	 */
-	File commitFile() {
-		return new File(mResourceConfig.mPath,
-				new File(ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(),
-						new File(".commit").getPath()).getPath());
+	Path commitFile() {
+		return mResourceConfig.mPath
+				.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_LOG.getFile()).resolve(".commit");
 	}
 
 	@Override

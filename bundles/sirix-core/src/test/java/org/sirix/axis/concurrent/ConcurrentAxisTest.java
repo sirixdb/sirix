@@ -23,7 +23,8 @@ package org.sirix.axis.concurrent;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.junit.After;
 import org.junit.Before;
@@ -51,8 +52,7 @@ public final class ConcurrentAxisTest {
 	private static final String XMLFILE = "10mb.xml";
 
 	/** Path to XML file. */
-	private static final String XML =
-			"src" + File.separator + "test" + File.separator + "resources" + File.separator + XMLFILE;
+	private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
 
 	private Holder holder;
 
@@ -66,7 +66,8 @@ public final class ConcurrentAxisTest {
 	public void setUp() throws Exception {
 		try {
 			TestHelper.deleteEverything();
-			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+			XMLShredder.main(XML.toAbsolutePath().toString(),
+					PATHS.PATH1.getFile().toAbsolutePath().toString());
 			holder = Holder.generateRtx();
 		} catch (final Exception e) {
 			e.printStackTrace();
