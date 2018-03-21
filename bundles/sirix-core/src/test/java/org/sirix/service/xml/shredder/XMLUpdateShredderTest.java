@@ -22,12 +22,12 @@
 package org.sirix.service.xml.shredder;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
@@ -54,32 +54,31 @@ import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class XMLUpdateShredderTest extends XMLTestCase {
-	private static final String RESOURCES =
-			"src" + File.separator + "test" + File.separator + "resources";
+	private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
-	private static final String XMLINSERTFIRST = RESOURCES + File.separator + "revXMLsInsert";
+	private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
 
-	private static final String XMLINSERTSECOND = RESOURCES + File.separator + "revXMLsInsert1";
+	private static final Path XMLINSERTSECOND = RESOURCES.resolve("revXMLsInsert1");
 
-	private static final String XMLINSERTTHIRD = RESOURCES + File.separator + "revXMLsInsert2";
+	private static final Path XMLINSERTTHIRD = RESOURCES.resolve("revXMLsInsert2");
 
-	private static final String XMLDELETEFIRST = RESOURCES + File.separator + "revXMLsDelete";
+	private static final Path XMLDELETEFIRST = RESOURCES.resolve("revXMLsDelete");
 
-	private static final String XMLDELETESECOND = RESOURCES + File.separator + "revXMLsDelete1";
+	private static final Path XMLDELETESECOND = RESOURCES.resolve("revXMLsDelete1");
 
-	private static final String XMLDELETETHIRD = RESOURCES + File.separator + "revXMLsDelete2";
+	private static final Path XMLDELETETHIRD = RESOURCES.resolve("revXMLsDelete2");
 
-	private static final String XMLDELETEFOURTH = RESOURCES + File.separator + "revXMLsDelete3";
+	private static final Path XMLDELETEFOURTH = RESOURCES.resolve("revXMLsDelete3");
 
-	private static final String XMLSAME = RESOURCES + File.separator + "revXMLsSame";
+	private static final Path XMLSAME = RESOURCES.resolve("revXMLsSame");
 
-	private static final String XMLALLSECOND = RESOURCES + File.separator + "revXMLsAll1";
+	private static final Path XMLALLSECOND = RESOURCES.resolve("revXMLsAll1");
 
-	private static final String XMLALLFOURTH = RESOURCES + File.separator + "revXMLsAll3";
+	private static final Path XMLALLFOURTH = RESOURCES.resolve("revXMLsAll3");
 
-	private static final String XMLALLFIFTH = RESOURCES + File.separator + "revXMLsAll4";
+	private static final Path XMLALLFIFTH = RESOURCES.resolve("revXMLsAll4");
 
-	private static final String XMLALLSEVENTH = RESOURCES + File.separator + "revXMLsAll6";
+	private static final Path XMLALLSEVENTH = RESOURCES.resolve("revXMLsAll6");
 
 	// private static final String XMLLINGUISTICS = RESOURCES + File.separator +
 	// "linguistics";
@@ -199,45 +198,36 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 	// test(XMLLINGUISTICS);
 	// }
 
-	private void test(final String FOLDER) throws Exception {
+	private void test(final Path folder) throws Exception {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(
 				new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
 		final ResourceManager manager = database
 				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-		final File folder = new File(FOLDER);
 		int i = 2;
-		final File[] filesList = folder.listFiles();
-		final List<File> list = new ArrayList<File>();
-		for (final File file : filesList) {
-			if (file.getName().endsWith(".xml")) {
-				list.add(file);
-			}
-		}
+		final List<Path> files = Files.list(folder).filter(file -> file.getFileName().endsWith(".xml"))
+				.collect(Collectors.toList());
 
 		// Sort files array according to file names.
-		Collections.sort(list, new Comparator<Object>() {
-			@Override
-			public int compare(final Object paramFirst, final Object paramSecond) {
-				final String firstName = ((File) paramFirst).getName().toString().substring(0,
-						((File) paramFirst).getName().toString().indexOf('.'));
-				final String secondName = ((File) paramSecond).getName().toString().substring(0,
-						((File) paramSecond).getName().toString().indexOf('.'));
-				if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-					return -1;
-				} else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-					return +1;
-				} else {
-					return 0;
-				}
+		files.sort((first, second) -> {
+			final String firstName =
+					first.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
+			final String secondName = second.getFileName().toString().substring(0,
+					second.getFileName().toString().indexOf('.'));
+			if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
+				return -1;
+			} else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
+				return +1;
+			} else {
+				return 0;
 			}
 		});
 
 		boolean first = true;
 
 		// Shredder files.
-		for (final File file : list) {
-			if (file.getName().endsWith(".xml")) {
+		for (final Path file : files) {
+			if (file.endsWith(".xml")) {
 				final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
 				if (first) {
 					final XMLShredder shredder =
@@ -259,7 +249,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 				final XMLSerializer serializer =
 						new XMLSerializerBuilder(manager, out).prettyPrint().build();
 				serializer.call();
-				final StringBuilder sBuilder = TestHelper.readFile(file.getAbsoluteFile(), false);
+				final StringBuilder sBuilder = TestHelper.readFile(file, false);
 
 				final Diff diff = new Diff(sBuilder.toString(), out.toString());
 				final DetailedDiff detDiff = new DetailedDiff(diff);

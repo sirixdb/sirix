@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,9 +23,6 @@ package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
-
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -36,33 +33,26 @@ import org.sirix.io.bytepipe.ByteHandler;
 
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
-import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
-import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 
 /**
  * Factory class to build up {@link Reader}/{@link Writer} instances for Sirix.
- * 
+ *
  * After all this class is implemented as a Singleton to hold one {@link BerkeleyStorage} per
  * {@link ResourceManagerConfiguration}.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public final class BerkeleyStorage implements Storage {
 
 	/** Binding for {@link Long}. */
 	public static final TupleBinding<Long> DATAINFO_VAL_B =
 			TupleBinding.getPrimitiveBinding(Long.class);
-
-	/**
-	 * Name for the database.
-	 */
-	private static final String NAME = "berkeleyDatabase";
 
 	/**
 	 * Berkeley Environment for the database.
@@ -79,37 +69,17 @@ public final class BerkeleyStorage implements Storage {
 
 	/**
 	 * Constructor.
-	 * 
-	 * @param file the file associated with the database
-	 * @param handler the byte handler pipeline
-	 * @param resourceConfig the resource configuration
-	 * @throws SirixIOException if something odd happens while database-connection
-	 * @throws NullPointerException if {@code pFile} is {@code null}
+	 *
+	 * @param env the Berkeley-DB environment
+	 * @param db the Berkeley-DB database
+	 * @param byteHandlePipe the bye handle pipeline configuration
+	 * @throws NullPointerException if one of the parameters is {@code null}
 	 */
-	public BerkeleyStorage(final ResourceConfiguration resourceConfig) throws SirixIOException {
-		final File repoFile = new File(checkNotNull(resourceConfig.mPath),
-				ResourceConfiguration.Paths.DATA.getFile().getName());
-		if (!repoFile.exists()) {
-			repoFile.mkdirs();
-		}
-
-		mByteHandler = checkNotNull(resourceConfig.mByteHandler);
-
-		final DatabaseConfig conf = generateDBConf();
-		final EnvironmentConfig config = generateEnvConf();
-
-		if (repoFile.listFiles().length == 0 || (repoFile.listFiles().length == 1
-				&& "sirix.data".equals(repoFile.listFiles()[0].getName()))) {
-			conf.setAllowCreate(true);
-			config.setAllowCreate(true);
-		}
-
-		try {
-			mEnv = new Environment(repoFile, config);
-			mDatabase = mEnv.openDatabase(null, NAME, conf);
-		} catch (final DatabaseException e) {
-			throw new SirixIOException(e);
-		}
+	public BerkeleyStorage(final Environment env, final Database db,
+			final ByteHandlePipeline byteHandlePipe) {
+		mEnv = checkNotNull(env);
+		mDatabase = checkNotNull(db);
+		mByteHandler = checkNotNull(byteHandlePipe);
 	}
 
 	@Override
@@ -155,30 +125,6 @@ public final class BerkeleyStorage implements Storage {
 		}
 		return returnVal;
 
-	}
-
-	/**
-	 * Generate {@link EnvironmentConfig} reference.
-	 * 
-	 * @return transactional environment configuration
-	 */
-	private static EnvironmentConfig generateEnvConf() {
-		final EnvironmentConfig config = new EnvironmentConfig();
-		config.setTransactional(true);
-		config.setCacheSize(1024 * 1024);
-		return config;
-	}
-
-	/**
-	 * Generate {@link DatabaseConfig} reference.
-	 * 
-	 * @return transactional database configuration
-	 */
-	private static DatabaseConfig generateDBConf() {
-		final DatabaseConfig conf = new DatabaseConfig();
-		conf.setTransactional(true);
-		conf.setKeyPrefixing(true);
-		return conf;
 	}
 
 	@Override

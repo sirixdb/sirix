@@ -24,6 +24,8 @@ package org.sirix.access;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import java.nio.file.Files;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -57,7 +59,7 @@ public final class NodeReadTrxImplTest {
 
 	@Test
 	public void testEmptyRtx() throws SirixException {
-		assertFalse(PATHS.PATH2.getFile().exists());
+		assertFalse(Files.exists(PATHS.PATH2.getFile()));
 		Databases.createDatabase(PATHS.PATH2.getConfig());
 
 		try (final Database db = Databases.openDatabase(PATHS.PATH2.getFile())) {

@@ -52,7 +52,7 @@ public final class RAMStorage implements Storage {
 	public RAMStorage(final ResourceConfiguration resourceConfig) {
 		mStorage = new ConcurrentHashMap<>();
 		mHandler = resourceConfig.mByteHandler;
-		final String resource = resourceConfig.getResource().getName();
+		final String resource = resourceConfig.getResource().getFileName().toString();
 		final Map<Long, Page> resourceStorage = mStorage.get(resource);
 		if (resourceStorage == null) {
 			mResourceStorage = new ConcurrentHashMap<Long, Page>();

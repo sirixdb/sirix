@@ -26,10 +26,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.annotation.Nonnegative;
 
@@ -46,7 +51,6 @@ import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +80,7 @@ public final class DatabaseImpl implements Database {
 	private final ResourceStore mResourceStore;
 
 	/** Buffers / page cache for each resource. */
-	private final ConcurrentMap<File, BufferManager> mBufferManagers;
+	private final ConcurrentMap<Path, BufferManager> mBufferManagers;
 
 	/** Central repository of all resource-ID/resource-name tuples. */
 	private final BiMap<Long, String> mResources;
@@ -109,25 +113,35 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized boolean createResource(final ResourceConfiguration resConfig) {
 		boolean returnVal = true;
-		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
-				DatabaseConfiguration.Paths.DATA.getFile().getName()), resConfig.mPath.getName());
+		final Path path = mDBConfig.getFile()
+				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.mPath);
 		// If file is existing, skip.
-		if (path.exists()) {
+		if (java.nio.file.Files.exists(path)) {
 			return false;
 		} else {
-			returnVal = path.mkdir();
+			try {
+				Files.createDirectory(path);
+			} catch (UnsupportedOperationException | IOException | SecurityException e) {
+				returnVal = false;
+			}
+
 			if (returnVal) {
 				// Creation of the folder structure.
-				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths.values()) {
-					final File toCreate = new File(path, paths.getFile().getName());
-					if (paths.isFolder()) {
-						returnVal = toCreate.mkdir();
+				for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths
+						.values()) {
+					final Path toCreate = path.resolve(resourcePath.getFile());
+					if (resourcePath.isFolder()) {
+						try {
+							Files.createDirectory(toCreate);
+						} catch (UnsupportedOperationException | IOException | SecurityException e) {
+							returnVal = false;
+						}
 					} else {
 						try {
-							returnVal = ResourceConfiguration.Paths.INDEXES.getFile().getName()
-									.equals(paths.getFile().getName()) ? true : toCreate.createNewFile();
+							returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile()
+									.equals(resourcePath.getFile()) ? true : Files.createFile(toCreate) != null;
 						} catch (final IOException e) {
-							Files.recursiveRemove(path.toPath());
+							org.sirix.utils.Files.recursiveRemove(path);
 							throw new SirixIOException(e);
 						}
 					}
@@ -136,17 +150,21 @@ public final class DatabaseImpl implements Database {
 					}
 				}
 			}
-			// Serialization of the config.
-			mResourceID.set(mDBConfig.getMaxResourceID());
-			ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
-			mDBConfig.setMaximumResourceID(mResourceID.get());
-			mResources.forcePut(mResourceID.get(), resConfig.getResource().getName());
 
 			if (returnVal) {
 				// If everything was correct so far, initialize storage.
+
+				// Serialization of the config.
+				mResourceID.set(mDBConfig.getMaxResourceID());
+				ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
+				mDBConfig.setMaximumResourceID(mResourceID.get());
+				mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
+
 				try {
-					try (final ResourceManager resourceTrxManager = this.getResourceManager(
-							new ResourceManagerConfiguration.Builder(resConfig.getResource().getName()).build());
+					try (
+							final ResourceManager resourceTrxManager =
+									this.getResourceManager(new ResourceManagerConfiguration.Builder(
+											resConfig.getResource().getFileName().toString()).build());
 							final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
 						wtx.commit();
 					}
@@ -158,7 +176,7 @@ public final class DatabaseImpl implements Database {
 
 			if (!returnVal) {
 				// If something was not correct, delete the partly created substructure.
-				Files.recursiveRemove(resConfig.mPath.toPath());
+				org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
 			}
 
 			return returnVal;
@@ -167,15 +185,15 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized Database truncateResource(final String name) {
-		final File resourceFile = new File(
-				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()), name);
+		final Path resourceFile = mDBConfig.getFile()
+				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 		// Check that database must be closed beforehand.
 		if (!Databases.hasOpenResourceManagers(resourceFile)) {
 			// If file is existing and folder is a Sirix-dataplace, delete it.
-			if (resourceFile.exists()
-					&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
+			if (Files.exists(resourceFile)
+					&& ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
 				// Instantiate the database for deletion.
-				Files.recursiveRemove(resourceFile.toPath());
+				org.sirix.utils.Files.recursiveRemove(resourceFile);
 
 				// mReadSemaphores.remove(resourceFile);
 				// mWriteSemaphores.remove(resourceFile);
@@ -216,11 +234,11 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized ResourceManager getResourceManager(
 			final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
-		final File resourceFile = new File(
-				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
-				resourceManagerConfig.getResource());
+		final Path resourceFile =
+				mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+						.resolve(resourceManagerConfig.getResource());
 
-		if (!resourceFile.exists()) {
+		if (!Files.exists(resourceFile)) {
 			throw new SirixUsageException(
 					"Resource could not be opened (since it was not created?) at location",
 					resourceFile.toString());
@@ -232,7 +250,7 @@ public final class DatabaseImpl implements Database {
 		final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
 		// Resource of must be associated to this database.
-		assert resourceConfig.mPath.getParentFile().getParentFile().equals(mDBConfig.getFile());
+		assert resourceConfig.mPath.getParent().getParent().equals(mDBConfig.getFile());
 
 		if (!mBufferManagers.containsKey(resourceFile))
 			mBufferManagers.put(resourceFile, new BufferManagerImpl());
@@ -252,8 +270,8 @@ public final class DatabaseImpl implements Database {
 		Databases.removeDatabase(mDBConfig.getFile());
 
 		// Remove lock file.
-		Files.recursiveRemove(new File(mDBConfig.getFile().getAbsoluteFile(),
-				DatabaseConfiguration.Paths.LOCK.getFile().getName()).toPath());
+		org.sirix.utils.Files.recursiveRemove(
+				mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
 	}
 
 	@Override
@@ -263,18 +281,21 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized boolean existsResource(final String pResourceName) {
-		final File resourceFile = new File(
-				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
-				pResourceName);
-		return resourceFile.exists() && ResourceConfiguration.Paths.compareStructure(resourceFile) == 0
-				? true
-				: false;
+
+		final Path resourceFile = mDBConfig.getFile()
+				.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(pResourceName);
+		return Files.exists(resourceFile)
+				&& ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0 ? true : false;
 	}
 
 	@Override
-	public String[] listResources() {
-		return new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName())
-				.list();
+	public List<Path> listResources() {
+		try (final Stream<Path> stream = Files
+				.list(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+			return stream.collect(Collectors.toList());
+		} catch (IOException e) {
+			throw new SirixIOException(e);
+		}
 	}
 
 	// @Override

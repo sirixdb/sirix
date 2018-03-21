@@ -21,6 +21,9 @@
 
 package org.sirix.api;
 
+import java.nio.file.Path;
+import java.util.List;
+
 import javax.annotation.Nonnegative;
 
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -70,7 +73,7 @@ public interface Database extends AutoCloseable {
 	 *
 	 * @return all resources
 	 */
-	String[] listResources();
+	List<Path> listResources();
 
 	/**
 	 * Getting the resource manager to open and work with a resource stored in this database.

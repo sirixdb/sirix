@@ -2,9 +2,10 @@ package org.sirix.xquery.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
@@ -48,7 +49,7 @@ public final class DBStore implements Store, AutoCloseable {
 	private static final String USER_HOME = System.getProperty("user.home");
 
 	/** Storage for databases: Sirix data in home directory. */
-	private static final File LOCATION = new File(USER_HOME, "sirix-data");
+	private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
 	/** {@link Set} of databases. */
 	private final Set<Database> mDatabases;
@@ -60,7 +61,7 @@ public final class DBStore implements Store, AutoCloseable {
 	private final StorageType mStorageType;
 
 	/** The location to store created collections/databases. */
-	private final File mLocation;
+	private final Path mLocation;
 
 	/** Get a new builder instance. */
 	public static Builder newBuilder() {
@@ -75,7 +76,7 @@ public final class DBStore implements Store, AutoCloseable {
 		private StorageType mStorageType = StorageType.FILE;
 
 		/** The location to store created collections/databases. */
-		private File mLocation = LOCATION;
+		private Path mLocation = LOCATION;
 
 		/**
 		 * Set the storage type (default: file backend).
@@ -94,7 +95,7 @@ public final class DBStore implements Store, AutoCloseable {
 		 * @param location the location
 		 * @return this builder instance
 		 */
-		public Builder location(final File location) {
+		public Builder location(final Path location) {
 			mLocation = checkNotNull(location);
 			return this;
 		}
@@ -122,13 +123,13 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	/** Get the location of the generated collections/databases. */
-	public File getLocation() {
+	public Path getLocation() {
 		return mLocation;
 	}
 
 	@Override
 	public TemporalCollection<?> lookup(final String name) throws DocumentException {
-		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(mLocation, name));
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
 		if (Databases.existsDatabase(dbConf)) {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
@@ -150,7 +151,7 @@ public final class DBStore implements Store, AutoCloseable {
 
 	@Override
 	public TemporalCollection<?> create(final String name) throws DocumentException {
-		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(mLocation, name));
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
 		try {
 			if (Databases.createDatabase(dbConf)) {
 				throw new DocumentException("Document with name %s exists!", name);
@@ -175,14 +176,14 @@ public final class DBStore implements Store, AutoCloseable {
 
 	public TemporalCollection<?> create(final String collName, final Optional<String> optResName,
 			final SubtreeParser parser) throws DocumentException {
-		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(mLocation, collName));
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
 		try {
 			Databases.truncateDatabase(dbConf);
 			Databases.createDatabase(dbConf);
 			try (final Database database = Databases.openDatabase(dbConf.getFile())) {
 				mDatabases.add(database);
 				final String resName = optResName.isPresent() ? optResName.get()
-						: new StringBuilder(3).append("resource").append(database.listResources().length + 1)
+						: new StringBuilder(3).append("resource").append(database.listResources().size() + 1)
 								.toString();
 				database.createResource(ResourceConfiguration.newBuilder(resName, dbConf).useDeweyIDs(true)
 						.useTextCompression(true).buildPathSummary(true).storageType(mStorageType).build());
@@ -209,7 +210,7 @@ public final class DBStore implements Store, AutoCloseable {
 	public TemporalCollection<?> create(final String collName,
 			final @Nullable Stream<SubtreeParser> parsers) throws DocumentException {
 		if (parsers != null) {
-			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(mLocation, collName));
+			final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
 			try {
 				Databases.truncateDatabase(dbConf);
 				Databases.createDatabase(dbConf);
@@ -217,7 +218,7 @@ public final class DBStore implements Store, AutoCloseable {
 				mDatabases.add(database);
 				final ExecutorService pool =
 						Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-				int i = database.listResources().length + 1;
+				int i = database.listResources().size() + 1;
 				try {
 					SubtreeParser parser = null;
 					while ((parser = parsers.next()) != null) {
@@ -258,7 +259,7 @@ public final class DBStore implements Store, AutoCloseable {
 
 	@Override
 	public void drop(final String name) throws DocumentException {
-		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File(mLocation, name));
+		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(mLocation.resolve(name));
 		if (Databases.existsDatabase(dbConfig)) {
 			try {
 				Databases.truncateDatabase(dbConfig);

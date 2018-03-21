@@ -23,7 +23,8 @@ package org.sirix.service.xml.xpath;
 
 import static org.junit.Assert.fail;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.junit.After;
 import org.junit.Before;
@@ -47,8 +48,8 @@ import org.sirix.service.xml.shredder.XMLShredder;
  */
 public final class XPathWriteTransactionTest {
 
-	private static final String XML = "src" + File.separator + "test" + File.separator + "resources"
-			+ File.separator + "enwiki-revisions-test.xml";
+	private static final Path XML =
+			Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
 
 	private static final String RESOURCE = "bla";
 
@@ -62,7 +63,8 @@ public final class XPathWriteTransactionTest {
 	public void setUp() throws Exception {
 		TestHelper.deleteEverything();
 		// Build simple test tree.
-		XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+		XMLShredder.main(XML.toAbsolutePath().toString(),
+				PATHS.PATH1.getFile().toAbsolutePath().toString());
 
 		// Verify.
 		database = TestHelper.getDatabase(PATHS.PATH1.getFile());

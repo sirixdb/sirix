@@ -482,9 +482,9 @@ public class FileSystemWatcher implements AutoCloseable {
 		}
 
 		if (Boolean.parseBoolean(args[2])) {
-			Databases.truncateDatabase(new DatabaseConfiguration(new File(args[1])));
+			Databases.truncateDatabase(new DatabaseConfiguration(Paths.get(args[1])));
 		}
-		final File databasePath = new File(args[1]);
+		final Path databasePath = Paths.get(args[1]);
 		final DatabaseConfiguration conf = new DatabaseConfiguration(databasePath);
 		Map<Path, org.sirix.fs.Path> index = null;
 		if (Files.exists(Paths.get(args[1]))) {

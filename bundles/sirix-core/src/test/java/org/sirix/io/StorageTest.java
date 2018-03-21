@@ -23,15 +23,15 @@ package org.sirix.io;
 
 import static org.testng.AssertJUnit.assertEquals;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.berkeley.BerkeleyStorageFactory;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
@@ -54,13 +54,11 @@ public final class StorageTest {
 	public void setUp() throws SirixException, IOException {
 		TestHelper.closeEverything();
 		TestHelper.deleteEverything();
-		TestHelper.PATHS.PATH1.getFile().mkdirs();
-		new File(TestHelper.PATHS.PATH1.getFile(),
-				new StringBuilder(ResourceConfiguration.Paths.DATA.getFile().getName()).toString())
-						.mkdirs();
-		new File(TestHelper.PATHS.PATH1.getFile(),
-				new StringBuilder(ResourceConfiguration.Paths.DATA.getFile().getName())
-						.append(File.separator).append("data.sirix").toString()).createNewFile();
+		Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
+		Files.createDirectories(TestHelper.PATHS.PATH1.getFile()
+				.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
+		Files.createFile(TestHelper.PATHS.PATH1.getFile()
+				.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve("data.sirix"));
 		mResourceConfig = new ResourceConfiguration.Builder("shredded",
 				new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
 	}
@@ -123,8 +121,10 @@ public final class StorageTest {
 	 */
 	@DataProvider(name = "instantiateStorages")
 	public Object[][] instantiateStorages() throws SirixIOException {
-		Object[][] returnVal = {{Storage.class, new Storage[] {new FileStorage(mResourceConfig),
-				new BerkeleyStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
+		Object[][] returnVal = {{Storage.class,
+				new Storage[] {new FileStorage(mResourceConfig),
+						new BerkeleyStorageFactory().createStorage(mResourceConfig),
+						new RAMStorage(mResourceConfig)}}};
 		return returnVal;
 	}
 

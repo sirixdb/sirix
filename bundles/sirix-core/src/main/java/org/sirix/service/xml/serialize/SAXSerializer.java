@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,8 +23,9 @@ package org.sirix.service.xml.serialize;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import javax.annotation.Nonnegative;
 
@@ -35,8 +36,8 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -55,13 +56,13 @@ import org.xml.sax.helpers.DefaultHandler;
 
 /**
  * <h1>SaxSerializer</h1>
- * 
+ *
  * <p>
  * Generates SAX events from a Sirix database/resource.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class SAXSerializer extends AbstractSerializer implements XMLReader {
 
@@ -73,7 +74,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param session Sirix {@link ResourceManager}
 	 * @param handler SAX {@link ContentHandler}
 	 * @param revision revision to serialize
@@ -159,7 +160,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Generates a comment event.
-	 * 
+	 *
 	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
 	private void generateComment(final XdmNodeReadTrx rtx) {
@@ -173,7 +174,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Generate a processing instruction event.
-	 * 
+	 *
 	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
 	private void generatePI(final XdmNodeReadTrx rtx) {
@@ -186,7 +187,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Generate a start element event.
-	 * 
+	 *
 	 * @param rtx {@link XdmNodeReadTrx} implementation
 	 */
 	private void generateElement(final XdmNodeReadTrx rtx) {
@@ -235,7 +236,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Generate a text event.
-	 * 
+	 *
 	 * @param pRtx {@link XdmNodeReadTrx} implementation
 	 */
 	private void generateText(final XdmNodeReadTrx pRtx) {
@@ -249,14 +250,15 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/**
 	 * Main method.
-	 * 
-	 * @param args args[0] specifies the path to the TT-storage from which to generate SAX events.
+	 *
+	 * @param args args[0] specifies the path to the sirix storage from which to generate SAX events.
 	 * @throws SirixException if any Sirix exception occurs
 	 */
-	public static void main(final String... args) throws SirixException {
-		final DatabaseConfiguration config = new DatabaseConfiguration(new File(args[0]));
+	public static void main(final String... args) {
+		final Path path = Paths.get(args[0]);
+		final DatabaseConfiguration config = new DatabaseConfiguration(path);
 		Databases.createDatabase(config);
-		final Database database = Databases.openDatabase(new File(args[0]));
+		final Database database = Databases.openDatabase(path);
 		database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
 		try (final ResourceManager session =
 				database.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build())) {

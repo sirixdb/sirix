@@ -24,9 +24,11 @@ package org.sirix;
 import static org.junit.Assert.fail;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
@@ -70,27 +72,24 @@ public final class TestHelper {
 	/** Paths where the data is stored to. */
 	public enum PATHS {
 		// PATH1 (Sirix)
-		PATH1(new File(new StringBuilder(TMPDIR).append(File.separator).append("sirix")
-				.append(File.separator).append("path1").toString())),
+		PATH1(Paths.get(TMPDIR, "sirix", "path1")),
 
 		// PATH2 (Sirix)
-		PATH2(new File(new StringBuilder(TMPDIR).append(File.separator).append("sirix")
-				.append(File.separator).append("path2").toString())),
+		PATH2(Paths.get(TMPDIR, "sirix", "path2")),
 
 		// PATH3 (XML)
-		PATH3(new File(new StringBuilder(TMPDIR).append(File.separator).append("xml")
-				.append(File.separator).append("test.xml").toString()));
+		PATH3(Paths.get(TMPDIR, "xml", "test.xml"));
 
-		final File file;
+		final Path file;
 
 		final DatabaseConfiguration config;
 
-		PATHS(final File pFile) {
-			file = pFile;
-			config = new DatabaseConfiguration(pFile);
+		PATHS(final Path file) {
+			this.file = file;
+			config = new DatabaseConfiguration(file);
 		}
 
-		public File getFile() {
+		public Path getFile() {
 			return file;
 		}
 
@@ -103,8 +102,8 @@ public final class TestHelper {
 	/** Common random instance for generating common tag names. */
 	public final static Random random = new Random();
 
-	/** File <=> Database instances. */
-	private final static Map<File, Database> INSTANCES = new Hashtable<>();
+	/** Path <=> Database instances. */
+	private final static Map<Path, Database> INSTANCES = new Hashtable<>();
 
 	@Test
 	public void testDummy() {
@@ -119,13 +118,13 @@ public final class TestHelper {
 	 * @return a database-obj
 	 */
 	@Ignore
-	public static final Database getDatabase(final File file) {
+	public static final Database getDatabase(final Path file) {
 		if (INSTANCES.containsKey(file)) {
 			return INSTANCES.get(file);
 		} else {
 			try {
 				final DatabaseConfiguration config = new DatabaseConfiguration(file);
-				if (!file.exists()) {
+				if (!Files.exists(file)) {
 					Databases.createDatabase(config);
 				}
 				final Database database = Databases.openDatabase(file);
@@ -239,18 +238,18 @@ public final class TestHelper {
 	/**
 	 * Read a file into a StringBuilder.
 	 *
-	 * @param paramFile The file to read.
-	 * @param paramWhitespaces Retrieve file and don't remove any whitespaces.
-	 * @return StringBuilder instance, which has the string representation of the document.
-	 * @throws IOException throws an IOException if any I/O operation fails.
+	 * @param file the file to read
+	 * @param whitespaces retrieve file and don't remove any whitespaces
+	 * @return StringBuilder instance, which has the string representation of the document
+	 * @throws IOException if an I/O operation fails
 	 */
 	@Ignore("Not a test, utility method only")
-	public static StringBuilder readFile(final File paramFile, final boolean paramWhitespaces)
+	public static StringBuilder readFile(final Path file, final boolean whitespaces)
 			throws IOException {
-		final BufferedReader in = new BufferedReader(new FileReader(paramFile));
+		final BufferedReader in = new BufferedReader(new FileReader(file.toFile()));
 		final StringBuilder sBuilder = new StringBuilder();
 		for (String line = in.readLine(); line != null; line = in.readLine()) {
-			if (paramWhitespaces) {
+			if (whitespaces) {
 				sBuilder.append(line + CharsForSerializing.NEWLINE);
 			} else {
 				sBuilder.append(line.trim());
@@ -258,7 +257,7 @@ public final class TestHelper {
 		}
 
 		// Remove last newline.
-		if (paramWhitespaces) {
+		if (whitespaces) {
 			sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
 		}
 		in.close();

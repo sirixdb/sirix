@@ -24,10 +24,11 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -153,10 +154,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		if (indexController == null) {
 			// Deserialize index definitions.
-			final File indexes = new File(resourceManager.getResourceConfig().mPath,
-					ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
-			if (indexes.exists()) {
-				try (final InputStream in = new FileInputStream(indexes)) {
+			final Path indexes = resourceManager.getResourceConfig().mPath
+					.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision)
+							+ ".xml");
+			if (Files.exists(indexes)) {
+				try (final InputStream in = new FileInputStream(indexes.toFile())) {
 					mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
 				} catch (IOException | DocumentException | SirixException e) {
 					throw new SirixIOException("Index definitions couldn't be deserialized!", e);
@@ -164,8 +166,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 		}
 
-		final File commitFile = resourceManager.commitFile();
-		commitFile.exists();
+		// final File commitFile = resourceManager.commitFile();
+		// commitFile.exists();
 
 		mResourceManager = checkNotNull(resourceManager);
 		mPageReader = checkNotNull(reader);

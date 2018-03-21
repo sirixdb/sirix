@@ -24,6 +24,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
@@ -65,9 +67,9 @@ public final class FMSEImport {
 	 * @throws SirixException if sirix fails to shredder the file
 	 * @throws IOException if file couldn't be read
 	 * @throws XMLStreamException if XML document isn't well formed
-	 * @throws NullPointerException if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
+	 * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
 	 */
-	private void shredder(final File resNewRev, @Nonnull final File newRev)
+	private void shredder(final Path resNewRev, @Nonnull Path newRev)
 			throws SirixException, IOException, XMLStreamException {
 		assert resNewRev != null;
 		assert newRev != null;
@@ -95,13 +97,13 @@ public final class FMSEImport {
 	 * @param resOldRev {@link File} for old revision (sirix resource)
 	 * @param resNewRev {@link File} for new revision (XML resource)
 	 */
-	private void dataImport(final File resOldRev, @Nonnull final File resNewRev) {
+	private void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
 
 		try {
-			final File newRevTarget = new File(new StringBuilder(System.getProperty("java.io.tmpdir"))
-					.append(File.separator).append(checkNotNull(resNewRev).getName()).toString());
-			if (newRevTarget.exists()) {
-				Files.recursiveRemove(newRevTarget.toPath());
+			final Path newRevTarget =
+					java.nio.file.Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
+			if (java.nio.file.Files.exists(newRevTarget)) {
+				Files.recursiveRemove(newRevTarget);
 			}
 			shredder(checkNotNull(resNewRev), newRevTarget);
 
@@ -139,8 +141,8 @@ public final class FMSEImport {
 					"Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
 		}
 
-		final File resOldRev = new File(args[0]);
-		final File resNewRev = new File(args[1]);
+		final Path resOldRev = Paths.get(args[0]);
+		final Path resNewRev = Paths.get(args[1]);
 
 		final FMSEImport fmse = new FMSEImport();
 		fmse.dataImport(resOldRev, resNewRev);

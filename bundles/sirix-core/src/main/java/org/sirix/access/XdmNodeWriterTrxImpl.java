@@ -24,6 +24,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -1791,8 +1792,14 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 		}
 	}
 
-	private void removeCommitFile() throws SirixIOException {
-		mNodeReader.mResourceManager.commitFile().delete();
+	private void removeCommitFile() {
+		try {
+			final Path commitFile = mNodeReader.mResourceManager.commitFile();
+			if (java.nio.file.Files.exists(commitFile))
+				java.nio.file.Files.delete(mNodeReader.mResourceManager.commitFile());
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
 	}
 
 	@Override

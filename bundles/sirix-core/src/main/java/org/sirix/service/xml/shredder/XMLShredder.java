@@ -24,10 +24,11 @@ package org.sirix.service.xml.shredder;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
@@ -319,7 +320,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
 		}
 		LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
 		final long time = System.nanoTime();
-		final File target = new File(args[1]);
+		final Path target = Paths.get(args[1]);
 		final DatabaseConfiguration config = new DatabaseConfiguration(target);
 		Databases.truncateDatabase(config);
 		Databases.createDatabase(config);
@@ -330,7 +331,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
 					final ResourceManager resMgr =
 							db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
 					final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
-				final XMLEventReader reader = createFileReader(new File(args[0]));
+				final XMLEventReader reader = createFileReader(Paths.get(args[0]));
 				final boolean includeCoPI = args.length == 3 ? Boolean.parseBoolean(args[2]) : false;
 				final XMLShredder shredder = new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD)
 						.commitAfterwards().includeComments(includeCoPI).includePIs(includeCoPI).build();
@@ -349,13 +350,13 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
 	 * @throws IOException if I/O operation fails
 	 * @throws XMLStreamException if any parsing error occurs
 	 */
-	public static synchronized XMLEventReader createFileReader(final File xmlFile)
+	public static synchronized XMLEventReader createFileReader(final Path xmlFile)
 			throws IOException, XMLStreamException {
 		checkNotNull(xmlFile);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 		factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-		final InputStream in = new FileInputStream(xmlFile);
+		final InputStream in = new FileInputStream(xmlFile.toFile());
 		return factory.createXMLEventReader(in);
 	}
 

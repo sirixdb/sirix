@@ -23,12 +23,14 @@ package org.sirix.access.conf;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -67,22 +69,22 @@ public final class ResourceConfiguration {
 	/**
 	 * Paths for a {@link XdmResourceManager}. Each resource has the same folder layout.
 	 */
-	public enum Paths {
+	public enum ResourcePaths {
 
 		/** Folder for storage of data. */
-		DATA(new File("data"), true),
+		DATA(Paths.get("data"), true),
 
 		/** Folder for the transaction log. */
-		TRANSACTION_LOG(new File("log"), true),
+		TRANSACTION_LOG(Paths.get("log"), true),
 
 		/** File to store the resource settings. */
-		CONFIG_BINARY(new File("ressetting.obj"), false),
+		CONFIG_BINARY(Paths.get("ressetting.obj"), false),
 
 		/** File to store index definitions. */
-		INDEXES(new File("indexes"), false);
+		INDEXES(Paths.get("indexes"), false);
 
 		/** Location of the file. */
-		private final File mFile;
+		private final Path mFile;
 
 		/** Is the location a folder or no? */
 		private final boolean mIsFolder;
@@ -93,7 +95,7 @@ public final class ResourceConfiguration {
 		 * @param file the file
 		 * @param isFolder determines if the file denotes a filer or not
 		 */
-		private Paths(final File file, final boolean isFolder) {
+		private ResourcePaths(final Path file, final boolean isFolder) {
 			mFile = file;
 			mIsFolder = isFolder;
 		}
@@ -103,7 +105,7 @@ public final class ResourceConfiguration {
 		 *
 		 * @return the file to the kind
 		 */
-		public File getFile() {
+		public Path getFile() {
 			return mFile;
 		}
 
@@ -122,15 +124,15 @@ public final class ResourceConfiguration {
 		 * @param file to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
 		 *         the structure has more folders
-		 * @throws NullPointerException if {@code pFile} is {@code null}
+		 * @throws NullPointerException if {@code file} is {@code null}
 		 */
-		public static int compareStructure(final File file) {
+		public static int compareStructure(final Path file) {
 			int existing = 0;
-			for (final Paths paths : values()) {
-				if (paths == Paths.INDEXES)
+			for (final ResourcePaths paths : values()) {
+				if (paths == ResourcePaths.INDEXES)
 					continue;
-				final File currentFile = new File(file, paths.getFile().getName());
-				if (currentFile.exists()) {
+				final Path currentFile = file.resolve(paths.getFile());
+				if (Files.exists(currentFile)) {
 					existing++;
 				}
 			}
@@ -173,7 +175,7 @@ public final class ResourceConfiguration {
 	public final ByteHandlePipeline mByteHandler;
 
 	/** Path for the resource to be associated. */
-	public final File mPath;
+	public final Path mPath;
 
 	/** DatabaseConfiguration for this {@link ResourceConfiguration}. */
 	public final DatabaseConfiguration mDBConfig;
@@ -224,9 +226,8 @@ public final class ResourceConfiguration {
 		mCompression = builder.mCompression;
 		mPathSummary = builder.mPathSummary;
 		mDeweyIDsStored = builder.mUseDeweyIDs;
-		mPath = new File(
-				new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA.getFile().getName()),
-				builder.mResource);
+		mPath = mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+				.resolve(builder.mResource);
 		mPersistenter = builder.mPersistenter;
 	}
 
@@ -280,7 +281,7 @@ public final class ResourceConfiguration {
 	 *
 	 * @return resource
 	 */
-	public File getResource() {
+	public Path getResource() {
 		return mPath;
 	}
 
@@ -289,8 +290,8 @@ public final class ResourceConfiguration {
 	 *
 	 * @return configuration file
 	 */
-	public File getConfigFile() {
-		return new File(mPath, Paths.CONFIG_BINARY.getFile().getName());
+	public Path getConfigFile() {
+		return mPath.resolve(ResourcePaths.CONFIG_BINARY.getFile());
 	}
 
 	/**
@@ -307,9 +308,9 @@ public final class ResourceConfiguration {
 	 * @throws SirixIOException if an I/O error occurs
 	 */
 	public static void serialize(final ResourceConfiguration config) throws SirixIOException {
-		final File configFile = config.getConfigFile();
-		try (final FileWriter fileWriter = new FileWriter(configFile);
-				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
+		final Path configFile = config.getConfigFile();
+		try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
+				final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
 			jsonWriter.beginObject();
 			// Versioning.
 			jsonWriter.name(JSONNAMES[0]);
@@ -355,10 +356,10 @@ public final class ResourceConfiguration {
 	 * @return a complete {@link ResourceConfiguration} instance
 	 * @throws SirixIOException if an I/O error occurs
 	 */
-	public static ResourceConfiguration deserialize(final File file) throws SirixIOException {
+	public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
 		try {
-			final File configFiler = new File(file, Paths.CONFIG_BINARY.getFile().getName());
-			final FileReader fileReader = new FileReader(configFiler);
+			final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getFile());
+			final FileReader fileReader = new FileReader(configFile.toFile());
 			final JsonReader jsonReader = new JsonReader(fileReader);
 			jsonReader.beginObject();
 			// Versioning.
@@ -419,11 +420,11 @@ public final class ResourceConfiguration {
 
 			// Deserialize database config.
 			final DatabaseConfiguration dbConfig =
-					DatabaseConfiguration.deserialize(file.getParentFile().getParentFile());
+					DatabaseConfiguration.deserialize(file.getParent().getParent());
 
 			// Builder.
 			final ResourceConfiguration.Builder builder =
-					new ResourceConfiguration.Builder(file.getName(), dbConfig);
+					new ResourceConfiguration.Builder(file.getFileName().toString(), dbConfig);
 			builder.byteHandlerPipeline(pipeline).hashKind(hashing).versioningApproach(revisioning)
 					.revisionsToRestore(revisionToRestore).storageType(storage).persistenter(persistenter)
 					.useTextCompression(compression).buildPathSummary(pathSummary)

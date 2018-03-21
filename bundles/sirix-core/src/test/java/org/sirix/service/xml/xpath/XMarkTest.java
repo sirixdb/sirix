@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,7 +21,8 @@
 
 package org.sirix.service.xml.xpath;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.junit.After;
 import org.junit.Before;
@@ -35,15 +36,14 @@ import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
  * Performes the XMark benchmark.
- * 
+ *
  * @author Tina Scherer
  */
 @BenchClass(runs = 1)
 public class XMarkTest {
 
 	// XMark 1 GB
-	private static final String XML = "src" + File.separator + "test" + File.separator + "resources"
-			+ File.separator + "auction.xml";
+	private static final Path XML = Paths.get("src", "test", "resources", "auction.xml");
 
 	private Holder holder;
 
@@ -51,7 +51,8 @@ public class XMarkTest {
 	public void setUp() throws Exception {
 		TestHelper.deleteEverything();
 		// Build simple test tree.
-		XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+		XMLShredder.main(XML.toAbsolutePath().toString(),
+				PATHS.PATH1.getFile().toAbsolutePath().toString());
 		holder = Holder.generateRtx();
 
 	}

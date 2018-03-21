@@ -73,13 +73,13 @@ public final class ScanNameIndex extends AbstractFunction {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
 					"Index no %s for collection %s and document %s not found.", idx, doc
 							.getCollection().getName(), doc.getTrx().getResourceManager()
-							.getResourceConfig().getResource().getName());
+							.getResourceConfig().getResource().getFileName().toString());
 		}
 		if (indexDef.getType() != IndexType.NAME) {
 			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
 					"Index no %s for collection %s and document %s is not a path index.",
 					idx, doc.getCollection().getName(), doc.getTrx().getResourceManager()
-							.getResourceConfig().getResource().getName());
+							.getResourceConfig().getResource().getFileName().toString());
 		}
 
 		final String names = FunUtil

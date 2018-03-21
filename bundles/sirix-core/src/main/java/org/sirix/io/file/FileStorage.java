@@ -21,7 +21,6 @@
 
 package org.sirix.io.file;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
@@ -48,7 +47,7 @@ public final class FileStorage implements Storage {
 	private static final String FILENAME = "sirix.data";
 
 	/** Instance to storage. */
-	private final File mFile;
+	private final Path mFile;
 
 	/** Byte handler pipeline. */
 	private final ByteHandlePipeline mByteHandler;
@@ -110,8 +109,7 @@ public final class FileStorage implements Storage {
 	 * @return the concrete storage for this database
 	 */
 	private Path getConcreteStorage() {
-		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.DATA.getFile().getName())
-				.append(File.separator).append(FILENAME).toString()).toPath();
+		return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve(FILENAME);
 	}
 
 	@Override

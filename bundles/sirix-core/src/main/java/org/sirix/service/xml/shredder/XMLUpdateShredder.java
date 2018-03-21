@@ -24,6 +24,8 @@ package org.sirix.service.xml.shredder;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.List;
@@ -1162,7 +1164,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
 		LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
 		final long time = System.currentTimeMillis();
-		final File target = new File(args[1]);
+		final Path target = Paths.get(args[1]);
 
 		try {
 			final DatabaseConfiguration config = new DatabaseConfiguration(target);
@@ -1172,7 +1174,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
 			final ResourceManager resMgr =
 					db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
 			final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
-			final XMLEventReader reader = XMLShredder.createFileReader(new File(args[0]));
+			final XMLEventReader reader = XMLShredder.createFileReader(Paths.get(args[0]));
 			final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, reader, Insert.ASFIRSTCHILD,
 					new File(args[0]), ShredderCommit.COMMIT);
 			shredder.call();

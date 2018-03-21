@@ -21,7 +21,8 @@
 
 package org.sirix.service.xml.shredder;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Iterator;
 
 import javax.xml.stream.XMLEventReader;
@@ -48,14 +49,11 @@ import org.sirix.utils.DocumentCreater;
 
 public class XMLShredderTest extends XMLTestCase {
 
-	public static final String XML =
-			"src" + File.separator + "test" + File.separator + "resources" + File.separator + "test.xml";
+	public static final Path XML = Paths.get("src", "test", "resources", "test.xml");
 
-	public static final String XML2 =
-			"src" + File.separator + "test" + File.separator + "resources" + File.separator + "test2.xml";
+	public static final Path XML2 = Paths.get("src", "test", "resources", "test2.xml");
 
-	public static final String XML3 =
-			"src" + File.separator + "test" + File.separator + "resources" + File.separator + "test3.xml";
+	public static final Path XML3 = Paths.get("src", "test", "resources", "test3.xml");
 
 	private Holder holder;
 
@@ -77,7 +75,8 @@ public class XMLShredderTest extends XMLTestCase {
 	public void testSTAXShredder() throws Exception {
 
 		// Setup parsed session.
-		XMLShredder.main(XML, PATHS.PATH2.getFile().getAbsolutePath());
+		XMLShredder.main(XML.toAbsolutePath().toString(),
+				PATHS.PATH2.getFile().toAbsolutePath().toString());
 		final XdmNodeReadTrx expectedTrx = holder.getWriter();
 
 		// Verify.
@@ -118,16 +117,16 @@ public class XMLShredderTest extends XMLTestCase {
 	public void testShredIntoExisting() throws Exception {
 		final XdmNodeWriteTrx wtx = holder.getWriter();
 		final XMLShredder shredder =
-				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(new File(XML)),
-						Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
+				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML), Insert.ASFIRSTCHILD)
+						.includeComments(true).commitAfterwards().build();
 		shredder.call();
 		assertEquals(2, wtx.getRevisionNumber());
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.remove();
 		final XMLShredder shredder2 =
-				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(new File(XML)),
-						Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
+				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML), Insert.ASFIRSTCHILD)
+						.includeComments(true).commitAfterwards().build();
 		shredder2.call();
 		assertEquals(3, wtx.getRevisionNumber());
 		wtx.close();
@@ -185,8 +184,8 @@ public class XMLShredderTest extends XMLTestCase {
 				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 		final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
 		final XMLShredder shredder =
-				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(new File(XML2)),
-						Insert.ASFIRSTCHILD).commitAfterwards().build();
+				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML2), Insert.ASFIRSTCHILD)
+						.commitAfterwards().build();
 		shredder.call();
 		wtx.commit();
 		wtx.close();
@@ -224,8 +223,8 @@ public class XMLShredderTest extends XMLTestCase {
 				.getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 		final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
 		final XMLShredder shredder =
-				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(new File(XML3)),
-						Insert.ASFIRSTCHILD).commitAfterwards().build();
+				new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML3), Insert.ASFIRSTCHILD)
+						.commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 
@@ -243,7 +242,7 @@ public class XMLShredderTest extends XMLTestCase {
 		rtx.close();
 		manager.close();
 
-		final XMLEventReader validater = XMLShredder.createFileReader(new File(XML3));
+		final XMLEventReader validater = XMLShredder.createFileReader(XML3);
 		final StringBuilder xmlBuilder = new StringBuilder();
 		while (validater.hasNext()) {
 			final XMLEvent event = validater.nextEvent();
