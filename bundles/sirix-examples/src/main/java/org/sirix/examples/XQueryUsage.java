@@ -1,10 +1,11 @@
 package org.sirix.examples;
 
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.Date;
@@ -16,7 +17,6 @@ import org.brackit.xquery.Tuple;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.sequence.SortedNodeSequence;
-import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Node;
@@ -45,7 +45,7 @@ public final class XQueryUsage {
   private static final String USER_HOME = System.getProperty("user.home");
 
   /** Storage for databases: Sirix data in home directory. */
-  private static final java.nio.file.Path LOCATION = Paths.get(USER_HOME, "sirix-data");
+  private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
   /** Severity used to build a random sample document. */
   enum Severity {
@@ -79,8 +79,7 @@ public final class XQueryUsage {
    * Load a document and query it.
    */
   private static void loadDocumentAndQuery() throws QueryException, IOException, SirixException {
-    final java.nio.file.Path doc =
-        Paths.get("src").resolve("main").resolve("resources").resolve("test.xml");
+    final Path doc = Paths.get("src", "main", "resources", "test.xml");
 
     // Initialize query context and store.
     final DBStore store = DBStore.newBuilder().build();
@@ -114,9 +113,7 @@ public final class XQueryUsage {
    */
   private static void loadDocumentAndUpdate() throws QueryException, IOException {
     // Prepare sample document.
-    final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-    final File doc = generateSampleDoc(tmpDir, "sample");
-    doc.deleteOnExit();
+    final Path doc = generateSampleDoc("sample");
 
     // Initialize query context and store.
     try (final DBStore store = DBStore.newBuilder().build()) {
@@ -124,7 +121,7 @@ public final class XQueryUsage {
 
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
-      URI docUri = doc.toURI();
+      URI docUri = doc.toUri();
       final String xq1 =
           String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')", docUri.toString());
       System.out.println(xq1);
@@ -141,7 +138,6 @@ public final class XQueryUsage {
 
       final XQuery query = new XQuery("sdb:doc('mycol.xml', 'mydoc.xml')");
       query.prettyPrint().serialize(ctx2, System.out);
-      // store.commitAll();
       System.out.println();
     }
   }
@@ -151,18 +147,14 @@ public final class XQueryUsage {
    */
   private static void loadDocumentAndQueryTemporal()
       throws QueryException, IOException, SirixException {
-    // Prepare sample document.
-    final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-
     // Initialize query context and store (implicit transaction commit).
     try (final DBStore store = DBStore.newBuilder().build()) {
       final QueryContext ctx1 = new SirixQueryContext(store);
       final CompileChain compileChain = new SirixCompileChain(store);
 
-      final File doc1 = generateSampleDoc(tmpDir, "sample1");
-      doc1.deleteOnExit();
+      final Path doc1 = generateSampleDoc("sample1");
 
-      final URI docUri = doc1.toURI();
+      final URI docUri = doc1.toUri();
 
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
@@ -350,12 +342,7 @@ public final class XQueryUsage {
       // for (Item item = iter.next(); item != null; item = iter.next()) {
       // System.out.println(item);
       // }
-      final Comparator<Tuple> comparator = new Comparator<Tuple>() {
-        @Override
-        public int compare(Tuple o1, Tuple o2) {
-          return ((Node<?>) o1).cmp((Node<?>) o2);
-        }
-      };
+      final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
       final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
       final Iter sortedIter = sortedSeq.iterate();
 
@@ -378,12 +365,7 @@ public final class XQueryUsage {
       // for (Item item = iter.next(); item != null; item = iter.next()) {
       // System.out.println(item);
       // }
-      final Comparator<Tuple> comparator = new Comparator<Tuple>() {
-        @Override
-        public int compare(Tuple o1, Tuple o2) {
-          return ((Node<?>) o1).cmp((Node<?>) o2);
-        }
-      };
+      final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
       final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
       final Iter sortedIter = sortedSeq.iterate();
 
@@ -403,18 +385,13 @@ public final class XQueryUsage {
           (DBNode) new XQuery(new SirixCompileChain(store), "doc('mydocs.col')").execute(ctx3);
       final Optional<IndexDef> index = node.getTrx().getResourceManager()
           .getRtxIndexController(node.getTrx().getRevisionNumber()).getIndexes()
-          .findPathIndex(Path.parse("//log/*"));
+          .findPathIndex(org.brackit.xquery.util.path.Path.parse("//log/*"));
       System.out.println(index);
       // last param '()' queries whole index.
       final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "
           + "return sdb:scan-path-index($doc, " + index.get().getID() + ", '//log/*')";
       final Sequence seq = new XQuery(new SirixCompileChain(store), query).execute(ctx3);
-      final Comparator<Tuple> comparator = new Comparator<Tuple>() {
-        @Override
-        public int compare(Tuple o1, Tuple o2) {
-          return ((Node<?>) o1).cmp((Node<?>) o2);
-        }
-      };
+      final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
       final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
       final Iter sortedIter = sortedSeq.iterate();
 
@@ -479,15 +456,12 @@ public final class XQueryUsage {
     }
 
     try (final DBStore store = DBStore.newBuilder().build()) {
-      final File doc = new File(
-          new StringBuilder("src").append(File.separator).append("main").append(File.separator)
-              .append("resources").append(File.separator).append("test.xml").toString());
+      final Path doc = Paths.get("src", "main", "resources", "test.xml");
 
       final QueryContext ctx = new SirixQueryContext(store);
       System.out.println();
-      URI docUri = doc.toURI();
       final String xq3 =
-          String.format("sdb:load('mycoll.col', 'mydoc.xml', '%s')", docUri.toString());
+          String.format("sdb:load('mycoll.col', 'mydoc.xml', '%s')", doc.toUri().toString());
       System.out.println(xq3);
       final XQuery q = new XQuery(new SirixCompileChain(store), xq3);
       q.execute(ctx);
@@ -497,15 +471,13 @@ public final class XQueryUsage {
   /**
    * Generate a small sample document.
    *
-   * @param dir the directory
    * @param prefix prefix of name to use
    * @return the generated file
    * @throws IOException if any I/O exception occured
    */
-  private static File generateSampleDoc(final File dir, final String prefix) throws IOException {
-    final File file = File.createTempFile(prefix, ".xml", dir);
-    file.deleteOnExit();
-    final PrintStream out = new PrintStream(new FileOutputStream(file));
+  private static Path generateSampleDoc(final String prefix) throws IOException {
+    final Path file = Files.createTempFile(prefix, ".xml");
+    final PrintStream out = new PrintStream(new FileOutputStream(file.toFile()));
     final Random rnd = new Random();
     final long now = System.currentTimeMillis();
     final int diff = rnd.nextInt(6000 * 60 * 24 * 7);
@@ -530,8 +502,7 @@ public final class XQueryUsage {
     }
     new String(bytes);
     out.print("<?xml version='1.0'?>");
-    // out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst,
-    // sev));
+    // out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst, sev));
     // out.print(String.format("<src>%s</src>", src));
     // out.print(String.format("<msg>%s</msg>", msg));
     // out.print("oops1");
@@ -540,7 +511,7 @@ public final class XQueryUsage {
     // out.print("</log>");
     out.print(
         "<log tstamp=\"Sun May 04 23:29:47 CEST 2014\" severity=\"high\" foo=\"bar\">10 <src>192.168.0.1</src> 111<content> <a.txt/> </content> 5</log>");
-    // out.close();
+    out.close();
     return file;
   }
 
