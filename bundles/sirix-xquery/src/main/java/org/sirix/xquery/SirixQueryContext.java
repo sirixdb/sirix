@@ -53,9 +53,8 @@ public final class SirixQueryContext extends QueryContext {
 
         final Set<Long> trxIDs = new HashSet<>();
 
-        updateList.stream().map(UpdateOp::getTarget).map(mapDBNodeToWtx).filter(Optional::isPresent)
-            .map(Optional::get).filter(trx -> trxIDs.add(trx.getId()))
-            .forEach(XdmNodeWriteTrx::commit);
+        updateList.stream().map(UpdateOp::getTarget).map(mapDBNodeToWtx).flatMap(Optional::stream)
+            .filter(trx -> trxIDs.add(trx.getId())).forEach(XdmNodeWriteTrx::commit);
       }
     }
   }
