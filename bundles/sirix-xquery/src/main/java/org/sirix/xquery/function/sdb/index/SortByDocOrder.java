@@ -17,15 +17,15 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * <p>
  * Function for sorting a sequence. This function returns the given sequence in sorted order
  * regarding the document order.
- * 
+ *
  * The signature is:
  * </p>
  * <ul>
  * <li><code>sdb:sort($sequence as xs:anyType*) as xs:anyType*</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class SortByDocOrder extends AbstractFunction {
 
@@ -34,7 +34,7 @@ public final class SortByDocOrder extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
@@ -45,12 +45,7 @@ public final class SortByDocOrder extends AbstractFunction {
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
       throws QueryException {
-    final Comparator<Tuple> comparator = new Comparator<Tuple>() {
-      @Override
-      public int compare(Tuple o1, Tuple o2) {
-        return ((Node<?>) o1).cmp((Node<?>) o2);
-      }
-    };
+    final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
 
     return new SortedNodeSequence(comparator, args[0], true);
   }
