@@ -555,11 +555,7 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public synchronized Optional<XdmNodeWriteTrx> getNodeWriteTrx() {
-    for (final XdmNodeReadTrx rtx : mNodeReaderMap.values()) {
-      if (rtx instanceof XdmNodeWriteTrx) {
-        return Optional.of((XdmNodeWriteTrx) rtx);
-      }
-    }
-    return Optional.empty();
+    return mNodeReaderMap.values().stream().filter(rtx -> rtx instanceof XdmNodeWriteTrx)
+        .map(rtx -> (XdmNodeWriteTrx) rtx).findAny();
   }
 }
