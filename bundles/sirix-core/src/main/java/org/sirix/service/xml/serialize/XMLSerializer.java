@@ -372,17 +372,17 @@ public final class XMLSerializer extends AbstractSerializer {
     java.nio.file.Files.createDirectories(target.getParent());
     java.nio.file.Files.createFile(target);
 
-    try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
-      final Path databaseFile = Paths.get(args[0]);
-      final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
-      Databases.createDatabase(config);
-      try (final Database db = Databases.openDatabase(databaseFile)) {
-        db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-        final ResourceManager session =
-            db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+    final Path databaseFile = Paths.get(args[0]);
+    final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
+    Databases.createDatabase(config);
+    try (final Database db = Databases.openDatabase(databaseFile)) {
+      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+      final ResourceManager resMgr =
+          db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
 
+      try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XMLSerializer serializer =
-            XMLSerializer.newBuilder(session, outputStream).emitXMLDeclaration().build();
+            XMLSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
       }
     }
