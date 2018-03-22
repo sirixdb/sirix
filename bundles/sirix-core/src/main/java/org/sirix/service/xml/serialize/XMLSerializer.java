@@ -98,15 +98,15 @@ public final class XMLSerializer extends AbstractSerializer {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
    *
-   * @param session session for read XML
+   * @param resourceMgr session for read XML
    * @param nodeKey start node key
    * @param builder builder of XML Serializer
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XMLSerializer(final ResourceManager session, final @Nonnegative long nodeKey,
+  private XMLSerializer(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
       final XMLSerializerBuilder builder, final @Nonnegative int revision, final int... revsions) {
-    super(session, nodeKey, revision, revsions);
+    super(resourceMgr, nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
     mSerializeXMLDeclaration = builder.mDeclaration;
@@ -450,7 +450,7 @@ public final class XMLSerializer extends AbstractSerializer {
     private final OutputStream mStream;
 
     /** Session to use. */
-    private final ResourceManager mSession;
+    private final ResourceManager mResourceMgr;
 
     /** Further revisions to serialize. */
     private int[] mVersions;
@@ -464,17 +464,17 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param session Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceManager}
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final ResourceManager session, final OutputStream stream,
+    public XMLSerializerBuilder(final ResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
       mNodeKey = 0;
-      mSession = checkNotNull(session);
+      mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mSession.getMostRecentRevisionNumber();
+        mVersion = mResourceMgr.getMostRecentRevisionNumber();
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
@@ -487,21 +487,21 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Constructor.
      *
-     * @param session Sirix {@link ResourceManager}
+     * @param resourceMgr Sirix {@link ResourceManager}
      * @param nodeKey root node key of subtree to shredder
      * @param stream {@link OutputStream} to write to
      * @param properties {@link XMLSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final ResourceManager session, final @Nonnegative long nodeKey,
+    public XMLSerializerBuilder(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final OutputStream stream, final XMLSerializerProperties properties,
         final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
-      mSession = checkNotNull(session);
+      mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
       mStream = checkNotNull(stream);
       if (revisions == null || revisions.length == 0) {
-        mVersion = mSession.getMostRecentRevisionNumber();
+        mVersion = mResourceMgr.getMostRecentRevisionNumber();
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
@@ -585,7 +585,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @return a new {@link Serializer} instance
      */
     public XMLSerializer build() {
-      return new XMLSerializer(mSession, mNodeKey, this, mVersion, mVersions);
+      return new XMLSerializer(mResourceMgr, mNodeKey, this, mVersion, mVersions);
     }
   }
 }
