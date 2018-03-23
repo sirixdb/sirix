@@ -56,25 +56,30 @@ public class NestedFilterTest {
   @Test
   public void testFilterConvetions() throws SirixException {
     holder.getReader().moveTo(9L);
-    FilterTest
-        .testFilterConventions(
-            new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
-                new ElementFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
-            true);
+    FilterTest.testFilterConventions(
+        new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
+            new ElementFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
+        true);
     FilterTest.testFilterConventions(
         new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
             new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
         false);
 
     holder.getReader().moveTo(4L);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-        new NodeFilter(holder.getReader()), new ElementFilter(holder.getReader())), false);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-        new NodeFilter(holder.getReader()), new TextFilter(holder.getReader())), true);
+    FilterTest.testFilterConventions(
+        new NestedFilter(holder.getReader(), new NodeFilter(holder.getReader()),
+            new ElementFilter(holder.getReader())),
+        false);
+    FilterTest.testFilterConventions(
+        new NestedFilter(holder.getReader(), new NodeFilter(holder.getReader()),
+            new TextFilter(holder.getReader())),
+        true);
 
     holder.getReader().moveTo(1L);
     holder.getReader().moveToAttribute(0);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getReader(),
-        new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "i")), true);
+    FilterTest.testFilterConventions(
+        new NestedFilter(holder.getReader(), new AttributeFilter(holder.getReader()),
+            new NameFilter(holder.getReader(), "i")),
+        true);
   }
 }

@@ -141,8 +141,13 @@ public class NodeDelegate implements Node {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node key", mNodeKey).add("parent key", mParentKey)
-        .add("type key", mTypeKey).add("hash", mHash).add("deweyID", mID).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node key", mNodeKey)
+                      .add("parent key", mParentKey)
+                      .add("type key", mTypeKey)
+                      .add("hash", mHash)
+                      .add("deweyID", mID)
+                      .toString();
   }
 
   @Override

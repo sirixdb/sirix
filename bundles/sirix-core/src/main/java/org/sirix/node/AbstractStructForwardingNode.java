@@ -112,8 +112,10 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDelegate", super.toString())
-        .add("structDelegate", structDelegate().toString()).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("nodeDelegate", super.toString())
+                      .add("structDelegate", structDelegate().toString())
+                      .toString();
   }
 
 }

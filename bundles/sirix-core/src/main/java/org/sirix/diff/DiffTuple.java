@@ -134,8 +134,11 @@ public final class DiffTuple implements Serializable {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("diff", mDiff).add("new nodeKey", mNewNodeKey)
-        .add("old nodeKey", mOldNodeKey).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("diff", mDiff)
+                      .add("new nodeKey", mNewNodeKey)
+                      .add("old nodeKey", mOldNodeKey)
+                      .toString();
   }
 
   /**

@@ -87,7 +87,9 @@ final class DepthCounter {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("newDepth: ", mNewDepth)
-        .add("oldDepth: ", mOldDepth).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("newDepth: ", mNewDepth)
+                      .add("oldDepth: ", mOldDepth)
+                      .toString();
   }
 }

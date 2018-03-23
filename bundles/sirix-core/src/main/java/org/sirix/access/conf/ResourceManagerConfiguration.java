@@ -92,8 +92,10 @@ public final class ResourceManagerConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("Resource", mResource)
-        .add("Commit threshold", mCommitThreshold).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("Resource", mResource)
+                      .add("Commit threshold", mCommitThreshold)
+                      .toString();
   }
 
   /**

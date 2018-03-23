@@ -61,8 +61,8 @@ public class FunctionsTest {
   public final void testBoolean() throws SirixXPathException {
     final String query = "fn:boolean(0)";
     final String result = "false";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -74,8 +74,8 @@ public class FunctionsTest {
   public final void testBooleanXPath10() throws SirixXPathException {
     final String query = "boolean(1)";
     final String result = "true";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -87,8 +87,8 @@ public class FunctionsTest {
   public final void testCount() throws SirixXPathException {
     final String query = "fn:count(//p:a/b)";
     final String result = "2";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -100,8 +100,8 @@ public class FunctionsTest {
   public final void testCountXPath10() throws SirixXPathException {
     final String query = "count(//p:a/b)";
     final String result = "2";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -113,8 +113,8 @@ public class FunctionsTest {
   public final void testString() throws SirixXPathException {
     final String query = "fn:string(/p:a/b)";
     final String result = "foo bar";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -126,8 +126,8 @@ public class FunctionsTest {
   public final void testStringXPath10() throws SirixXPathException {
     final String query = "string(/p:a/b)";
     final String result = "foo bar";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -139,8 +139,8 @@ public class FunctionsTest {
   public final void testComment() throws SirixXPathException {
     final String query = "2 (: this is a comment :)";
     final String result = "2";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -152,8 +152,8 @@ public class FunctionsTest {
   public final void testNode() throws SirixXPathException {
     final String query = "p:a[./node()/node()]";
     final String result = "p:a";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -165,8 +165,8 @@ public class FunctionsTest {
   public final void testText() throws SirixXPathException {
     final String query = "p:a[./text()]";
     final String result = "p:a";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -178,8 +178,8 @@ public class FunctionsTest {
   public final void testNot() throws SirixXPathException {
     final String query = "fn:not(//b)";
     final String result = "false";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -191,8 +191,8 @@ public class FunctionsTest {
   public final void testNotXPath10() throws SirixXPathException {
     final String query = "not(//b)";
     final String result = "false";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -204,8 +204,8 @@ public class FunctionsTest {
   public final void testSum() throws SirixXPathException {
     final String query = "fn:sum(5)";
     final String result = "1";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -217,8 +217,8 @@ public class FunctionsTest {
   public final void testSumXPath10() throws SirixXPathException {
     final String query = "sum(5)";
     final String result = "1";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -231,8 +231,8 @@ public class FunctionsTest {
   public final void testPosition() throws SirixXPathException {
     final String query = "//b[position()=2]";
     final String result = "b";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -245,8 +245,8 @@ public class FunctionsTest {
   public final void testId() throws SirixXPathException {
     final String query = "//b/fn:id()";
     final String result = "";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -259,8 +259,8 @@ public class FunctionsTest {
   public final void testData() throws SirixXPathException {
     final String query = "fn:data(//b)";
     final String result = "foo bar";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -273,8 +273,8 @@ public class FunctionsTest {
   public final void testContains() throws SirixXPathException {
     final String query = "fn:contains(/p:a/b, \"\")";
     final String result = "true";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -287,8 +287,8 @@ public class FunctionsTest {
   public final void testExactlyOne() throws SirixXPathException {
     final String query = "fn:exactly-one(\"a\")";
     final String result = "a";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -301,8 +301,8 @@ public class FunctionsTest {
   public final void testZeroOrOne() throws SirixXPathException {
     final String query = "fn:zero-or-one(\"a\")";
     final String result = "a";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -315,8 +315,8 @@ public class FunctionsTest {
   public final void testMax() throws SirixXPathException {
     final String query = "fn:max((2, 1, 5, 4, 3))";
     final String result = "5";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -329,8 +329,8 @@ public class FunctionsTest {
   public final void testMin() throws SirixXPathException {
     final String query = "fn:min((2, 1, 5, 4, 3))";
     final String result = "1";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -343,8 +343,8 @@ public class FunctionsTest {
   public final void testEmpty() throws SirixXPathException {
     final String query = "fn:empty(/p:a)";
     final String result = "true";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -357,8 +357,8 @@ public class FunctionsTest {
   public final void testOneOrMore() throws SirixXPathException {
     final String query = "fn:one-or-more(//b/c)";
     final String result = "<c xmlns:p=\"ns\"/><c xmlns:p=\"ns\"/>";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -371,8 +371,8 @@ public class FunctionsTest {
   public final void testExists() throws SirixXPathException {
     final String query = "fn:exists(('a', 'b', 'c'))";
     final String result = "true";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -385,8 +385,8 @@ public class FunctionsTest {
   public final void testSubstringAfter() throws SirixXPathException {
     final String query = "fn:substring-after(\"query\", \"u\")";
     final String result = "ery";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -399,8 +399,8 @@ public class FunctionsTest {
   public final void testSubstringBefore() throws SirixXPathException {
     final String query = "fn:substring-before(\"query\", \"r\")";
     final String result = "que";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -413,8 +413,8 @@ public class FunctionsTest {
   public final void testLast() throws SirixXPathException {
     final String query = "//b[last()]";
     final String result = "<b xmlns:p=\"ns\" p:x=\"y\"><c/>bar</b>";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -427,8 +427,8 @@ public class FunctionsTest {
   public final void testNumber() throws SirixXPathException {
     final String query = "fn:number('29.99')";
     final String result = "29.99";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -441,8 +441,8 @@ public class FunctionsTest {
   public final void testDistinctValues() throws SirixXPathException {
     final String query = "fn:distinct-values(('a', 'a'))";
     final String result = "a";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -455,8 +455,8 @@ public class FunctionsTest {
   public final void testRoot() throws SirixXPathException {
     final String query = "fn:root()//c";
     final String result = "<c xmlns:p=\"ns\"/><c xmlns:p=\"ns\"/>";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -469,8 +469,8 @@ public class FunctionsTest {
   public final void testFloor() throws SirixXPathException {
     final String query = "fn:floor(5.7)";
     final String result = "5";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**
@@ -483,8 +483,8 @@ public class FunctionsTest {
   public final void testElementAttributeInReturn() throws SirixXPathException {
     final String query = "for $x in //b/text() return <element attr=\"{$x}\"/>";
     final String result = "<element attr=\"foo\"/><element attr=\"bar\"/>";
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /**

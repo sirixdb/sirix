@@ -83,8 +83,8 @@ public class AttributeNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(
+        new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
     check(node2);
   }
 

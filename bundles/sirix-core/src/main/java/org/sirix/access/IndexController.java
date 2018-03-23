@@ -239,12 +239,15 @@ public final class IndexController {
     for (final IndexDef indexDef : indexDefs) {
       switch (indexDef.getType()) {
         case PATH:
-          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageTransaction(),
-              nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(
+              createPathIndexBuilder(
+                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageTransaction(),
-              nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(
+              createCASIndexBuilder(
+                  nodeWriteTrx, nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
+                  indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageTransaction(), indexDef));
@@ -272,12 +275,14 @@ public final class IndexController {
       mIndexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
-          mListeners.add(createPathIndexListener(nodeWriteTrx.getPageTransaction(),
-              nodeWriteTrx.getPathSummary(), indexDef));
+          mListeners.add(
+              createPathIndexListener(
+                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          mListeners.add(createCASIndexListener(nodeWriteTrx.getPageTransaction(),
-              nodeWriteTrx.getPathSummary(), indexDef));
+          mListeners.add(
+              createCASIndexListener(
+                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
           mListeners.add(createNameIndexListener(nodeWriteTrx.getPageTransaction(), indexDef));

@@ -201,18 +201,19 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     int i = 2;
-    final List<Path> files = Files.list(folder).filter(file -> file.getFileName().endsWith(".xml"))
-        .collect(Collectors.toList());
+    final List<Path> files =
+        Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(
+            Collectors.toList());
 
     // Sort files array according to file names.
     files.sort((first, second) -> {
       final String firstName =
           first.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(0,
-          second.getFileName().toString().indexOf('.'));
+      final String secondName = second.getFileName().toString().substring(
+          0, second.getFileName().toString().indexOf('.'));
       if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
         return -1;
       } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
@@ -229,9 +230,8 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
       if (file.endsWith(".xml")) {
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
         if (first) {
-          final XMLShredder shredder =
-              new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD)
-                  .commitAfterwards().build();
+          final XMLShredder shredder = new XMLShredder.Builder(wtx,
+              XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();
           shredder.call();
           first = false;
         } else {

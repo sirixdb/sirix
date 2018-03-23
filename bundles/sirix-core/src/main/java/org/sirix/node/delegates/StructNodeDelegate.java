@@ -159,8 +159,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling,
-        mDescendantCount);
+    return Objects.hashCode(
+        mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling, mDescendantCount);
   }
 
   @Override
@@ -179,10 +179,13 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("first child", getFirstChildKey())
-        .add("left sib", getLeftSiblingKey()).add("right sib", getRightSiblingKey())
-        .add("child count", getChildCount()).add("descendant count", getDescendantCount())
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("first child", getFirstChildKey())
+                      .add("left sib", getLeftSiblingKey())
+                      .add("right sib", getRightSiblingKey())
+                      .add("child count", getChildCount())
+                      .add("descendant count", getDescendantCount())
+                      .toString();
   }
 
   @Override

@@ -109,8 +109,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   @Override
   public void delete() throws DocumentException {
     try {
-      Databases
-          .truncateDatabase(new DatabaseConfiguration(mDatabase.getDatabaseConfig().getFile()));
+      Databases.truncateDatabase(
+          new DatabaseConfiguration(mDatabase.getDatabaseConfig().getFile()));
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -134,8 +134,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final ResourceManager session = mDatabase.getResourceManager(ResourceManagerConfiguration
-          .newBuilder(resources.get(0).getFileName().toString()).build());
+      final ResourceManager session = mDatabase.getResourceManager(
+          ResourceManagerConfiguration.newBuilder(resources.get(0).getFileName().toString())
+                                      .build());
       final int version = revision == -1 ? session.getMostRecentRevisionNumber() : revision;
       final XdmNodeReadTrx rtx = session.beginNodeReadTrx(version);
       return new DBNode(rtx, this);
@@ -148,10 +149,14 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throws OperationNotSupportedException, DocumentException {
     try {
       final String resource = new StringBuilder(2).append("resource")
-          .append(mDatabase.listResources().size() + 1).toString();
-      mDatabase
-          .createResource(ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
-              .useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
+                                                  .append(mDatabase.listResources().size() + 1)
+                                                  .toString();
+      mDatabase.createResource(
+          ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
+                               .useDeweyIDs(true)
+                               .useTextCompression(true)
+                               .buildPathSummary(true)
+                               .build());
       final ResourceManager manager =
           mDatabase.getResourceManager(ResourceManagerConfiguration.newBuilder(resource).build());
       final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
@@ -175,12 +180,16 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
     try {
       final String resourceName = new StringBuilder(2).append("resource")
-          .append(mDatabase.listResources().size() + 1).toString();
+                                                      .append(mDatabase.listResources().size() + 1)
+                                                      .toString();
       mDatabase.createResource(
           ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
-              .useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
-      final ResourceManager resource = mDatabase
-          .getResourceManager(ResourceManagerConfiguration.newBuilder(resourceName).build());
+                               .useDeweyIDs(true)
+                               .useTextCompression(true)
+                               .buildPathSummary(true)
+                               .build());
+      final ResourceManager resource = mDatabase.getResourceManager(
+          ResourceManagerConfiguration.newBuilder(resourceName).build());
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 
       final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD,
@@ -202,10 +211,12 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode add(final String resourceName, final XMLEventReader reader)
       throws OperationNotSupportedException, DocumentException {
     try {
-      mDatabase.createResource(ResourceConfiguration
-          .newBuilder(resourceName, mDatabase.getDatabaseConfig()).useDeweyIDs(true).build());
-      final ResourceManager resource = mDatabase
-          .getResourceManager(ResourceManagerConfiguration.newBuilder(resourceName).build());
+      mDatabase.createResource(
+          ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
+                               .useDeweyIDs(true)
+                               .build());
+      final ResourceManager resource = mDatabase.getResourceManager(
+          ResourceManagerConfiguration.newBuilder(resourceName).build());
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
@@ -294,8 +305,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final ResourceManagerConfiguration sessionConfig = ResourceManagerConfiguration
-          .newBuilder(resources.get(0).getFileName().toString()).build();
+      final ResourceManagerConfiguration sessionConfig =
+          ResourceManagerConfiguration.newBuilder(resources.get(0).getFileName().toString())
+                                      .build();
 
       return getDocumentInternal(sessionConfig, revision, updatable);
     } catch (final SirixException e) {
@@ -311,8 +323,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     for (final Path resourcePath : resources) {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final ResourceManager resource = mDatabase
-            .getResourceManager(ResourceManagerConfiguration.newBuilder(resourceName).build());
+        final ResourceManager resource = mDatabase.getResourceManager(
+            ResourceManagerConfiguration.newBuilder(resourceName).build());
         final XdmNodeReadTrx trx =
             updatable ? resource.beginNodeWriteTrx() : resource.beginNodeReadTrx();
         documents.add(new DBNode(trx, this));

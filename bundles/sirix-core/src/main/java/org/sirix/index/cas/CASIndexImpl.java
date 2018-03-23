@@ -90,7 +90,8 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
           final Iterator<AVLNode<CASValue, NodeReferences>> iter =
               reader.new AVLNodeIterator(node.get().getNodeKey());
 
-          return Iterators.concat(Iterators.forArray(node.get().getValue()),
+          return Iterators.concat(
+              Iterators.forArray(node.get().getValue()),
               new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
         }
 
@@ -112,15 +113,16 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
           final Iterator<AVLNode<CASValue, NodeReferences>> iter =
               reader.new AVLNodeIterator(node.get().getNodeKey());
 
-          return Iterators.concat(Iterators.forArray(node.get().getValue()),
+          return Iterators.concat(
+              Iterators.forArray(node.get().getValue()),
               new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
         }
 
         return Collections.emptyIterator();
       } else {
         // Compare for equality only by PCR.
-        final Optional<AVLNode<CASValue, NodeReferences>> node =
-            reader.getAVLNode(value, SearchMode.EQUAL, (CASValue v1,
+        final Optional<AVLNode<CASValue, NodeReferences>> node = reader.getAVLNode(
+            value, SearchMode.EQUAL, (CASValue v1,
                 CASValue v2) -> ((Long) v1.getPathNodeKey()).compareTo(v2.getPathNodeKey()));
 
         if (node.isPresent()) {
@@ -134,7 +136,8 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
             final Iterator<AVLNode<CASValue, NodeReferences>> iter =
                 reader.new AVLNodeIterator(firstFoundNode.get().getNodeKey());
 
-            return Iterators.concat(Iterators.forArray(firstFoundNode.get().getValue()),
+            return Iterators.concat(
+                Iterators.forArray(firstFoundNode.get().getValue()),
                 new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter)));
           } else {
             return Iterators.forArray(firstFoundNode.get().getValue());

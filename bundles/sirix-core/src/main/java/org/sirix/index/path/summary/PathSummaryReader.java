@@ -95,8 +95,8 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
     mResourceManager = resourceManager;
 
     try {
-      final Optional<? extends Record> node = mPageReadTrx
-          .getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+      final Optional<? extends Record> node = mPageReadTrx.getRecord(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
       if (node.isPresent()) {
         mCurrentNode = (StructNode) node.get();
       } else {
@@ -342,8 +342,9 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
     try {
       // Immediately return node from item list if node key negative.
       @SuppressWarnings("unchecked")
-      final Optional<? extends StructNode> node = (Optional<? extends StructNode>) mPageReadTrx
-          .getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
+      final Optional<? extends StructNode> node =
+          (Optional<? extends StructNode>) mPageReadTrx.getRecord(
+              nodeKey, PageKind.PATHSUMMARYPAGE, 0);
       newNode = node;
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
@@ -451,8 +452,9 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    return ((PathSummaryPage) mPageReadTrx.getActualRevisionRootPage().getPathSummaryPageReference()
-        .getPage()).getMaxNodeKey(0);
+    return ((PathSummaryPage) mPageReadTrx.getActualRevisionRootPage()
+                                          .getPathSummaryPageReference()
+                                          .getPage()).getMaxNodeKey(0);
   }
 
   @Override

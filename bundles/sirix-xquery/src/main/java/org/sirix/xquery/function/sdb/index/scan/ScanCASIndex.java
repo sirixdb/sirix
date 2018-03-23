@@ -77,14 +77,24 @@ public final class ScanCASIndex extends AbstractFunction {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
           "Index no %s for collection %s and document %s not found.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a CAS index.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
 
     final Type keyType = indexDef.getContentType();

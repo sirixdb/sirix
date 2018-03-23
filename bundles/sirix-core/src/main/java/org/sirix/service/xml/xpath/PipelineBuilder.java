@@ -382,8 +382,8 @@ public final class PipelineBuilder {
     if (getPipeStack().empty() || getExpression().getSize() != 0) {
       addExpressionSingle();
     }
-    getExpression()
-        .add(new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1, mOperand2)));
+    getExpression().add(
+        new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1, mOperand2)));
   }
 
   /**
@@ -768,8 +768,10 @@ public final class PipelineBuilder {
    */
   @Override
   public String toString() {
-    return new StringBuilder("Expression Stack: ").append(this.mExprStack).append("\nHashMap: ")
-        .append(this.mVarRefMap).toString();
+    return new StringBuilder("Expression Stack: ").append(this.mExprStack)
+                                                  .append("\nHashMap: ")
+                                                  .append(this.mVarRefMap)
+                                                  .toString();
   }
 
 }

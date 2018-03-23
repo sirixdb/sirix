@@ -61,19 +61,19 @@ public class ConXPathAxisTest {
 
     try {
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/text:p/b"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/text:p/b"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/b"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/b"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/b/c"),
-          new long[] {7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/b/c"), new long[] {7L, 11L});
 
       AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::p:a/child::b"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::p:a/child::b"), new long[] {5L, 9L});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "child::p:" + "a/child::b/child::c"),
@@ -93,66 +93,66 @@ public class ConXPathAxisTest {
       // Find descendants starting from nodeKey 0L (root).
       holder.getReader().moveToDocumentRoot();
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a[@i]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a[@i]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/@i"),
-          new long[] {3L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/@i"), new long[] {3L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/@i/@*"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/@i/@*"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/b[@p:x]"),
-          new long[] {9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/b[@p:x]"), new long[] {9L});
 
       XPathStringChecker.testIAxisConventions(
           new XPathAxis(holder.getReader(), "descendant-or-self::node()/@p:x = 'y'"),
           new String[] {"true"});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[text()]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[text()]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[element()]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[element()]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[node()/text()]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[node()/text()]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[./node()]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[./node()]"), new long[] {1L});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "p:a[./node()/node()/node()]"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[//element()]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[//element()]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[/text()]"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[/text()]"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[16<65]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[16<65]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13>=4]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[13>=4]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[13.0>=4]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[13.0>=4]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[4 = 4]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[4 = 4]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3=4]"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[3=4]"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[3.2 = 3.22]"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[3.2 = 3.22]"), new long[] {});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "p:a[(3.2 + 0.02) = 3.22]"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[@i = \"j\"]"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[@i = \"j\"]"), new long[] {1L});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "descendant-or-self::node()[@p:x = \"y\"]"),
@@ -162,11 +162,11 @@ public class ConXPathAxisTest {
       // "p:a[@i eq \"j\"]"),
       // new long[] { 1L });
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a[@i=\"k\"]"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a[@i=\"k\"]"), new long[] {});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/b[@p:x=\"y\"]"),
-          new long[] {9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/b[@p:x=\"y\"]"), new long[] {9L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -181,17 +181,17 @@ public class ConXPathAxisTest {
       // Find descendants starting from nodeKey 0L (root).
       holder.getReader().moveToDocumentRoot();
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/node()"),
-          new long[] {4L, 5L, 8L, 9L, 13L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/node()"), new long[] {4L, 5L, 8L, 9L, 13L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/text()"),
-          new long[] {4L, 8L, 13L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/text()"), new long[] {4L, 8L, 13L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/b/text()"),
-          new long[] {6L, 12L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/b/text()"), new long[] {6L, 12L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/b/node()"),
-          new long[] {6L, 7L, 11L, 12L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/b/node()"), new long[] {6L, 7L, 11L, 12L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -206,22 +206,22 @@ public class ConXPathAxisTest {
       // Find descendants starting from nodeKey 0L (root).
       holder.getReader().moveToDocumentRoot();
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a//b"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a//b"), new long[] {5L, 9L});
 
       AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "//p:a"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "descendant-or-self::p:a"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "descendant-or-self::p:a"), new long[] {1L});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "/p:a/descendant-or-self::b"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/descendant::b"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/descendant::b"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "p:a/descendant::p:a"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "p:a/descendant::p:a"), new long[] {});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -234,16 +234,16 @@ public class ConXPathAxisTest {
 
       // Find ancestor starting from nodeKey 8L.
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "ancestor::p:a"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "ancestor::p:a"), new long[] {1L});
 
       holder.getReader().moveTo(13L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "ancestor::p:a"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "ancestor::p:a"), new long[] {1L});
 
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "ancestor::node()"),
-          new long[] {9L, 1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "ancestor::node()"), new long[] {9L, 1L});
 
       holder.getReader().moveTo(11L);
       AbsAxisTest.testIAxisConventions(
@@ -260,20 +260,20 @@ public class ConXPathAxisTest {
     try {
       // Find ancestor starting from nodeKey 8L.
       holder.getReader().moveTo(9L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "parent::p:a"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "parent::p:a"), new long[] {1L});
 
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "parent::b"),
-          new long[] {9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "parent::b"), new long[] {9L});
 
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "parent::node()"),
-          new long[] {9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "parent::node()"), new long[] {9L});
 
       holder.getReader().moveTo(13L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "parent::node()"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "parent::node()"), new long[] {1L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -285,24 +285,24 @@ public class ConXPathAxisTest {
     try {
       // Find ancestor starting from nodeKey 8L.
       holder.getReader().moveTo(1L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "self::p:a"),
-          new long[] {1L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "self::p:a"), new long[] {1L});
 
       holder.getReader().moveTo(9L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "self::b"),
-          new long[] {9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "self::b"), new long[] {9L});
 
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "./node()"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "./node()"), new long[] {});
 
       holder.getReader().moveTo(11L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "self::node()"),
-          new long[] {11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "self::node()"), new long[] {11L});
 
       holder.getReader().moveTo(1L);
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "./b/node()"),
-          new long[] {6L, 7L, 11L, 12L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "./b/node()"), new long[] {6L, 7L, 11L, 12L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -318,14 +318,14 @@ public class ConXPathAxisTest {
 
       AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/c"),
-          new long[] {7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b/c"), new long[] {7L, 11L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/text()"),
-          new long[] {6L, 12L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b/text()"), new long[] {6L, 12L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/b/c"),
-          new long[] {7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/b/c"), new long[] {7L, 11L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -343,14 +343,14 @@ public class ConXPathAxisTest {
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "child::node()/parent::node()"), new long[] {1L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/c"),
-          new long[] {7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b/c"), new long[] {7L, 11L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/text()"),
-          new long[] {6L, 12L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b/text()"), new long[] {6L, 12L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/p:a/b/c"),
-          new long[] {7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "/p:a/b/c"), new long[] {7L, 11L});
 
     } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
@@ -364,26 +364,26 @@ public class ConXPathAxisTest {
       // Find descendants starting from nodeKey 0L (root).
       holder.getReader().moveTo(1L);
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::b"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::b"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::*"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::*"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::text()"),
-          new long[] {4L, 8L, 13L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::text()"), new long[] {4L, 8L, 13L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "attribute::i"),
-          new long[] {3L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "attribute::i"), new long[] {3L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "attribute::*"),
-          new long[] {3L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "attribute::*"), new long[] {3L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "parent::node()"),
-          new long[] {0L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "parent::node()"), new long[] {0L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "self::blau"),
-          new long[] {});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "self::blau"), new long[] {});
 
       AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/"), new long[] {0L});
 
@@ -423,11 +423,11 @@ public class ConXPathAxisTest {
       // "child::b[fn:position() = 2][attribute::p:x = \"y\"]"),
       // new long[] { 8L });
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::b[child::c]"),
-          new long[] {5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::b[child::c]"), new long[] {5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::*[text() or c]"),
-          new long[] {5l, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "child::*[text() or c]"), new long[] {5l, 9L});
 
       // IAxisTest.testIAxisConventions(new XPathAxis(
       // holder.getRtx(),
@@ -449,11 +449,11 @@ public class ConXPathAxisTest {
     try {
       holder.getReader().moveTo(1L);
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b, b, b"),
-          new long[] {5L, 9L, 5L, 9L, 5L, 9L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b, b, b"), new long[] {5L, 9L, 5L, 9L, 5L, 9L});
 
-      AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "b/c, ., //c"),
-          new long[] {7L, 11L, 1L, 7L, 11L});
+      AbsAxisTest.testIAxisConventions(
+          new XPathAxis(holder.getReader(), "b/c, ., //c"), new long[] {7L, 11L, 1L, 7L, 11L});
 
       AbsAxisTest.testIAxisConventions(
           new XPathAxis(holder.getReader(), "b/text(), //text(), descendant-or-self::element()"),

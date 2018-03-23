@@ -77,14 +77,24 @@ public final class ScanCASIndexRange extends AbstractFunction {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
           "Index no %s for collection %s and document %s not found.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a CAS index.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
 
     final Type keyType = indexDef.getContentType();
@@ -94,8 +104,8 @@ public final class ScanCASIndexRange extends AbstractFunction {
     final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key", true, true);
     final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
     final String[] pathArray = paths == null ? new String[] {} : paths.split(";");
-    final CASFilterRange filter = controller.createCASFilterRange(pathArray, min, max, incMin,
-        incMax, new PCRCollectorImpl(rtx));
+    final CASFilterRange filter = controller.createCASFilterRange(
+        pathArray, min, max, incMin, incMax, new PCRCollectorImpl(rtx));
 
     final IndexController ic = controller;
     final DBNode node = doc;

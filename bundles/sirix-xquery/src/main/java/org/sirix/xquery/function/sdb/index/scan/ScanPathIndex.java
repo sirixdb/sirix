@@ -71,14 +71,24 @@ public final class ScanPathIndex extends AbstractFunction {
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
           "Index no %s for collection %s and document %s not found.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
     if (indexDef.getType() != IndexType.PATH) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
           "Index no %s for collection %s and document %s is not a path index.", idx,
-          doc.getCollection().getName(), doc.getTrx().getResourceManager().getResourceConfig()
-              .getResource().getFileName().toString());
+          doc.getCollection().getName(),
+          doc.getTrx()
+             .getResourceManager()
+             .getResourceConfig()
+             .getResource()
+             .getFileName()
+             .toString());
     }
     final String paths = FunUtil.getString(args, 2, "$paths", null, null, false);
     final PathFilter filter =

@@ -55,8 +55,8 @@ public class XMarkBenchTest {
   public static void setUp() throws Exception {
     TestHelper.deleteEverything();
     // EncryptionHelper.start();
-    XMLShredder.main(XML.toAbsolutePath().toString(),
-        PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XMLShredder.main(
+        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
   }
 
@@ -64,32 +64,32 @@ public class XMarkBenchTest {
   public void xMarkTest_Q1() throws SirixXPathException {
     String query = xmbq.getQuery(1, FACTOR);
     String result = xmbq.getResult(1, FACTOR);
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   @Test
   public void xMarkTest_Q5() throws SirixXPathException {
     String query = xmbq.getQuery(5, FACTOR);
     String result = xmbq.getResult(5, FACTOR);
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   @Test
   public void xMarkTest_Q6() throws SirixXPathException {
     String query = xmbq.getQuery(6, FACTOR);
     String result = xmbq.getResult(6, FACTOR);
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   @Test
   public void xMarkTest_Q7() throws SirixXPathException {
     String query = xmbq.getQuery(7, FACTOR);
     String result = xmbq.getResult(7, FACTOR);
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(), query),
-        new String[] {result});
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), query), new String[] {result});
   }
 
   /*

@@ -110,8 +110,9 @@ public class InstanceOfExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int itemKey = getTrx().getItemList().addItem(new AtomicValue(
-        TypedValue.getBytes(Boolean.toString(isInstanceOf)), getTrx().keyForName("xs:boolean")));
+    final int itemKey = getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)),
+            getTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

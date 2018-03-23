@@ -143,8 +143,11 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", mStructNodeDel.getNodeDelegate())
-        .add("struct delegate", mStructNodeDel).add("value delegate", mValDel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node delegate", mStructNodeDel.getNodeDelegate())
+                      .add("struct delegate", mStructNodeDel)
+                      .add("value delegate", mValDel)
+                      .toString();
   }
 
   public ValNodeDelegate getValNodeDelegate() {

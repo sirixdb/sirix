@@ -24,18 +24,19 @@ enum OperationType implements Operation<XdmNodeWriteTrx> {
   INSERT {
     @Override
     public void execute(final XdmNodeWriteTrx wtx, final Visitor<XdmNodeWriteTrx> visitor,
-        final Map<Path, org.sirix.fs.Path> index, final Path child) throws SirixException {
+        final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
+        throws SirixException {
       checkNotNull(wtx);
       checkNotNull(child);
       checkNotNull(visitor);
       checkNotNull(index);
-      checkArgument(wtx.getKind() == Kind.ELEMENT,
-          "Transaction must be located at an element node!");
+      checkArgument(
+          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       if (Files.isDirectory(child)) {
-        index.put(child, org.sirix.fs.Path.ISDIRECTORY);
+        index.put(child, org.sirix.fs.FileSystemPath.ISDIRECTORY);
         wtx.insertElementAsFirstChild(new QNm("dir"));
       } else if (Files.isRegularFile(child) | Files.isSymbolicLink(child)) {
-        index.put(child, org.sirix.fs.Path.ISFILE);
+        index.put(child, org.sirix.fs.FileSystemPath.ISFILE);
         wtx.insertElementAsFirstChild(new QNm("file"));
       }
       wtx.insertAttribute(new QNm("name"), child.getFileName().toString());
@@ -49,13 +50,14 @@ enum OperationType implements Operation<XdmNodeWriteTrx> {
   UPDATE {
     @Override
     public void execute(final XdmNodeWriteTrx wtx, final Visitor<XdmNodeWriteTrx> visitor,
-        final Map<Path, org.sirix.fs.Path> index, final Path child) throws SirixException {
+        final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
+        throws SirixException {
       checkNotNull(wtx);
       checkNotNull(child);
       checkNotNull(visitor);
       checkNotNull(index);
-      checkArgument(wtx.getKind() == Kind.ELEMENT,
-          "Transaction must be located at an element node!");
+      checkArgument(
+          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       final long nodeKey = wtx.getNodeKey();
       processVisitor(visitor, wtx, child);
       wtx.moveTo(nodeKey);
@@ -65,13 +67,14 @@ enum OperationType implements Operation<XdmNodeWriteTrx> {
   DELETE {
     @Override
     public void execute(final XdmNodeWriteTrx wtx, final Visitor<XdmNodeWriteTrx> visitor,
-        final Map<Path, org.sirix.fs.Path> index, final Path child) throws SirixException {
+        final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
+        throws SirixException {
       checkNotNull(wtx);
       checkNotNull(child);
       checkNotNull(visitor);
       checkNotNull(index);
-      checkArgument(wtx.getKind() == Kind.ELEMENT,
-          "Transaction must be located at an element node!");
+      checkArgument(
+          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
       wtx.remove();
     }
   };

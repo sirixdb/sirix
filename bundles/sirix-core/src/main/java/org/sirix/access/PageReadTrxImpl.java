@@ -150,8 +150,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 
     if (indexController == null) {
       // Deserialize index definitions.
-      final Path indexes = resourceManager.getResourceConfig().mPath
-          .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision)
+      final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+          ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision)
               + ".xml");
       if (Files.exists(indexes)) {
         try (final InputStream in = new FileInputStream(indexes.toFile())) {
@@ -171,15 +171,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 
     final PageReadTrx pageReadTrx = this;
 
-    mNodeCache = CacheBuilder.newBuilder().maximumSize(10_000)
-        .expireAfterWrite(5_000, TimeUnit.SECONDS).expireAfterAccess(5_000, TimeUnit.SECONDS)
-        .build(new CacheLoader<IndexLogKey, PageContainer>() {
-          @Override
-          public PageContainer load(final IndexLogKey key) {
-            return pageReadTrx.getRecordPageContainer(key.getRecordPageKey(), key.getIndex(),
-                key.getIndexType());
-          }
-        });
+    mNodeCache = CacheBuilder.newBuilder()
+                             .maximumSize(10_000)
+                             .expireAfterWrite(5_000, TimeUnit.SECONDS)
+                             .expireAfterAccess(5_000, TimeUnit.SECONDS)
+                             .build(new CacheLoader<IndexLogKey, PageContainer>() {
+                               @Override
+                               public PageContainer load(final IndexLogKey key) {
+                                 return pageReadTrx.getRecordPageContainer(
+                                     key.getRecordPageKey(), key.getIndex(), key.getIndexType());
+                               }
+                             });
 
     final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder.newBuilder();
     mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
@@ -316,14 +318,15 @@ final class PageReadTrxImpl implements PageReadTrx {
    */
   @Override
   public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
-    checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
+    checkArgument(
+        revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
         "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
         mResourceManager.getMostRecentRevisionNumber());
 
     // The indirect page reference either fails horribly or returns a non null
     // instance.
-    final PageReference reference = getPageReferenceForPage(mUberPage.getIndirectPageReference(),
-        revisionKey, -1, PageKind.UBERPAGE);
+    final PageReference reference = getPageReferenceForPage(
+        mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
     try {
       RevisionRootPage page = null;
 
@@ -355,8 +358,8 @@ final class PageReadTrxImpl implements PageReadTrx {
   public final PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot)
       throws SirixIOException {
     assertNotClosed();
-    return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference(),
-        PageKind.PATHSUMMARYPAGE);
+    return (PathSummaryPage) getPage(
+        revisionRoot.getPathSummaryPageReference(), PageKind.PATHSUMMARYPAGE);
   }
 
   @Override
@@ -435,8 +438,8 @@ final class PageReadTrxImpl implements PageReadTrx {
     final PageContainer recordPageContainer = new PageContainer(completePage, clone(completePage));
 
     if (mTrxIntentLog == null)
-      mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(),
-          recordPageContainer);
+      mResourceBufferManager.getRecordPageCache()
+                            .put(pageReferenceToRecordPage.get(), recordPageContainer);
 
     return recordPageContainer;
   }
@@ -447,8 +450,8 @@ final class PageReadTrxImpl implements PageReadTrx {
       final ByteArrayDataOutput output = ByteStreams.newDataOutput();
       PagePersistenter.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
       final ByteArrayDataInput input = ByteStreams.newDataInput(output.toByteArray());
-      return (E) PagePersistenter.deserializePage(input, this,
-          SerializationType.TRANSACTION_INTENT_LOG);
+      return (E) PagePersistenter.deserializePage(
+          input, this, SerializationType.TRANSACTION_INTENT_LOG);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -644,9 +647,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("Session", mResourceManager)
-        .add("PageReader", mPageReader).add("UberPage", mUberPage).add("RevRootPage", mRootPage)
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("Session", mResourceManager)
+                      .add("PageReader", mPageReader)
+                      .add("UberPage", mUberPage)
+                      .add("RevRootPage", mRootPage)
+                      .toString();
   }
 
   @Override

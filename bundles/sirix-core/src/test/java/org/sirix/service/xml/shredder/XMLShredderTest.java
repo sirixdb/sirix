@@ -73,16 +73,16 @@ public class XMLShredderTest extends XMLTestCase {
   public void testSTAXShredder() throws Exception {
 
     // Setup parsed session.
-    XMLShredder.main(XML.toAbsolutePath().toString(),
-        PATHS.PATH2.getFile().toAbsolutePath().toString());
+    XMLShredder.main(
+        XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
     final XdmNodeReadTrx expectedTrx = holder.getWriter();
 
     // Verify.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
     database2.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
-    final ResourceManager manager = database2
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database2.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeReadTrx rtx = manager.beginNodeReadTrx();
     rtx.moveToDocumentRoot();
     final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -114,25 +114,23 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testShredIntoExisting() throws Exception {
     final XdmNodeWriteTrx wtx = holder.getWriter();
-    final XMLShredder shredder =
-        new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML), Insert.ASFIRSTCHILD)
-            .includeComments(true).commitAfterwards().build();
+    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML),
+        Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
     shredder.call();
     assertEquals(2, wtx.getRevisionNumber());
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.remove();
-    final XMLShredder shredder2 =
-        new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML), Insert.ASFIRSTCHILD)
-            .includeComments(true).commitAfterwards().build();
+    final XMLShredder shredder2 = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML),
+        Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
     shredder2.call();
     assertEquals(3, wtx.getRevisionNumber());
     wtx.close();
 
     // Setup expected session.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager expectedSession = database2
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager expectedSession = database2.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 
     final XdmNodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
     DocumentCreater.create(expectedTrx);
@@ -178,12 +176,11 @@ public class XMLShredderTest extends XMLTestCase {
 
     // Setup parsed session.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager2 = database2
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager2 = database2.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
-    final XMLShredder shredder =
-        new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML2), Insert.ASFIRSTCHILD)
-            .commitAfterwards().build();
+    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML2),
+        Insert.ASFIRSTCHILD).commitAfterwards().build();
     shredder.call();
     wtx.commit();
     wtx.close();
@@ -217,12 +214,11 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testShreddingLargeText() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    final XMLShredder shredder =
-        new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML3), Insert.ASFIRSTCHILD)
-            .commitAfterwards().build();
+    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML3),
+        Insert.ASFIRSTCHILD).commitAfterwards().build();
     shredder.call();
     wtx.close();
 

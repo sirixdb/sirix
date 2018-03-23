@@ -53,10 +53,13 @@ public final class StorageTest {
     TestHelper.closeEverything();
     TestHelper.deleteEverything();
     Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
-    Files.createDirectories(TestHelper.PATHS.PATH1.getFile()
-        .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
-    Files.createFile(TestHelper.PATHS.PATH1.getFile()
-        .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve("data.sirix"));
+    Files.createDirectories(
+        TestHelper.PATHS.PATH1.getFile()
+                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
+    Files.createFile(
+        TestHelper.PATHS.PATH1.getFile()
+                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile())
+                              .resolve("data.sirix"));
     mResourceConfig = new ResourceConfiguration.Builder("shredded",
         new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
   }
@@ -87,8 +90,9 @@ public final class StorageTest {
         try (final Writer writer = handler.createWriter()) {
           pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
           assertEquals(
-              new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-                  .toString(),
+              new StringBuilder("Check for ").append(handler.getClass())
+                                             .append(" failed.")
+                                             .toString(),
               ((UberPage) pageRef1.getPage()).getRevisionCount(),
               ((UberPage) pageRef2.getPage()).getRevisionCount());
         }
@@ -96,11 +100,15 @@ public final class StorageTest {
         // new instance check
         try (final Reader reader = handler.createReader()) {
           final PageReference pageRef3 = reader.readUberPageReference();
-          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-              .toString(), pageRef2.getKey(), pageRef3.getKey());
           assertEquals(
-              new StringBuilder("Check for ").append(handler.getClass()).append(" failed.")
-                  .toString(),
+              new StringBuilder("Check for ").append(handler.getClass())
+                                             .append(" failed.")
+                                             .toString(),
+              pageRef2.getKey(), pageRef3.getKey());
+          assertEquals(
+              new StringBuilder("Check for ").append(handler.getClass())
+                                             .append(" failed.")
+                                             .toString(),
               ((UberPage) pageRef2.getPage()).getRevisionCount(),
               ((UberPage) pageRef3.getPage()).getRevisionCount());
         }

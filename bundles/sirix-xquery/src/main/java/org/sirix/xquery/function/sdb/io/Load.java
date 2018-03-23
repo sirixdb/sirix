@@ -141,7 +141,8 @@ public final class Load extends AbstractFunction {
       final String resName, final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
-      return store.create(collName, Optional.of(resName),
+      return store.create(
+          collName, Optional.of(resName),
           new DocumentParser(URIHandler.getInputStream(res.stringValue())));
     } else {
       return store.create(collName, new ParserStream(resources));

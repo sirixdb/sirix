@@ -55,8 +55,7 @@ public final class Databases {
       }
       if (returnVal) {
         // creation of folder structure
-        for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths
-            .values()) {
+        for (final DatabaseConfiguration.DatabasePaths paths : DatabaseConfiguration.DatabasePaths.values()) {
           final Path toCreate = dbConfig.getFile().resolve(paths.getFile());
           if (paths.isFolder()) {
             try {
@@ -66,8 +65,8 @@ public final class Databases {
             }
           } else {
             try {
-              returnVal = toCreate.getFileName()
-                  .equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName()) ? true
+              returnVal = toCreate.getFileName().equals(
+                  DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName()) ? true
                       : Files.createFile(toCreate) != null;
             } catch (final IOException e) {
               org.sirix.utils.Files.recursiveRemove(dbConfig.getFile());

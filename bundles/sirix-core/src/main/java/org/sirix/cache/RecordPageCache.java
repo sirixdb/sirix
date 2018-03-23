@@ -22,9 +22,12 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
       }
     };
 
-    mPageCache =
-        CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(5000, TimeUnit.SECONDS)
-            .expireAfterAccess(5000, TimeUnit.SECONDS).removalListener(removalListener).build();
+    mPageCache = CacheBuilder.newBuilder()
+                             .maximumSize(1000)
+                             .expireAfterWrite(5000, TimeUnit.SECONDS)
+                             .expireAfterAccess(5000, TimeUnit.SECONDS)
+                             .removalListener(removalListener)
+                             .build();
   }
 
   @Override

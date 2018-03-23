@@ -94,8 +94,9 @@ public class SomeExpr extends AbstractExpression {
       }
     }
 
-    final int itemKey = getTrx().getItemList().addItem(new AtomicValue(
-        TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTrx().keyForName("xs:boolean")));
+    final int itemKey = getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
+            getTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

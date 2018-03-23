@@ -222,8 +222,8 @@ public final class XdmResourceManager implements ResourceManager {
     final Node documentNode;
 
     @SuppressWarnings("unchecked")
-    final Optional<? extends Node> node = (Optional<? extends Node>) pageReadTrx
-        .getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
+    final Optional<? extends Node> node = (Optional<? extends Node>) pageReadTrx.getRecord(
+        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
     if (node.isPresent()) {
       documentNode = node.get();
     } else {
@@ -239,8 +239,8 @@ public final class XdmResourceManager implements ResourceManager {
    * or not.
    */
   Path commitFile() {
-    return mResourceConfig.mPath
-        .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_LOG.getFile()).resolve(".commit");
+    return mResourceConfig.mPath.resolve(
+        ResourceConfiguration.ResourcePaths.TRANSACTION_LOG.getFile()).resolve(".commit");
   }
 
   @Override
@@ -363,9 +363,9 @@ public final class XdmResourceManager implements ResourceManager {
     if (revision < 0) {
       throw new IllegalArgumentException("Revision must be at least 0!");
     } else if (revision > mLastCommittedUberPage.get().getRevision()) {
-      throw new IllegalArgumentException(new StringBuilder("Revision must not be bigger than ")
-          .append(Long.toString(mLastCommittedUberPage.get().getRevision())).append("!")
-          .toString());
+      throw new IllegalArgumentException(
+          new StringBuilder("Revision must not be bigger than ").append(
+              Long.toString(mLastCommittedUberPage.get().getRevision())).append("!").toString());
     }
   }
 
@@ -449,8 +449,10 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("sessionConf", mResourceManagerConfig)
-        .add("resourceConf", mResourceConfig).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("sessionConf", mResourceManagerConfig)
+                      .add("resourceConf", mResourceConfig)
+                      .toString();
   }
 
   /**
@@ -476,8 +478,10 @@ public final class XdmResourceManager implements ResourceManager {
   public synchronized PathSummaryReader openPathSummary(final @Nonnegative int revision) {
     assertAccess(revision);
 
-    return PathSummaryReader.getInstance(new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
-        revision, mFac.createReader(), null, null, mBufferManager), this);
+    return PathSummaryReader.getInstance(
+        new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac.createReader(), null,
+            null, mBufferManager),
+        this);
   }
 
   @Override
@@ -555,7 +559,10 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public synchronized Optional<XdmNodeWriteTrx> getNodeWriteTrx() {
-    return mNodeReaderMap.values().stream().filter(rtx -> rtx instanceof XdmNodeWriteTrx)
-        .map(rtx -> (XdmNodeWriteTrx) rtx).findAny();
+    return mNodeReaderMap.values()
+                         .stream()
+                         .filter(rtx -> rtx instanceof XdmNodeWriteTrx)
+                         .map(rtx -> (XdmNodeWriteTrx) rtx)
+                         .findAny();
   }
 }

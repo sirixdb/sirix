@@ -170,10 +170,12 @@ public final class UberPage extends AbstractForwardingPage {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("forwarding page", super.toString())
-        .add("revisionCount", mRevisionCount)
-        .add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
-        .add("isBootstrap", mBootstrap).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("forwarding page", super.toString())
+                      .add("revisionCount", mRevisionCount)
+                      .add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
+                      .add("isBootstrap", mBootstrap)
+                      .toString();
   }
 
   @Override
@@ -211,7 +213,8 @@ public final class UberPage extends AbstractForwardingPage {
     log.put(mRootPage.getPathPageReference(), new PageContainer(pathPage, pathPage));
 
     final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
-    log.put(mRootPage.getPathSummaryPageReference(),
+    log.put(
+        mRootPage.getPathSummaryPageReference(),
         new PageContainer(pathSummaryPage, pathSummaryPage));
 
     log.put(reference, new PageContainer(mRootPage, mRootPage));

@@ -152,8 +152,10 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("First Cache", mMap)
-        .add("Second Cache", mSecondCache).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("First Cache", mMap)
+                      .add("Second Cache", mSecondCache)
+                      .toString();
   }
 
   @Override

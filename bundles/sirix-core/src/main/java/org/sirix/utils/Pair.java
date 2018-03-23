@@ -66,7 +66,9 @@ public class Pair<U, V> {
 
   @Override
   public String toString() {
-    return new StringBuilder("first: ").append(mFirst.toString()).append(" second: ")
-        .append(mSecond.toString()).toString();
+    return new StringBuilder("first: ").append(mFirst.toString())
+                                       .append(" second: ")
+                                       .append(mSecond.toString())
+                                       .toString();
   }
 }

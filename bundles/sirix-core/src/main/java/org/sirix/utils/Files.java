@@ -35,8 +35,9 @@ public final class Files {
   public static void recursiveRemove(final Path path, final Set<FileVisitOption> options) {
     try {
       if (java.nio.file.Files.exists(path)) {
-        java.nio.file.Files.walkFileTree(checkNotNull(path), checkNotNull(options),
-            Integer.MAX_VALUE, new SimpleFileVisitor<Path>() {
+        java.nio.file.Files.walkFileTree(
+            checkNotNull(path), checkNotNull(options), Integer.MAX_VALUE,
+            new SimpleFileVisitor<Path>() {
               @Override
               public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs)
                   throws IOException {

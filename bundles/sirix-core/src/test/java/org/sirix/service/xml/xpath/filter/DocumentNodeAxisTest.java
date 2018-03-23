@@ -51,24 +51,29 @@ public class DocumentNodeAxisTest {
   public void testIterate() throws SirixException {
 
     holder.getReader().moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getReader()),
+    AbsAxisTest.testIAxisConventions(
+        new DocumentNodeAxis(holder.getReader()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
     holder.getReader().moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getReader()),
+    AbsAxisTest.testIAxisConventions(
+        new DocumentNodeAxis(holder.getReader()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
     holder.getReader().moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getReader()),
+    AbsAxisTest.testIAxisConventions(
+        new DocumentNodeAxis(holder.getReader()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
     holder.getReader().moveTo(9L);
     holder.getReader().moveToAttribute(0);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getReader()),
+    AbsAxisTest.testIAxisConventions(
+        new DocumentNodeAxis(holder.getReader()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
     holder.getReader().moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getReader()),
+    AbsAxisTest.testIAxisConventions(
+        new DocumentNodeAxis(holder.getReader()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
   }

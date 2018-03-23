@@ -27,6 +27,6 @@ public interface Operation<S extends XdmNodeReadTrx> {
    *        sirix
    * @throws SirixException if any operation in sirix fails
    */
-  void execute(S transaction, Visitor<S> visitor, Map<Path, org.sirix.fs.Path> index, Path child)
-      throws SirixException;
+  void execute(S transaction, Visitor<S> visitor, Map<Path, org.sirix.fs.FileSystemPath> index,
+      Path child) throws SirixException;
 }

@@ -90,8 +90,10 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nameDel", mNameDel).add("valDel", mValDel)
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("nameDel", mNameDel)
+                      .add("valDel", mValDel)
+                      .toString();
   }
 
   @Override

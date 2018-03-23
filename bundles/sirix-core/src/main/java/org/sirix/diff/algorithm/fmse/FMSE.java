@@ -214,9 +214,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveTo(mNewStartKey);
 
     // 2. Iterate over new shreddered file
-    for (final Axis axis =
-        new LevelOrderAxis.Builder(rtx).includeSelf().includeNonStructuralNodes().build(); axis
-            .hasNext();) {
+    for (final Axis axis = new LevelOrderAxis.Builder(rtx).includeSelf()
+                                                          .includeNonStructuralNodes()
+                                                          .build(); axis.hasNext();) {
       axis.next();
       final long nodeKey = axis.getTrx().getNodeKey();
       doFirstFSMEStep(wtx, rtx);
@@ -300,10 +300,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert rtx != null;
     wtx.moveTo(mOldStartKey);
     for (@SuppressWarnings("unused")
-    final long nodeKey : VisitorDescendantAxis.newBuilder(wtx).includeSelf()
-        .visitor(Optional
-            .<DeleteFMSEVisitor>of(new DeleteFMSEVisitor(wtx, mTotalMatching, mOldStartKey)))
-        .build());
+    final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
+                                              .includeSelf()
+                                              .visitor(
+                                                  Optional.<DeleteFMSEVisitor>of(
+                                                      new DeleteFMSEVisitor(wtx, mTotalMatching,
+                                                          mOldStartKey)))
+                                              .build());
   }
 
   /**
@@ -896,7 +899,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     // Do the matching job on the leaf nodes.
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
-    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
+    match(
+        mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
         new LeafEqual());
 
     // Remove roots ('/') from labels and append them to mapping.
@@ -1266,7 +1270,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         mRtx.moveToParent();
       } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey
           && mWtx.hasParent() && mRtx.hasParent()
-          && calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx),
+          && calculateRatio(
+              getNodeValue(mWtx.getNodeKey(), mWtx),
               getNodeValue(mRtx.getNodeKey(), mRtx)) >= 0.7f);
       if ((mWtx.hasParent() && mWtx.getNodeKey() != mOldStartKey)
           || (mRtx.hasParent() && mRtx.getNodeKey() != mNewStartKey)) {

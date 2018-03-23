@@ -106,8 +106,9 @@ public class RangeAxis extends AbstractAxis {
     }
 
     if (mStart <= mEnd) {
-      final int itemKey = getTrx().getItemList().addItem(new AtomicValue(
-          TypedValue.getBytes(Integer.toString(mStart)), getTrx().keyForName("xs:integer")));
+      final int itemKey = getTrx().getItemList().addItem(
+          new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
+              getTrx().keyForName("xs:integer")));
       mKey = itemKey;
       mStart++;
       return true;

@@ -572,14 +572,14 @@ public final class WikipediaImport implements Import<StartElement> {
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     final StartElement timestamp = eventFactory.createStartElement(
         new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement page = eventFactory
-        .createStartElement(new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement page = eventFactory.createStartElement(
+        new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
     final StartElement rev = eventFactory.createStartElement(
         new QName(NSP_URI, "revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement id = eventFactory
-        .createStartElement(new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement text = eventFactory
-        .createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement id = eventFactory.createStartElement(
+        new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement text = eventFactory.createStartElement(
+        new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
     // Create list.
     final List<StartElement> list = new LinkedList<StartElement>();

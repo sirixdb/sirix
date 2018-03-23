@@ -83,8 +83,10 @@ public final class CASValue implements Comparable<CASValue> {
     } catch (final QueryException e) {
       LOGGER.error(e.getMessage(), e);
     }
-    return ComparisonChain.start().compare(mPathNodeKey, otherValue.mPathNodeKey)
-        .compare(thisAtomic, otherAtomic).result();
+    return ComparisonChain.start()
+                          .compare(mPathNodeKey, otherValue.mPathNodeKey)
+                          .compare(thisAtomic, otherAtomic)
+                          .result();
   }
 
   @Override
@@ -113,8 +115,10 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", mValue).add("pathNodeKey", mPathNodeKey)
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("value", mValue)
+                      .add("pathNodeKey", mPathNodeKey)
+                      .toString();
   }
 
   public Type getType() {

@@ -68,8 +68,8 @@ public class AncestorAxisTest {
     final XdmNodeReadTrx rtx = holder.getReader();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES),
-        new long[] {11L, 9L, 1L});
+    AbsAxisTest.testIAxisConventions(
+        new AncestorAxis(rtx, IncludeSelf.YES), new long[] {11L, 9L, 1L});
 
     rtx.moveTo(5L);
     AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {5L, 1L});

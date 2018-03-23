@@ -81,8 +81,9 @@ public final class FMSEImport {
               db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
           final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
         final XMLEventReader fileReader = XMLShredder.createFileReader(resNewRev);
-        final XMLShredder shredder = new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD)
-            .commitAfterwards().build();
+        final XMLShredder shredder =
+            new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards()
+                                                                         .build();
         shredder.call();
       }
     }
@@ -105,12 +106,12 @@ public final class FMSEImport {
       shredder(checkNotNull(resNewRev), newRevTarget);
 
       try (final Database databaseOld = Databases.openDatabase(resOldRev);
-          final ResourceManager resMgrOld = databaseOld
-              .getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final ResourceManager resMgrOld = databaseOld.getResourceManager(
+              new ResourceManagerConfiguration.Builder("shredded").build());
           final XdmNodeWriteTrx wtx = resMgrOld.beginNodeWriteTrx();
           final Database databaseNew = Databases.openDatabase(newRevTarget);
-          final ResourceManager resourceNew = databaseNew
-              .getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+          final ResourceManager resourceNew = databaseNew.getResourceManager(
+              new ResourceManagerConfiguration.Builder("shredded").build());
           final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
           final FMSE fmes = new FMSE()) {
         fmes.diff(wtx, rtx);

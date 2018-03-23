@@ -73,9 +73,11 @@ public class Holder {
     final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-            .useDeweyIDs(true).build());
-    final ResourceManager resourceManager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+                                                                                       .useDeweyIDs(
+                                                                                           true)
+                                                                                       .build());
+    final ResourceManager resourceManager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -96,10 +98,10 @@ public class Holder {
     }
     final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
     database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-            .buildPathSummary(true).build());
-    final ResourceManager resourceManager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            PATHS.PATH1.getConfig()).buildPathSummary(true).build());
+    final ResourceManager resourceManager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -114,8 +116,8 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager session = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager session = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(session);

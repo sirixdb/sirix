@@ -61,15 +61,15 @@ public final class XPathWriteTransactionTest {
   public void setUp() throws Exception {
     TestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(XML.toAbsolutePath().toString(),
-        PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XMLShredder.main(
+        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
     // Verify.
     database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     wtx = manager.beginNodeWriteTrx();
   }
 

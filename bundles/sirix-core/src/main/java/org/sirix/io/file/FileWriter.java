@@ -75,8 +75,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
 
     while (uberPage.getRevisionNumber() != revision) {
-      uberPage = (UberPage) mReader
-          .read(new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
+      uberPage = (UberPage) mReader.read(
+          new PageReference().setKey(uberPage.getPreviousUberPageKey()), null);
       if (uberPage.getRevisionNumber() == revision) {
         try {
           mFile.setLength(uberPage.getPreviousUberPageKey());

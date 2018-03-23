@@ -62,12 +62,12 @@ public class ResourceManagerTest {
   public void testSingleton() throws SirixException {
     final Database database = Holder.openResourceManager().getDatabase();
     assertEquals(database, holder.getDatabase());
-    final ResourceManager session = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager session = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     assertEquals(session, holder.getResourceManager());
     session.close();
-    final ResourceManager session2 = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager session2 = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     assertNotSame(session2, holder.getResourceManager());
     database.close();
 
@@ -104,8 +104,11 @@ public class ResourceManagerTest {
 
       assertNotNull(wtx.moveToFirstChild());
       assertEquals(Kind.ELEMENT, wtx.getKind());
-      assertEquals("p:a", new StringBuilder(wtx.getName().getPrefix()).append(":")
-          .append(wtx.getName().getLocalName()).toString());
+      assertEquals(
+          "p:a",
+          new StringBuilder(wtx.getName().getPrefix()).append(":")
+                                                      .append(wtx.getName().getLocalName())
+                                                      .toString());
 
       wtx.rollback();
     }
@@ -170,8 +173,8 @@ public class ResourceManagerTest {
   @Test
   public void testExisting() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resource = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 
     final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
     DocumentCreater.create(wtx1);
@@ -180,8 +183,8 @@ public class ResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final ResourceManager resource2 = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource2 = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -200,8 +203,8 @@ public class ResourceManagerTest {
     wtx2.close();
 
     final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resource3 = database2
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource3 = database2.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);

@@ -79,14 +79,16 @@ public final class IOTestHelper {
     final Writer writer = fac.createWriter();
     writer.writeUberPageReference(pageRef1);
     final PageReference pageRef2 = writer.readUberPageReference();
-    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+    assertEquals(
+        ((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef2.getPage()).getRevisionCount());
     writer.close();
 
     // new instance check
     final Reader reader = fac.createReader();
     final PageReference pageRef3 = reader.readUberPageReference();
-    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+    assertEquals(
+        ((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef3.getPage()).getRevisionCount());
     reader.close();
     fac.close();

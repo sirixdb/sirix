@@ -90,8 +90,8 @@ public class NodeComp extends AbstractComparator {
     final String op1 = new String(mOperand1[0].getRawValue());
     final String op2 = new String(mOperand2[0].getRawValue());
 
-    return getCompKind().compare(op1, op2,
-        getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
+    return getCompKind().compare(
+        op1, op2, getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
   }
 
 }

@@ -232,8 +232,11 @@ public class StAXSerializerTest {
         if ("".equals(namespace.getPrefix())) {
           strBuilder.append(" xmlns=\"").append(namespace.getNamespaceURI()).append("\"");
         } else {
-          strBuilder.append(" xmlns:").append(namespace.getPrefix()).append("=\"")
-              .append(namespace.getNamespaceURI()).append("\"");
+          strBuilder.append(" xmlns:")
+                    .append(namespace.getPrefix())
+                    .append("=\"")
+                    .append(namespace.getNamespaceURI())
+                    .append("\"");
         }
       }
 

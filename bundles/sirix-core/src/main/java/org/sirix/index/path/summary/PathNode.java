@@ -225,9 +225,14 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", mNodeDel)
-        .add("struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
-        .add("references", mReferences).add("kind", mKind).add("level", mLevel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node delegate", mNodeDel)
+                      .add("struct delegate", mStructNodeDel)
+                      .add("name delegate", mNameNodeDel)
+                      .add("references", mReferences)
+                      .add("kind", mKind)
+                      .add("level", mLevel)
+                      .toString();
   }
 
   @Override

@@ -161,9 +161,13 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", mDelegate).add("uriKey", mUriKey)
-        .add("prefixKey", mPrefixKey).add("localNameKey", mLocalNameKey)
-        .add("pathNodeKey", mPathNodeKey).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node delegate", mDelegate)
+                      .add("uriKey", mUriKey)
+                      .add("prefixKey", mPrefixKey)
+                      .add("localNameKey", mLocalNameKey)
+                      .add("pathNodeKey", mPathNodeKey)
+                      .toString();
   }
 
   @Override
