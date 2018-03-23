@@ -766,10 +766,11 @@ public final class SirixTranslator extends TopDownTranslator {
                 }
               }
 
-              axisQueue.push(sameName
-                  ? new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
-                      new NameFilter(rtx, name))
-                  : new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
+              axisQueue.push(
+                  sameName
+                      ? new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+                          new NameFilter(rtx, name))
+                      : new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
             }
 
             org.sirix.api.Axis axis = axisQueue.pop();
@@ -793,8 +794,9 @@ public final class SirixTranslator extends TopDownTranslator {
               }
               // Match at the next level (single child-path).
               else if (matchLevel == level + 1) {
-                axisQueue.addLast(new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
-                    new NameFilter(rtx, test.getQName().toString())));
+                axisQueue.addLast(
+                    new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+                        new NameFilter(rtx, test.getQName().toString())));
               }
               // Match at a level below the child level.
               else {

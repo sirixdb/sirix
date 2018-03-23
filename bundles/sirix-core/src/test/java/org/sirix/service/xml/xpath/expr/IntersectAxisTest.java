@@ -58,11 +58,13 @@ public class IntersectAxisTest {
 
     holder.getReader().moveTo(1L);
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "child::node() intersect b"),
-        new long[] {5L, 9L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "child::node() intersect b"), new long[] {5L, 9L});
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(),
-        "child::node() intersect b intersect child::node()[@p:x]"), new long[] {9L});
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(),
+            "child::node() intersect b intersect child::node()[@p:x]"),
+        new long[] {9L});
 
     AbsAxisTest.testIAxisConventions(
         new XPathAxis(holder.getReader(), "child::node() intersect child::node()[attribute::p:x]"),

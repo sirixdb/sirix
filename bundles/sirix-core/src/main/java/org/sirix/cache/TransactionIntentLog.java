@@ -147,8 +147,10 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("First Cache", mMap)
-        .add("Second Cache", mSecondCache).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("First Cache", mMap)
+                      .add("Second Cache", mSecondCache)
+                      .toString();
   }
 
   @Override

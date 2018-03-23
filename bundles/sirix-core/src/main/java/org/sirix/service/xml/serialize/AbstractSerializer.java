@@ -120,8 +120,8 @@ public abstract class AbstractSerializer implements Callable<Void> {
       emitStartManualRootElement();
     }
     for (int i = 1; i <= length; i++) {
-      try (final XdmNodeReadTrx rtx = mSession
-          .beginNodeReadTrx((nrOfRevisions == 1 && mRevisions[0] < 0) ? i : mRevisions[i - 1])) {
+      try (final XdmNodeReadTrx rtx = mSession.beginNodeReadTrx(
+          (nrOfRevisions == 1 && mRevisions[0] < 0) ? i : mRevisions[i - 1])) {
         if (length > 1) {
           emitStartManualElement(i);
         }

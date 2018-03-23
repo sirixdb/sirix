@@ -123,8 +123,10 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel)
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("nodeDel", mNodeDel)
+                      .add("nameDel", mNameDel)
+                      .toString();
   }
 
   @Override

@@ -215,13 +215,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("revisionTimestamp", mRevisionTimestamp)
-        .add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
-        .add("namePage", getReference(NAME_REFERENCE_OFFSET))
-        .add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
-        .add("pathPage", getReference(PATH_REFERENCE_OFFSET))
-        .add("CASPage", getReference(CAS_REFERENCE_OFFSET))
-        .add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET)).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("revisionTimestamp", mRevisionTimestamp)
+                      .add("maxNodeKey", mMaxNodeKey)
+                      .add("delegate", mDelegate)
+                      .add("namePage", getReference(NAME_REFERENCE_OFFSET))
+                      .add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
+                      .add("pathPage", getReference(PATH_REFERENCE_OFFSET))
+                      .add("CASPage", getReference(CAS_REFERENCE_OFFSET))
+                      .add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET))
+                      .toString();
   }
 
   @Override

@@ -324,17 +324,17 @@ public final class DocumentCreater {
   public static void createRevisioned(final Database database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmNodeWriteTrx firstWtx = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-        .beginNodeWriteTrx()) {
+    try (final XdmNodeWriteTrx firstWtx = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
+                                                  .beginNodeWriteTrx()) {
       final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
           XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
       shredder.call();
     }
 
-    try (final XdmNodeWriteTrx secondWtx = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-        .beginNodeWriteTrx()) {
+    try (final XdmNodeWriteTrx secondWtx = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
+                                                   .beginNodeWriteTrx()) {
       secondWtx.moveToFirstChild();
       secondWtx.moveToFirstChild();
       secondWtx.moveToFirstChild();

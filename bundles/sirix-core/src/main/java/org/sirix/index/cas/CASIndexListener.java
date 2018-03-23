@@ -57,7 +57,8 @@ public final class CASIndexListener implements ChangeListener {
             break;
           case DELETE:
             if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(pathNodeKey)) {
-              mAVLTreeWriter.remove(new CASValue(new Str(valueNode.getValue()), mType, pathNodeKey),
+              mAVLTreeWriter.remove(
+                  new CASValue(new Str(valueNode.getValue()), mType, pathNodeKey),
                   node.getNodeKey());
             }
             break;

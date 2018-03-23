@@ -51,8 +51,8 @@ public class XMLSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -70,8 +70,8 @@ public class XMLSerializerTest {
   @Test
   public void testRestSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -90,8 +90,8 @@ public class XMLSerializerTest {
   @Test
   public void testIDSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -109,8 +109,8 @@ public class XMLSerializerTest {
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -137,8 +137,8 @@ public class XMLSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -147,9 +147,8 @@ public class XMLSerializerTest {
     wtx.commit();
     wtx.close();
 
-    XMLSerializer serializerall =
-        new XMLSerializerBuilder(manager, 5l, out, new XMLSerializerProperties())
-            .emitXMLDeclaration().build();
+    XMLSerializer serializerall = new XMLSerializerBuilder(manager, 5l, out,
+        new XMLSerializerProperties()).emitXMLDeclaration().build();
     serializerall.call();
     final String result =
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";

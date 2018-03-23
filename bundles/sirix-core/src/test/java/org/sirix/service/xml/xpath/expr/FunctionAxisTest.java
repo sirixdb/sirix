@@ -74,7 +74,8 @@ public class FunctionAxisTest {
     final AbstractAxis axis3 = new XPathAxis(holder.getReader(), "fn:string(//node())");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
+    assertEquals(
+        "oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
         holder.getReader().getValue());
     assertEquals(false, axis3.hasNext());
 

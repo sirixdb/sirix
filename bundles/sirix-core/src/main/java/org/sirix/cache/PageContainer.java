@@ -148,7 +148,9 @@ public final class PageContainer {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("complete page", mComplete)
-        .add("modified page", mModified).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("complete page", mComplete)
+                      .add("modified page", mModified)
+                      .toString();
   }
 }

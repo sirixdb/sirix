@@ -253,7 +253,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
    * Fire {@code EDiff.DELETEs} for the whole subtree.
    */
   private void fireDeletes() {
-    fireDiff(DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
+    fireDiff(
+        DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
         new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
     mIsFirst = false;
     while (moveCursor(mOldRtx, Revision.OLD, Move.DOCUMENT_ORDER)) {
@@ -267,7 +268,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
    * Fire {@code EDiff.INSERTs} for the whole subtree.
    */
   private void fireInserts() {
-    fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
+    fireDiff(
+        DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
         new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
     mIsFirst = false;
     while (moveCursor(mNewRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
@@ -638,14 +640,16 @@ abstract class AbstractDiff extends AbstractDiffObservable {
         final Axis newAxis = new DescendantAxis(newRtx, IncludeSelf.YES);
         while (oldAxis.hasNext()) {
           oldAxis.next();
-          fireDiff(DiffType.REPLACEDOLD, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+          fireDiff(
+              DiffType.REPLACEDOLD, newRtx.getNodeKey(), oldRtx.getNodeKey(),
               new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
           adjustDepth(oldRtx, oldNodeKey, Revision.OLD);
         }
 
         while (newAxis.hasNext()) {
           newAxis.next();
-          fireDiff(DiffType.REPLACEDNEW, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+          fireDiff(
+              DiffType.REPLACEDNEW, newRtx.getNodeKey(), oldRtx.getNodeKey(),
               new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
           adjustDepth(newRtx, newNodeKey, Revision.NEW);
         }

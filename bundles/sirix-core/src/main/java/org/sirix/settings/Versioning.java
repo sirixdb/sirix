@@ -61,10 +61,12 @@ public enum Versioning {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
 
       for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
         returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
@@ -92,8 +94,8 @@ public enum Versioning {
       assert pages.size() <= 2;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(recordPageKey, firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKey(), pageReadTrx);
+      final T returnVal = firstPage.newInstance(
+          recordPageKey, firstPage.getPageKind(), firstPage.getPreviousReferenceKey(), pageReadTrx);
 
       final T latest = pages.get(0);
       T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
@@ -139,10 +141,12 @@ public enum Versioning {
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevision();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
 
       final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -223,8 +227,9 @@ public enum Versioning {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKey(), firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(
+          firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPreviousReferenceKey(),
+          firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -266,10 +271,12 @@ public enum Versioning {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
       final boolean isFullDump = pages.size() == revToRestore;
 
       boolean filledPage = false;
@@ -353,8 +360,9 @@ public enum Versioning {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getPageKind(),
-          firstPage.getPreviousReferenceKey(), firstPage.getPageReadTrx());
+      final T returnVal = firstPage.newInstance(
+          firstPage.getPageKey(), firstPage.getPageKind(), firstPage.getPreviousReferenceKey(),
+          firstPage.getPageReadTrx());
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size(); i++) {
@@ -397,13 +405,15 @@ public enum Versioning {
       final T firstPage = pages.get(0);
       final long recordPageKey = firstPage.getPageKey();
       final List<T> returnVal = new ArrayList<>(2);
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
-      returnVal.add(firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
+      returnVal.add(
+          firstPage.<T>newInstance(
+              recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
 
-      final T reconstructed = firstPage.<T>newInstance(recordPageKey, firstPage.getPageKind(),
-          reference.getKey(), pageReadTrx);
+      final T reconstructed = firstPage.<T>newInstance(
+          recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx);
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {

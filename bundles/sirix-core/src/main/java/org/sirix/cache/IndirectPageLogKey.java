@@ -67,7 +67,12 @@ public final class IndirectPageLogKey {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("pageKind", mPageKind).add("index", mIndex)
-        .add("level", mLevel).add("offset", mOffset).add("pageKey", mPageKey).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("pageKind", mPageKind)
+                      .add("index", mIndex)
+                      .add("level", mLevel)
+                      .add("offset", mOffset)
+                      .add("pageKey", mPageKey)
+                      .toString();
   }
 }

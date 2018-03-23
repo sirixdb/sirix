@@ -147,9 +147,14 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", mNodeDelegate)
-        .add("left child", mLeft).add("right child", mRight).add("changed", mChanged)
-        .add("key", mKey).add("value", mValue).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node delegate", mNodeDelegate)
+                      .add("left child", mLeft)
+                      .add("right child", mRight)
+                      .add("changed", mChanged)
+                      .add("key", mKey)
+                      .add("value", mValue)
+                      .toString();
   }
 
   @Override

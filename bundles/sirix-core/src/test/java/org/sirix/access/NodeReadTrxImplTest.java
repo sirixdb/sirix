@@ -93,8 +93,8 @@ public final class NodeReadTrxImplTest {
     assertEquals(holder.getReader().hasParent(), holder.getReader().moveToParent().hasMoved());
     assertEquals(key, holder.getReader().getNodeKey());
 
-    assertEquals(holder.getReader().hasFirstChild(),
-        holder.getReader().moveToFirstChild().hasMoved());
+    assertEquals(
+        holder.getReader().hasFirstChild(), holder.getReader().moveToFirstChild().hasMoved());
     assertEquals(1L, holder.getReader().getNodeKey());
 
     assertEquals(false, holder.getReader().moveTo(Integer.MAX_VALUE).hasMoved());
@@ -103,20 +103,20 @@ public final class NodeReadTrxImplTest {
     assertEquals(false, holder.getReader().moveTo(Long.MIN_VALUE).hasMoved());
     assertEquals(1L, holder.getReader().getNodeKey());
 
-    assertEquals(holder.getReader().hasRightSibling(),
-        holder.getReader().moveToRightSibling().hasMoved());
+    assertEquals(
+        holder.getReader().hasRightSibling(), holder.getReader().moveToRightSibling().hasMoved());
     assertEquals(1L, holder.getReader().getNodeKey());
 
-    assertEquals(holder.getReader().hasFirstChild(),
-        holder.getReader().moveToFirstChild().hasMoved());
+    assertEquals(
+        holder.getReader().hasFirstChild(), holder.getReader().moveToFirstChild().hasMoved());
     assertEquals(4L, holder.getReader().getNodeKey());
 
-    assertEquals(holder.getReader().hasRightSibling(),
-        holder.getReader().moveToRightSibling().hasMoved());
+    assertEquals(
+        holder.getReader().hasRightSibling(), holder.getReader().moveToRightSibling().hasMoved());
     assertEquals(5L, holder.getReader().getNodeKey());
 
-    assertEquals(holder.getReader().hasLeftSibling(),
-        holder.getReader().moveToLeftSibling().hasMoved());
+    assertEquals(
+        holder.getReader().hasLeftSibling(), holder.getReader().moveToLeftSibling().hasMoved());
     assertEquals(4L, holder.getReader().getNodeKey());
 
     assertEquals(holder.getReader().hasParent(), holder.getReader().moveToParent().hasMoved());

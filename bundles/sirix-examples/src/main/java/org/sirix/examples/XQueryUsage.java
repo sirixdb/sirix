@@ -355,8 +355,8 @@ public final class XQueryUsage {
     // Query CAS index.
     try (final DBStore store = DBStore.newBuilder().build()) {
       System.out.println("");
-      System.out
-          .println("Find CAS index for all text values which are integers between 10 and 100.");
+      System.out.println(
+          "Find CAS index for all text values which are integers between 10 and 100.");
       final QueryContext ctx3 = new SirixQueryContext(store);
       final String query =
           "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index-range($doc, sdb:find-cas-index($doc, 'xs:integer', '//*'), 10, 100, true(), true(), ())";
@@ -383,9 +383,12 @@ public final class XQueryUsage {
       final QueryContext ctx3 = new SirixQueryContext(store);
       final DBNode node =
           (DBNode) new XQuery(new SirixCompileChain(store), "doc('mydocs.col')").execute(ctx3);
-      final Optional<IndexDef> index = node.getTrx().getResourceManager()
-          .getRtxIndexController(node.getTrx().getRevisionNumber()).getIndexes()
-          .findPathIndex(org.brackit.xquery.util.path.Path.parse("//log/*"));
+      final Optional<IndexDef> index =
+          node.getTrx()
+              .getResourceManager()
+              .getRtxIndexController(node.getTrx().getRevisionNumber())
+              .getIndexes()
+              .findPathIndex(org.brackit.xquery.util.path.Path.parse("//log/*"));
       System.out.println(index);
       // last param '()' queries whole index.
       final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "

@@ -118,8 +118,9 @@ public class AndExpr extends AbstractExpression {
     // function.
 
     // add result item to list and set the item as the current item
-    final int itemKey = getTrx().getItemList().addItem(new AtomicValue(
-        TypedValue.getBytes(Boolean.toString(result)), getTrx().keyForName("xs:boolean")));
+    final int itemKey = getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
+            getTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

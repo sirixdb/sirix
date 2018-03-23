@@ -124,8 +124,8 @@ public final class OverallTest extends TestCase {
             holder.getWriter().moveToFirstChild();
           } else {
             holder.getWriter().moveTo(newKey);
-            if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY
-                .getStandardProperty()) {
+            if (holder.getWriter()
+                      .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               holder.getWriter().moveToFirstChild();
             }
           }

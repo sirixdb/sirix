@@ -50,8 +50,8 @@ public class XMarkTest {
   public void setUp() throws Exception {
     TestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(XML.toAbsolutePath().toString(),
-        PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XMLShredder.main(
+        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
 
   }
@@ -85,9 +85,10 @@ public class XMarkTest {
   public void testQ5() throws SirixException {
 
     // Q5 How many sold items cost more than 40?
-    XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getReader(),
-        "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
-            + "return $i/price)"),
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(),
+            "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
+                + "return $i/price)"),
         new String[] {"75"});
   }
 
@@ -103,12 +104,12 @@ public class XMarkTest {
   @Test
   public void testQ7() throws SirixException {
     // Q7 How many pieces of prose are in our database?
-    XPathStringChecker
-        .testIAxisConventions(
-            new XPathAxis(holder.getReader(),
-                "for $p in /site return fn:count($p//description) + "
-                    + "fn:count($p//annotation) + fn:count($p//emailaddress)"),
-            new String[] {"916.0"}); // TODO: why double?
+    XPathStringChecker.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "for $p in /site return fn:count($p//description) + "
+            + "fn:count($p//annotation) + fn:count($p//emailaddress)"),
+        new String[] {"916.0"}); // TODO:
+                                 // why
+                                 // double?
   }
 
   // @Test

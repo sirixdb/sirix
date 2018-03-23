@@ -123,8 +123,8 @@ public final class BerkeleyReader implements Reader {
       final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
       PageReference uberPageReference = new PageReference();
       if (status == OperationStatus.SUCCESS) {
-        uberPageReference
-            .setKey(TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
+        uberPageReference.setKey(
+            TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
       }
       final UberPage page = (UberPage) read(uberPageReference, null);
       if (uberPageReference != null) {

@@ -180,19 +180,26 @@ public final class DBStore implements Store, AutoCloseable {
       try (final Database database = Databases.openDatabase(dbConf.getFile())) {
         mDatabases.add(database);
         final String resName = optResName.isPresent() ? optResName.get()
-            : new StringBuilder(3).append("resource").append(database.listResources().size() + 1)
-                .toString();
-        database.createResource(ResourceConfiguration.newBuilder(resName, dbConf).useDeweyIDs(true)
-            .useTextCompression(true).buildPathSummary(true).storageType(mStorageType).build());
+            : new StringBuilder(3).append("resource")
+                                  .append(database.listResources().size() + 1)
+                                  .toString();
+        database.createResource(
+            ResourceConfiguration.newBuilder(resName, dbConf)
+                                 .useDeweyIDs(true)
+                                 .useTextCompression(true)
+                                 .buildPathSummary(true)
+                                 .storageType(mStorageType)
+                                 .build());
         final DBCollection collection = new DBCollection(collName, database);
         mCollections.put(database, collection);
 
         try (
-            final ResourceManager resource = database
-                .getResourceManager(new ResourceManagerConfiguration.Builder(resName).build());
+            final ResourceManager resource = database.getResourceManager(
+                new ResourceManagerConfiguration.Builder(resName).build());
             final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();) {
-          parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-              Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
+          parser.parse(
+              new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
+                  Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
 
           wtx.commit();
         }
@@ -224,17 +231,21 @@ public final class DBStore implements Store, AutoCloseable {
                 new StringBuilder("resource").append(String.valueOf(i)).toString();
             pool.submit(() -> {
               database.createResource(
-                  ResourceConfiguration.newBuilder(resourceName, dbConf).storageType(mStorageType)
-                      .useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
+                  ResourceConfiguration.newBuilder(resourceName, dbConf)
+                                       .storageType(mStorageType)
+                                       .useDeweyIDs(true)
+                                       .useTextCompression(true)
+                                       .buildPathSummary(true)
+                                       .build());
               try (
                   final ResourceManager resource = database.getResourceManager(
                       new ResourceManagerConfiguration.Builder(resourceName).build());
                   final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
-                nextParser
-                    .parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections
-                        .<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
+                nextParser.parse(
+                    new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
+                        Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
                 wtx.commit();
               }
               return null;

@@ -38,8 +38,8 @@ public final class ResourceTransactionUsage {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());
 
       try (
-          final ResourceManager resource = database
-              .getResourceManager(new ResourceManagerConfiguration.Builder("resource").build());
+          final ResourceManager resource = database.getResourceManager(
+              new ResourceManagerConfiguration.Builder("resource").build());
           final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
         wtx.moveTo(2);

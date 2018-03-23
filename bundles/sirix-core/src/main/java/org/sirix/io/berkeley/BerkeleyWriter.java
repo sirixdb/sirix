@@ -112,7 +112,8 @@ public final class BerkeleyWriter implements Writer {
     final OperationStatus status = mDatabase.put(mTxn, keyEntry, valueEntry);
     if (status != OperationStatus.SUCCESS) {
       throw new SirixIOException(new StringBuilder("Write of ").append(pageReference.toString())
-          .append(" failed!").toString());
+                                                               .append(" failed!")
+                                                               .toString());
     }
 
     pageReference.setKey(mNodepagekey);

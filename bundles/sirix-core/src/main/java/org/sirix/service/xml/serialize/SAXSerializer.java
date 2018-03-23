@@ -211,20 +211,20 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
         rtx.moveToAttribute(i);
         final QNm qName = rtx.getName();
         final String mURI = qName.getNamespaceURI();
-        atts.addAttribute(mURI, qName.getLocalName(), Utils.buildName(qName), rtx.getType(),
-            rtx.getValue());
+        atts.addAttribute(
+            mURI, qName.getLocalName(), Utils.buildName(qName), rtx.getType(), rtx.getValue());
         rtx.moveTo(key);
       }
 
       // Create SAX events.
       final QNm qName = rtx.getName();
-      mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalName(),
-          Utils.buildName(qName), atts);
+      mContHandler.startElement(
+          qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName), atts);
 
       // Empty elements.
       if (!rtx.hasFirstChild()) {
-        mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalName(),
-            Utils.buildName(qName));
+        mContHandler.endElement(
+            qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName));
       }
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
@@ -238,8 +238,8 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
    */
   private void generateText(final XdmNodeReadTrx pRtx) {
     try {
-      mContHandler.characters(XMLToken.escapeContent(pRtx.getValue()).toCharArray(), 0,
-          pRtx.getValue().length());
+      mContHandler.characters(
+          XMLToken.escapeContent(pRtx.getValue()).toCharArray(), 0, pRtx.getValue().length());
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }

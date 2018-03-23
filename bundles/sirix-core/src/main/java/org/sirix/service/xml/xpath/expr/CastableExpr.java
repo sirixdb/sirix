@@ -123,8 +123,9 @@ public class CastableExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int mItemKey = getTrx().getItemList().addItem(new AtomicValue(
-        TypedValue.getBytes(Boolean.toString(isCastable)), getTrx().keyForName("xs:boolean")));
+    final int mItemKey = getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
+            getTrx().keyForName("xs:boolean")));
     mKey = mItemKey;
   }
 }

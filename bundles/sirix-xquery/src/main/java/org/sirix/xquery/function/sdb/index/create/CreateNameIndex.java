@@ -83,8 +83,8 @@ public final class CreateNameIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
-        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(
+        include, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeWriteTrx) doc.getTrx());
     } catch (final SirixIOException e) {

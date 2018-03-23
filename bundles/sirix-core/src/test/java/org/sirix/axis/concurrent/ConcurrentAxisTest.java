@@ -64,8 +64,8 @@ public final class ConcurrentAxisTest {
   public void setUp() throws Exception {
     try {
       TestHelper.deleteEverything();
-      XMLShredder.main(XML.toAbsolutePath().toString(),
-          PATHS.PATH1.getFile().toAbsolutePath().toString());
+      XMLShredder.main(
+          XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
       holder = Holder.generateRtx();
     } catch (final Exception e) {
       e.printStackTrace();

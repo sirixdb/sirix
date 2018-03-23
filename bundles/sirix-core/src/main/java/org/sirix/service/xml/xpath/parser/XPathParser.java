@@ -1532,9 +1532,9 @@ public final class XPathParser {
     if (!is(TokenType.CLOSE_BR, true)) {
       String stringLiteral;
       if (isQuote()) {
-        final byte[] param =
-            ((ValueNode) getTransaction().getItemList().getItem(parseStringLiteral()).get())
-                .getRawValue();
+        final byte[] param = ((ValueNode) getTransaction().getItemList()
+                                                          .getItem(parseStringLiteral())
+                                                          .get()).getRawValue();
         stringLiteral = Arrays.toString(param);
       } else {
         stringLiteral = parseNCName();

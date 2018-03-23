@@ -269,11 +269,11 @@ public final class TestHelper {
    */
   public static void createTestDocument() throws SirixException {
     try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      database
-          .createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+      database.createResource(
+          new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
       try (
-          final ResourceManager manager = database
-              .getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+          final ResourceManager manager = database.getResourceManager(
+              new ResourceManagerConfiguration.Builder(RESOURCE).build());
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         DocumentCreater.create(wtx);
         wtx.commit();
@@ -288,11 +288,11 @@ public final class TestHelper {
    */
   public static void createPICommentTestDocument() throws SirixException {
     try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      database
-          .createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+      database.createResource(
+          new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
       try (
-          final ResourceManager manager = database
-              .getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+          final ResourceManager manager = database.getResourceManager(
+              new ResourceManagerConfiguration.Builder(RESOURCE).build());
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         DocumentCreater.createCommentPI(wtx);
         wtx.commit();

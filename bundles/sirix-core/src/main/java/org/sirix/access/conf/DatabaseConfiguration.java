@@ -201,8 +201,10 @@ public final class DatabaseConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("File", mFile).add("Binary Version", mBinaryVersion)
-        .toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("File", mFile)
+                      .add("Binary Version", mBinaryVersion)
+                      .toString();
   }
 
   @Override
@@ -273,7 +275,7 @@ public final class DatabaseConfiguration {
       final int maxResourceRtx = jsonReader.nextInt();
       jsonReader.endObject();
       return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
-          .setMaxResourceReadTrx(maxResourceRtx);
+                                              .setMaxResourceReadTrx(maxResourceRtx);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

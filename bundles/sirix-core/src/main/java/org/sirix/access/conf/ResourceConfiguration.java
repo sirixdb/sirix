@@ -222,8 +222,8 @@ public final class ResourceConfiguration {
     mCompression = builder.mCompression;
     mPathSummary = builder.mPathSummary;
     mDeweyIDsStored = builder.mUseDeweyIDs;
-    mPath = mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-        .resolve(builder.mResource);
+    mPath = mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
+        builder.mResource);
     mPersistenter = builder.mPersistenter;
   }
 
@@ -268,8 +268,12 @@ public final class ResourceConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("Resource", mPath).add("Type", mStorage)
-        .add("Revision", mRevisionKind).add("HashKind", mHashKind).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("Resource", mPath)
+                      .add("Type", mStorage)
+                      .add("Revision", mRevisionKind)
+                      .add("HashKind", mHashKind)
+                      .toString();
   }
 
   /**
@@ -421,10 +425,15 @@ public final class ResourceConfiguration {
       // Builder.
       final ResourceConfiguration.Builder builder =
           new ResourceConfiguration.Builder(file.getFileName().toString(), dbConfig);
-      builder.byteHandlerPipeline(pipeline).hashKind(hashing).versioningApproach(revisioning)
-          .revisionsToRestore(revisionToRestore).storageType(storage).persistenter(persistenter)
-          .useTextCompression(compression).buildPathSummary(pathSummary)
-          .useDeweyIDs(deweyIDsStored);
+      builder.byteHandlerPipeline(pipeline)
+             .hashKind(hashing)
+             .versioningApproach(revisioning)
+             .revisionsToRestore(revisionToRestore)
+             .storageType(storage)
+             .persistenter(persistenter)
+             .useTextCompression(compression)
+             .buildPathSummary(pathSummary)
+             .useDeweyIDs(deweyIDsStored);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -583,8 +592,11 @@ public final class ResourceConfiguration {
 
     @Override
     public String toString() {
-      return MoreObjects.toStringHelper(this).add("Type", mType).add("RevisionKind", mRevisionKind)
-          .add("HashKind", mHashKind).toString();
+      return MoreObjects.toStringHelper(this)
+                        .add("Type", mType)
+                        .add("RevisionKind", mRevisionKind)
+                        .add("HashKind", mHashKind)
+                        .toString();
     }
 
     /**

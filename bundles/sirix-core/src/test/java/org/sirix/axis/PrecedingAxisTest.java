@@ -57,8 +57,8 @@ public class PrecedingAxisTest {
     AbsAxisTest.testIAxisConventions(new PrecedingAxis(rtx), new long[] {4L});
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new PrecedingAxis(rtx),
-        new long[] {12L, 11L, 9L, 8L, 7L, 6L, 5L, 4L});
+    AbsAxisTest.testIAxisConventions(
+        new PrecedingAxis(rtx), new long[] {12L, 11L, 9L, 8L, 7L, 6L, 5L, 4L});
 
     rtx.moveTo(1L);
     AbsAxisTest.testIAxisConventions(new PrecedingAxis(rtx), new long[] {});

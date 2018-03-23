@@ -89,7 +89,9 @@ public class ElementFilterTest {
     final XdmNodeReadTrx rtx = holder.getReader();
 
     final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx))
-        .filter(new ElementFilter(rtx)).limit(2).iterator();
+                                                 .filter(new ElementFilter(rtx))
+                                                 .limit(2)
+                                                 .iterator();
     AbsAxisTest.testIterable(results, new long[] {1, 5});
   }
 

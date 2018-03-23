@@ -58,34 +58,36 @@ public class LevelOrderAxisTest {
     rtx.moveTo(11L);
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {12L});
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
-        new long[] {11L, 12L});
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(), new long[] {11L, 12L});
     rtx.moveTo(0L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(),
         new long[] {0L, 1L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L});
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(),
         new long[] {4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L});
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(),
-        new long[] {5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L});
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).build(), new long[] {5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L});
 
     rtx.moveTo(6L);
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {7L});
 
     rtx.moveTo(6L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
-        new long[] {6L, 7L});
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(), new long[] {6L, 7L});
 
     rtx.moveTo(2L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
-        new long[] {});
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(), new long[] {});
 
     rtx.moveTo(3L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
-        new long[] {});
+    AbsAxisTest.testIAxisConventions(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(), new long[] {});
 
     rtx.moveTo(2L);
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {});
@@ -94,11 +96,12 @@ public class LevelOrderAxisTest {
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {});
 
     rtx.moveTo(6L);
-    AbsAxisTest.testAxisConventionsNext(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
-        new long[] {6L, 7L});
+    AbsAxisTest.testAxisConventionsNext(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(), new long[] {6L, 7L});
 
     rtx.moveTo(0L);
-    AbsAxisTest.testAxisConventionsNext(new LevelOrderAxis.Builder(rtx).includeSelf().build(),
+    AbsAxisTest.testAxisConventionsNext(
+        new LevelOrderAxis.Builder(rtx).includeSelf().build(),
         new long[] {0L, 1L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L});
 
     rtx.moveTo(0L);

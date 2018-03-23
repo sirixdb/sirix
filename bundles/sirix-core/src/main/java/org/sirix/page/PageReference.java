@@ -170,8 +170,12 @@ public final class PageReference {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("logKey", mLogKey)
-        .add("persistentLogKey", mPersistentLogKey).add("key", mKey).add("page", mPage).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("logKey", mLogKey)
+                      .add("persistentLogKey", mPersistentLogKey)
+                      .add("key", mKey)
+                      .add("page", mPage)
+                      .toString();
   }
 
   @Override

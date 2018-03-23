@@ -59,8 +59,8 @@ public class DescendantAxisTest {
     final XdmNodeReadTrx rtx = holder.getReader();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx),
-        new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new DescendantAxis(rtx), new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
@@ -72,8 +72,8 @@ public class DescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx),
-        new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new DescendantAxis(rtx), new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
@@ -113,11 +113,14 @@ public class DescendantAxisTest {
   public void testIterateIncludingSelf() throws SirixException {
     final XdmNodeReadTrx rtx = holder.getReader();
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    AbsAxisTest.testIAxisConventions(
+        new DescendantAxis(rtx, IncludeSelf.YES),
+        new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
+            12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L,
-            11L, 12L, 13L),
+        ImmutableList.of(
+            Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L,
+            13L),
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
@@ -128,7 +131,8 @@ public class DescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(
+        new DescendantAxis(rtx, IncludeSelf.YES),
         new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -141,8 +145,8 @@ public class DescendantAxisTest {
     }.test();
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
-        new long[] {9L, 11L, 12L});
+    AbsAxisTest.testIAxisConventions(
+        new DescendantAxis(rtx, IncludeSelf.YES), new long[] {9L, 11L, 12L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(9L, 11L, 12L), null) {
       @Override

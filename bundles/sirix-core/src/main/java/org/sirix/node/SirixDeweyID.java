@@ -108,14 +108,16 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     }
 
     if (maxDivisionValue[divisionLengthArray.length - 1] != Integer.MAX_VALUE) {
-      System.out.println("XTCdeweyID[static]: it is not possible "
-          + "to handle all positive Integer values " + "with the given divisionLengthArray!");
+      System.out.println(
+          "XTCdeweyID[static]: it is not possible " + "to handle all positive Integer values "
+              + "with the given divisionLengthArray!");
     }
 
     // check if bitStringAsBoolean has as many rows as divisionLengthArray
     if (bitStringAsBoolean.length != divisionLengthArray.length) {
-      System.out.println("XTCdeweyID[static]: bitStringAsBoolean and "
-          + "divisionLengthArray must have equal rows!");
+      System.out.println(
+          "XTCdeweyID[static]: bitStringAsBoolean and "
+              + "divisionLengthArray must have equal rows!");
     }
 
     // now initialize the binaryTreeSuffixInit(this is the first Division

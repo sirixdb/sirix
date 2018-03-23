@@ -64,7 +64,10 @@ public final class IndexLogKey {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("recordPageKey", mRecordPageKey)
-        .add("index", mIndex).add("pageKind", mPageKind).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("recordPageKey", mRecordPageKey)
+                      .add("index", mIndex)
+                      .add("pageKind", mPageKind)
+                      .toString();
   }
 }

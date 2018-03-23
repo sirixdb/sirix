@@ -58,7 +58,7 @@ public class HierarchyFileVisitor extends AbstractShredder
   private final Optional<Visitor<XdmNodeWriteTrx>> mVisitor;
 
   /** Index entries {@code String} representation to {@link Path} value. */
-  private final Map<Path, org.sirix.fs.Path> mIndex;
+  private final Map<Path, org.sirix.fs.FileSystemPath> mIndex;
 
   /** Simple Builder. */
   public static class Builder {
@@ -157,7 +157,7 @@ public class HierarchyFileVisitor extends AbstractShredder
     checkNotNull(dir);
     checkNotNull(attrs);
     try {
-      mIndex.put(dir, org.sirix.fs.Path.ISDIRECTORY);
+      mIndex.put(dir, org.sirix.fs.FileSystemPath.ISDIRECTORY);
       processStartTag(new QNm("dir"));
       mWtx.insertAttribute(new QNm("name"), dir.getFileName().toString());
       mWtx.moveToParent();
@@ -200,7 +200,7 @@ public class HierarchyFileVisitor extends AbstractShredder
     checkNotNull(pAttrs);
     try {
       if (Files.isRegularFile(pFile) | Files.isSymbolicLink(pFile)) {
-        mIndex.put(pFile, org.sirix.fs.Path.ISFILE);
+        mIndex.put(pFile, org.sirix.fs.FileSystemPath.ISFILE);
         processEmptyElement(new QNm("file"));
         mWtx.insertAttribute(new QNm("name"), pFile.getFileName().toString());
         mWtx.moveToParent();
@@ -262,7 +262,7 @@ public class HierarchyFileVisitor extends AbstractShredder
    *
    * @return path index
    */
-  public Map<Path, org.sirix.fs.Path> getIndex() {
+  public Map<Path, org.sirix.fs.FileSystemPath> getIndex() {
     return mIndex;
   }
 

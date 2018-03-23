@@ -211,8 +211,8 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final String FOLDER) throws Exception {
     Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ResourceManager resource = database
-        .getResourceManager(new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    ResourceManager resource = database.getResourceManager(
+        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final Path folder = Paths.get(FOLDER);
     final List<Path> list =
         Files.list(folder).filter(path -> path.getFileName().endsWith(".xml")).collect(toList());
@@ -221,8 +221,8 @@ public final class FMSETest extends XMLTestCase {
     list.sort((first, second) -> {
       final String firstName =
           first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(0,
-          second.getFileName().toString().indexOf('.'));
+      final String secondName = second.getFileName().toString().substring(
+          0, second.getFileName().toString().indexOf('.'));
 
       if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
         return -1;
@@ -246,8 +246,9 @@ public final class FMSETest extends XMLTestCase {
             shredder.call();
           }
         } else {
-          FMSEImport.main(new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(),
-              file.toAbsolutePath().toString()});
+          FMSEImport.main(
+              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(),
+                  file.toAbsolutePath().toString()});
         }
 
         resource.close();

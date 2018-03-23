@@ -121,8 +121,10 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", mStructNodeDel.getNodeDelegate())
-        .add("value delegate", mValDel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("node delegate", mStructNodeDel.getNodeDelegate())
+                      .add("value delegate", mValDel)
+                      .toString();
   }
 
   public ValNodeDelegate getValNodeDelegate() {

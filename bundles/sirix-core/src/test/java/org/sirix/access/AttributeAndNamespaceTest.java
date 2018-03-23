@@ -56,8 +56,9 @@ public class AttributeAndNamespaceTest {
     holder.getReader().moveTo(9L);
     assertEquals(1, holder.getReader().getAttributeCount());
     holder.getReader().moveToAttribute(0);
-    assertEquals("p:x", new StringBuilder(holder.getReader().getName().getPrefix()).append(":")
-        .append(holder.getReader().getName().getLocalName()).toString());
+    assertEquals(
+        "p:x", new StringBuilder(holder.getReader().getName().getPrefix()).append(
+            ":").append(holder.getReader().getName().getLocalName()).toString());
     assertEquals("ns", holder.getReader().getName().getNamespaceURI());
   }
 

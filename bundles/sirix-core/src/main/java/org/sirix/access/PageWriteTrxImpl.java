@@ -132,9 +132,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     mIndexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().mPath
-        .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getFile()
-            + String.valueOf(lastStoredRev) + ".xml");
+    final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(lastStoredRev)
+            + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
@@ -195,9 +195,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
           mPageRtx.dereferenceIndirectPageReference(mNewRoot.getIndirectPageReference());
       mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
 
-      final PageReference revisionRootPageReference =
-          prepareLeafOfTree(uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(),
-              -1, PageKind.UBERPAGE);
+      final PageReference revisionRootPageReference = prepareLeafOfTree(
+          uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(), -1,
+          PageKind.UBERPAGE);
 
       // Link the prepared revision root nodePageReference with the prepared indirect tree.
       mLog.put(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
@@ -594,13 +594,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
           new RevisionRootPage(mPageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
       // Prepare indirect tree to hold reference to prepared revision root nodePageReference.
-      final PageReference revisionRootPageReference =
-          prepareLeafOfTree(getUberPage().getIndirectPageReference(),
-              getUberPage().getRevisionNumber(), -1, PageKind.UBERPAGE);
+      final PageReference revisionRootPageReference = prepareLeafOfTree(
+          getUberPage().getIndirectPageReference(), getUberPage().getRevisionNumber(), -1,
+          PageKind.UBERPAGE);
 
       // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      appendLogRecord(revisionRootPageReference,
-          new PageContainer(revisionRootPage, revisionRootPage));
+      appendLogRecord(
+          revisionRootPageReference, new PageContainer(revisionRootPage, revisionRootPage));
 
       // Return prepared revision root nodePageReference.
       return revisionRootPage;
@@ -648,8 +648,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
     final Versioning revisioning = mPageRtx.mResourceManager.getResourceConfig().mRevisionKind;
     final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().mRevisionsToRestore;
-    return revisioning.combineRecordPagesForModification(revs, mileStoneRevision, mPageRtx,
-        reference);
+    return revisioning.combineRecordPagesForModification(
+        revs, mileStoneRevision, mPageRtx, reference);
   }
 
   @Override

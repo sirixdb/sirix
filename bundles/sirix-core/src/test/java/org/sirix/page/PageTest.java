@@ -105,8 +105,8 @@ public class PageTest {
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
-    namePage.setName(TestHelper.random.nextInt(), new String(TestHelper.generateRandomBytes(256)),
-        Kind.ELEMENT);
+    namePage.setName(
+        TestHelper.random.nextInt(), new String(TestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
     // ValuePage setup.
     final PathPage valuePage = new PathPage();

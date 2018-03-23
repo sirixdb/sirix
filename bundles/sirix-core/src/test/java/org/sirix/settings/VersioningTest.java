@@ -60,99 +60,121 @@ public class VersioningTest {
   @Test
   public void testIncremental() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test();
   }
 
   @Test
   public void testIncremental1() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test1();
   }
 
   @Test
   public void testIncremental2() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test2();
   }
 
   @Test
   public void testDifferential() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.DIFFERENTIAL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test();
   }
 
   @Test
   public void testDifferential1() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.DIFFERENTIAL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test1();
   }
 
   @Test
   public void testFull() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
-            .build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test();
   }
 
   @Test
   public void testFull1() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
-            .build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test1();
   }
 
   @Test
   public void testFull2() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.FULL).hashKind(HashKind.NONE).revisionsToRestore(3)
-            .build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test1();
   }
 
   @Test
   public void testSlidingSnapshot() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test();
   }
 
   @Test
   public void testSlidingSnapshot1() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test1();
   }
 
   @Test
   public void testSlidingSnapshot2() throws SirixException {
     mDatabase.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-            .versioningApproach(Versioning.SLIDING_SNAPSHOT).hashKind(HashKind.NONE)
-            .revisionsToRestore(3).build());
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
+                                          .hashKind(HashKind.NONE)
+                                          .revisionsToRestore(3)
+                                          .build());
     test2();
   }
 

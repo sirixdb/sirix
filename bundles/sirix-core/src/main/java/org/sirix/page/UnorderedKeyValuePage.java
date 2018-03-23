@@ -258,8 +258,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
       out.writeInt(mDeweyIDs.size());
       final List<SirixDeweyID> ids = new ArrayList<>(mDeweyIDs.keySet());
-      ids.sort((SirixDeweyID first, SirixDeweyID second) -> Integer.valueOf(first.toBytes().length)
-          .compareTo(second.toBytes().length));
+      ids.sort(
+          (SirixDeweyID first, SirixDeweyID second) -> Integer.valueOf(first.toBytes().length)
+                                                              .compareTo(second.toBytes().length));
       final PeekingIterator<SirixDeweyID> iter = Iterators.peekingIterator(ids.iterator());
       SirixDeweyID id = null;
       if (iter.hasNext()) {
@@ -269,8 +270,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       }
       while (iter.hasNext()) {
         final SirixDeweyID nextDeweyID = iter.next();
-        persistenter.serializeDeweyID(out, Kind.ELEMENT, id, Optional.of(nextDeweyID),
-            mResourceConfig);
+        persistenter.serializeDeweyID(
+            out, Kind.ELEMENT, id, Optional.of(nextDeweyID), mResourceConfig);
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }

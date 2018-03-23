@@ -240,9 +240,12 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("nameDelegate", mNameDel)
-        .add("nameSpaceKeys", mNamespaceKeys).add("attributeKeys", mAttributeKeys)
-        .add("structDelegate", mStructNodeDel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("nameDelegate", mNameDel)
+                      .add("nameSpaceKeys", mNamespaceKeys)
+                      .add("attributeKeys", mAttributeKeys)
+                      .add("structDelegate", mStructNodeDel)
+                      .toString();
   }
 
   @Override

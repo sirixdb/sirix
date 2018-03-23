@@ -2,9 +2,9 @@ package org.sirix.fs;
 
 import javax.annotation.Nonnull;
 
-/** Determins if a {@link Path} denotes a directory or file. */
+/** Determins if a {@link FileSystemPath} denotes a directory or file. */
 @Nonnull
-public enum Path {
+public enum FileSystemPath {
   /** It is a directory. */
   ISDIRECTORY {
     @Override

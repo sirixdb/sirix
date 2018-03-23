@@ -70,8 +70,11 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("structDel", mStructDel).add("nameDel", mNameDel)
-        .add("valDel", mValDel).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("structDel", mStructDel)
+                      .add("nameDel", mNameDel)
+                      .add("valDel", mValDel)
+                      .toString();
   }
 
   @Override

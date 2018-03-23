@@ -42,8 +42,8 @@ public class XPathAxisWideTest {
   public void setUp() throws Exception {
     TestHelper.deleteEverything();
     // Setup parsed session.
-    XMLShredder.main(XML.toAbsolutePath().toString(),
-        PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XMLShredder.main(
+        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
   }
 
@@ -58,10 +58,12 @@ public class XPathAxisWideTest {
     final Holder holder = Holder.generateRtx();
     holder.getReader().moveToDocumentRoot();
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "/mondial/continent[@id]"),
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "/mondial/continent[@id]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getReader(), "mondial/continent[@name]"),
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getReader(), "mondial/continent[@name]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
     AbsAxisTest.testIAxisConventions(

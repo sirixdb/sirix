@@ -349,23 +349,30 @@ public class TypeTest {
       string.isCastableTo(Type.INTEGER, "hallo welt!");
       fail();
     } catch (final SirixXPathException exc) {
-      assertThat(exc.getMessage(),
-          is("err:XPTY0004 The type is not appropriate the expression or the "
-              + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(
+          exc.getMessage(),
+          is(
+              "err:XPTY0004 The type is not appropriate the expression or the "
+                  + "typedoes not match a required type as specified by the matching rules."));
     }
     try {
       string.isCastableTo(Type.BOOLEAN, "13");
       fail();
     } catch (final SirixXPathException exc) {
-      assertThat(exc.getMessage(),
-          is("err:XPTY0004 The type is not appropriate the expression or the "
-              + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(
+          exc.getMessage(),
+          is(
+              "err:XPTY0004 The type is not appropriate the expression or the "
+                  + "typedoes not match a required type as specified by the matching rules."));
     }
     try {
       string.isCastableTo(Type.NOTATION, "\"");
     } catch (final SirixXPathException exc) {
-      assertThat(exc.getMessage(), is("err:XPST0080 Target type of a cast or castable expression "
-          + "must not be xs:NOTATION or xs:anyAtomicType."));
+      assertThat(
+          exc.getMessage(),
+          is(
+              "err:XPST0080 Target type of a cast or castable expression "
+                  + "must not be xs:NOTATION or xs:anyAtomicType."));
     }
     assertEquals(true, integerT.isCastableTo(Type.DOUBLE, "12345"));
     assertEquals(true, integerT.isCastableTo(Type.FLOAT, "-12345"));

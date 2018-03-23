@@ -37,22 +37,23 @@ public class FileHierarchyWalker {
    * @throws IOException if an I/O error occurs
    * @throws NullPointerException if one of the arguments is {@code null}
    */
-  public static Map<Path, org.sirix.fs.Path> parseDir(final Path path, final Database database,
-      Optional<Visitor<XdmNodeWriteTrx>> visitor) throws SirixException, IOException {
+  public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path,
+      final Database database, Optional<Visitor<XdmNodeWriteTrx>> visitor)
+      throws SirixException, IOException {
     checkNotNull(visitor);
     checkNotNull(path);
     try (
-        final ResourceManager resource = checkNotNull(database)
-            .getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+        final ResourceManager resource = checkNotNull(database).getResourceManager(
+            new ResourceManagerConfiguration.Builder("shredded").build());
         final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {
         builder.setVisitor(visitor.get());
       }
-      Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
+      Map<Path, org.sirix.fs.FileSystemPath> index = Collections.emptyMap();
       try (final HierarchyFileVisitor fileVisitor = HierarchyFileVisitor.getInstance(builder)) {
-        Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE,
-            fileVisitor);
+        Files.walkFileTree(
+            path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, fileVisitor);
         index = fileVisitor.getIndex();
       }
 

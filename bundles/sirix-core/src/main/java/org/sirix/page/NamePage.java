@@ -217,8 +217,12 @@ public final class NamePage extends AbstractForwardingPage {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("elements", mElements)
-        .add("attributes", mAttributes).add("URIs", mNamespaces).add("PIs", mPIs).toString();
+    return MoreObjects.toStringHelper(this)
+                      .add("elements", mElements)
+                      .add("attributes", mAttributes)
+                      .add("URIs", mNamespaces)
+                      .add("PIs", mPIs)
+                      .toString();
   }
 
   /**
