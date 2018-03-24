@@ -95,7 +95,7 @@ public interface ResourceManager extends AutoCloseable {
    * @return new {@link PageWriteTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx() throws SirixException;
+  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx();
 
   /**
    * Begin a new {@link PageWriteTrx}.
@@ -105,8 +105,7 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision)
-      throws SirixException;
+  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
