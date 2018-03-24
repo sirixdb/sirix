@@ -28,7 +28,6 @@ import javax.annotation.Nullable;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 
 /**
  * <h1>ResourceTransactionConfiguration</h1>
@@ -78,16 +77,16 @@ public final class ResourceManagerConfiguration {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mResource);
+    return mResource.hashCode();
   }
 
   @Override
   public final boolean equals(final @Nullable Object obj) {
-    if (obj instanceof ResourceManagerConfiguration) {
-      final ResourceManagerConfiguration other = (ResourceManagerConfiguration) obj;
-      return Objects.equal(mResource, other.mResource);
-    }
-    return false;
+    if (!(obj instanceof ResourceManagerConfiguration))
+      return false;
+
+    final ResourceManagerConfiguration other = (ResourceManagerConfiguration) obj;
+    return mResource.equals(other.mResource);
   }
 
   @Override
