@@ -93,7 +93,7 @@ public final class PageBinding extends TupleBinding<Page> {
     try {
       return PagePersistenter.deserializePage(
           new DataInputStream(mByteHandler.deserialize(input)), mPageReadTrx,
-          SerializationType.COMMIT);
+          SerializationType.DATA);
     } catch (final IOException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -104,7 +104,7 @@ public final class PageBinding extends TupleBinding<Page> {
   public void objectToEntry(final Page page, final TupleOutput output) {
     try {
       final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
-      PagePersistenter.serializePage(dataOutput, page, SerializationType.COMMIT);
+      PagePersistenter.serializePage(dataOutput, page, SerializationType.DATA);
       ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
       dataOutput.close();
     } catch (final IOException e) {

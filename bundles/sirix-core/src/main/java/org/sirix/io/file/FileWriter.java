@@ -128,7 +128,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       // Remember page coordinates.
       switch (mType) {
-        case COMMIT:
+        case DATA:
           pageReference.setKey(offset);
           break;
         case TRANSACTION_INTENT_LOG:
