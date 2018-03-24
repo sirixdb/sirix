@@ -82,7 +82,7 @@ public final class FileReader implements Reader {
     try {
       // Read page from file.
       switch (mType) {
-        case COMMIT:
+        case DATA:
           mFile.seek(reference.getKey());
           break;
         case TRANSACTION_INTENT_LOG:

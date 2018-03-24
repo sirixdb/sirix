@@ -45,13 +45,12 @@ import com.google.common.base.MoreObjects;
 public class PageDelegate implements Page {
 
   /** Page references. */
-  private PageReference[] mReferences;
+  private final PageReference[] mReferences;
 
   /**
    * Constructor to initialize instance.
    *
    * @param referenceCount number of references of page
-   * @param revision revision number
    */
   public PageDelegate(final @Nonnegative int referenceCount) {
     checkArgument(referenceCount >= 0);
@@ -66,40 +65,18 @@ public class PageDelegate implements Page {
    *
    * @param referenceCount number of references of page
    * @param in input stream to read from
+   * @param type the serialization type
    * @throws IOException if the delegate couldn't be deserialized
    */
   public PageDelegate(final @Nonnegative int referenceCount, final DataInput in,
-      final SerializationType type) throws IOException {
-    checkArgument(referenceCount >= 0);
-    mReferences = new PageReference[referenceCount];
-
-    for (int offset = 0, length = mReferences.length; offset < length; offset++) {
-      mReferences[offset] = new PageReference();
-
-      switch (type) {
-        case COMMIT:
-          final boolean hasKey = in.readBoolean();
-          if (hasKey) {
-            final long key = in.readLong();
-            mReferences[offset].setKey(key);
-          }
-          break;
-        case TRANSACTION_INTENT_LOG:
-          final boolean hasLogKey = in.readBoolean();
-          if (hasLogKey) {
-            final int key = in.readInt();
-            mReferences[offset].setLogKey(key);
-          }
-          break;
-      }
-    }
+      final SerializationType type) {
+    mReferences = type.deserialize(referenceCount, in);
   }
 
   /**
    * Constructor to initialize instance.
    *
    * @param commitedPage commited page
-   * @param revision revision number
    */
   public PageDelegate(final Page commitedPage) {
     mReferences = new PageReference[commitedPage.getReferences().length];
@@ -144,23 +121,15 @@ public class PageDelegate implements Page {
    * Serialize page references into output.
    *
    * @param out output stream
+   * @param serializationType the type to serialize (transaction intent log or the data file
+   *        itself).
    */
   @Override
-  public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-    for (final PageReference reference : mReferences) {
-      switch (type) {
-        case COMMIT:
-          out.writeBoolean(reference.getKey() != Constants.NULL_ID_LONG);
-          if (reference.getKey() != Constants.NULL_ID_LONG)
-            out.writeLong(reference.getKey());
-          break;
-        case TRANSACTION_INTENT_LOG:
-          out.writeBoolean(reference.getLogKey() != Constants.NULL_ID_INT);
-          if (reference.getLogKey() != Constants.NULL_ID_INT)
-            out.writeInt(reference.getLogKey());
-          break;
-      }
-    }
+  public void serialize(final DataOutput out, final SerializationType type) {
+    assert out != null;
+    assert type != null;
+
+    type.serialize(out, mReferences);
   }
 
   /**

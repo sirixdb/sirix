@@ -68,14 +68,14 @@ public class PageTest {
       throws IOException {
     for (final Page handler : handlers) {
       final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      handler.serialize(new DataOutputStream(out), SerializationType.COMMIT);
+      handler.serialize(new DataOutputStream(out), SerializationType.DATA);
       final byte[] pageBytes = out.toByteArray();
 
       final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
       final Page serializedPage = PageKind.getKind(handler.getClass()).deserializePage(
           new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx,
-          SerializationType.COMMIT);
-      serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.COMMIT);
+          SerializationType.DATA);
+      serializedPage.serialize(new DataOutputStream(serializedOutput), SerializationType.DATA);
       assertTrue(
           new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
           Arrays.equals(pageBytes, serializedOutput.toByteArray()));

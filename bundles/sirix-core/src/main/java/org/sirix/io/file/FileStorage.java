@@ -69,7 +69,7 @@ public final class FileStorage implements Storage {
       final Path concreteStorage = createDirectoriesAndFile();
 
       return new FileReader(new RandomAccessFile(concreteStorage.toFile(), "r"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+          new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -91,7 +91,7 @@ public final class FileStorage implements Storage {
       final Path concreteStorage = createDirectoriesAndFile();
 
       return new FileWriter(new RandomAccessFile(concreteStorage.toFile(), "rw"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.COMMIT);
+          new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
