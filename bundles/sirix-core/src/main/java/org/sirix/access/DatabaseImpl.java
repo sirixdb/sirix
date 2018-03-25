@@ -124,59 +124,56 @@ public final class DatabaseImpl implements Database {
 
       if (returnVal) {
         // Creation of the folder structure.
-        for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
-          final Path toCreate = path.resolve(resourcePath.getFile());
-          if (resourcePath.isFolder()) {
-            try {
-              Files.createDirectory(toCreate);
-            } catch (UnsupportedOperationException | IOException | SecurityException e) {
-              returnVal = false;
-            }
-          } else {
-            try {
-              returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile().equals(
-                  resourcePath.getFile()) ? true : Files.createFile(toCreate) != null;
-            } catch (final IOException e) {
-              org.sirix.utils.Files.recursiveRemove(path);
-              throw new SirixIOException(e);
-            }
-          }
-          if (!returnVal) {
-            break;
-          }
-        }
-      }
-
-      if (returnVal) {
-        // If everything was correct so far, initialize storage.
-
-        // Serialization of the config.
-        mResourceID.set(mDBConfig.getMaxResourceID());
-        ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
-        mDBConfig.setMaximumResourceID(mResourceID.get());
-        mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
-
         try {
-          try (
-              final ResourceManager resourceTrxManager = this.getResourceManager(
-                  new ResourceManagerConfiguration.Builder(
-                      resConfig.getResource().getFileName().toString()).build());
-              final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
-            wtx.commit();
+          for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
+            final Path toCreate = path.resolve(resourcePath.getFile());
+            if (resourcePath.isFolder()) {
+              Files.createDirectory(toCreate);
+            } else {
+              returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile().equals(
+                  resourcePath.getFile())
+                      ? true
+                      : Files.createFile(toCreate) != null;
+            }
+
+            if (!returnVal)
+              break;
           }
-        } catch (final SirixException e) {
-          LOGWRAPPER.error(e.getMessage(), e);
+        } catch (UnsupportedOperationException | IOException | SecurityException e) {
           returnVal = false;
         }
       }
-
-      if (!returnVal) {
-        // If something was not correct, delete the partly created substructure.
-        org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
-      }
-
-      return returnVal;
     }
+
+    if (returnVal) {
+      // If everything was correct so far, initialize storage.
+
+      // Serialization of the config.
+      mResourceID.set(mDBConfig.getMaxResourceID());
+      ResourceConfiguration.serialize(resConfig.setID(mResourceID.getAndIncrement()));
+      mDBConfig.setMaximumResourceID(mResourceID.get());
+      mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
+
+      try {
+        try (
+            final ResourceManager resourceTrxManager = this.getResourceManager(
+                new ResourceManagerConfiguration.Builder(
+                    resConfig.getResource().getFileName().toString()).build());
+            final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+          wtx.commit();
+        }
+      } catch (final SirixException e) {
+        LOGWRAPPER.error(e.getMessage(), e);
+        returnVal = false;
+      }
+    }
+
+    if (!returnVal) {
+      // If something was not correct, delete the partly created substructure.
+      org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
+    }
+
+    return returnVal;
   }
 
   @Override
@@ -284,7 +281,9 @@ public final class DatabaseImpl implements Database {
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             pResourceName);
     return Files.exists(resourceFile)
-        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0 ? true : false;
+        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0
+            ? true
+            : false;
   }
 
   @Override
