@@ -33,6 +33,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ConcurrentMap;
@@ -45,10 +46,11 @@ import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
-import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
+import org.sirix.utils.SirixFiles;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
 
@@ -368,9 +370,9 @@ public final class XMLSerializer extends AbstractSerializer {
     LOGWRAPPER.info("Serializing '" + args[0] + "' to '" + args[1] + "' ... ");
     final long time = System.nanoTime();
     final Path target = Paths.get(args[1]);
-    Files.recursiveRemove(target);
-    java.nio.file.Files.createDirectories(target.getParent());
-    java.nio.file.Files.createFile(target);
+    SirixFiles.recursiveRemove(target);
+    Files.createDirectories(target.getParent());
+    Files.createFile(target);
 
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);

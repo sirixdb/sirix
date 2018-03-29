@@ -74,7 +74,7 @@ public final class Constants {
   /** Count of indirect references in indirect page. */
   public static final int PATHINP_REFERENCE_COUNT = 512;
 
-  /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
+  /** 2^PATHINP_REFERENCE_COUNT_EXPONENT = PATHINP_REFERENCE_COUNT. */
   public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 9;
 
   /**

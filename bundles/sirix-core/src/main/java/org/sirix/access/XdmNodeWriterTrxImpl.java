@@ -218,7 +218,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
     mHashKind = resourceManager.getResourceConfig().mHashKind;
 
     // Synchronize commit and other public methods if needed.
-    mLock = maxTime > 0 ? Optional.of(new Semaphore(1)) : Optional.empty();
+    mLock = maxTime > 0
+        ? Optional.of(new Semaphore(1))
+        : Optional.empty();
 
     mDeweyIDsStored = mNodeReader.mResourceManager.getResourceConfig().mDeweyIDsStored;
     mCompression = mNodeReader.mResourceManager.getResourceConfig().mCompression;
@@ -500,8 +502,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           // Adapt path summary.
           if (mBuildPathSummary && toMove instanceof NameNode) {
             final NameNode moved = (NameNode) toMove;
-            final OPType type =
-                moved.getParentKey() == parentKey ? OPType.MOVEDSAMELEVEL : OPType.MOVED;
+            final OPType type = moved.getParentKey() == parentKey
+                ? OPType.MOVEDSAMELEVEL
+                : OPType.MOVED;
             mPathSummaryWriter.adaptPathForChangedNode(
                 moved, getName(), moved.getURIKey(), moved.getPrefixKey(), moved.getLocalNameKey(),
                 type);
@@ -665,8 +668,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         final long rightSibKey = ((StructNode) mNodeReader.getCurrentNode()).getFirstChildKey();
 
-        final long pathNodeKey =
-            mBuildPathSummary ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT) : 0;
+        final long pathNodeKey = mBuildPathSummary
+            ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+            : 0;
         final Optional<SirixDeweyID> id = newFirstChildID();
         final ElementNode node = mNodeFactory.createElementNode(
             parentKey, leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
@@ -698,8 +702,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 
         final long key = getCurrentNode().getNodeKey();
         moveToParent();
-        final long pathNodeKey =
-            mBuildPathSummary ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT) : 0;
+        final long pathNodeKey = mBuildPathSummary
+            ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+            : 0;
         moveTo(key);
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -737,8 +742,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 
         final long key = getCurrentNode().getNodeKey();
         moveToParent();
-        final long pathNodeKey =
-            mBuildPathSummary ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT) : 0;
+        final long pathNodeKey = mBuildPathSummary
+            ? mPathSummaryWriter.getPathNodeKey(name, Kind.ELEMENT)
+            : 0;
         moveTo(key);
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1104,8 +1110,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey =
-            moveToParent().get().isElement() ? getNameNode().getPathNodeKey() : -1;
+        final long pathNodeKey = moveToParent().get().isElement()
+            ? getNameNode().getPathNodeKey()
+            : -1;
         mNodeReader.setCurrentNode(node);
 
         // Index text value.
@@ -1170,8 +1177,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey =
-            moveToParent().get().isElement() ? getNameNode().getPathNodeKey() : -1;
+        final long pathNodeKey = moveToParent().get().isElement()
+            ? getNameNode().getPathNodeKey()
+            : -1;
         mNodeReader.setCurrentNode(node);
 
         // Index text value.
@@ -1398,8 +1406,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           moveToParent();
         }
 
-        final long pathNodeKey =
-            mBuildPathSummary ? mPathSummaryWriter.getPathNodeKey(name, Kind.NAMESPACE) : 0;
+        final long pathNodeKey = mBuildPathSummary
+            ? mPathSummaryWriter.getPathNodeKey(name, Kind.NAMESPACE)
+            : 0;
         final long elementKey = getCurrentNode().getNodeKey();
 
         final Optional<SirixDeweyID> id = newNamespaceID();
@@ -1527,7 +1536,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
   private void removeValue() throws SirixIOException {
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().hasMoved() ? getPathNodeKey() : -1;
+      final long pathNodeKey = moveToParent().hasMoved()
+          ? getPathNodeKey()
+          : -1;
       moveTo(nodeKey);
       mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
     }
@@ -1631,7 +1642,10 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           node.setLocalNameKey(localNameKey);
           node.setURIKey(uriKey);
           node.setPrefixKey(prefixKey);
-          node.setPathNodeKey(mBuildPathSummary ? mPathSummaryWriter.getNodeKey() : 0);
+          node.setPathNodeKey(
+              mBuildPathSummary
+                  ? mPathSummaryWriter.getNodeKey()
+                  : 0);
 
           mNodeReader.setCurrentNode(node);
           adaptHashedWithUpdate(oldHash);
@@ -1771,7 +1785,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
       // Close current page transaction.
       final long trxID = getId();
       final int revision = getRevisionNumber();
-      final int revNumber = getPageTransaction().getUberPage().isBootstrap() ? 0 : revision - 1;
+      final int revNumber = getPageTransaction().getUberPage().isBootstrap()
+          ? 0
+          : revision - 1;
 
       final UberPage uberPage = getPageTransaction().rollback();
 
@@ -1893,8 +1909,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixIOException if an I/O error occurs
    */
   private void postOrderTraversalHashes() throws SirixIOException {
-    for (@SuppressWarnings("unused")
-    final long nodeKey : new PostOrderAxis(this, IncludeSelf.YES)) {
+    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> {
       final StructNode node = mNodeReader.getStructuralNode();
       if (node.getKind() == Kind.ELEMENT) {
         final ElementNode element = (ElementNode) node;
@@ -1910,7 +1925,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         }
       }
       addHashAndDescendantCount();
-    }
+    });
   }
 
   /**
@@ -1923,8 +1938,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
       case ROLLING:
         long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
         Node node = (Node) getPageTransaction().prepareEntryForModification(
-            mNodeReader.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
-            Optional.<UnorderedKeyValuePage>empty());
+            mNodeReader.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1, Optional.empty());
         node.setHash(node.getHash() + hashToAdd * PRIME);
         if (startNode instanceof StructNode) {
           ((StructNode) node).setDescendantCount(
@@ -1945,7 +1959,9 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         // Setup.
         final ImmutableNode startNode = getCurrentNode();
         final long oldDescendantCount = mNodeReader.getStructuralNode().getDescendantCount();
-        final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
+        final long descendantCount = oldDescendantCount == 0
+            ? 1
+            : oldDescendantCount + 1;
 
         // Set start node.
         long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
@@ -2378,8 +2394,11 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
     // start with hash to add
     final ImmutableNode startNode = mNodeReader.getCurrentNode();
     final long oldDescendantCount = mNodeReader.getStructuralNode().getDescendantCount();
-    final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
-    long hashToAdd = startNode.getHash() == 0 ? mHash.hashLong(startNode.hashCode()).asLong()
+    final long descendantCount = oldDescendantCount == 0
+        ? 1
+        : oldDescendantCount + 1;
+    long hashToAdd = startNode.getHash() == 0
+        ? mHash.hashLong(startNode.hashCode()).asLong()
         : startNode.getHash();
     long newHash = 0;
     long possibleOldHash = 0;

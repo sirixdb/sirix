@@ -23,6 +23,7 @@ package org.sirix.diff.service;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.annotation.Nonnull;
@@ -40,8 +41,8 @@ import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
+import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -98,10 +99,9 @@ public final class FMSEImport {
   private void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
 
     try {
-      final Path newRevTarget =
-          java.nio.file.Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
-      if (java.nio.file.Files.exists(newRevTarget)) {
-        Files.recursiveRemove(newRevTarget);
+      final Path newRevTarget = Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
+      if (Files.exists(newRevTarget)) {
+        SirixFiles.recursiveRemove(newRevTarget);
       }
       shredder(checkNotNull(resNewRev), newRevTarget);
 

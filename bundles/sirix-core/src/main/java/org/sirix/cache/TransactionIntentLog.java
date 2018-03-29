@@ -18,7 +18,7 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
   /**
    * Capacity of the cache. Number of stored pages.
    */
-  private static final int CACHE_CAPACITY = 6;
+  private static final int CACHE_CAPACITY = 16 << 1;
 
   /**
    * The collection to hold the maps.

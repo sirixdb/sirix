@@ -16,10 +16,10 @@ import org.sirix.exception.SirixIOException;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class Files {
+public final class SirixFiles {
 
   /** Utility methods. */
-  private Files() {
+  private SirixFiles() {
     throw new AssertionError("May not be instantiated!");
   }
 

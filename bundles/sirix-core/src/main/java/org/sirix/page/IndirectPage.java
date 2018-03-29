@@ -62,7 +62,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    * @param page {@link IndirectPage} to clone
    */
   public IndirectPage(final IndirectPage page) {
-    mDelegate = new PageDelegate(page);
+    mDelegate = new PageDelegate(page, page.mDelegate.getBitmap());
   }
 
   @Override

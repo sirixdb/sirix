@@ -15,6 +15,7 @@ import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.utils.SirixFiles;
 
 /**
  * Utility methods for {@link Database} handling.
@@ -65,11 +66,13 @@ public final class Databases {
             }
           } else {
             try {
-              returnVal = toCreate.getFileName().equals(
-                  DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName()) ? true
-                      : Files.createFile(toCreate) != null;
+              returnVal =
+                  toCreate.getFileName()
+                          .equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())
+                              ? true
+                              : Files.createFile(toCreate) != null;
             } catch (final IOException e) {
-              org.sirix.utils.Files.recursiveRemove(dbConfig.getFile());
+              SirixFiles.recursiveRemove(dbConfig.getFile());
               throw new SirixIOException(e);
             }
           }
@@ -84,7 +87,7 @@ public final class Databases {
       // if something was not correct, delete the partly created
       // substructure
       if (!returnVal) {
-        org.sirix.utils.Files.recursiveRemove(dbConfig.getFile());
+        SirixFiles.recursiveRemove(dbConfig.getFile());
       }
     }
 
@@ -107,7 +110,7 @@ public final class Databases {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
         // 0) {
         // instantiate the database for deletion
-        org.sirix.utils.Files.recursiveRemove(dbConfig.getFile());
+        SirixFiles.recursiveRemove(dbConfig.getFile());
       }
     }
   }
@@ -147,7 +150,8 @@ public final class Databases {
    */
   public static synchronized boolean existsDatabase(final DatabaseConfiguration dbConfig) {
     return Files.exists(dbConfig.getFile())
-        && DatabaseConfiguration.DatabasePaths.compareStructure(dbConfig.getFile()) == 0 ? true
+        && DatabaseConfiguration.DatabasePaths.compareStructure(dbConfig.getFile()) == 0
+            ? true
             : false;
   }
 

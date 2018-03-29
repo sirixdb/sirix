@@ -25,9 +25,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.BitSet;
 import javax.annotation.Nonnegative;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.DeserializedTuple;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -42,10 +44,13 @@ import com.google.common.base.MoreObjects;
  * Class to provide basic reference handling functionality.
  * </p>
  */
-public class PageDelegate implements Page {
+public final class PageDelegate implements Page {
 
   /** Page references. */
-  private final PageReference[] mReferences;
+  private PageReference[] mReferences;
+
+  /** The bitmap to use, which indexes are null/not null in the references array. */
+  private BitSet mBitmap;
 
   /**
    * Constructor to initialize instance.
@@ -54,10 +59,8 @@ public class PageDelegate implements Page {
    */
   public PageDelegate(final @Nonnegative int referenceCount) {
     checkArgument(referenceCount >= 0);
-    mReferences = new PageReference[referenceCount];
-    for (int i = 0; i < referenceCount; i++) {
-      mReferences[i] = new PageReference();
-    }
+    mReferences = new PageReference[0];
+    mBitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -70,7 +73,9 @@ public class PageDelegate implements Page {
    */
   public PageDelegate(final @Nonnegative int referenceCount, final DataInput in,
       final SerializationType type) {
-    mReferences = type.deserialize(referenceCount, in);
+    final DeserializedTuple tuple = type.deserialize(referenceCount, in);
+    mReferences = tuple.getReferences();
+    mBitmap = tuple.getBitmap();
   }
 
   /**
@@ -78,13 +83,23 @@ public class PageDelegate implements Page {
    *
    * @param commitedPage commited page
    */
-  public PageDelegate(final Page commitedPage) {
+  public PageDelegate(final Page commitedPage, final BitSet bitSet) {
+    mBitmap = (BitSet) bitSet.clone();
     mReferences = new PageReference[commitedPage.getReferences().length];
 
-    for (int offset = 0, length = mReferences.length; offset < length; offset++) {
+    for (int offset = 0, length = commitedPage.getReferences().length; offset < length; offset++) {
       mReferences[offset] = new PageReference();
       mReferences[offset].setKey(commitedPage.getReferences()[offset].getKey());
     }
+  }
+
+  @Override
+  public PageReference[] getReferences() {
+    return mReferences;
+  }
+
+  public BitSet getBitmap() {
+    return (BitSet) mBitmap.clone();
   }
 
   /**
@@ -95,10 +110,30 @@ public class PageDelegate implements Page {
    */
   @Override
   public final PageReference getReference(final @Nonnegative int offset) {
-    if (mReferences[offset] == null) {
-      mReferences[offset] = new PageReference();
+    final BitSet offsetBitmap = new BitSet(mBitmap.size());
+
+    offsetBitmap.set(offset);
+    offsetBitmap.and(mBitmap);
+
+    if (offsetBitmap.cardinality() != 0) {
+      final int index = index(offsetBitmap, offset);
+      return mReferences[index];
+    } else {
+      return createNewReference(offsetBitmap, offset);
     }
-    return mReferences[offset];
+  }
+
+  private PageReference createNewReference(final BitSet offsetBitmap, int offset) {
+    final int index = index(offsetBitmap, offset);
+
+    final PageReference[] newArray = new PageReference[mReferences.length + 1];
+    System.arraycopy(mReferences, 0, newArray, 0, index);
+    newArray[index] = new PageReference();
+    System.arraycopy(mReferences, index, newArray, index + 1, mReferences.length - index);
+
+    mBitmap.set(offset, true);
+    mReferences = newArray;
+    return mReferences[index];
   }
 
   /**
@@ -129,17 +164,7 @@ public class PageDelegate implements Page {
     assert out != null;
     assert type != null;
 
-    type.serialize(out, mReferences);
-  }
-
-  /**
-   * Get all references.
-   *
-   * @return copied references
-   */
-  @Override
-  public final PageReference[] getReferences() {
-    return mReferences;
+    type.serialize(out, mReferences, mBitmap);
   }
 
   @Override
@@ -149,5 +174,17 @@ public class PageDelegate implements Page {
       helper.add("reference", ref);
     }
     return helper.toString();
+  }
+
+  // private int bitpos(int index) {
+  // return 1 << index;
+  // }
+
+  private int index(BitSet bitmap, int offset) {
+    bitmap.flip(0, offset + 1);
+
+    bitmap.and(mBitmap);
+
+    return bitmap.cardinality();
   }
 }

@@ -145,8 +145,9 @@ final class PageReadTrxImpl implements PageReadTrx {
     mTrxIntentLog = trxIntentLog;
     mClosed = false;
     mResourceConfig = resourceManager.getResourceConfig();
-    mIndexController =
-        indexController == null ? resourceManager.getRtxIndexController(revision) : indexController;
+    mIndexController = indexController == null
+        ? resourceManager.getRtxIndexController(revision)
+        : indexController;
 
     if (indexController == null) {
       // Deserialize index definitions.
@@ -192,7 +193,9 @@ final class PageReadTrxImpl implements PageReadTrx {
           if (mTrxIntentLog != null) {
             // Try to get it from the transaction log if it's present.
             final PageContainer cont = mTrxIntentLog.get(reference);
-            page = cont == null ? null : cont.getComplete();
+            page = cont == null
+                ? null
+                : cont.getComplete();
           }
 
           if (page == null) {
@@ -333,7 +336,9 @@ final class PageReadTrxImpl implements PageReadTrx {
       if (mTrxIntentLog != null) {
         // Try to get it from the transaction log if it's present.
         final PageContainer cont = mTrxIntentLog.get(reference);
-        page = cont == null ? null : (RevisionRootPage) cont.getComplete();
+        page = cont == null
+            ? null
+            : (RevisionRootPage) cont.getComplete();
       }
 
       if (page == null) {
@@ -565,7 +570,9 @@ final class PageReadTrxImpl implements PageReadTrx {
       if (mTrxIntentLog != null) {
         // Try to get it from the transaction log if it's present.
         final PageContainer cont = mTrxIntentLog.get(reference);
-        page = cont == null ? null : (IndirectPage) cont.getComplete();
+        page = cont == null
+            ? null
+            : (IndirectPage) cont.getComplete();
       }
 
       if (page == null) {
@@ -591,7 +598,7 @@ final class PageReadTrxImpl implements PageReadTrx {
    * Find reference pointing to leaf page of an indirect tree.
    *
    * @param startReference start reference pointing to the indirect tree
-   * @param key key to look up in the indirect tree
+   * @param recordPageKey key to look up in the indirect tree
    * @return reference denoted by key pointing to the leaf page
    *
    * @throws SirixIOException if an I/O error occurs
@@ -599,28 +606,30 @@ final class PageReadTrxImpl implements PageReadTrx {
   @Nullable
   @Override
   public final PageReference getPageReferenceForPage(final PageReference startReference,
-      final @Nonnegative long key, final int index, final PageKind pageKind)
+      final @Nonnegative long recordPageKey, final int index, final PageKind pageKind)
       throws SirixIOException {
     assertNotClosed();
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(startReference);
-    checkArgument(key >= 0, "key must be >= 0!");
+    checkArgument(recordPageKey >= 0, "key must be >= 0!");
     checkNotNull(pageKind);
     int offset = 0;
-    long levelKey = key;
+    long levelKey = recordPageKey;
     final int[] inpLevelPageCountExp = mUberPage.getPageCountExp(pageKind);
 
     // Iterate through all levels.
     for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
-      offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-      levelKey -= offset << inpLevelPageCountExp[level];
       final Page derefPage = dereferenceIndirectPageReference(reference);
       if (derefPage == null) {
         reference = null;
         break;
       } else {
+        offset = (int) (levelKey >> inpLevelPageCountExp[level]);
+        levelKey -= offset << inpLevelPageCountExp[level];
+
         try {
+          // assert offset >= 0 && offset < mUberPage.getPageReferenceCount(pageKind);
           reference = derefPage.getReference(offset);
         } catch (final IndexOutOfBoundsException e) {
           throw new SirixIOException("Node key isn't supported, it's too big!");
