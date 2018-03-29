@@ -90,7 +90,9 @@ public final class UberPage extends AbstractForwardingPage {
     mRevisionCount = in.readInt();
     if (in.readBoolean())
       mPreviousUberPageKey = in.readLong();
-    mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
+    mRevision = mRevisionCount == 0
+        ? 0
+        : mRevisionCount - 1;
     mBootstrap = false;
     mRootPage = null;
   }
@@ -102,7 +104,8 @@ public final class UberPage extends AbstractForwardingPage {
    * @param resourceConfig {@link ResourceConfiguration} reference
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
-    mDelegate = new PageDelegate(checkNotNull(committedUberPage));
+    mDelegate =
+        new PageDelegate(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());
     mPreviousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
       mRevision = committedUberPage.mRevision;
@@ -173,7 +176,7 @@ public final class UberPage extends AbstractForwardingPage {
     return MoreObjects.toStringHelper(this)
                       .add("forwarding page", super.toString())
                       .add("revisionCount", mRevisionCount)
-                      .add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
+                      .add("indirectPage", getReference(INDIRECT_REFERENCE_OFFSET))
                       .add("isBootstrap", mBootstrap)
                       .toString();
   }
@@ -245,6 +248,48 @@ public final class UberPage extends AbstractForwardingPage {
         throw new IllegalStateException("page kind not known!");
     }
     return inpLevelPageCountExp;
+  }
+
+  public int getPageReferenceCount(final PageKind pageKind) {
+    int referenceCount;
+    switch (pageKind) {
+      case PATHSUMMARYPAGE:
+        referenceCount = Constants.PATHINP_REFERENCE_COUNT;
+        break;
+      case PATHPAGE:
+      case CASPAGE:
+      case NAMEPAGE:
+      case RECORDPAGE:
+        referenceCount = Constants.INP_REFERENCE_COUNT;
+        break;
+      case UBERPAGE:
+        referenceCount = Constants.UBPINP_REFERENCE_COUNT;
+        break;
+      default:
+        throw new IllegalStateException("page kind not known!");
+    }
+    return referenceCount;
+  }
+
+  public int getPageReferenceCountExp(final PageKind pageKind) {
+    int referenceCount;
+    switch (pageKind) {
+      case PATHSUMMARYPAGE:
+        referenceCount = Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
+        break;
+      case PATHPAGE:
+      case CASPAGE:
+      case NAMEPAGE:
+      case RECORDPAGE:
+        referenceCount = Constants.INP_REFERENCE_COUNT_EXPONENT;
+        break;
+      case UBERPAGE:
+        referenceCount = Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
+        break;
+      default:
+        throw new IllegalStateException("page kind not known!");
+    }
+    return referenceCount;
   }
 
   /**

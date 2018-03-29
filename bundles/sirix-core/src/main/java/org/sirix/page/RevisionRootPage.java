@@ -78,10 +78,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public RevisionRootPage() {
     mDelegate = new PageDelegate(5);
-    getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
-    getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
+    getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
+    getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
     mMaxNodeKey = -1L;
   }
@@ -106,7 +106,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage,
       final @Nonnegative int representRev) {
-    mDelegate = new PageDelegate(committedRevisionRootPage);
+    mDelegate = new PageDelegate(committedRevisionRootPage,
+        committedRevisionRootPage.mDelegate.getBitmap());
     mRevision = representRev;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
     mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;

@@ -49,6 +49,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
+import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
@@ -113,7 +114,7 @@ public final class DatabaseImpl implements Database {
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             resConfig.mPath);
     // If file is existing, skip.
-    if (java.nio.file.Files.exists(path)) {
+    if (Files.exists(path)) {
       return false;
     } else {
       try {
@@ -127,6 +128,7 @@ public final class DatabaseImpl implements Database {
         try {
           for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
             final Path toCreate = path.resolve(resourcePath.getFile());
+
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
             } else {
@@ -170,7 +172,7 @@ public final class DatabaseImpl implements Database {
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
-      org.sirix.utils.Files.recursiveRemove(resConfig.mPath);
+      SirixFiles.recursiveRemove(resConfig.mPath);
     }
 
     return returnVal;
@@ -187,7 +189,7 @@ public final class DatabaseImpl implements Database {
       if (Files.exists(resourceFile)
           && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
         // Instantiate the database for deletion.
-        org.sirix.utils.Files.recursiveRemove(resourceFile);
+        SirixFiles.recursiveRemove(resourceFile);
 
         // mReadSemaphores.remove(resourceFile);
         // mWriteSemaphores.remove(resourceFile);
@@ -265,7 +267,7 @@ public final class DatabaseImpl implements Database {
     Databases.removeDatabase(mDBConfig.getFile());
 
     // Remove lock file.
-    org.sirix.utils.Files.recursiveRemove(
+    SirixFiles.recursiveRemove(
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
   }
 

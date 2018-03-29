@@ -128,15 +128,12 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
       throws IOException {
     if (page.isPresent()) {
       out.writeBoolean(
-          page.get().getKey() == org.sirix.settings.Constants.NULL_ID_LONG ? false : true);
+          page.get().getKey() == org.sirix.settings.Constants.NULL_ID_LONG
+              ? false
+              : true);
     } else {
       out.writeBoolean(false);
     }
-  }
-
-  @Override
-  public PageReference[] getReferences() {
-    return null;
   }
 
   @Override
@@ -219,6 +216,17 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
   public long getPreviousReferenceKey() {
     // TODO Auto-generated method stub
     return -1;
+  }
+
+  /*
+   * (non-Javadoc)
+   * 
+   * @see org.sirix.page.interfaces.Page#getReferences()
+   */
+  @Override
+  public PageReference[] getReferences() {
+    // TODO Auto-generated method stub
+    return null;
   }
 
   // @Override

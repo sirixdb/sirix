@@ -30,8 +30,9 @@ package org.sirix.page;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.BitSet;
+import javax.annotation.Nonnegative;
 import org.sirix.exception.SirixIOException;
-import org.sirix.settings.Constants;
 
 /**
  * Defines the serialization/deserialization type.
@@ -43,40 +44,37 @@ public enum SerializationType {
   /** The transaction intent log. */
   TRANSACTION_INTENT_LOG {
     @Override
-    public void serialize(DataOutput out, PageReference[] pageReferences) {
+    public void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
 
-      for (final PageReference reference : pageReferences) {
-        try {
-          out.writeBoolean(reference.getLogKey() != Constants.NULL_ID_INT);
-          if (reference.getLogKey() != Constants.NULL_ID_INT)
-            out.writeInt(reference.getLogKey());
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
+      try {
+        serializeBitSet(out, bitmap);
+
+        for (final PageReference pageReference : pageReferences) {
+          out.writeInt(pageReference.getLogKey());
         }
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
       }
     }
 
     @Override
-    public PageReference[] deserialize(int referenceCount, DataInput in) {
-      assert referenceCount >= 0;
+    public DeserializedTuple deserialize(@Nonnegative int referenceCount, DataInput in) {
       assert in != null;
 
       try {
-        final PageReference[] references = new PageReference[referenceCount];
+        final BitSet bitmap = deserializeBitSet(in, referenceCount);
+
+        final PageReference[] references = new PageReference[bitmap.cardinality()];
 
         for (int offset = 0, length = references.length; offset < length; offset++) {
           references[offset] = new PageReference();
-
-          final boolean hasKey = in.readBoolean();
-          if (hasKey) {
-            final int key = in.readInt();
-            references[offset].setLogKey(key);
-          }
+          final int key = in.readInt();
+          references[offset].setLogKey(key);
         }
 
-        return references;
+        return new DeserializedTuple(references, bitmap);
       } catch (final IOException e) {
         throw new SirixIOException(e);
       }
@@ -86,54 +84,73 @@ public enum SerializationType {
   /** The actual data. */
   DATA {
     @Override
-    public void serialize(DataOutput out, PageReference[] pageReferences) {
+    public void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
 
-      for (final PageReference reference : pageReferences) {
-        try {
-          out.writeBoolean(reference.getKey() != Constants.NULL_ID_LONG);
-          if (reference.getKey() != Constants.NULL_ID_LONG)
-            out.writeLong(reference.getKey());
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
+      try {
+        serializeBitSet(out, bitmap);
+
+        for (final PageReference pageReference : pageReferences) {
+          out.writeLong(pageReference.getKey());
         }
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
       }
     }
 
     @Override
-    public PageReference[] deserialize(int referenceCount, DataInput in) {
-      assert referenceCount >= 0;
+    public DeserializedTuple deserialize(@Nonnegative int referenceCount, DataInput in) {
       assert in != null;
 
       try {
-        final PageReference[] references = new PageReference[referenceCount];
+        final BitSet bitmap = deserializeBitSet(in, referenceCount);
+
+        final PageReference[] references = new PageReference[bitmap.cardinality()];
 
         for (int offset = 0, length = references.length; offset < length; offset++) {
           references[offset] = new PageReference();
-
-          final boolean hasKey = in.readBoolean();
-          if (hasKey) {
-            final long key = in.readLong();
-            references[offset].setKey(key);
-          }
+          final long key = in.readLong();
+          references[offset].setKey(key);
         }
 
-        return references;
+        return new DeserializedTuple(references, bitmap);
       } catch (final IOException e) {
         throw new SirixIOException(e);
       }
     }
   };
 
+  private static void serializeBitSet(DataOutput out, final BitSet bitmap) throws IOException {
+    final int len = bitmap.length();
+    out.writeShort(len);
+    for (int i = 0; i < len; i++) {
+      out.writeBoolean(bitmap.get(i));
+    }
+  }
+
+  private static BitSet deserializeBitSet(DataInput in, @Nonnegative int referenceCount)
+      throws IOException {
+    final int len = in.readShort();
+    final BitSet ret = new BitSet(referenceCount);
+
+    for (int i = 0; i < len; i++) {
+      ret.set(i, in.readBoolean());
+    }
+
+    return ret;
+
+  }
+
   /**
    * Serialize all page references.
    *
    * @param out the output
    * @param pageReferences the page references
+   * @param bitmap the bitmap
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serialize(DataOutput out, PageReference[] pageReferences);
+  public abstract void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap);
 
   /**
    * Deserialize all page references.
@@ -142,5 +159,5 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract PageReference[] deserialize(int referenceCount, DataInput in);
+  public abstract DeserializedTuple deserialize(@Nonnegative int referenceCount, DataInput in);
 }
