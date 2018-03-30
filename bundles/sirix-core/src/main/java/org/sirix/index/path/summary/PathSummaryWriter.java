@@ -41,9 +41,9 @@ import org.sirix.utils.XMLToken;
 
 /**
  * Path summary writer organizing the path classes of a resource.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
@@ -91,7 +91,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Constructor.
-   * 
+   *
    * @param pageWriteTrx Sirix {@link PageWriteTrx}
    * @param session Sirix {@link ResourceManager}
    * @param nodeFactory Sirix {@link NodeFactory}
@@ -107,7 +107,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Get a new path summary writer instance.
-   * 
+   *
    * @param pageWriteTrx Sirix {@link PageWriteTrx}
    * @param session Sirix {@link ResourceManager}
    * @param nodeFactory Sirix {@link NodeFactory} to create {@link PathNode} instances if needed
@@ -117,7 +117,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
   public static final PathSummaryWriter getInstance(
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final ResourceManager session, final NodeFactory nodeFactory, final XdmNodeReadTrxImpl rtx) {
-    // Uses the implementation of NodeReadTrx rather than the interface,
+    // Uses the implementation of XdmNodeReadTrxImpl rather than the interface,
     // otherwise nodes are wrapped in immutable nodes because only getNode() is
     // available
     return new PathSummaryWriter(checkNotNull(pageWriteTrx), checkNotNull(session),
@@ -126,7 +126,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Get the path summary reader.
-   * 
+   *
    * @return {@link PathSummaryReader} instance
    */
   public PathSummaryReader getPathSummary() {
@@ -136,7 +136,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
   /**
    * Insert a new path node or increment the counter of an existing node and return the path node
    * key.
-   * 
+   *
    * @param name the name of the path node to search for
    * @param pathKind the kind of the path node to search for
    * @return a path node key of the found node, or the path node key of a new inserted node
@@ -154,8 +154,9 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
     final long nodeKey = mPathSummaryReader.getNodeKey();
     final Axis axis = new FilterAxis(new ChildAxis(mPathSummaryReader),
-        new NameFilter(mPathSummaryReader,
-            pathKind == Kind.NAMESPACE ? name.getPrefix() : Utils.buildName(name)),
+        new NameFilter(mPathSummaryReader, pathKind == Kind.NAMESPACE
+            ? name.getPrefix()
+            : Utils.buildName(name)),
         new PathKindFilter(mPathSummaryReader, pathKind));
     long retVal = nodeKey;
     if (axis.hasNext()) {
@@ -185,7 +186,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Insert a path node as first child.
-   * 
+   *
    * @param name {@link QNm} of the path node (not stored) twice
    * @param pathKind kind of node to index
    * @param level level in the path summary
@@ -215,7 +216,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Adapting everything for insert operations.
-   * 
+   *
    * @param newNode pointer of the new node to be inserted
    * @param insertPos determines the position where to insert
    * @param pageKind kind of subtree root page
@@ -251,7 +252,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Adapt path summary either for moves or {@code setQName(QName)}.
-   * 
+   *
    * @param node the node for which the path node needs to be adapted
    * @param name the new {@link QName} in case of a new one is set, the old {@link QName} otherwise
    * @param nameKey nameKey of the new node
@@ -405,7 +406,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Process a found path node.
-   * 
+   *
    * @param oldPathNodeKey key of old path node
    * @param newPathNodeKey key of new path node
    * @param oldNodeKey key of old node
@@ -521,7 +522,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
   /**
    * Move path summary to the associated {@code parent} {@link PathNode} and get the level of the
    * node.
-   * 
+   *
    * @param node the node to lookup for it's {@link PathNode}
    * @return level of the path node
    */
@@ -542,7 +543,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Reset a path node key.
-   * 
+   *
    * @param nodeKey the nodeKey of the node to adapt
    * @throws SirixException if anything fails
    */
@@ -554,7 +555,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Remove a path summary node with the specified PCR.
-   * 
+   *
    * @throws SirixException if Sirix fails to remove the path node
    */
   private void removePathSummaryNode(final Remove remove) throws SirixException {
@@ -607,7 +608,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
 
   /**
    * Reset the path node key of a node.
-   * 
+   *
    * @param newPathNodeKey path node key of new path node
    * @param oldLevel old level of node
    * @throws SirixIOException if an I/O error occurs
@@ -650,7 +651,7 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
   /**
    * Decrements the reference-counter of the node or removes the path node if the reference-counter
    * would be zero otherwise.
-   * 
+   *
    * @param node node which is going to removed from the storage
    * @param nodeKind the node kind
    * @param page the name page

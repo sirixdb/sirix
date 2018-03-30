@@ -26,7 +26,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.BitSet;
+import java.util.List;
 import javax.annotation.Nonnegative;
+import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.DeserializedTuple;
@@ -47,7 +49,7 @@ import com.google.common.base.MoreObjects;
 public final class PageDelegate implements Page {
 
   /** Page references. */
-  private PageReference[] mReferences;
+  private List<PageReference> mReferences;
 
   /** The bitmap to use, which indexes are null/not null in the references array. */
   private BitSet mBitmap;
@@ -59,7 +61,7 @@ public final class PageDelegate implements Page {
    */
   public PageDelegate(final @Nonnegative int referenceCount) {
     checkArgument(referenceCount >= 0);
-    mReferences = new PageReference[0];
+    mReferences = new GapList<>();
     mBitmap = new BitSet(referenceCount);
   }
 
@@ -85,16 +87,20 @@ public final class PageDelegate implements Page {
    */
   public PageDelegate(final Page commitedPage, final BitSet bitSet) {
     mBitmap = (BitSet) bitSet.clone();
-    mReferences = new PageReference[commitedPage.getReferences().length];
 
-    for (int offset = 0, length = commitedPage.getReferences().length; offset < length; offset++) {
-      mReferences[offset] = new PageReference();
-      mReferences[offset].setKey(commitedPage.getReferences()[offset].getKey());
+    final int length = commitedPage.getReferences().size();
+
+    mReferences = new GapList<>(length);
+
+    for (int offset = 0; offset < length; offset++) {
+      final PageReference reference = new PageReference();
+      reference.setKey(commitedPage.getReferences().get(offset).getKey());
+      mReferences.add(offset, reference);
     }
   }
 
   @Override
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     return mReferences;
   }
 
@@ -117,7 +123,7 @@ public final class PageDelegate implements Page {
 
     if (offsetBitmap.cardinality() != 0) {
       final int index = index(offsetBitmap, offset);
-      return mReferences[index];
+      return mReferences.get(index);
     } else {
       return createNewReference(offsetBitmap, offset);
     }
@@ -126,14 +132,25 @@ public final class PageDelegate implements Page {
   private PageReference createNewReference(final BitSet offsetBitmap, int offset) {
     final int index = index(offsetBitmap, offset);
 
-    final PageReference[] newArray = new PageReference[mReferences.length + 1];
-    System.arraycopy(mReferences, 0, newArray, 0, index);
-    newArray[index] = new PageReference();
-    System.arraycopy(mReferences, index, newArray, index + 1, mReferences.length - index);
+    final PageReference reference = new PageReference();
+    mReferences.add(index, reference);
+    // final PageReference[] newArray = new PageReference[mReferences.length + 1];
+    // System.arraycopy(mReferences, 0, newArray, 0, index);
+    // newArray[index] = new PageReference();
+    // System.arraycopy(mReferences, index, newArray, index + 1, mReferences.length - index);
 
     mBitmap.set(offset, true);
-    mReferences = newArray;
-    return mReferences[index];
+    // mReferences = newArray;
+    return reference;
+  }
+
+  private int index(BitSet bitmap, int offset) {
+    // Flip 0 to offset.
+    bitmap.flip(0, offset + 1);
+
+    bitmap.and(mBitmap);
+
+    return bitmap.cardinality();
   }
 
   /**
@@ -173,18 +190,20 @@ public final class PageDelegate implements Page {
     for (final PageReference ref : mReferences) {
       helper.add("reference", ref);
     }
+    helper.add("bitmap", dumpBitmap(mBitmap));
     return helper.toString();
   }
 
-  // private int bitpos(int index) {
-  // return 1 << index;
-  // }
+  private String dumpBitmap(BitSet bitmap) {
+    final StringBuilder s = new StringBuilder();
 
-  private int index(BitSet bitmap, int offset) {
-    bitmap.flip(0, offset + 1);
+    for (int i = 0; i < bitmap.length(); i++) {
+      s.append(
+          bitmap.get(i) == true
+              ? 1
+              : 0);
+    }
 
-    bitmap.and(mBitmap);
-
-    return bitmap.cardinality();
+    return s.toString();
   }
 }

@@ -115,9 +115,9 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
       if (first) {
         first = false;
       } else {
-        final Set<PathNode> pathNodes =
-            mQNmMapping.get(this.getName()) == null ? new HashSet<PathNode>()
-                : mQNmMapping.get(this.getName());
+        final Set<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null
+            ? new HashSet<PathNode>()
+            : mQNmMapping.get(this.getName());
         pathNodes.add(this.getPathNode());
         mQNmMapping.put(this.getName(), pathNodes);
       }
@@ -153,16 +153,18 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putQNameMapping(final PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes =
-        mQNmMapping.get(name) == null ? new HashSet<PathNode>() : mQNmMapping.get(name);
+    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null
+        ? new HashSet<PathNode>()
+        : mQNmMapping.get(name);
     pathNodes.add(node);
     mQNmMapping.put(name, pathNodes);
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
   void removeQNameMapping(final @Nonnegative PathNode node, final QNm name) {
-    final Set<PathNode> pathNodes =
-        mQNmMapping.get(name) == null ? new HashSet<PathNode>() : mQNmMapping.get(name);
+    final Set<PathNode> pathNodes = mQNmMapping.get(name) == null
+        ? new HashSet<PathNode>()
+        : mQNmMapping.get(name);
     if (pathNodes.size() == 1) {
       mQNmMapping.remove(name);
     } else {
@@ -491,13 +493,16 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
       final int uriKey = ((NameNode) mCurrentNode).getURIKey();
-      final String uri = uriKey == -1 ? ""
+      final String uri = uriKey == -1
+          ? ""
           : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
-      final String prefix = prefixKey == -1 ? ""
+      final String prefix = prefixKey == -1
+          ? ""
           : mPageReadTrx.getName(prefixKey, ((PathNode) mCurrentNode).getPathKind());
       final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
-      final String localName = localNameKey == -1 ? ""
+      final String localName = localNameKey == -1
+          ? ""
           : mPageReadTrx.getName(localNameKey, ((PathNode) mCurrentNode).getPathKind());
       return new QNm(uri, prefix, localName);
     } else {
@@ -640,7 +645,9 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null ? false : true;
+    final boolean retVal = moveToLastChild() == null
+        ? false
+        : true;
     moveTo(nodeKey);
     return retVal;
   }
