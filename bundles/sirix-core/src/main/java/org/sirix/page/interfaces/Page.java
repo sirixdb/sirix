@@ -22,6 +22,7 @@ package org.sirix.page.interfaces;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageWriteTrx;
@@ -53,7 +54,7 @@ public interface Page {
    *
    * @return all page references
    */
-  PageReference[] getReferences();
+  List<PageReference> getReferences();
 
   /**
    * Commit page.

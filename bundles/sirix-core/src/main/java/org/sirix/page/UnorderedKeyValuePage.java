@@ -346,7 +346,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   }
 
   @Override
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     throw new UnsupportedOperationException();
   }
 

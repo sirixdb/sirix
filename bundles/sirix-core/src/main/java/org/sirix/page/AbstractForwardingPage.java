@@ -23,6 +23,7 @@ package org.sirix.page;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import javax.annotation.Nonnegative;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
@@ -51,7 +52,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     return delegate().getReferences();
   }
 

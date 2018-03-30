@@ -28,6 +28,7 @@
 package org.sirix.page;
 
 import java.util.BitSet;
+import java.util.List;
 
 /**
  * Simple immutable data/value/bean class.
@@ -37,7 +38,7 @@ import java.util.BitSet;
  */
 public final class DeserializedTuple {
   /** The page references. */
-  private final PageReference[] mReferences;
+  private final List<PageReference> mReferences;
 
   /** The bitmap. */
   private final BitSet mBitmap;
@@ -48,7 +49,7 @@ public final class DeserializedTuple {
    * @param references the references
    * @param bitmap the bitmap
    */
-  public DeserializedTuple(final PageReference[] references, final BitSet bitmap) {
+  public DeserializedTuple(final List<PageReference> references, final BitSet bitmap) {
     mReferences = references;
     mBitmap = bitmap;
   }
@@ -67,7 +68,7 @@ public final class DeserializedTuple {
    *
    * @return the references
    */
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     return mReferences;
   }
 }

@@ -3,6 +3,7 @@ package org.sirix.page;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -39,7 +40,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     throw new UnsupportedOperationException();
   }
 

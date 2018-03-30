@@ -3,6 +3,7 @@ package org.sirix.index.bplustree;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -220,11 +221,11 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
   /*
    * (non-Javadoc)
-   * 
+   *
    * @see org.sirix.page.interfaces.Page#getReferences()
    */
   @Override
-  public PageReference[] getReferences() {
+  public List<PageReference> getReferences() {
     // TODO Auto-generated method stub
     return null;
   }

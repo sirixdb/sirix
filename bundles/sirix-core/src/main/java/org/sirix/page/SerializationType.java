@@ -31,7 +31,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.BitSet;
+import java.util.List;
 import javax.annotation.Nonnegative;
+import org.magicwerk.brownies.collections.GapList;
 import org.sirix.exception.SirixIOException;
 
 /**
@@ -44,7 +46,7 @@ public enum SerializationType {
   /** The transaction intent log. */
   TRANSACTION_INTENT_LOG {
     @Override
-    public void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap) {
+    public void serialize(DataOutput out, List<PageReference> pageReferences, BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
 
@@ -66,12 +68,15 @@ public enum SerializationType {
       try {
         final BitSet bitmap = deserializeBitSet(in, referenceCount);
 
-        final PageReference[] references = new PageReference[bitmap.cardinality()];
+        final int length = bitmap.cardinality();
 
-        for (int offset = 0, length = references.length; offset < length; offset++) {
-          references[offset] = new PageReference();
+        final List<PageReference> references = new GapList<>(length);
+
+        for (int offset = 0; offset < length; offset++) {
           final int key = in.readInt();
-          references[offset].setLogKey(key);
+          final PageReference reference = new PageReference();
+          reference.setLogKey(key);
+          references.add(offset, reference);
         }
 
         return new DeserializedTuple(references, bitmap);
@@ -84,7 +89,7 @@ public enum SerializationType {
   /** The actual data. */
   DATA {
     @Override
-    public void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap) {
+    public void serialize(DataOutput out, List<PageReference> pageReferences, BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
 
@@ -106,12 +111,15 @@ public enum SerializationType {
       try {
         final BitSet bitmap = deserializeBitSet(in, referenceCount);
 
-        final PageReference[] references = new PageReference[bitmap.cardinality()];
+        final int length = bitmap.cardinality();
 
-        for (int offset = 0, length = references.length; offset < length; offset++) {
-          references[offset] = new PageReference();
+        final GapList<PageReference> references = new GapList<>(length);
+
+        for (int offset = 0; offset < length; offset++) {
           final long key = in.readLong();
-          references[offset].setKey(key);
+          final PageReference reference = new PageReference();
+          reference.setKey(key);
+          references.add(offset, reference);
         }
 
         return new DeserializedTuple(references, bitmap);
@@ -150,7 +158,7 @@ public enum SerializationType {
    * @param bitmap the bitmap
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serialize(DataOutput out, PageReference[] pageReferences, BitSet bitmap);
+  public abstract void serialize(DataOutput out, List<PageReference> pageReferences, BitSet bitmap);
 
   /**
    * Deserialize all page references.
