@@ -52,7 +52,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    *
    * @param in input source
    */
-  protected IndirectPage(final DataInput in, final SerializationType type) throws IOException {
+  public IndirectPage(final DataInput in, final SerializationType type) throws IOException {
     mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in, type);
   }
 
