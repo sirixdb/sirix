@@ -25,6 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
@@ -199,7 +200,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
+      @Nonnull final PageWriteTrx<K, V, S> pageWriteTrx) {
     if (mRevision == pageWriteTrx.getUberPage().getRevision()) {
       super.commit(pageWriteTrx);
     }
@@ -207,7 +208,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
-    mRevisionTimestamp = System.currentTimeMillis();
+    mRevisionTimestamp = Instant.now().toEpochMilli();
     mDelegate.serialize(checkNotNull(out), checkNotNull(type));
     out.writeInt(mRevision);
     out.writeLong(mMaxNodeKey);
