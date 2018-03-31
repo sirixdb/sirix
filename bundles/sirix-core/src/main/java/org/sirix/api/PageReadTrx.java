@@ -35,11 +35,18 @@ public interface PageReadTrx extends AutoCloseable {
   UberPage getUberPage();
 
   /**
-   * Get the session this transaction is bound to.
+   * Get the resource manager this transaction is bound to.
    *
-   * @return session instance
+   * @return resource manager instance
    */
-  ResourceManager getSession();
+  ResourceManager getResourceManager();
+
+  /**
+   * Get the transaction-ID.
+   * 
+   * @return the transaction-ID.
+   */
+  long getTrxId();
 
   /**
    * Get a record from persistent storage.
@@ -207,7 +214,7 @@ public interface PageReadTrx extends AutoCloseable {
 
   /**
    * Load the revision root.
-   * 
+   *
    * @param lastCommitedRev The revision to load.
    * @return The revision root.
    */

@@ -1481,7 +1481,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     final ResourceManager resource = mRtx.getResourceManager();
     final XdmNodeWriteTrx wtx;
     if (resource.getAvailableNodeWriteTrx() == 0) {
-      wtx = resource.getNodeWriteTrx().get();
+      wtx = resource.getXdmNodeWriteTrx().get();
     } else {
       wtx = resource.beginNodeWriteTrx();
     }

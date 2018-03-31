@@ -26,6 +26,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -75,7 +76,7 @@ public class ResourceManagerTest {
 
   @Test
   public void testClosed() throws SirixException {
-    XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getReader();
     rtx.close();
 
     try {
@@ -232,13 +233,17 @@ public class ResourceManagerTest {
 
   @Test
   public void testAutoCommit() throws SirixException {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    // After each bunch of 5 nodes.
+    try (final XdmNodeWriteTrx wtx =
+        holder.getResourceManager().beginNodeWriteTrx(5, TimeUnit.SECONDS, 0)) {
+      DocumentCreater.create(wtx);
+      wtx.commit();
+      assertEquals(4, wtx.getRevisionNumber());
+    }
   }
 
   @Test
   public void testAutoClose() throws SirixException {
-
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();

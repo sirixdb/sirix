@@ -90,7 +90,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
     mRecordPageKey = in.readLong();
     final int size = in.readInt();
     mRecords = new TreeMap<>();
-    pageReadTrx.getSession().getResourceConfig();
+    pageReadTrx.getResourceManager().getResourceConfig();
     for (int offset = 0; offset < size; offset++) {
       // Must be the key which has been serialized.
       // @SuppressWarnings("unchecked")
@@ -118,7 +118,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
     out.writeLong(mRecordPageKey);
     serializePointer(mLeftPage, out);
     serializePointer(mRightPage, out);
-    mPageReadTrx.getSession().getResourceConfig();
+    mPageReadTrx.getResourceManager().getResourceConfig();
     for (final Map.Entry<K, V> node : mRecords.entrySet()) {
       // persistenter.serialize(out, node.getKey(), mPageReadTrx);
       // persistenter.serialize(out, node.getValue(), mPageReadTrx);

@@ -24,6 +24,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -191,6 +192,7 @@ public final class XdmResourceManager implements ResourceManager {
   @Override
   public synchronized XdmNodeReadTrx beginNodeReadTrx(@Nonnegative final int revisionKey) {
     assertAccess(revisionKey);
+
     // Make sure not to exceed available number of read transactions.
     try {
       if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
@@ -201,8 +203,7 @@ public final class XdmResourceManager implements ResourceManager {
       throw new SirixThreadedException(e);
     }
 
-    final PageReadTrx pageReadTrx = new PageReadTrxImpl(this, mLastCommittedUberPage.get(),
-        revisionKey, mFac.createReader(), null, null, mBufferManager);
+    final PageReadTrx pageReadTrx = beginPageReadTrx(revisionKey);
 
     final Node documentNode = getDocumentNode(pageReadTrx);
 
@@ -245,11 +246,11 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public XdmNodeWriteTrx beginNodeWriteTrx() {
-    return beginNodeReadTrx(0, TimeUnit.MINUTES, 0);
+    return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
   }
 
   @Override
-  public synchronized XdmNodeWriteTrx beginNodeReadTrx(final @Nonnegative int maxNodeCount,
+  public synchronized XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodeCount,
       final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
     // Checks.
     assertAccess(mLastCommittedUberPage.get().getRevision());
@@ -268,8 +269,7 @@ public final class XdmResourceManager implements ResourceManager {
       throw new SirixThreadedException(e);
     }
 
-    // Create new page write transaction (shares the same ID with the node write
-    // trx).
+    // Create new page write transaction (shares the same ID with the node write trx).
     final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
@@ -308,10 +308,11 @@ public final class XdmResourceManager implements ResourceManager {
     final Writer writer = mFac.createWriter();
     final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
-    return new PageWriteTrxImpl(this,
-        abort == Abort.YES && lastCommitedUberPage.isBootstrap() ? new UberPage()
-            : new UberPage(lastCommitedUberPage,
-                representRevision > 0 ? writer.readUberPageReference().getKey() : -1),
+    return new PageWriteTrxImpl(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+        ? new UberPage()
+        : new UberPage(lastCommitedUberPage, representRevision > 0
+            ? writer.readUberPageReference().getKey()
+            : -1),
         writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
   }
 
@@ -358,7 +359,7 @@ public final class XdmResourceManager implements ResourceManager {
    */
   void assertAccess(final @Nonnegative long revision) {
     if (mClosed) {
-      throw new IllegalStateException("Session is already closed!");
+      throw new IllegalStateException("Resource manager is already closed!");
     }
     if (revision < 0) {
       throw new IllegalArgumentException("Revision must be at least 0!");
@@ -399,8 +400,9 @@ public final class XdmResourceManager implements ResourceManager {
   void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
       throws SirixIOException {
     final PageReadTrx pageRtx = mNodePageTrxMap.remove(transactionID);
-    assert pageRtx != null : "Must be in the page trx map!";
-    pageRtx.close();
+    if (pageRtx != null)
+      // assert pageRtx != null : "Must be in the page trx map!";
+      pageRtx.close();
   }
 
   /**
@@ -478,10 +480,8 @@ public final class XdmResourceManager implements ResourceManager {
   public synchronized PathSummaryReader openPathSummary(final @Nonnegative int revision) {
     assertAccess(revision);
 
-    return PathSummaryReader.getInstance(
-        new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac.createReader(), null,
-            null, mBufferManager),
-        this);
+    final PageReadTrx pageReadTrx = beginPageReadTrx(revision);
+    return PathSummaryReader.getInstance(pageReadTrx, this);
   }
 
   @Override
@@ -496,8 +496,18 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public synchronized PageReadTrx beginPageReadTrx(final @Nonnegative int revision) {
-    return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac.createReader(),
-        null, null, mBufferManager);
+    assertAccess(revision);
+
+    final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
+    final PageReadTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this,
+        mLastCommittedUberPage.get(), revision, mFac.createReader(), null, null, mBufferManager);
+
+    // Remember page transaction for debugging and safe close.
+    if (mPageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+      throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
+    }
+
+    return pageReadTrx;
   }
 
   @Override
@@ -509,6 +519,18 @@ public final class XdmResourceManager implements ResourceManager {
   @Override
   public synchronized PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(
       final @Nonnegative int revision) throws SirixException {
+    assertAccess(revision);
+
+    // Make sure not to exceed available number of write transactions.
+    try {
+      if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+        throw new SirixUsageException(
+            "No write transaction available, please close the write transaction first.");
+      }
+    } catch (final InterruptedException e) {
+      throw new SirixThreadedException(e);
+    }
+
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
@@ -528,7 +550,7 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public synchronized IndexController getRtxIndexController(int revision) {
+  public synchronized IndexController getRtxIndexController(final int revision) {
     IndexController controller = mRtxIndexControllers.get(revision);
     if (controller == null) {
       controller = new IndexController();
@@ -538,7 +560,7 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public synchronized IndexController getWtxIndexController(int revision) {
+  public synchronized IndexController getWtxIndexController(final int revision) {
     IndexController controller = mWtxIndexControllers.get(revision);
     if (controller == null) {
       controller = new IndexController();
@@ -553,16 +575,73 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public Optional<XdmNodeReadTrx> getNodeReader(final long ID) {
-    return Optional.of(mNodeReaderMap.get(ID));
+  public Optional<XdmNodeReadTrx> getXdmNodeReadTrx(final long ID) {
+    return Optional.ofNullable(mNodeReaderMap.get(ID));
   }
 
   @Override
-  public synchronized Optional<XdmNodeWriteTrx> getNodeWriteTrx() {
+  public synchronized Optional<XdmNodeWriteTrx> getXdmNodeWriteTrx() {
     return mNodeReaderMap.values()
                          .stream()
                          .filter(rtx -> rtx instanceof XdmNodeWriteTrx)
                          .map(rtx -> (XdmNodeWriteTrx) rtx)
                          .findAny();
+  }
+
+  @Override
+  public XdmNodeReadTrx beginNodeReadTrx(final Instant pointInTime) {
+    checkNotNull(pointInTime);
+
+    final long timestamp = pointInTime.getEpochSecond();
+
+    int revision = binarySearch(timestamp);
+
+    if (revision < 0) {
+      revision = -revision - 1;
+    }
+
+    if (revision == 0)
+      return beginNodeReadTrx(0);
+    else if (revision == getMostRecentRevisionNumber())
+      return beginNodeReadTrx();
+
+    final XdmNodeReadTrx rtxRevisionMinus1 = beginNodeReadTrx(revision - 1);
+    final XdmNodeReadTrx rtxRevision = beginNodeReadTrx(revision);
+
+    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(
+        timestamp, rtxRevision.getRevisionTimestamp())) {
+      rtxRevision.close();
+      return rtxRevisionMinus1;
+    } else {
+      rtxRevisionMinus1.close();
+      return rtxRevision;
+    }
+  }
+
+  private static long timeDiff(final long lhs, final long rhs) {
+    return Math.abs(lhs - rhs);
+  }
+
+  private int binarySearch(final long timestamp) {
+    int low = 0;
+    int high = mLastCommittedUberPage.get().getRevisionNumber();
+
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+
+      try (final PageReadTrx trx = beginPageReadTrx(mid)) {
+        final long midVal = trx.getActualRevisionRootPage().getRevisionTimestamp();
+        final int cmp = Long.valueOf(midVal).compareTo(timestamp);
+
+        if (cmp < 0)
+          low = mid + 1;
+        else if (cmp > 0)
+          high = mid - 1;
+        else
+          return mid; // key found
+      }
+    }
+
+    return -(low + 1); // key not found
   }
 }

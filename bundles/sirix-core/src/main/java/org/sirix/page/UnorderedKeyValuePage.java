@@ -127,11 +127,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     mSlots = new LinkedHashMap<>();
     mPageReadTrx = pageReadTrx;
     mPageKind = pageKind;
-    mResourceConfig = pageReadTrx.getSession().getResourceConfig();
+    mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     mPersistenter = mResourceConfig.mPersistenter;
     mPreviousPageRefKey = previousPageRefKey;
 
-    if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
+    if (mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored
         && mPersistenter instanceof NodePersistenter) {
       mDeweyIDs = new LinkedHashMap<>();
     } else {
@@ -148,7 +148,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   protected UnorderedKeyValuePage(final DataInput in, final PageReadTrx pageReadTrx)
       throws IOException {
     mRecordPageKey = getVarLong(in);
-    mResourceConfig = pageReadTrx.getSession().getResourceConfig();
+    mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     mPersistenter = mResourceConfig.mPersistenter;
     mPageReadTrx = pageReadTrx;
     mSlots = new LinkedHashMap<>();
@@ -371,7 +371,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   // Add references to OverflowPages.
   private void addReferences() throws IOException {
-    final boolean storeDeweyIDs = mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored;
+    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
 
     final List<Entry<Long, Record>> entries = sort();
     final Iterator<Entry<Long, Record>> it = entries.iterator();
@@ -406,7 +406,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     // Sort entries which have deweyIDs according to their byte-length.
     final List<Map.Entry<Long, Record>> entries =
         new ArrayList<Map.Entry<Long, Record>>(mRecords.entrySet());
-    final boolean storeDeweyIDs = mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored;
+    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
     if (storeDeweyIDs && mPersistenter instanceof NodePersistenter) {
       Collections.sort(entries, new Comparator<Map.Entry<Long, Record>>() {
         @Override
