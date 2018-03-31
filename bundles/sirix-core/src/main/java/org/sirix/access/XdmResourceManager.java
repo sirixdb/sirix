@@ -603,7 +603,7 @@ public final class XdmResourceManager implements ResourceManager {
   public XdmNodeReadTrx beginNodeReadTrx(final Instant pointInTime) {
     checkNotNull(pointInTime);
 
-    final long timestamp = pointInTime.getEpochSecond();
+    final long timestamp = pointInTime.toEpochMilli();
 
     int revision = binarySearch(timestamp);
 
@@ -613,7 +613,7 @@ public final class XdmResourceManager implements ResourceManager {
 
     if (revision == 0)
       return beginNodeReadTrx(0);
-    else if (revision == getMostRecentRevisionNumber())
+    else if (revision == getMostRecentRevisionNumber() + 1)
       return beginNodeReadTrx();
 
     final XdmNodeReadTrx rtxRevisionMinus1 = beginNodeReadTrx(revision - 1);
@@ -635,14 +635,14 @@ public final class XdmResourceManager implements ResourceManager {
 
   private int binarySearch(final long timestamp) {
     int low = 0;
-    int high = mLastCommittedUberPage.get().getRevisionNumber();
+    int high = getMostRecentRevisionNumber();
 
     while (low <= high) {
       final int mid = (low + high) >>> 1;
 
       try (final PageReadTrx trx = beginPageReadTrx(mid)) {
         final long midVal = trx.getActualRevisionRootPage().getRevisionTimestamp();
-        final int cmp = Long.valueOf(midVal).compareTo(timestamp);
+        final int cmp = Instant.ofEpochMilli(midVal).compareTo(Instant.ofEpochMilli(timestamp));
 
         if (cmp < 0)
           low = mid + 1;

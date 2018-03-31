@@ -26,6 +26,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
@@ -43,7 +44,7 @@ import org.sirix.node.Kind;
 import org.sirix.settings.Constants;
 import org.sirix.utils.DocumentCreater;
 
-public class ResourceManagerTest {
+public class XdmResourceManagerTest {
 
   private Holder holder;
 
@@ -71,7 +72,6 @@ public class ResourceManagerTest {
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     assertNotSame(manager2, holder.getResourceManager());
     database.close();
-
   }
 
   @Test
@@ -213,7 +213,6 @@ public class ResourceManagerTest {
 
     rtx2.close();
     resource3.close();
-
   }
 
   @Test
@@ -233,7 +232,7 @@ public class ResourceManagerTest {
 
   @Test
   public void testAutoCommitWithNodeThreshold() {
-    // After each bunch of 5 nodes.
+    // After each bunch of 5 nodes commit.
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(5)) {
       DocumentCreater.create(wtx);
       wtx.commit();
@@ -243,7 +242,7 @@ public class ResourceManagerTest {
 
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
-    // After each bunch of 5 nodes.
+    // After 500 milliseconds commit.
     try (final XdmNodeWriteTrx wtx =
         holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 500)) {
       TimeUnit.MILLISECONDS.sleep(1500);
@@ -252,10 +251,39 @@ public class ResourceManagerTest {
   }
 
   @Test
-  public void testAutoClose() {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
-    wtx.commit();
-    holder.getResourceManager().beginNodeReadTrx();
+  public void testFetchingOfClosestRevisionToAGivenPointInTime() throws InterruptedException {
+    final Instant start = Instant.now();
+    final Instant afterAllCommits;
+    final Instant afterFirstCommit;
+    final Instant afterSecondCommit;
+    try (final XdmNodeWriteTrx wtx =
+        holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 1000)) {
+      TimeUnit.MILLISECONDS.sleep(1100);
+      afterFirstCommit = Instant.now();
+      TimeUnit.MILLISECONDS.sleep(1100);
+      afterSecondCommit = Instant.now();
+      TimeUnit.MILLISECONDS.sleep(1100);
+      assertTrue(wtx.getRevisionNumber() >= 3);
+      afterAllCommits = Instant.now();
+    }
+
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(start)) {
+      assertEquals(0, rtx.getRevisionNumber());
+    }
+
+    try (
+        final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterFirstCommit)) {
+      assertEquals(1, rtx.getRevisionNumber());
+    }
+
+    try (final XdmNodeReadTrx rtx =
+        holder.getResourceManager().beginNodeReadTrx(afterSecondCommit)) {
+      assertEquals(2, rtx.getRevisionNumber());
+    }
+
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterAllCommits)) {
+      assertEquals(
+          holder.getResourceManager().getMostRecentRevisionNumber(), rtx.getRevisionNumber());
+    }
   }
 }
