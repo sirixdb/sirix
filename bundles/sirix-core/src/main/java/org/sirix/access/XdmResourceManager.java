@@ -250,6 +250,17 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
+  public XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodeCount) {
+    return beginNodeWriteTrx(maxNodeCount, TimeUnit.MINUTES, 0);
+  }
+
+  @Override
+  public XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnull TimeUnit timeUnit,
+      final @Nonnegative int maxTime) {
+    return beginNodeWriteTrx(0, timeUnit, maxTime);
+  }
+
+  @Override
   public synchronized XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodeCount,
       final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
     // Checks.

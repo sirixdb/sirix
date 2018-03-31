@@ -1,7 +1,6 @@
 package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.File;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -87,12 +86,12 @@ public final class ResourceStore implements AutoCloseable {
     });
   }
 
-  public boolean hasOpenResourceManager(Path resourceFile) {
+  public boolean hasOpenResourceManager(final Path resourceFile) {
     checkNotNull(resourceFile);
     return mResourceManagers.containsKey(resourceFile);
   }
 
-  public ResourceManager getOpenResourceManager(Path resourceFile) {
+  public ResourceManager getOpenResourceManager(final Path resourceFile) {
     checkNotNull(resourceFile);
     return mResourceManagers.get(resourceFile);
   }
@@ -102,7 +101,7 @@ public final class ResourceStore implements AutoCloseable {
     mResourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
   }
 
-  public boolean closeResource(Path resourceFile) {
+  public boolean closeResource(final Path resourceFile) {
     final ResourceManager manager = mResourceManagers.remove(resourceFile);
     Databases.removeResourceManager(resourceFile, manager);
     return manager != null;
