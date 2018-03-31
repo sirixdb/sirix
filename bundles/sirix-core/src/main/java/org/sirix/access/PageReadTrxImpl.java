@@ -80,9 +80,9 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
  * <h1>PageReadTransaction</h1>
  *
  * <p>
- * Page reading transaction. The only thing shared amongst transactions is the session. Everything
- * else is exclusive to this transaction. It is required that only a single thread has access to
- * this transaction.
+ * Page reading transaction. The only thing shared amongst transactions is the resource manager.
+ * Everything else is exclusive to this transaction. It is required that only a single thread has
+ * access to this transaction.
  * </p>
  */
 final class PageReadTrxImpl implements PageReadTrx {
@@ -123,9 +123,13 @@ final class PageReadTrxImpl implements PageReadTrx {
   /** Transaction intent log. */
   private final TransactionIntentLog mTrxIntentLog;
 
+  /** The transaction-ID. */
+  private long mTrxId;
+
   /**
    * Standard constructor.
    *
+   * @param trxId the transaction-ID.
    * @param resourceManager {@link XdmResourceManager} instance
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
@@ -135,12 +139,14 @@ final class PageReadTrxImpl implements PageReadTrx {
    * @param unorderedKeyValuePageWriteLog optional key/value page cache
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  PageReadTrxImpl(final XdmResourceManager resourceManager, final UberPage uberPage,
-      final @Nonnegative int revision, final Reader reader,
+  PageReadTrxImpl(final long trxId, final XdmResourceManager resourceManager,
+      final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
       final @Nullable TransactionIntentLog trxIntentLog,
       final @Nullable IndexController indexController, final @Nonnull BufferManager bufferManager)
       throws SirixIOException {
-    checkArgument(revision >= 0, "Revision must be >= 0!");
+    checkArgument(revision >= 0, "Revision must be >= 0.");
+    checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
+    mTrxId = trxId;
     mResourceBufferManager = checkNotNull(bufferManager);
     mTrxIntentLog = trxIntentLog;
     mClosed = false;
@@ -220,7 +226,13 @@ final class PageReadTrxImpl implements PageReadTrx {
   }
 
   @Override
-  public ResourceManager getSession() {
+  public long getTrxId() {
+    assertNotClosed();
+    return mTrxId;
+  }
+
+  @Override
+  public ResourceManager getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }
@@ -326,8 +338,7 @@ final class PageReadTrxImpl implements PageReadTrx {
         "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
         mResourceManager.getMostRecentRevisionNumber());
 
-    // The indirect page reference either fails horribly or returns a non null
-    // instance.
+    // The indirect page reference either fails horribly or returns a non null instance.
     final PageReference reference = getPageReferenceForPage(
         mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
     try {
@@ -347,6 +358,7 @@ final class PageReadTrxImpl implements PageReadTrx {
             || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
         page = (RevisionRootPage) mPageCache.get(reference);
       }
+
       return page;
     } catch (final ExecutionException | UncheckedExecutionException e) {
       throw new SirixIOException(e.getCause());
@@ -670,12 +682,14 @@ final class PageReadTrxImpl implements PageReadTrx {
       closeCaches();
       mPageReader.close();
 
+      if (!mResourceManager.getXdmNodeReadTrx(mTrxId).isPresent())
+        mResourceManager.closeReadTransaction(mTrxId);
       mClosed = true;
     }
   }
 
   @Override
-  public int getNameCount(int key, @Nonnull Kind kind) {
+  public int getNameCount(final int key, @Nonnull final Kind kind) {
     assertNotClosed();
     return mNamePage.getCount(key, kind);
   }

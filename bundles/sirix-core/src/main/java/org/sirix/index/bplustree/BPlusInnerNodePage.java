@@ -94,7 +94,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
     mRecordPageKey = in.readLong();
     final int size = in.readInt();
     mRecords = new TreeMap<>();
-    pageReadTrx.getSession().getResourceConfig();
+    pageReadTrx.getResourceManager().getResourceConfig();
     for (int offset = 0; offset < size; offset++) {
       new VoidValue();
     }
@@ -118,7 +118,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
     out.writeInt(mRecords.size());
     serializePointer(mLeftPage, out);
     serializePointer(mRightPage, out);
-    mPageReadTrx.getSession().getResourceConfig();
+    mPageReadTrx.getResourceManager().getResourceConfig();
     // for (final K record : mRecords.keySet()) {
     // persistenter.serialize(out, record, mPageReadTrx);
     // }

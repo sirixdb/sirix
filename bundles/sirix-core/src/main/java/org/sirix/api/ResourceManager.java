@@ -21,6 +21,7 @@
 
 package org.sirix.api;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
@@ -70,7 +71,7 @@ public interface ResourceManager extends AutoCloseable {
    *
    * @return The single node writer if available.
    */
-  Optional<XdmNodeWriteTrx> getNodeWriteTrx();
+  Optional<XdmNodeWriteTrx> getXdmNodeWriteTrx();
 
   /**
    * Begin a new {@link PageReadTrx}.
@@ -127,6 +128,17 @@ public interface ResourceManager extends AutoCloseable {
   XdmNodeReadTrx beginNodeReadTrx(@Nonnegative int revision);
 
   /**
+   * Begin a read-only transaction with the revision, which is closest to the given point in time.
+   *
+   * @param pointInTime the point in time
+   * @throws IllegalArgumentException if {@code revision < 0}
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
+   * @return {@link XdmNodeReadTrx} instance
+   */
+  XdmNodeReadTrx beginNodeReadTrx(@Nonnegative Instant pointInTime);
+
+  /**
    * Begin exclusive read/write transaction without auto commit.
    *
    * @param trx the transaction to use
@@ -148,7 +160,7 @@ public interface ResourceManager extends AutoCloseable {
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeReaderWriter} instance
    */
-  XdmNodeWriteTrx beginNodeReadTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
+  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
       final int maxTime);
 
   /**
@@ -234,5 +246,5 @@ public interface ResourceManager extends AutoCloseable {
    * @param ID The ID of the reader.
    * @return The node reader if available.
    */
-  Optional<XdmNodeReadTrx> getNodeReader(long ID);
+  Optional<XdmNodeReadTrx> getXdmNodeReadTrx(long ID);
 }

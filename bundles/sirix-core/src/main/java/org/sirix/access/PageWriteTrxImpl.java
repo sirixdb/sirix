@@ -151,7 +151,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     }
 
     // Page read trx.
-    mPageRtx = new PageReadTrxImpl(resourceManager, uberPage, representRev, writer, mLog,
+    mPageRtx = new PageReadTrxImpl(trxId, resourceManager, uberPage, representRev, writer, mLog,
         mIndexController, bufferManager);
 
     mPageWriter = writer;
@@ -167,7 +167,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     if (mUsePathSummary) {
       // Create path summary tree if needed.
-      PathSummaryPage page = mPageRtx.getPathSummaryPage(mNewRoot);
+      final PathSummaryPage page = mPageRtx.getPathSummaryPage(mNewRoot);
 
       page.createPathSummaryTree(mPageRtx, 0, mLog);
 
@@ -228,7 +228,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter, this);
 
       return new TransactionIntentLog(persistentFileCache);
-    } catch (IOException e) {
+    } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
   }
@@ -355,7 +355,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       throws SirixIOException {
     mPageRtx.assertNotClosed();
     checkNotNull(nodeKind);
-    final String string = (name == null ? "" : name);
+    final String string = (name == null
+        ? ""
+        : name);
     final int nameKey = NamePageHash.generateHashForString(string);
     final NamePage namePage = getNamePage(mNewRoot);
     namePage.setName(nameKey, string, nodeKind);
@@ -489,6 +491,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       closeCaches();
       mPageWriter.close();
       mIsClosed = true;
+
+      final long trxId = mPageRtx.getTrxId();
+
+      if (!mPageRtx.mResourceManager.getXdmNodeReadTrx(trxId).isPresent())
+        mPageRtx.mResourceManager.closeWriteTransaction(trxId);
     }
   }
 
@@ -515,7 +522,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    */
   private IndirectPage prepareIndirectPage(final PageReference reference) throws SirixIOException {
     final PageContainer cont = mLog.get(reference);
-    IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
+    IndirectPage page = cont == null
+        ? null
+        : (IndirectPage) cont.getComplete();
     if (page == null) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         page = new IndirectPage();
@@ -682,8 +691,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> truncateTo(int revision) {
+  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> truncateTo(final int revision) {
     mPageWriter.truncateTo(revision);
     return this;
+  }
+
+  @Override
+  public long getTrxId() {
+    return mPageRtx.getTrxId();
   }
 }

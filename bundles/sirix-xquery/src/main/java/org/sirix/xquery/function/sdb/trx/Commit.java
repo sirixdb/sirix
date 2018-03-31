@@ -54,7 +54,7 @@ public final class Commit extends AbstractFunction {
       final ResourceManager manager = doc.getTrx().getResourceManager();
       final XdmNodeWriteTrx wtx;
       if (manager.getAvailableNodeWriteTrx() == 0) {
-        wtx = manager.getNodeWriteTrx().get();
+        wtx = manager.getXdmNodeWriteTrx().get();
       } else {
         wtx = manager.beginNodeWriteTrx();
       }

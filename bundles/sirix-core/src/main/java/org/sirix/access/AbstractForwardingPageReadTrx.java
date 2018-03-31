@@ -61,8 +61,8 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
   }
 
   @Override
-  public ResourceManager getSession() {
-    return delegate().getSession();
+  public ResourceManager getResourceManager() {
+    return delegate().getResourceManager();
   }
 
   @Override

@@ -76,7 +76,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  *
  * <pre>
- *   try(final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+ *   try(final NodeReadTrx rtx = xdmresource.beginNodeReadTrx()) {
  *     // Either test before moving...
  *     if (rtx.hasFirstChild()) {
  *       rtx.moveToFirstChild();

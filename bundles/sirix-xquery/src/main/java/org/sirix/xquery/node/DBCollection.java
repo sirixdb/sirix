@@ -278,7 +278,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     if (updatable) {
       if (resource.getAvailableNodeWriteTrx() == 0) {
         final Optional<XdmNodeWriteTrx> optionalWriteTrx;
-        optionalWriteTrx = resource.getNodeWriteTrx();
+        optionalWriteTrx = resource.getXdmNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();
