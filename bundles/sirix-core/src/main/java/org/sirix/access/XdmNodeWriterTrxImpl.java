@@ -1763,7 +1763,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         // Shutdown pool.
         mPool.shutdown();
         try {
-          mPool.awaitTermination(100, TimeUnit.SECONDS);
+          mPool.awaitTermination(2, TimeUnit.SECONDS);
         } catch (final InterruptedException e) {
           throw new SirixThreadedException(e);
         }
@@ -1936,8 +1936,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
   private void addParentHash(final ImmutableNode startNode) throws SirixIOException {
     switch (mHashKind) {
       case ROLLING:
-        long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
-        Node node = (Node) getPageTransaction().prepareEntryForModification(
+        final long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+        final Node node = (Node) getPageTransaction().prepareEntryForModification(
             mNodeReader.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1, Optional.empty());
         node.setHash(node.getHash() + hashToAdd * PRIME);
         if (startNode instanceof StructNode) {
@@ -1964,7 +1964,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
             : oldDescendantCount + 1;
 
         // Set start node.
-        long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+        final long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
         Node node = (Node) getPageTransaction().prepareEntryForModification(
             mNodeReader.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
             Optional.<UnorderedKeyValuePage>empty());
@@ -2588,7 +2588,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 
         if (xml.startsWith("<")) {
           while (reader.hasNext()) {
-            XMLEvent event = reader.peek();
+            final XMLEvent event = reader.peek();
 
             if (event.isStartDocument()) {
               reader.nextEvent();
@@ -2741,7 +2741,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param key
    * @throws SirixException
    */
-  private void removeReplaced(final StructNode node, @Nonnegative long key) throws SirixException {
+  private void removeReplaced(final StructNode node, @Nonnegative final long key) throws SirixException {
     assert node != null;
     assert key >= 0;
     moveTo(node.getNodeKey());
@@ -2809,7 +2809,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx truncateTo(int revision) {
+  public XdmNodeWriteTrx truncateTo(final int revision) {
     // TODO Auto-generated method stub
     return null;
   }

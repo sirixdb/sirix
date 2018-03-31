@@ -152,6 +152,31 @@ public interface ResourceManager extends AutoCloseable {
    * Begin exclusive read/write transaction with auto commit.
    *
    * @param maxNodes count of node modifications after which a commit is issued
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @throws IllegalArgumentException if {@code maxNodes < 0}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
+   * @return {@link XdmNodeReaderWriter} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
+
+  /**
+   * Begin exclusive read/write transaction with auto commit.
+   *
+   * @param timeUnit unit used for time
+   * @param maxTime time after which a commit is issued
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @throws IllegalArgumentException if {@code maxNodes < 0}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
+   * @return {@link XdmNodeReaderWriter} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+
+  /**
+   * Begin exclusive read/write transaction with auto commit.
+   *
+   * @param maxNodes count of node modifications after which a commit is issued
    * @param timeUnit unit used for time
    * @param maxTime time after which a commit is issued
    * @throws SirixThreadedException if the thread is interrupted
