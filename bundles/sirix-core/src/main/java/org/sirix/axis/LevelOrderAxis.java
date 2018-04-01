@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -25,14 +25,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
 /**
  * Iterates over a subtree in levelorder / in a breath first traversal.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class LevelOrderAxis extends AbstractAxis {
 
@@ -53,7 +54,7 @@ public final class LevelOrderAxis extends AbstractAxis {
   /**
    * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
    */
-  private IncludeNodes mIncludeNodes;
+  private final IncludeNodes mIncludeNodes;
 
   /** Determines if {@code hasNext()} is called for the first time. */
   private boolean mFirst;
@@ -66,7 +67,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /**
    * Get a new builder instance.
-   * 
+   *
    * @param rtx the {@link XdmNodeReadTrx} to iterate with
    * @return {@link Builder} instance
    */
@@ -85,14 +86,14 @@ public final class LevelOrderAxis extends AbstractAxis {
     private int mFilterLevel = Integer.MAX_VALUE;
 
     /** Sirix {@link XdmNodeReadTrx}. */
-    private XdmNodeReadTrx mRtx;
+    private final XdmNodeReadTrx mRtx;
 
     /** Determines if current start node to traversal should be included or not. */
     private IncludeSelf mIncludeSelf = IncludeSelf.NO;
 
     /**
      * Constructor.
-     * 
+     *
      * @param rtx Sirix {@link XdmNodeReadTrx}
      */
     public Builder(final XdmNodeReadTrx rtx) {
@@ -101,7 +102,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
     /**
      * Determines that non-structural nodes (attributes, namespaces) should be taken into account.
-     * 
+     *
      * @return this builder instance
      */
     public Builder includeNonStructuralNodes() {
@@ -111,7 +112,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
     /**
      * Determines that the current node should also be considered.
-     * 
+     *
      * @return this builder instance
      */
     public Builder includeSelf() {
@@ -121,7 +122,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
     /**
      * Determines the maximum level to filter.
-     * 
+     *
      * @param filterLevel maximum level to filter nodes
      * @return this builder instance
      */
@@ -133,7 +134,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
     /**
      * Build a new instance.
-     * 
+     *
      * @return new instance
      */
     public LevelOrderAxis build() {
@@ -143,7 +144,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /**
    * Constructor initializing internal state.
-   * 
+   *
    * @param builder the builder reference
    */
   private LevelOrderAxis(final Builder builder) {
@@ -161,41 +162,41 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx rtx = getTrx();
+    final NodeCursor cursor = getCursor();
     // Determines if it's the first call to hasNext().
     if (mFirst) {
       mFirst = false;
 
-      if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
+      if (cursor.getKind() == Kind.ATTRIBUTE || cursor.getKind() == Kind.NAMESPACE) {
         return done();
       }
 
       if (isSelfIncluded() == IncludeSelf.YES) {
-        return rtx.getNodeKey();
+        return cursor.getNodeKey();
       } else {
-        if (rtx.hasRightSibling()) {
-          return rtx.getRightSiblingKey();
-        } else if (rtx.hasFirstChild()) {
-          return rtx.getFirstChildKey();
+        if (cursor.hasRightSibling()) {
+          return cursor.getRightSiblingKey();
+        } else if (cursor.hasFirstChild()) {
+          return cursor.getFirstChildKey();
         } else {
           return done();
         }
       }
     }
     // Follow right sibling if there is one.
-    if (rtx.hasRightSibling()) {
+    if (cursor.hasRightSibling()) {
       processElement();
       // Add first child to queue.
-      if (rtx.hasFirstChild()) {
-        mFirstChilds.add(rtx.getFirstChildKey());
+      if (cursor.hasFirstChild()) {
+        mFirstChilds.add(cursor.getFirstChildKey());
       }
-      return rtx.getRightSiblingKey();
+      return cursor.getRightSiblingKey();
     }
 
     // Add first child to queue.
     processElement();
-    if (rtx.hasFirstChild()) {
-      mFirstChilds.add(rtx.getFirstChildKey());
+    if (cursor.hasFirstChild()) {
+      mFirstChilds.add(cursor.getFirstChildKey());
     }
 
     // Then follow first child on stack.
@@ -227,7 +228,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /** Process an element node. */
   private void processElement() {
-    final XdmNodeReadTrx rtx = (XdmNodeReadTrx) getTrx();
+    final XdmNodeReadTrx rtx = getTrx();
     if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
       for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
         rtx.moveToNamespace(i);

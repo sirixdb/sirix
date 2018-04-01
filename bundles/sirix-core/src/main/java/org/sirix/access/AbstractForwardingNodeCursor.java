@@ -9,9 +9,9 @@ import com.google.common.collect.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractForwardingNodeCursor extends ForwardingObject implements NodeCursor {
 
@@ -22,14 +22,44 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   protected abstract NodeCursor delegate();
 
   @Override
-  public VisitResult acceptVisitor(Visitor visitor) {
+  public VisitResult acceptVisitor(final Visitor visitor) {
     return delegate().acceptVisitor(visitor);
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return delegate().getFirstChildKey();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return delegate().getLastChildKey();
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return delegate().getLeftSiblingKey();
+  }
+
+  @Override
+  public long getParentKey() {
+    return delegate().getParentKey();
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return delegate().getRightSiblingKey();
+  }
+
+  @Override
+  public Move<? extends NodeCursor> moveToNextFollowing() {
+    return delegate().moveToNextFollowing();
   }
 
   @Override
   public Kind getFirstChildKind() {
     return delegate().getFirstChildKind();
-  };
+  }
 
   @Override
   public Kind getKind() {
@@ -82,7 +112,7 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public boolean hasNode(long key) {
+  public boolean hasNode(final long key) {
     return delegate().hasNode(key);
   }
 
@@ -97,7 +127,7 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public Move<? extends NodeCursor> moveTo(long key) {
+  public Move<? extends NodeCursor> moveTo(final long key) {
     return delegate().moveTo(key);
   }
 

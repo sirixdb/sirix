@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,12 +23,12 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
 import org.sirix.node.Kind;
 
 /**
  * <h1>PrecedingAxis</h1>
- * 
+ *
  * <p>
  * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given node. Self is not
  * included. Note that the nodes are retrieved in reverse document order.
@@ -44,11 +44,11 @@ public final class PrecedingAxis extends AbstractAxis {
 
   /**
    * Constructor initializing internal state.
-   * 
-   * @param rtx exclusive (immutable) trx to iterate with
+   *
+   * @param cursor cursor to iterate with
    */
-  public PrecedingAxis(final XdmNodeReadTrx rtx) {
-    super(rtx);
+  public PrecedingAxis(final NodeCursor cursor) {
+    super(cursor);
     mIsFirst = true;
     mStack = new ArrayDeque<>();
   }
@@ -62,45 +62,45 @@ public final class PrecedingAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx rtx = getTrx();
+    final NodeCursor cursor = getCursor();
 
     // Assure, that preceding is not evaluated on an attribute or a namespace.
     if (mIsFirst) {
       mIsFirst = false;
-      if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
+      if (cursor.getKind() == Kind.ATTRIBUTE || cursor.getKind() == Kind.NAMESPACE) {
         return done();
       }
     }
 
     // Current node key.
-    final long key = rtx.getNodeKey();
+    final long key = cursor.getNodeKey();
 
     if (!mStack.isEmpty()) {
       // Return all nodes of the current subtree in reverse document order.
       return mStack.pop();
     }
 
-    if (rtx.hasLeftSibling()) {
-      getTrx().moveToLeftSibling();
+    if (cursor.hasLeftSibling()) {
+      cursor.moveToLeftSibling();
       /*
        * Because this axis return the precedings in reverse document order, we need to iterate to
        * the node in the subtree, that comes last in document order.
        */
       getLastChild();
-      final long nodeKey = rtx.getNodeKey();
-      getTrx().moveTo(key);
+      final long nodeKey = cursor.getNodeKey();
+      cursor.moveTo(key);
       return nodeKey;
     }
 
-    while (rtx.hasParent()) {
+    while (cursor.hasParent()) {
       // Ancestors are not part of the preceding set.
-      getTrx().moveToParent();
-      if (rtx.hasLeftSibling()) {
-        getTrx().moveToLeftSibling();
+      cursor.moveToParent();
+      if (cursor.hasLeftSibling()) {
+        cursor.moveToLeftSibling();
         // Move to last node in the subtree.
         getLastChild();
-        final long nodeKey = rtx.getNodeKey();
-        getTrx().moveTo(key);
+        final long nodeKey = cursor.getNodeKey();
+        cursor.moveTo(key);
         return nodeKey;
       }
     }
@@ -114,28 +114,28 @@ public final class PrecedingAxis extends AbstractAxis {
    * the last one in reverse document order.
    */
   private void getLastChild() {
-    final XdmNodeReadTrx rtx = getTrx();
+    final NodeCursor cursor = getCursor();
 
     // Nodekey of the root of the current subtree.
-    final long parent = rtx.getNodeKey();
+    final long parent = cursor.getNodeKey();
 
     /*
      * Traverse tree in pre order to the leftmost leaf of the subtree and push all nodes to the
      * stack
      */
-    if (rtx.hasFirstChild()) {
-      while (rtx.hasFirstChild()) {
-        mStack.push(rtx.getNodeKey());
-        getTrx().moveToFirstChild();
+    if (cursor.hasFirstChild()) {
+      while (cursor.hasFirstChild()) {
+        mStack.push(cursor.getNodeKey());
+        cursor.moveToFirstChild();
       }
 
       /*
        * Traverse all the siblings of the leftmost leave and all their descendants and push all of
        * them to the stack
        */
-      while (rtx.hasRightSibling()) {
-        mStack.push(rtx.getNodeKey());
-        getTrx().moveToRightSibling();
+      while (cursor.hasRightSibling()) {
+        mStack.push(cursor.getNodeKey());
+        cursor.moveToRightSibling();
         getLastChild();
       }
 
@@ -143,28 +143,26 @@ public final class PrecedingAxis extends AbstractAxis {
        * Step up the path till the root of the current subtree and process all right siblings and
        * their descendants on each step.
        */
-      if (rtx.hasParent() && (rtx.getParentKey() != parent)) {
-
-        mStack.push(rtx.getNodeKey());
-        while (rtx.hasParent() && (rtx.getParentKey() != parent)) {
-
-          getTrx().moveToParent();
+      if (cursor.hasParent() && (cursor.getParentKey() != parent)) {
+        mStack.push(cursor.getNodeKey());
+        while (cursor.hasParent() && (cursor.getParentKey() != parent)) {
+          cursor.moveToParent();
 
           /*
            * Traverse all the siblings of the leftmost leave and all their descendants and push all
            * of them to the stack
            */
-          while (rtx.hasRightSibling()) {
-            getTrx().moveToRightSibling();
+          while (cursor.hasRightSibling()) {
+            cursor.moveToRightSibling();
             getLastChild();
-            mStack.push(rtx.getNodeKey());
+            mStack.push(cursor.getNodeKey());
           }
         }
 
         /*
-         * Set transaction to the node in the subtree that is last in document order.
+         * Set cursor to the node in the subtree that is last in document order.
          */
-        getTrx().moveTo(mStack.pop());
+        cursor.moveTo(mStack.pop());
       }
     }
   }

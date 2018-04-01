@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,13 +21,13 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
 
 /**
  * <h1>ParentAxis</h1>
- * 
+ *
  * <p>
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>
@@ -38,11 +38,11 @@ public final class ParentAxis extends AbstractAxis {
 
   /**
    * Constructor initializing internal state.
-   * 
+   *
    * @param rtx exclusive (immutable) trx to iterate with.
    */
-  public ParentAxis(final XdmNodeReadTrx rtx) {
-    super(rtx);
+  public ParentAxis(final NodeCursor cursor) {
+    super(cursor);
   }
 
   @Override
@@ -53,12 +53,14 @@ public final class ParentAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx rtx = getTrx();
-    if (rtx.getKind() != Kind.DOCUMENT && mFirst && rtx.hasParent()
-        && rtx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+    final NodeCursor cursor = getCursor();
+
+    if (cursor.getKind() != Kind.DOCUMENT && mFirst && cursor.hasParent()
+        && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
-      return rtx.getParentKey();
+      return cursor.getParentKey();
     }
+
     return done();
   }
 }
