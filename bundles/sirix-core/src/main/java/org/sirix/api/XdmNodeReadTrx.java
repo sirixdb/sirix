@@ -64,9 +64,9 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
- * <code>(NodeReadTrx.moveToX().hasMoved() &&
+ * <code>(NodeReadTrx.moveTo(m).hasMoved() &&
  *       NodeReadTrx.getNodeKey() == m) ||
- *       (!NodeReadTrx.moveToX().hasMoved() &&
+ *       (!NodeReadTrx.moveTo(m).hasMoved() &&
  *       NodeReadTrx.getNodeKey() == n)</code>.</li>
  * </ol>
  * </p>
@@ -76,7 +76,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  *
  * <pre>
- *   try(final NodeReadTrx rtx = xdmresource.beginNodeReadTrx()) {
+ *   try(final NodeReadTrx rtx = resourcemgr.beginNodeReadTrx()) {
  *     // Either test before moving...
  *     if (rtx.hasFirstChild()) {
  *       rtx.moveToFirstChild();
@@ -266,7 +266,7 @@ public interface XdmNodeReadTrx extends NodeCursor {
   void close();
 
   /**
-   * Is this transaction closed?
+   * Determines if this transaction is closed.
    *
    * @return {@code true} if closed, {@code false} otherwise
    */
