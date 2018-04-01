@@ -118,7 +118,11 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * </p>
  */
 public interface XdmNodeReadTrx extends NodeCursor {
-
+  /**
+   * Get the page reading transaction.
+   *
+   * @return The page reading transaction.
+   */
   PageReadTrx getPageTrx();
 
   /** String constants used by XPath. */
@@ -186,19 +190,10 @@ public interface XdmNodeReadTrx extends NodeCursor {
    * Move cursor to namespace declaration by its index.
    *
    * @param index index of attribute to move to
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
+   * @return {@link Moved} instance if the namespace node is selected, {@code NotMoved} instance
    *         otherwise
    */
   Move<? extends XdmNodeReadTrx> moveToNamespace(@Nonnegative int index);
-
-  /**
-   * Move to the next following node, that is the next node on the XPath {@code following::-axis},
-   * that is the next node which is not a descendant of the current node.
-   *
-   * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
-   *         otherwise
-   */
-  Move<? extends XdmNodeReadTrx> moveToNextFollowing();
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -280,40 +275,8 @@ public interface XdmNodeReadTrx extends NodeCursor {
   @Override
   long getNodeKey();
 
-  /**
-   * Get the left sibling node key of the currently selected node.
-   *
-   * @return left sibling node key of the currently selected node
-   */
-  long getLeftSiblingKey();
-
-  /**
-   * Get the right sibling node key of the currently selected node.
-   *
-   * @return right sibling node key of the currently selected node
-   */
-  long getRightSiblingKey();
-
-  /**
-   * Get the first child key of the currently selected node.
-   *
-   * @return first child key of the currently selected node
-   */
-  long getFirstChildKey();
-
-  /**
-   * Get the last child key of the currently selected node.
-   *
-   * @return last child key of the currently selected node
-   */
-  long getLastChildKey();
-
-  /**
-   * Get the parent key of the currently selected node.
-   *
-   * @return parent key of the currently selected node
-   */
-  long getParentKey();
+  @Override
+  public Move<? extends XdmNodeReadTrx> moveToNextFollowing();
 
   /**
    * Get the left {@link SirixDeweyID} of the currently selected node.

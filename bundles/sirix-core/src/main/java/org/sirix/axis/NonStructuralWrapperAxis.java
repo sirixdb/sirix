@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -28,11 +28,11 @@ import org.sirix.settings.Fixed;
 
 /**
  * <h1>NonStructuralWrapperAxis</h1>
- * 
+ *
  * <p>
  * Adds non-structural nodes (that is namespaces and attributes) to an axis.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public final class NonStructuralWrapperAxis extends AbstractAxis {
@@ -51,9 +51,8 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   /**
    * Constructor initializing internal state.
-   * 
+   *
    * @param parentAxis inner nested axis
-   * @param pChildAxis outer nested axis
    */
   public NonStructuralWrapperAxis(final Axis parentAxis) {
     super(parentAxis.getTrx());
@@ -73,7 +72,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx trx = mParentAxis.getTrx();
+    final XdmNodeReadTrx trx = (XdmNodeReadTrx) mParentAxis.getTrx();
     if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
       final long nodeKey = nonStructural(trx);
       if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -82,7 +81,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
     }
 
     if (mParentAxis.hasNext()) {
-      long key = mParentAxis.next();
+      final long key = mParentAxis.next();
       mFirst = false;
       mNspIndex = 0;
       mAttIndex = 0;
@@ -94,7 +93,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   /**
    * Determine if non structural nodes must be emitted.
-   * 
+   *
    * @param trx Sirix {@link XdmNodeReadTrx}
    * @return the node key of the non structural node, or the {@code NULL_NODE_KEY}
    */

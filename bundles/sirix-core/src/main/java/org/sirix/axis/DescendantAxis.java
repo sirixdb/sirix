@@ -24,7 +24,7 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
 import org.sirix.settings.Fixed;
 
 /**
@@ -46,25 +46,25 @@ public final class DescendantAxis extends AbstractAxis {
   /**
    * Constructor initializing internal state.
    *
-   * @param rtx exclusive (immutable) trx to iterate with
+   * @param cursor cursor to iterate with
    */
-  public DescendantAxis(final XdmNodeReadTrx rtx) {
-    super(rtx);
+  public DescendantAxis(final NodeCursor cursor) {
+    super(cursor);
   }
 
   /**
    * Constructor initializing internal state.
    *
-   * @param rtx Exclusive (immutable) trx to iterate with.
-   * @param includeSelf Is self included?
+   * @param cursor cursor to iterate with
+   * @param includeSelf determines if current node is included or not
    */
-  public DescendantAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-    super(rtx, includeSelf);
+  public DescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
+    super(cursor, includeSelf);
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mFirst = true;
     mRightSiblingKeyStack = new ArrayDeque<>();
   }
@@ -73,38 +73,40 @@ public final class DescendantAxis extends AbstractAxis {
   protected long nextKey() {
     long key = Fixed.NULL_NODE_KEY.getStandardProperty();
 
+    final NodeCursor cursor = getCursor();
+
     // Determines if first call to hasNext().
     if (mFirst) {
       mFirst = false;
 
       if (isSelfIncluded() == IncludeSelf.YES) {
-        key = getTrx().getNodeKey();
+        key = cursor.getNodeKey();
       } else {
-        key = getTrx().getFirstChildKey();
+        key = cursor.getFirstChildKey();
       }
 
       return key;
     }
 
     // Always follow first child if there is one.
-    if (getTrx().hasFirstChild()) {
-      key = getTrx().getFirstChildKey();
-      if (getTrx().hasRightSibling()) {
-        mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
+    if (cursor.hasFirstChild()) {
+      key = cursor.getFirstChildKey();
+      if (cursor.hasRightSibling()) {
+        mRightSiblingKeyStack.push(cursor.getRightSiblingKey());
       }
       return key;
     }
 
     // Then follow right sibling if there is one.
-    if (getTrx().hasRightSibling()) {
-      final long currKey = getTrx().getNodeKey();
-      key = getTrx().getRightSiblingKey();
+    if (cursor.hasRightSibling()) {
+      final long currKey = cursor.getNodeKey();
+      key = cursor.getRightSiblingKey();
       return hasNextNode(key, currKey);
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
-      final long currKey = getTrx().getNodeKey();
+      final long currKey = cursor.getNodeKey();
       key = mRightSiblingKeyStack.pop();
       return hasNextNode(key, currKey);
     }
@@ -119,7 +121,7 @@ public final class DescendantAxis extends AbstractAxis {
    * @param currKey current node key
    * @return {@code false} if finished, {@code true} if not
    */
-  private long hasNextNode(@Nonnegative long key, final @Nonnegative long currKey) {
+  private long hasNextNode(@Nonnegative final long key, final @Nonnegative long currKey) {
     getTrx().moveTo(key);
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
       return done();

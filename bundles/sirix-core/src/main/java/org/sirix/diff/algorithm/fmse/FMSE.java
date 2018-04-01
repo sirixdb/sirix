@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
@@ -51,7 +52,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Optional;
 
 /**
  * Provides the fast match / edit script (fmes) tree to tree correction algorithm as described in
@@ -59,11 +59,11 @@ import com.google.common.base.Optional;
  * Garcia-Molina and J. Widom Stanford University, 1996 ([CRGMW95]) <br>
  * FMES is used by the <a href="http://www.logilab.org/projects/xmldiff">python script</a> xmldiff
  * from Logilab. <br>
- * 
+ *
  * Based on the FMES version of Daniel Hottinger and Franziska Meyer.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class FMSE implements ImportDiff, AutoCloseable {
 
@@ -202,7 +202,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * First step of the edit script algorithm. Combines the update, insert, align and move phases.
-   * 
+   *
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revisionso
    * @param pRtxn {@link XdmNodeReadTrx} implementation reference o new revision
    */
@@ -226,7 +226,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Do the actual first step of FSME.
-   * 
+   *
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
    * @throws SirixException if anything in sirix fails
@@ -290,7 +290,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Second step of the edit script algorithm. This is the delete phase.
-   * 
+   *
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
    */
@@ -303,7 +303,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
                                               .includeSelf()
                                               .visitor(
-                                                  Optional.<DeleteFMSEVisitor>of(
+                                                  Optional.of(
                                                       new DeleteFMSEVisitor(wtx, mTotalMatching,
                                                           mOldStartKey)))
                                               .build());
@@ -311,7 +311,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Alignes the children of a node x according the the children of node w.
-   * 
+   *
    * @param w node in the first document
    * @param x node in the second document
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
@@ -374,7 +374,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Mark children out of order.
-   * 
+   *
    * @param rtx {@link XdmNodeReadTrx} reference
    * @param inOrder {@link Map} to put all children out of order
    */
@@ -388,7 +388,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * The sequence of children of n whose partners are children of o. This is used by
    * alignChildren().
-   * 
+   *
    * @param n parent node in a document tree
    * @param o corresponding parent node in the other tree
    * @param firstRtx {@link XdmNodeReadTrx} on pN node
@@ -429,7 +429,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Emits the move of node "child" to the pPos-th child of node "parent".
-   * 
+   *
    * @param child child node to move
    * @param parent node where to insert the moved subtree
    * @param pos position among the childs to move to
@@ -534,7 +534,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   private void checkFromNodeForTextRemoval(final XdmNodeWriteTrx wtx, final long child) {
-    boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child ? true : false;
+    boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child
+        ? true
+        : false;
     if (wtx.moveTo(child).hasMoved()) {
       boolean isText = false;
       if (wtx.hasLeftSibling()) {
@@ -564,7 +566,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Emit an update.
-   * 
+   *
    * @param fromNode the node to update
    * @param toNode the new node
    * @param pWtxnull {@link XdmNodeWriteTrx} implementation reference on old revision
@@ -611,7 +613,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Emit an insert operation.
-   * 
+   *
    * @param parent parent of the current {@link Node} implementation reference to insert
    * @param child the current node to insert
    * @param pos position of the insert
@@ -711,8 +713,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
             oldAxis.next();
             newAxis.next();
-            final XdmNodeReadTrx oldRtx = oldAxis.getTrx();
-            final XdmNodeReadTrx newRtx = newAxis.getTrx();
+            final XdmNodeReadTrx oldRtx = (XdmNodeReadTrx) oldAxis.getTrx();
+            final XdmNodeReadTrx newRtx = (XdmNodeReadTrx) newAxis.getTrx();
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
@@ -761,7 +763,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Remove right sibling text node from the storage as well as from the matching.
-   * 
+   *
    * @param wtx sirix {@link XdmNodeWriteTrx}
    * @throws SirixException if removing of node in the storage fails
    */
@@ -780,7 +782,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Process nodes and add update data structures.
-   * 
+   *
    * @param oldKey {@link Node} in old revision
    * @param newKey {@link Node} in new revision
    */
@@ -802,7 +804,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * The position of node x in the destination tree (tree2).
-   * 
+   *
    * @param x a node in the second (new) document
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
@@ -882,7 +884,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * The fast match algorithm. Try to resolve the "good matching problem".
-   * 
+   *
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
    * @return {@link Matching} reference with matched nodes
@@ -922,7 +924,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Actual matching.
-   * 
+   *
    * @param oldLabels nodes in tree1, sorted by node type (element, attribute, text, comment, ...)
    * @param newLabels nodes in tree2, sorted by node type (element, attribute, text, comment, ...)
    * @param matching {@link Matching} reference
@@ -983,7 +985,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Remove nodes in common.
-   * 
+   *
    * @param list {@link List} of {@link Node}s
    * @param seen {@link Map} of {@link Node}s
    */
@@ -1002,7 +1004,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Initialize data structures.
-   * 
+   *
    * @param rtx {@link IRriteTransaction} implementation reference on old revision
    * @param visitor {@link Visitor} reference
    * @throws SirixException if anything in sirix fails
@@ -1025,7 +1027,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * Creates a flat list of all nodes by doing an in-order-traversal. NOTE: Since this is not a
    * binary tree, we use post-order-traversal (wrong in paper). For each node type (element,
    * attribute, text, comment, ...) there is a separate list.
-   * 
+   *
    * @param rtx {@link XdmNodeReadTrx} reference
    * @param visitor {@link LabelFMSEVisitor} used to save node type/list
    */
@@ -1048,7 +1050,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * Compares the values of two nodes. Values are the text content, if the nodes do have child nodes
    * or the name for inner nodes such as element or attribute (an attribute has one child: the
    * value).
-   * 
+   *
    * @param x first node
    * @param y second node
    * @param pRtx {@link XdmNodeReadTrx} implementation reference
@@ -1065,13 +1067,15 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final String a = getNodeValue(x, rtxOld);
     final String b = getNodeValue(y, rtxNew);
 
-    return a == null ? b == null : a.equals(b);
+    return a == null
+        ? b == null
+        : a.equals(b);
   }
 
   /**
    * Get node value of current node which is the string representation of {@link QName}s in the form
    * {@code prefix:localName} or the value of {@link TextNode}s.
-   * 
+   *
    * @param nodeKey node from which to get the value
    * @param rtx {@link XdmNodeReadTrx} implementation reference
    * @return string value of current node
@@ -1177,7 +1181,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     /**
      * Constructor.
-     * 
+     *
      * @param matching {@link Matching} reference
      * @param pWtx {@link XdmNodeWriteTrx} implementation reference on old revision
      * @param pRtx {@link XdmNodeReadTrx} implementation reference on new revision
@@ -1230,7 +1234,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Calculate ratio between 0 and 1 between two String values for {@code text-nodes} denoted.
-   * 
+   *
    * @param pFirstNode node key of first node
    * @param pSecondNode node key of second node
    * @return ratio between 0 and 1, whereas 1 is a complete match and 0 denotes that the Strings are
@@ -1252,7 +1256,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Check if ancestors are equal.
-   * 
+   *
    * @param oldKey start key in old revision
    * @param newKey start key in new revision
    * @return {@code true} if all ancestors up to the start keys of the FMSE-algorithm, {@code false}

@@ -27,6 +27,7 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
@@ -48,7 +49,7 @@ import com.google.common.base.MoreObjects;
 public abstract class AbstractAxis implements Axis {
 
   /** Iterate over transaction exclusive to this step. */
-  protected final XdmNodeReadTrx mRtx;
+  protected final NodeCursor mNodeCursor;
 
   /** Key of next node. */
   private long mKey;
@@ -80,26 +81,26 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Bind axis step to transaction.
    *
-   * @param rtx transaction to operate with
-   * @throws NullPointerException if {@code paramRtx} is {@code null}
+   * @param nodeCursor node cursor
+   * @throws NullPointerException if {@code nodeCursor} is {@code null}
    */
-  public AbstractAxis(final XdmNodeReadTrx rtx) {
-    mRtx = checkNotNull(rtx);
+  public AbstractAxis(final NodeCursor nodeCursor) {
+    mNodeCursor = checkNotNull(nodeCursor);
     mIncludeSelf = IncludeSelf.NO;
-    reset(rtx.getNodeKey());
+    reset(nodeCursor.getNodeKey());
   }
 
   /**
    * Bind axis step to transaction.
    *
-   * @param rtx transaction to operate with
+   * @param nodeCursor node cursor
    * @param includeSelf determines if self is included
-   * @throws NullPointerException if {@code rtx} or {@code includeSelf} is {@code null}
+   * @throws NullPointerException if {@code nodeCursor} or {@code includeSelf} is {@code null}
    */
-  public AbstractAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-    mRtx = checkNotNull(rtx);
+  public AbstractAxis(final NodeCursor nodeCursor, final IncludeSelf includeSelf) {
+    mNodeCursor = checkNotNull(nodeCursor);
     mIncludeSelf = checkNotNull(includeSelf);
-    reset(rtx.getNodeKey());
+    reset(nodeCursor.getNodeKey());
   }
 
   @Override
@@ -217,11 +218,11 @@ public abstract class AbstractAxis implements Axis {
 
     // Move to next.
     if (mKey >= 0) {
-      if (!mRtx.moveTo(mKey).hasMoved()) {
+      if (!mNodeCursor.moveTo(mKey).hasMoved()) {
         throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
       }
     } else {
-      mRtx.moveTo(mKey);
+      mNodeCursor.moveTo(mKey);
     }
     return mKey;
   }
@@ -246,14 +247,14 @@ public abstract class AbstractAxis implements Axis {
     mState = State.NOT_READY;
   }
 
-  /**
-   * Get current {@link XdmNodeReadTrx}.
-   *
-   * @return the {@link XdmNodeReadTrx} used
-   */
   @Override
   public XdmNodeReadTrx getTrx() {
-    return mRtx;
+    return (XdmNodeReadTrx) mNodeCursor;
+  }
+
+  @Override
+  public NodeCursor getCursor() {
+    return mNodeCursor;
   }
 
   /**
@@ -264,7 +265,7 @@ public abstract class AbstractAxis implements Axis {
    */
   private final long resetToStartKey() {
     // No check because of IAxis Convention 4.
-    mRtx.moveTo(mStartKey);
+    mNodeCursor.moveTo(mStartKey);
     return mStartKey;
   }
 
@@ -276,7 +277,7 @@ public abstract class AbstractAxis implements Axis {
    */
   private final long resetToLastKey() {
     // No check because of IAxis Convention 4.
-    mRtx.moveTo(mKey);
+    mNodeCursor.moveTo(mKey);
     return mKey;
   }
 
@@ -308,13 +309,13 @@ public abstract class AbstractAxis implements Axis {
     checkNotNull(visitor);
     while (hasNext()) {
       next();
-      mRtx.acceptVisitor(visitor);
+      mNodeCursor.acceptVisitor(visitor);
     }
   }
 
   @Override
   public synchronized final long nextNode() {
-    synchronized (mRtx) {
+    synchronized (mNodeCursor) {
       long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
       if (hasNext()) {
         retVal = next();
@@ -325,6 +326,6 @@ public abstract class AbstractAxis implements Axis {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("trx", mRtx).toString();
+    return MoreObjects.toStringHelper(this).add("trx", mNodeCursor).toString();
   }
 }

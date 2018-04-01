@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -24,6 +24,7 @@ package org.sirix.axis.visitor;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.XdmNodeReadTrx;
@@ -34,11 +35,10 @@ import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.settings.Fixed;
-import com.google.common.base.Optional;
 
 /**
  * <h1>VisitorDescendantAxis</h1>
- * 
+ *
  * <p>
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
  * key. The currently located node is optionally included. Furthermore a {@link Visitor} is usable
@@ -48,7 +48,7 @@ import com.google.common.base.Optional;
  * <p>
  * Note that it is faster to use the standard {@link DescendantAxis} if no visitor is specified.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class VisitorDescendantAxis extends AbstractAxis {
@@ -57,45 +57,45 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   private Deque<Long> mRightSiblingKeyStack;
 
   /** Optional visitor. */
-  private Optional<? extends Visitor> mVisitor = Optional.absent();
+  private Optional<? extends Visitor> mVisitor = Optional.empty();
 
   /** Determines if it is the first call. */
   private boolean mFirst;
 
   /**
    * Get a new builder instance.
-   * 
-   * @param rtx the {@link XdmNodeReadTrx} to iterate with
+   *
+   * @param cursor the cursor to iterate with
    * @return {@link Builder} instance
    */
-  public static Builder newBuilder(final XdmNodeReadTrx rtx) {
-    return new Builder(rtx);
+  public static Builder newBuilder(final NodeCursor cursor) {
+    return new Builder(cursor);
   }
 
   /** The builder. */
   public static class Builder {
 
     /** Optional visitor. */
-    private Optional<? extends Visitor> mVisitor = Optional.absent();
+    private Optional<? extends Visitor> mVisitor = Optional.empty();
 
     /** Sirix {@link XdmNodeReadTrx}. */
-    private final XdmNodeReadTrx mRtx;
+    private final NodeCursor mRtx;
 
     /** Determines if current node should be included or not. */
     private IncludeSelf mIncludeSelf = IncludeSelf.NO;
 
     /**
      * Constructor.
-     * 
+     *
      * @param rtx Sirix {@link NodeCursor}
      */
-    public Builder(final XdmNodeReadTrx rtx) {
+    public Builder(final NodeCursor rtx) {
       mRtx = checkNotNull(rtx);
     }
 
     /**
      * Set include self option.
-     * 
+     *
      * @param pIncludeSelf include self
      * @return this builder instance
      */
@@ -106,7 +106,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
     /**
      * Set visitor.
-     * 
+     *
      * @param visitor the visitor
      * @return this builder instance
      */
@@ -117,7 +117,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
     /**
      * Build a new instance.
-     * 
+     *
      * @return new {@link DescendantAxis} instance
      */
     public VisitorDescendantAxis build() {
@@ -127,7 +127,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
   /**
    * Private constructor.
-   * 
+   *
    * @param builder the builder to construct a new instance
    */
   private VisitorDescendantAxis(final Builder builder) {
@@ -145,9 +145,9 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   @Override
   protected long nextKey() {
     // Visitor.
-    Optional<VisitResult> result = Optional.absent();
+    Optional<VisitResult> result = Optional.empty();
     if (mVisitor.isPresent()) {
-      result = Optional.fromNullable(getTrx().acceptVisitor(mVisitor.get()));
+      result = Optional.ofNullable(getTrx().acceptVisitor(mVisitor.get()));
     }
 
     // If visitor is present and the return value is EVisitResult.TERMINATE than
@@ -156,12 +156,14 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
 
-    final XdmNodeReadTrx rtx = getTrx();
+    final NodeCursor cursor = getTrx();
 
     // Determines if first call to hasNext().
     if (mFirst) {
       mFirst = false;
-      return isSelfIncluded() == IncludeSelf.YES ? rtx.getNodeKey() : rtx.getFirstChildKey();
+      return isSelfIncluded() == IncludeSelf.YES
+          ? cursor.getNodeKey()
+          : cursor.getFirstChildKey();
     }
 
     // If visitor is present and the the righ sibling stack must be adapted.
@@ -175,10 +177,10 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     if ((result.isPresent() && result.get() != VisitResultType.SKIPSUBTREE
         && result.get() != LocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
       // Always follow first child if there is one.
-      if (rtx.hasFirstChild()) {
-        final long key = rtx.getFirstChildKey();
-        final long rightSiblNodeKey = rtx.getRightSiblingKey();
-        if (rtx.hasRightSibling()
+      if (cursor.hasFirstChild()) {
+        final long key = cursor.getFirstChildKey();
+        final long rightSiblNodeKey = cursor.getRightSiblingKey();
+        if (cursor.hasRightSibling()
             && (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack.isEmpty()
                 && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
           mRightSiblingKeyStack.push(rightSiblNodeKey);
@@ -192,16 +194,16 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     if ((result.isPresent() && result.get() != VisitResultType.SKIPSIBLINGS)
         || !result.isPresent()) {
       // Then follow right sibling if there is one.
-      if (rtx.hasRightSibling()) {
-        final long nextKey = rtx.getRightSiblingKey();
-        return hasNextNode(nextKey, rtx.getNodeKey());
+      if (cursor.hasRightSibling()) {
+        final long nextKey = cursor.getRightSiblingKey();
+        return hasNextNode(nextKey, cursor.getNodeKey());
       }
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
       final long nextKey = mRightSiblingKeyStack.pop();
-      return hasNextNode(nextKey, rtx.getNodeKey());
+      return hasNextNode(nextKey, cursor.getNodeKey());
     }
 
     return Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -209,17 +211,17 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
   /**
    * Determines if next node is not a right sibling of the current node.
-   * 
+   *
    * @param currKey node key of current node
    */
   private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     // Fail if the subtree is finished.
-    final XdmNodeReadTrx rtx = getTrx();
-    rtx.moveTo(nextKey);
-    if (rtx.getLeftSiblingKey() == getStartKey()) {
+    final NodeCursor cursor = getTrx();
+    cursor.moveTo(nextKey);
+    if (cursor.getLeftSiblingKey() == getStartKey()) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     } else {
-      rtx.moveTo(currKey);
+      cursor.moveTo(currKey);
       return nextKey;
     }
   }

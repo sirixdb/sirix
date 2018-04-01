@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,19 +21,19 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
 
 /**
  * <h1>PrecedingSiblingAxis</h1>
- * 
+ *
  * <p>
  * Iterate over all preceding siblings of kind ELEMENT or TEXT starting at a given node. Self is not
  * included. Note that the axis conforms to the XPath specification and returns nodes in document
  * order.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class PrecedingSiblingAxis extends AbstractAxis {
@@ -43,11 +43,11 @@ public final class PrecedingSiblingAxis extends AbstractAxis {
 
   /**
    * Constructor initializing internal state.
-   * 
-   * @param rtx exclusive (immutable) trx to iterate with
+   *
+   * @param cursor cursor to iterate with
    */
-  public PrecedingSiblingAxis(final XdmNodeReadTrx rtx) {
-    super(rtx);
+  public PrecedingSiblingAxis(final NodeCursor cursor) {
+    super(cursor);
   }
 
   @Override
@@ -58,34 +58,35 @@ public final class PrecedingSiblingAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx rtx = getTrx();
+    final NodeCursor cursor = getCursor();
+
     if (mIsFirst) {
       mIsFirst = false;
       /*
        * If the context node is an attribute or namespace node, the following-sibling axis is empty.
        */
-      final Kind kind = rtx.getKind();
+      final Kind kind = cursor.getKind();
       if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
         return done();
       } else {
-        if (rtx.hasParent()) {
-          final long startNodeKey = rtx.getNodeKey();
-          rtx.moveToParent();
-          rtx.moveToFirstChild();
+        if (cursor.hasParent()) {
+          final long startNodeKey = cursor.getNodeKey();
+          cursor.moveToParent();
+          cursor.moveToFirstChild();
 
-          if (rtx.getNodeKey() == startNodeKey) {
+          if (cursor.getNodeKey() == startNodeKey) {
             return Fixed.NULL_NODE_KEY.getStandardProperty();
           } else {
-            final long key = rtx.getNodeKey();
-            rtx.moveTo(startNodeKey);
+            final long key = cursor.getNodeKey();
+            cursor.moveTo(startNodeKey);
             return key;
           }
         }
       }
     }
 
-    if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
-      return rtx.getRightSiblingKey();
+    if (cursor.hasRightSibling() && cursor.getRightSiblingKey() != getStartKey()) {
+      return cursor.getRightSiblingKey();
     }
 
     return done();
