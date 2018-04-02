@@ -54,6 +54,9 @@ public final class PageDelegate implements Page {
   /** The bitmap to use, which indexes are null/not null in the references array. */
   private final BitSet mBitmap;
 
+  /** The bitmap to use to check for an index offset. */
+  private final BitSet mOffsetBitmap;
+
   /**
    * Constructor to initialize instance.
    *
@@ -78,6 +81,7 @@ public final class PageDelegate implements Page {
 
     mReferences = new GapList<>(initialSize);
     mBitmap = new BitSet(referenceCount);
+    mOffsetBitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -93,6 +97,7 @@ public final class PageDelegate implements Page {
     final DeserializedTuple tuple = type.deserialize(referenceCount, in);
     mReferences = tuple.getReferences();
     mBitmap = tuple.getBitmap();
+    mOffsetBitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -102,6 +107,7 @@ public final class PageDelegate implements Page {
    */
   public PageDelegate(final Page commitedPage, final BitSet bitSet) {
     mBitmap = (BitSet) bitSet.clone();
+    mOffsetBitmap = new BitSet(mBitmap.size());
 
     final int length = commitedPage.getReferences().size();
 
@@ -151,15 +157,18 @@ public final class PageDelegate implements Page {
   }
 
   private int index(final int offset) {
-    final BitSet bitmap = new BitSet(mBitmap.size());
-    bitmap.set(offset);
+    mOffsetBitmap.set(offset);
 
     // Flip 0 to offset.
-    bitmap.flip(0, offset + 1);
+    mOffsetBitmap.flip(0, offset + 1);
 
-    bitmap.and(mBitmap);
+    mOffsetBitmap.and(mBitmap);
 
-    return bitmap.cardinality();
+    final int cardinality = mOffsetBitmap.cardinality();
+
+    mOffsetBitmap.clear();
+
+    return cardinality;
   }
 
   /**
@@ -171,8 +180,8 @@ public final class PageDelegate implements Page {
   public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
       final PageWriteTrx<K, V, S> pageWriteTrx) {
     for (final PageReference reference : mReferences) {
-      if (!(reference.getLogKey() == Constants.NULL_ID_INT
-          && reference.getPersistentLogKey() == Constants.NULL_ID_LONG)) {
+      if (reference.getLogKey() != Constants.NULL_ID_INT
+          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {
         pageWriteTrx.commit(reference);
       }
     }
