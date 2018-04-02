@@ -20,9 +20,9 @@ import org.sirix.xquery.node.DBNode;
  * <ul>
  * <li><code>sdb:getPath($doc as xs:node) as xs:string</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class GetPath extends AbstractFunction {
 
@@ -31,16 +31,16 @@ public final class GetPath extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public GetPath(QNm name, Signature signature) {
+  public GetPath(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 
@@ -53,6 +53,7 @@ public final class GetPath extends AbstractFunction {
         return new Str(pathSummaryReader.getPathNode().getPath(pathSummaryReader).toString());
       }
     }
+
     return null;
   }
 }

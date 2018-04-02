@@ -31,7 +31,7 @@ package org.sirix.access;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public class CommitCredentials {
+public final class CommitCredentials {
   private final String mUserName;
 
   private final String mCommitMessage;
@@ -45,7 +45,7 @@ public class CommitCredentials {
     return mUserName;
   }
 
-  public String getCommitMessage() {
+  public String getMessage() {
     return mCommitMessage;
   }
 }

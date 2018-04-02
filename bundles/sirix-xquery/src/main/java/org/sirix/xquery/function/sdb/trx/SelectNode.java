@@ -35,12 +35,12 @@ public final class SelectNode extends AbstractFunction {
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public SelectNode(QNm name, Signature signature) {
+  public SelectNode(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode node = ((DBNode) args[0]);
     final XdmNodeReadTrx rtx = node.getTrx();

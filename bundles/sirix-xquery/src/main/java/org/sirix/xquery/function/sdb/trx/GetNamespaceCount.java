@@ -34,12 +34,12 @@ public final class GetNamespaceCount extends AbstractFunction {
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public GetNamespaceCount(QNm name, Signature signature) {
+  public GetNamespaceCount(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 
