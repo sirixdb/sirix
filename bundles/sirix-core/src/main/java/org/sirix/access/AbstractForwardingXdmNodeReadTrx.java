@@ -40,6 +40,11 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
+  public CommitCredentials getCommitCredentials() {
+    return delegate().getCommitCredentials();
+  }
+
+  @Override
   public long getMaxNodeKey() {
     return delegate().getMaxNodeKey();
   }
@@ -100,12 +105,12 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public int keyForName(String name) {
+  public int keyForName(final String name) {
     return delegate().keyForName(name);
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveTo(long key) {
+  public Move<? extends XdmNodeReadTrx> moveTo(final long key) {
     return delegate().moveTo(key);
   }
 
@@ -135,7 +140,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToNamespace(@Nonnegative int index) {
+  public Move<? extends XdmNodeReadTrx> moveToNamespace(@Nonnegative final int index) {
     return delegate().moveToNamespace(index);
   }
 
@@ -185,7 +190,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   // }
 
   @Override
-  public int getNameCount(String name, @Nonnull Kind kind) {
+  public int getNameCount(final String name, @Nonnull final Kind kind) {
     return delegate().getNameCount(name, kind);
   }
 
@@ -245,12 +250,12 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public boolean hasNode(long pKey) {
+  public boolean hasNode(final long pKey) {
     return delegate().hasNode(pKey);
   }
 
   @Override
-  public long getAttributeKey(@Nonnegative int index) {
+  public long getAttributeKey(@Nonnegative final int index) {
     return delegate().getAttributeKey(index);
   }
 
@@ -310,7 +315,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public VisitResult acceptVisitor(Visitor visitor) {
+  public VisitResult acceptVisitor(final Visitor visitor) {
     return delegate().acceptVisitor(visitor);
   }
 

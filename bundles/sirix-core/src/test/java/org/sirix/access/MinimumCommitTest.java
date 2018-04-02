@@ -29,6 +29,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
@@ -37,19 +38,19 @@ public final class MinimumCommitTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     TestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void test() throws SirixException {
+  public void test() {
     assertEquals(1L, holder.getWriter().getRevisionNumber());
     holder.getWriter().commit();
     holder.close();
@@ -71,8 +72,29 @@ public final class MinimumCommitTest {
 
   @Test
   public void testTimestamp() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-    assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
-    rtx.close();
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+      assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
+    }
+  }
+
+  @Test
+  public void testCommitMessage() {
+    try (final XdmNodeWriteTrx wtx = holder.getWriter()) {
+      wtx.commit("foo");
+      wtx.commit("bar");
+      wtx.commit("baz");
+    }
+
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1)) {
+      assertEquals("foo", rtx.getCommitCredentials().getCommitMessage());
+    }
+
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(2)) {
+      assertEquals("bar", rtx.getCommitCredentials().getCommitMessage());
+    }
+
+    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(3)) {
+      assertEquals("baz", rtx.getCommitCredentials().getCommitMessage());
+    }
   }
 }

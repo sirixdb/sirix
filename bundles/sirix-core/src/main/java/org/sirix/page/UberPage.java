@@ -80,6 +80,7 @@ public final class UberPage extends AbstractForwardingPage {
     mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
     mBootstrap = true;
     mPreviousUberPageKey = -1;
+    mRootPage = null;
   }
 
   /**
@@ -312,7 +313,7 @@ public final class UberPage extends AbstractForwardingPage {
 
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
       final String commitMessage, final PageWriteTrx<K, V, S> pageWriteTrx) {
-    mRootPage.setCommitMessage(commitMessage);
+    pageWriteTrx.getActualRevisionRootPage().setCommitMessage(commitMessage);
     mDelegate.commit(pageWriteTrx);
   }
 }

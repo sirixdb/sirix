@@ -26,6 +26,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.CommitCredentials;
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.exception.SirixException;
@@ -108,7 +109,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  *
  * <pre>
- *   public void someNodeReadTrxMethod() {
+ *   void someNodeReadTrxMethod() {
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     ...
@@ -276,7 +277,7 @@ public interface XdmNodeReadTrx extends NodeCursor {
   long getNodeKey();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToNextFollowing();
+  Move<? extends XdmNodeReadTrx> moveToNextFollowing();
 
   /**
    * Get the left {@link SirixDeweyID} of the currently selected node.
@@ -501,92 +502,99 @@ public interface XdmNodeReadTrx extends NodeCursor {
   String getNamespaceURI();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveTo(long key);
+  Move<? extends XdmNodeReadTrx> moveTo(long key);
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToDocumentRoot();
+  Move<? extends XdmNodeReadTrx> moveToDocumentRoot();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToFirstChild();
+  Move<? extends XdmNodeReadTrx> moveToFirstChild();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToLastChild();
+  Move<? extends XdmNodeReadTrx> moveToLastChild();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToLeftSibling();
+  Move<? extends XdmNodeReadTrx> moveToLeftSibling();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToParent();
+  Move<? extends XdmNodeReadTrx> moveToParent();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToRightSibling();
+  Move<? extends XdmNodeReadTrx> moveToRightSibling();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToPrevious();
+  Move<? extends XdmNodeReadTrx> moveToPrevious();
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToNext();
+  Move<? extends XdmNodeReadTrx> moveToNext();
 
   /**
    * Determines if current node is an {@link ElementNode}.
    *
    * @return {@code true}, if it is an element node, {@code false} otherwise
    */
-  public boolean isElement();
+  boolean isElement();
 
   /**
    * Determines if current node is a {@link TextNode}.
    *
    * @return {@code true}, if it is an text node, {@code false} otherwise
    */
-  public boolean isText();
+  boolean isText();
 
   /**
    * Determines if current node is the {@link DocumentRootNode}.
    *
    * @return {@code true}, if it is the document root node, {@code false} otherwise
    */
-  public boolean isDocumentRoot();
+  boolean isDocumentRoot();
 
   /**
    * Determines if current node is a {@link CommentNode}.
    *
    * @return {@code true}, if it is a comment node, {@code false} otherwise
    */
-  public boolean isComment();
+  boolean isComment();
 
   /**
    * Determines if current node is an {@link AttributeNode}.
    *
    * @return {@code true}, if it is an attribute node, {@code false} otherwise
    */
-  public boolean isAttribute();
+  boolean isAttribute();
 
   /**
    * Determines if current node is a {@link NamespaceNode}.
    *
    * @return {@code true}, if it is a namespace node, {@code false} otherwise
    */
-  public boolean isNamespace();
+  boolean isNamespace();
 
   /**
    * Determines if current node is a {@link PINode}.
    *
    * @return {@code true}, if it is a processing instruction node, {@code false} otherwise
    */
-  public boolean isPI();
+  boolean isPI();
 
   /**
    * Get the current node as a {@link ImmutableNameNode}. First check with {@link#isNameNode()}.
    *
    * @return the current node, casted to a {@link ImmutableNameNode}
    */
-  public ImmutableNameNode getNameNode();
+  ImmutableNameNode getNameNode();
 
   /**
    * Get the current node as a {@link ImmutableValueNode}. First check with {@link#isValueNode()}.
    *
    * @return the current node, casted to a {@link ImmutableValueNode}
    */
-  public ImmutableValueNode getValueNode();
+  ImmutableValueNode getValueNode();
+
+  /**
+   * Get the commit credentials.
+   *
+   * @return The commit credentials.
+   */
+  CommitCredentials getCommitCredentials();
 }

@@ -2784,7 +2784,16 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
   public XdmNodeWriteTrx truncateTo(final int revision) {
     mNodeReadTrx.assertNotClosed();
 
+    // TODO
+
     return this;
+  }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    mNodeReadTrx.assertNotClosed();
+
+    return mNodeReadTrx.getCommitCredentials();
   }
 
   @Override
