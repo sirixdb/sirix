@@ -15,6 +15,7 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
+import org.sirix.access.CommitCredentials;
 import org.sirix.access.Move;
 import org.sirix.api.Axis;
 import org.sirix.api.ItemList;
@@ -984,25 +985,25 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   @Override
   public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
     assertNotClosed();
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
   public Optional<SirixDeweyID> getRightSiblingDeweyID() {
     assertNotClosed();
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
   public Optional<SirixDeweyID> getParentDeweyID() {
     assertNotClosed();
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
   public Optional<SirixDeweyID> getFirstChildDeweyID() {
     assertNotClosed();
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
@@ -1013,5 +1014,11 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   @Override
   public ImmutableValueNode getValueNode() {
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    assertNotClosed();
+    return mPageReadTrx.getCommitCredentials();
   }
 }

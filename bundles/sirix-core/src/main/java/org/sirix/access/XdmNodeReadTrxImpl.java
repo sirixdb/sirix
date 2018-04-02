@@ -1017,4 +1017,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   public PageReadTrx getPageTrx() {
     return mPageReadTrx;
   }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    return mPageReadTrx.getCommitCredentials();
+  }
 }

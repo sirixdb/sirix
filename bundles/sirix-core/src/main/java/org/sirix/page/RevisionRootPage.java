@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.api.CommitCredentials;
+import org.sirix.access.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -225,7 +225,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     out.writeBoolean(mCommitMessage != null);
     if (mCommitMessage != null) {
       final byte[] commitMessage = mCommitMessage.getBytes(Constants.DEFAULT_ENCODING);
-      out.write(commitMessage.length);
+      out.writeInt(commitMessage.length);
       out.write(commitMessage);
     }
   }
