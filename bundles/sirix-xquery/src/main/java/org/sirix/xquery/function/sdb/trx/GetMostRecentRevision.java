@@ -18,9 +18,9 @@ import org.sirix.xquery.node.DBNode;
  * <ul>
  * <li><code>sdb:most-recent-revision($doc as xs:node) as xs:int</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class GetMostRecentRevision extends AbstractFunction {
 
@@ -30,16 +30,16 @@ public final class GetMostRecentRevision extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public GetMostRecentRevision(QNm name, Signature signature) {
+  public GetMostRecentRevision(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 

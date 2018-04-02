@@ -131,21 +131,18 @@ public final class PageDelegate implements Page {
    */
   @Override
   public final PageReference getReference(final @Nonnegative int offset) {
-    final BitSet offsetBitmap = new BitSet(mBitmap.size());
-
-    offsetBitmap.set(offset);
-    offsetBitmap.and(mBitmap);
-
-    if (offsetBitmap.cardinality() != 0) {
-      final int index = index(offsetBitmap, offset);
+    if (mBitmap.get(offset)) {
+      final BitSet offsetBitmap = new BitSet(mBitmap.size());
+      offsetBitmap.set(offset);
+      final int index = index(offset);
       return mReferences.get(index);
     } else {
-      return createNewReference(offsetBitmap, offset);
+      return createNewReference(offset);
     }
   }
 
-  private PageReference createNewReference(final BitSet offsetBitmap, final int offset) {
-    final int index = index(offsetBitmap, offset);
+  private PageReference createNewReference(final int offset) {
+    final int index = index(offset);
 
     final PageReference reference = new PageReference();
     mReferences.add(index, reference);
@@ -155,7 +152,10 @@ public final class PageDelegate implements Page {
     return reference;
   }
 
-  private int index(final BitSet bitmap, final int offset) {
+  private int index(final int offset) {
+    final BitSet bitmap = new BitSet(mBitmap.size());
+    bitmap.set(offset);
+
     // Flip 0 to offset.
     bitmap.flip(0, offset + 1);
 

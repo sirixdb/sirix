@@ -86,15 +86,15 @@ public final class MinimumCommitTest {
     }
 
     try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1)) {
-      assertEquals("foo", rtx.getCommitCredentials().getCommitMessage());
+      assertEquals("foo", rtx.getCommitCredentials().getMessage());
     }
 
     try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(2)) {
-      assertEquals("bar", rtx.getCommitCredentials().getCommitMessage());
+      assertEquals("bar", rtx.getCommitCredentials().getMessage());
     }
 
     try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(3)) {
-      assertEquals("baz", rtx.getCommitCredentials().getCommitMessage());
+      assertEquals("baz", rtx.getCommitCredentials().getMessage());
     }
   }
 }
