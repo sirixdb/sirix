@@ -132,8 +132,6 @@ public final class PageDelegate implements Page {
   @Override
   public final PageReference getReference(final @Nonnegative int offset) {
     if (mBitmap.get(offset)) {
-      final BitSet offsetBitmap = new BitSet(mBitmap.size());
-      offsetBitmap.set(offset);
       final int index = index(offset);
       return mReferences.get(index);
     } else {
