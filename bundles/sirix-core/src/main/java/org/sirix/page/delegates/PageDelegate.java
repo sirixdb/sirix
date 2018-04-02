@@ -49,10 +49,10 @@ import com.google.common.base.MoreObjects;
 public final class PageDelegate implements Page {
 
   /** Page references. */
-  private List<PageReference> mReferences;
+  private final List<PageReference> mReferences;
 
   /** The bitmap to use, which indexes are null/not null in the references array. */
-  private BitSet mBitmap;
+  private final BitSet mBitmap;
 
   /**
    * Constructor to initialize instance.
@@ -144,22 +144,18 @@ public final class PageDelegate implements Page {
     }
   }
 
-  private PageReference createNewReference(final BitSet offsetBitmap, int offset) {
+  private PageReference createNewReference(final BitSet offsetBitmap, final int offset) {
     final int index = index(offsetBitmap, offset);
 
     final PageReference reference = new PageReference();
     mReferences.add(index, reference);
-    // final PageReference[] newArray = new PageReference[mReferences.length + 1];
-    // System.arraycopy(mReferences, 0, newArray, 0, index);
-    // newArray[index] = new PageReference();
-    // System.arraycopy(mReferences, index, newArray, index + 1, mReferences.length - index);
 
     mBitmap.set(offset, true);
-    // mReferences = newArray;
+
     return reference;
   }
 
-  private int index(BitSet bitmap, int offset) {
+  private int index(final BitSet bitmap, final int offset) {
     // Flip 0 to offset.
     bitmap.flip(0, offset + 1);
 
@@ -209,7 +205,7 @@ public final class PageDelegate implements Page {
     return helper.toString();
   }
 
-  private String dumpBitmap(BitSet bitmap) {
+  private String dumpBitmap(final BitSet bitmap) {
     final StringBuilder s = new StringBuilder();
 
     for (int i = 0; i < bitmap.length(); i++) {

@@ -77,7 +77,7 @@ public final class ResourceConfiguration {
     CONFIG_BINARY(Paths.get("ressetting.obj"), false),
 
     /** File to store index definitions. */
-    INDEXES(Paths.get("indexes"), false);
+    INDEXES(Paths.get("indexes"), true);
 
     /** Location of the file. */
     private final Path mFile;
@@ -125,8 +125,6 @@ public final class ResourceConfiguration {
     public static int compareStructure(final Path file) {
       int existing = 0;
       for (final ResourcePaths paths : values()) {
-        if (paths == ResourcePaths.INDEXES)
-          continue;
         final Path currentFile = file.resolve(paths.getFile());
         if (Files.exists(currentFile)) {
           existing++;
@@ -564,7 +562,7 @@ public final class ResourceConfiguration {
      *
      * @return reference to the builder object
      */
-    public Builder useDeweyIDs(boolean useDeweyIDs) {
+    public Builder useDeweyIDs(final boolean useDeweyIDs) {
       mUseDeweyIDs = useDeweyIDs;
       return this;
     }
@@ -575,7 +573,7 @@ public final class ResourceConfiguration {
      * @param compression use text compression or not (default: yes)
      * @return reference to the builder object
      */
-    public Builder useTextCompression(boolean useTextCompression) {
+    public Builder useTextCompression(final boolean useTextCompression) {
       mCompression = useTextCompression;
       return this;
     }
@@ -585,7 +583,7 @@ public final class ResourceConfiguration {
      *
      * @return reference to the builder object
      */
-    public Builder buildPathSummary(boolean buildPathSummary) {
+    public Builder buildPathSummary(final boolean buildPathSummary) {
       mPathSummary = buildPathSummary;
       return this;
     }

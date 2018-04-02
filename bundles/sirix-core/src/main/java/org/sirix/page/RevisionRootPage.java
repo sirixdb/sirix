@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import org.sirix.api.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -74,6 +75,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /** Revision number. */
   private final int mRevision;
 
+  /** Optional commit message. */
+  private String mCommitMessage;
+
   /**
    * Create revision root page.
    */
@@ -97,6 +101,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     mRevision = in.readInt();
     mMaxNodeKey = in.readLong();
     mRevisionTimestamp = in.readLong();
+    if (in.readBoolean()) {
+      final byte[] commitMessage = new byte[in.readInt()];
+      in.readFully(commitMessage);
+      mCommitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
+    }
   }
 
   /**
@@ -213,6 +222,12 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     out.writeInt(mRevision);
     out.writeLong(mMaxNodeKey);
     out.writeLong(mRevisionTimestamp);
+    out.writeBoolean(mCommitMessage != null);
+    if (mCommitMessage != null) {
+      final byte[] commitMessage = mCommitMessage.getBytes(Constants.DEFAULT_ENCODING);
+      out.write(commitMessage.length);
+      out.write(commitMessage);
+    }
   }
 
   @Override
@@ -257,5 +272,13 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public int getRevision() {
     return mRevision;
+  }
+
+  public void setCommitMessage(final String commitMessage) {
+    mCommitMessage = commitMessage;
+  }
+
+  public CommitCredentials getCommitCredentials() {
+    return new CommitCredentials(null, mCommitMessage);
   }
 }

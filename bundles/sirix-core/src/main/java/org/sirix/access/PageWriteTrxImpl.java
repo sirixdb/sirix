@@ -39,6 +39,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.BufferManager;
@@ -133,8 +134,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     // Deserialize index definitions.
     final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(lastStoredRev)
-            + ".xml");
+        ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+            String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
@@ -392,7 +393,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public UberPage commit() {
+  public UberPage commit(final String commitMessage) {
     mPageRtx.assertNotClosed();
 
     mPageRtx.mResourceManager.getCommitLock().lock();
@@ -419,14 +420,18 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     final int revision = uberPage.getRevisionNumber();
 
     // Recursively write indirectly referenced pages.
-    uberPage.commit(this);
+    if (commitMessage == null)
+      uberPage.commit(this);
+    else
+      uberPage.commit(commitMessage, this);
 
     uberPageReference.setPage(uberPage);
     mPageWriter.writeUberPageReference(uberPageReference);
     uberPageReference.setPage(null);
 
     final Path indexes = mPageRtx.mResourceConfig.mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision) + ".xml");
+        ResourceConfiguration.ResourcePaths.INDEXES.getFile())
+                                                       .resolve(String.valueOf(revision) + ".xml");
 
     if (!Files.exists(indexes)) {
       try {
@@ -460,6 +465,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     mPageRtx.mResourceManager.getCommitLock().unlock();
 
     return commitedUberPage;
+  }
+
+  @Override
+  public UberPage commit() {
+    return commit((String) null);
   }
 
   @Override
@@ -699,5 +709,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   @Override
   public long getTrxId() {
     return mPageRtx.getTrxId();
+  }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    return mPageRtx.getCommitCredentials();
   }
 }
