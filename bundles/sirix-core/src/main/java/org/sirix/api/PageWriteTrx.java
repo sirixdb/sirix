@@ -104,12 +104,20 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * Commit the transaction, that is persist changes if any and create a new revision.
    *
    * @throws SirixException if Sirix fails to commit
-   * @throws NullPointerException if {@code multipleWriteTrx} is {@code null}
    */
   UberPage commit();
 
   /**
-   * Committing a {@link XdmNodeWriteTrx}. This method is recursively invoked by all
+   * Commit the transaction, that is persist changes if any and create a new revision. The commit
+   * message is going to be persisted as well.
+   *
+   * @param commitMessage the commit message
+   * @throws SirixException if Sirix fails to commit
+   */
+  UberPage commit(String commitMessage);
+
+  /**
+   * Committing a {@link PageWriteTrx}. This method is recursively invoked by all
    * {@link PageReference}s.
    *
    * @param reference to be commited
@@ -150,7 +158,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 
   /**
    * Get the transaction intent log.
-   * 
+   *
    * @return the transaction intent log
    */
   TransactionIntentLog getLog();

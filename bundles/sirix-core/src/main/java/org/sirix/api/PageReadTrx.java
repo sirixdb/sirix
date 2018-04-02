@@ -43,10 +43,17 @@ public interface PageReadTrx extends AutoCloseable {
 
   /**
    * Get the transaction-ID.
-   * 
+   *
    * @return the transaction-ID.
    */
   long getTrxId();
+
+  /**
+   * Get the commit message.
+   *
+   * @return The commit message.
+   */
+  CommitCredentials getCommitCredentials();
 
   /**
    * Get a record from persistent storage.

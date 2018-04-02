@@ -17,7 +17,6 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
-import com.google.common.base.Objects;
 
 public final class IndexDef implements Materializable {
   private static final QNm EXCLUDING_TAG = new QNm("excluding");
@@ -47,11 +46,11 @@ public final class IndexDef implements Materializable {
   // populated when index is built
   private int mID;
 
-  private Set<Path<QNm>> mPaths = new HashSet<>();
+  private final Set<Path<QNm>> mPaths = new HashSet<>();
 
-  private Set<QNm> mExcluded = new HashSet<>();
+  private final Set<QNm> mExcluded = new HashSet<>();
 
-  private Set<QNm> mIncluded = new HashSet<>();
+  private final Set<QNm> mIncluded = new HashSet<>();
 
   public IndexDef() {}
 
@@ -77,7 +76,7 @@ public final class IndexDef implements Materializable {
   /**
    * CAS index.
    */
-  IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique,
+  IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique,
       final int indexDefNo) {
     mType = IndexType.CAS;
     mContentType = checkNotNull(contentType);
@@ -126,7 +125,7 @@ public final class IndexDef implements Materializable {
     if (!mIncluded.isEmpty()) {
       tmp.openElement(INCLUDING_TAG);
 
-      StringBuilder buf = new StringBuilder();
+      final StringBuilder buf = new StringBuilder();
       for (final QNm incl : mIncluded) {
         buf.append(incl + ",");
       }
@@ -145,8 +144,8 @@ public final class IndexDef implements Materializable {
   }
 
   @Override
-  public void init(Node<?> root) throws DocumentException {
-    QNm name = root.getName();
+  public void init(final Node<?> root) throws DocumentException {
+    final QNm name = root.getName();
 
     if (!name.equals(INDEX_TAG)) {
       throw new DocumentException("Expected tag '%s' but found '%s'", INDEX_TAG, name);
@@ -183,8 +182,8 @@ public final class IndexDef implements Materializable {
         // indexStatistics = new IndexStatistics();
         // indexStatistics.init(child);
         // } else {
-        QNm childName = child.getName();
-        String value = child.getValue().stringValue();
+        final QNm childName = child.getName();
+        final String value = child.getValue().stringValue();
 
         if (childName.equals(PATH_TAG)) {
           final String path = value;
@@ -212,10 +211,10 @@ public final class IndexDef implements Materializable {
     }
   }
 
-  private Type resolveType(String s) throws DocumentException {
-    QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
+  private Type resolveType(final String s) throws DocumentException {
+    final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
         s.substring(Namespaces.XS_PREFIX.length() + 1));
-    for (Type type : Type.builtInTypes) {
+    for (final Type type : Type.builtInTypes) {
       if (type.getName().getLocalName().equals(name.getLocalName())) {
         return type;
       }
@@ -262,10 +261,10 @@ public final class IndexDef implements Materializable {
   @Override
   public String toString() {
     try {
-      ByteArrayOutputStream buf = new ByteArrayOutputStream();
+      final ByteArrayOutputStream buf = new ByteArrayOutputStream();
       SubtreePrinter.print(materialize(), new PrintStream(buf));
       return buf.toString();
-    } catch (DocumentException e) {
+    } catch (final DocumentException e) {
       return e.getMessage();
     }
   }
@@ -276,15 +275,23 @@ public final class IndexDef implements Materializable {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mID, mType);
+    int result = mID;
+    result = 31 * result + ((mType == null)
+        ? 0
+        : mType.hashCode());
+    return result;
   }
+
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof IndexDef) {
-      final IndexDef other = (IndexDef) obj;
-      return mID == other.mID && mType == other.mType;
-    }
-    return false;
+    if (this == obj)
+      return true;
+
+    if (!(obj instanceof IndexDef))
+      return false;
+
+    final IndexDef other = (IndexDef) obj;
+    return mID == other.mID && mType == other.mType;
   }
 }

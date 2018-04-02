@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
@@ -86,7 +87,6 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
  * </p>
  */
 final class PageReadTrxImpl implements PageReadTrx {
-
   /** Page reader exclusively assigned to this transaction. */
   private final Reader mPageReader;
 
@@ -158,8 +158,8 @@ final class PageReadTrxImpl implements PageReadTrx {
     if (indexController == null) {
       // Deserialize index definitions.
       final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
-          ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision)
-              + ".xml");
+          ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+              String.valueOf(revision) + ".xml");
       if (Files.exists(indexes)) {
         try (final InputStream in = new FileInputStream(indexes.toFile())) {
           mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
@@ -708,5 +708,10 @@ final class PageReadTrxImpl implements PageReadTrx {
   @Override
   public Reader getReader() {
     return mPageReader;
+  }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    return mRootPage.getCommitCredentials();
   }
 }

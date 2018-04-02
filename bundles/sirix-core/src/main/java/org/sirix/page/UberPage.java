@@ -27,9 +27,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -299,5 +302,17 @@ public final class UberPage extends AbstractForwardingPage {
    */
   public int getRevision() {
     return mRevision;
+  }
+
+  @Override
+  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+      final PageWriteTrx<K, V, S> pageWriteTrx) {
+    mDelegate.commit(pageWriteTrx);
+  }
+
+  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+      final String commitMessage, final PageWriteTrx<K, V, S> pageWriteTrx) {
+    mRootPage.setCommitMessage(commitMessage);
+    mDelegate.commit(pageWriteTrx);
   }
 }

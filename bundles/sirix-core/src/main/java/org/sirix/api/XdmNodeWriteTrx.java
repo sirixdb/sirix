@@ -496,6 +496,15 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx commit();
 
   /**
+   * Commit all modifications of the exclusive write transaction. Even commit if there are no
+   * modification at all. The author assignes a commit message.
+   *
+   * @param commitMessage message of the commit
+   * @throws SirixException if this revision couldn't be commited
+   */
+  XdmNodeWriteTrx commit(String commitMessage);
+
+  /**
    * Rollback all modifications of the exclusive write transaction.
    *
    * @throws SirixException if the changes in this revision couldn't be rollbacked

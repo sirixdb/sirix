@@ -86,7 +86,7 @@ public final class DatabaseImpl implements Database {
   private final DatabaseConfiguration mDBConfig;
 
   /** The transaction manager. */
-  private TransactionManager mTransactionManager;
+  private final TransactionManager mTransactionManager;
 
   /**
    * Package private constructor.
@@ -132,10 +132,7 @@ public final class DatabaseImpl implements Database {
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
             } else {
-              returnVal = ResourceConfiguration.ResourcePaths.INDEXES.getFile().equals(
-                  resourcePath.getFile())
-                      ? true
-                      : Files.createFile(toCreate) != null;
+              Files.createFile(toCreate);
             }
 
             if (!returnVal)
@@ -277,11 +274,10 @@ public final class DatabaseImpl implements Database {
   }
 
   @Override
-  public synchronized boolean existsResource(final String pResourceName) {
-
+  public synchronized boolean existsResource(final String resourceName) {
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            pResourceName);
+            resourceName);
     return Files.exists(resourceFile)
         && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0
             ? true
@@ -293,36 +289,10 @@ public final class DatabaseImpl implements Database {
     try (final Stream<Path> stream = Files.list(
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());
-    } catch (IOException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
-
-  // @Override
-  // public synchronized Database commitAll() throws SirixException {
-  // // Commit all sessions.
-  // for (final Set<ResourceManager> sessions : mSessions.values()) {
-  // for (final ResourceManager session : sessions) {
-  // if (!session.isClosed()) {
-  // session.commitAll();
-  // }
-  // }
-  // }
-  // return this;
-  // }
-
-  // /**
-  // * Closing a resource. This callback is necessary due to centralized handling of all sessions
-  // * within a database.
-  // *
-  // * @param resourceFile {@link File} to be closed
-  // * @param resourceManagerCfg the session configuration
-  // * @return {@code true} if close successful, {@code false} otherwise
-  // */
-  // protected boolean closeResource(final File resourceFile,
-  // final ResourceManagerConfiguration resourceManagerCfg) {
-  // return mResourceStore.closeResource(resourceFile);
-  // }
 
   // //////////////////////////////////////////////////////////
   // END DB-Operations ////////////////////////////////////////
@@ -337,25 +307,11 @@ public final class DatabaseImpl implements Database {
     return MoreObjects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
   }
 
-  // @Override
-  // public int hashCode() {
-  // return Objects.hashCode(mDBConfig);
-  // }
-  //
-  // @Override
-  // public boolean equals(final @Nullable Object obj) {
-  // if (obj instanceof DatabaseImpl) {
-  // final DatabaseImpl other = (DatabaseImpl) obj;
-  // return other.mDBConfig.equals(mDBConfig);
-  // }
-  // return false;
-  // }
-
   // //////////////////////////////////////////////////////////
   // END general methods //////////////////////////////////////
   // //////////////////////////////////////////////////////////
 
-  BufferManager getPageCache(File resourceFile) {
+  BufferManager getPageCache(final File resourceFile) {
     return mBufferManagers.get(resourceFile);
   }
 

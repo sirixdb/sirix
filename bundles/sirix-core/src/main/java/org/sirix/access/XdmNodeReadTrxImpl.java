@@ -307,11 +307,13 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       final String uri =
           mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
-      final String prefix =
-          prefixKey == -1 ? "" : mPageReadTrx.getName(prefixKey, mCurrentNode.getKind());
+      final String prefix = prefixKey == -1
+          ? ""
+          : mPageReadTrx.getName(prefixKey, mCurrentNode.getKind());
       final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
-      final String localName =
-          localNameKey == -1 ? "" : mPageReadTrx.getName(localNameKey, mCurrentNode.getKind());
+      final String localName = localNameKey == -1
+          ? ""
+          : mPageReadTrx.getName(localNameKey, mCurrentNode.getKind());
       return new QNm(uri, prefix, localName);
     } else {
       return null;
@@ -556,7 +558,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   public boolean hasNode(final @Nonnegative long key) {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveTo(key).equals(Move.notMoved()) ? false : true;
+    final boolean retVal = moveTo(key).equals(Move.notMoved())
+        ? false
+        : true;
     moveTo(nodeKey);
     return retVal;
   }
@@ -589,7 +593,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   public boolean hasLastChild() {
     assertNotClosed();
     final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null ? false : true;
+    final boolean retVal = moveToLastChild() == null
+        ? false
+        : true;
     moveTo(nodeKey);
     return retVal;
   }

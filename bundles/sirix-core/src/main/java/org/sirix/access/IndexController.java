@@ -129,7 +129,8 @@ public final class IndexController {
     final Indexes indexes = new Indexes();
 
     final java.nio.file.Path indexesFile = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile() + String.valueOf(revision) + ".xml");
+        ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+            String.valueOf(revision) + ".xml");
 
     try {
       if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {
@@ -200,7 +201,7 @@ public final class IndexController {
    *        node)
    * @throws SirixIOException if an I/O error occurs
    */
-  public void notifyChange(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey)
+  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node, final long pathNodeKey)
       throws SirixIOException {
     for (final ChangeListener listener : mListeners) {
       listener.listen(type, node, pathNodeKey);
