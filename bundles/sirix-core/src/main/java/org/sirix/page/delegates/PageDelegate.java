@@ -54,9 +54,6 @@ public final class PageDelegate implements Page {
   /** The bitmap to use, which indexes are null/not null in the references array. */
   private final BitSet mBitmap;
 
-  /** The bitmap to use to check for an index offset. */
-  private final BitSet mOffsetBitmap;
-
   /**
    * Constructor to initialize instance.
    *
@@ -81,7 +78,6 @@ public final class PageDelegate implements Page {
 
     mReferences = new GapList<>(initialSize);
     mBitmap = new BitSet(referenceCount);
-    mOffsetBitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -97,7 +93,6 @@ public final class PageDelegate implements Page {
     final DeserializedTuple tuple = type.deserialize(referenceCount, in);
     mReferences = tuple.getReferences();
     mBitmap = tuple.getBitmap();
-    mOffsetBitmap = new BitSet(referenceCount);
   }
 
   /**
@@ -107,7 +102,6 @@ public final class PageDelegate implements Page {
    */
   public PageDelegate(final Page commitedPage, final BitSet bitSet) {
     mBitmap = (BitSet) bitSet.clone();
-    mOffsetBitmap = new BitSet(mBitmap.size());
 
     final int length = commitedPage.getReferences().size();
 
@@ -157,18 +151,16 @@ public final class PageDelegate implements Page {
   }
 
   private int index(final int offset) {
-    mOffsetBitmap.set(offset);
+    final BitSet offsetBitmap = new BitSet(mBitmap.size());
+    
+    offsetBitmap.set(offset);
 
     // Flip 0 to offset.
-    mOffsetBitmap.flip(0, offset + 1);
+    offsetBitmap.flip(0, offset + 1);
 
-    mOffsetBitmap.and(mBitmap);
+    offsetBitmap.and(mBitmap);
 
-    final int cardinality = mOffsetBitmap.cardinality();
-
-    mOffsetBitmap.clear();
-
-    return cardinality;
+    return offsetBitmap.cardinality();
   }
 
   /**
