@@ -15,9 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
-import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
@@ -131,7 +129,7 @@ public final class DBStore implements Store, AutoCloseable {
       try {
         final Database database = Databases.openDatabase(dbConf.getFile());
         final Optional<Database> storedCollection =
-            mDatabases.stream().findFirst().filter((Database db) -> db.equals(database));
+            mDatabases.stream().findFirst().filter((final Database db) -> db.equals(database));
         if (storedCollection.isPresent()) {
           return mCollections.get(storedCollection.get());
         }
@@ -179,7 +177,8 @@ public final class DBStore implements Store, AutoCloseable {
       Databases.createDatabase(dbConf);
       try (final Database database = Databases.openDatabase(dbConf.getFile())) {
         mDatabases.add(database);
-        final String resName = optResName.isPresent() ? optResName.get()
+        final String resName = optResName.isPresent()
+            ? optResName.get()
             : new StringBuilder(3).append("resource")
                                   .append(database.listResources().size() + 1)
                                   .toString();
@@ -198,8 +197,7 @@ public final class DBStore implements Store, AutoCloseable {
                 new ResourceManagerConfiguration.Builder(resName).build());
             final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();) {
           parser.parse(
-              new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-                  Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
+              new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
           wtx.commit();
         }
@@ -245,7 +243,7 @@ public final class DBStore implements Store, AutoCloseable {
                 mCollections.put(database, collection);
                 nextParser.parse(
                     new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-                        Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
+                        Collections.emptyList()));
                 wtx.commit();
               }
               return null;
@@ -256,7 +254,7 @@ public final class DBStore implements Store, AutoCloseable {
           parsers.close();
         }
         pool.shutdown();
-        pool.awaitTermination(5, TimeUnit.MINUTES);
+        pool.awaitTermination(5, TimeUnit.SECONDS);
         return new DBCollection(collName, database);
       } catch (final SirixRuntimeException | InterruptedException e) {
         throw new DocumentException(e.getCause());
@@ -289,22 +287,6 @@ public final class DBStore implements Store, AutoCloseable {
       throw new DocumentException(e.getCause());
     }
   }
-
-  // /**
-  // * Commit all running write-transactions.
-  // *
-  // * @throws DocumentException
-  // * if Sirix fails to commit a transaction
-  // */
-  // public void commitAll() throws DocumentException {
-  // try {
-  // for (final Database database : mDatabases) {
-  // database.commitAll();
-  // }
-  // } catch (final SirixException e) {
-  // throw new DocumentException(e.getCause());
-  // }
-  // }
 
   @Override
   public void close() throws DocumentException {

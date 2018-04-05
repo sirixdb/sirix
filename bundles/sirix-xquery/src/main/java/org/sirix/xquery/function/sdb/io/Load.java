@@ -71,17 +71,16 @@ public final class Load extends AbstractFunction {
    * @param createNew determines if a new collection has to be created or not
    */
   public Load(final QNm name, final boolean createNew) {
-    super(name,
-        createNew
-            ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
-            : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                new SequenceType(AtomicType.BOOL, Cardinality.One)),
+    super(name, createNew
+        ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
+        : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
   }
 
@@ -93,9 +92,13 @@ public final class Load extends AbstractFunction {
       final Sequence resources = args[2];
       if (resources == null)
         throw new QueryException(new QNm("No sequence of resources specified!"));
-      final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
-      final String resName =
-          FunUtil.getString(args, 1, "resName", "resource", null, createNew ? false : true);
+      final boolean createNew = args.length == 4
+          ? args[3].booleanValue()
+          : true;
+      final String resName = FunUtil.getString(
+          args, 1, "resName", "resource", null, createNew
+              ? false
+              : true);
 
       final DBStore store = (DBStore) ctx.getStore();
       DBCollection coll;
@@ -105,7 +108,7 @@ public final class Load extends AbstractFunction {
         try {
           coll = (DBCollection) store.lookup(collName);
           add(store, coll, resName, resources);
-        } catch (DocumentException e) {
+        } catch (final DocumentException e) {
           // collection does not exist
           coll = (DBCollection) create(store, collName, resName, resources);
         }
@@ -117,7 +120,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
+  private static TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
       final DBCollection coll, final String resName, final Sequence resources)
       throws DocumentException, IOException {
     if (resources instanceof Atomic) {
@@ -137,7 +140,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private TemporalCollection<?> create(final DBStore store, final String collName,
+  private static TemporalCollection<?> create(final DBStore store, final String collName,
       final String resName, final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
@@ -152,7 +155,7 @@ public final class Load extends AbstractFunction {
   private static class StoreParser extends StreamSubtreeParser {
     private final boolean intercept;
 
-    public StoreParser(Node<?> node) throws DocumentException {
+    public StoreParser(final Node<?> node) throws DocumentException {
       super(node.getSubtree());
       intercept = (node.getKind() != Kind.DOCUMENT);
     }
@@ -169,7 +172,7 @@ public final class Load extends AbstractFunction {
   private static class InterceptorHandler implements SubtreeHandler {
     private final SubtreeHandler handler;
 
-    public InterceptorHandler(SubtreeHandler handler) {
+    public InterceptorHandler(final SubtreeHandler handler) {
       this.handler = handler;
     }
 
@@ -196,42 +199,43 @@ public final class Load extends AbstractFunction {
     }
 
     @Override
-    public void text(Atomic content) throws DocumentException {
+    public void text(final Atomic content) throws DocumentException {
       handler.text(content);
     }
 
     @Override
-    public void comment(Atomic content) throws DocumentException {
+    public void comment(final Atomic content) throws DocumentException {
       handler.comment(content);
     }
 
     @Override
-    public void processingInstruction(QNm target, Atomic content) throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content)
+        throws DocumentException {
       handler.processingInstruction(target, content);
     }
 
     @Override
-    public void startMapping(String prefix, String uri) throws DocumentException {
+    public void startMapping(final String prefix, final String uri) throws DocumentException {
       handler.startMapping(prefix, uri);
     }
 
     @Override
-    public void endMapping(String prefix) throws DocumentException {
+    public void endMapping(final String prefix) throws DocumentException {
       handler.endMapping(prefix);
     }
 
     @Override
-    public void startElement(QNm name) throws DocumentException {
+    public void startElement(final QNm name) throws DocumentException {
       handler.startElement(name);
     }
 
     @Override
-    public void endElement(QNm name) throws DocumentException {
+    public void endElement(final QNm name) throws DocumentException {
       handler.endElement(name);
     }
 
     @Override
-    public void attribute(QNm name, Atomic value) throws DocumentException {
+    public void attribute(final QNm name, final Atomic value) throws DocumentException {
       handler.attribute(name, value);
     }
 
@@ -272,7 +276,7 @@ public final class Load extends AbstractFunction {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
               "Cannot create subtree parser for item of type: %s", i.itemType());
         }
-      } catch (QueryException e) {
+      } catch (final QueryException e) {
         throw new DocumentException(e);
       }
     }

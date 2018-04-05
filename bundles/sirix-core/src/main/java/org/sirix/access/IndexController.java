@@ -331,7 +331,8 @@ public final class IndexController {
     return mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 
-  public static NameFilter createNameFilter(final String[] queryString) {
+  @SuppressWarnings("static-method")
+  public NameFilter createNameFilter(final String[] queryString) {
     final Set<QNm> includes = new HashSet<>(queryString.length);
     for (final String name : queryString) {
       // TODO: Prefix/NspURI
@@ -340,7 +341,8 @@ public final class IndexController {
     return new NameFilter(includes, Collections.emptySet());
   }
 
-  public static PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx)
+  @SuppressWarnings("static-method")
+  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx)
       throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
@@ -348,7 +350,8 @@ public final class IndexController {
     return new PathFilter(paths, new PCRCollectorImpl(rtx));
   }
 
-  public static CASFilter createCASFilter(final String[] pathArray, final Atomic key,
+  @SuppressWarnings("static-method")
+  public CASFilter createCASFilter(final String[] pathArray, final Atomic key,
       final SearchMode mode, final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
     if (pathArray.length > 0) {
@@ -358,7 +361,8 @@ public final class IndexController {
     return new CASFilter(paths, key, mode, pcrCollector);
   }
 
-  public static CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min,
+  @SuppressWarnings("static-method")
+  public CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min,
       final Atomic max, final boolean incMin, final boolean incMax, final PCRCollector pcrCollector)
       throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
