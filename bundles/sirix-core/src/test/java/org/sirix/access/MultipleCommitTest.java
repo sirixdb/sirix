@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -35,7 +35,8 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.DocumentCreator;
 
 public class MultipleCommitTest {
 
@@ -69,7 +70,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testAutoCommit() throws SirixException {
-    DocumentCreater.create(holder.getWriter());
+    DocumentCreator.create(holder.getWriter());
     holder.getWriter().commit();
 
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
@@ -78,7 +79,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testRemove() throws SirixException {
-    DocumentCreater.create(holder.getWriter());
+    DocumentCreator.create(holder.getWriter());
     holder.getWriter().commit();
     assertEquals(2L, holder.getWriter().getRevisionNumber());
 
@@ -91,7 +92,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testAttributeRemove() throws SirixException {
-    DocumentCreater.create(holder.getWriter());
+    DocumentCreator.create(holder.getWriter());
     holder.getWriter().commit();
     holder.getWriter().moveToDocumentRoot();
 

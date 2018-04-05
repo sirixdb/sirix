@@ -43,7 +43,7 @@ import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 
 public class XMLShredderTest extends XMLTestCase {
 
@@ -133,7 +133,7 @@ public class XMLShredderTest extends XMLTestCase {
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 
     final XdmNodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
-    DocumentCreater.create(expectedTrx);
+    DocumentCreator.create(expectedTrx);
     expectedTrx.commit();
     expectedTrx.moveToDocumentRoot();
 
@@ -171,7 +171,7 @@ public class XMLShredderTest extends XMLTestCase {
   public void testAttributesNSPrefix() throws Exception {
     // Setup expected session.
     final XdmNodeWriteTrx expectedTrx2 = holder.getWriter();
-    DocumentCreater.createWithoutNamespace(expectedTrx2);
+    DocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 
     // Setup parsed session.

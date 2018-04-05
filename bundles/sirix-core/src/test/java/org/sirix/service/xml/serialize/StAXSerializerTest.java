@@ -81,7 +81,7 @@ public class StAXSerializerTest {
       boolean isEmptyElement = false;
 
       while (serializer.hasNext()) {
-        XMLEvent event = serializer.nextEvent();
+        final XMLEvent event = serializer.nextEvent();
 
         switch (event.getEventType()) {
           case XMLStreamConstants.START_DOCUMENT:
@@ -107,6 +107,8 @@ public class StAXSerializerTest {
             break;
           case XMLStreamConstants.CHARACTERS:
             strBuilder.append(((Characters) event).getData());
+            break;
+          default:
             break;
         }
       }
@@ -200,7 +202,7 @@ public class StAXSerializerTest {
    *
    * @param serializer {@link StAXSerializer}
    */
-  private void checkForException(final StAXSerializer serializer) {
+  private static void checkForException(final StAXSerializer serializer) {
     String elemText = "";
     try {
       if (serializer.hasNext()) {
@@ -220,13 +222,13 @@ public class StAXSerializerTest {
    * @param strBuilder String builder to build the string representation.
    */
   @Ignore
-  private void emitElement(final XMLEvent event, final StringBuilder strBuilder) {
+  private static void emitElement(final XMLEvent event, final StringBuilder strBuilder) {
     emitQName(true, event, strBuilder);
 
     if (event.isStartElement()) {
       final StartElement elem = ((StartElement) event);
       // Parse namespaces.
-      for (Iterator<?> it = elem.getNamespaces(); it.hasNext();) {
+      for (final Iterator<?> it = elem.getNamespaces(); it.hasNext();) {
         final Namespace namespace = (Namespace) it.next();
 
         if ("".equals(namespace.getPrefix())) {
@@ -241,7 +243,7 @@ public class StAXSerializerTest {
       }
 
       // Parse attributes.
-      for (Iterator<?> it = elem.getAttributes(); it.hasNext();) {
+      for (final Iterator<?> it = elem.getAttributes(); it.hasNext();) {
         final Attribute attribute = (Attribute) it.next();
         emitQName(false, attribute, strBuilder);
         strBuilder.append("=\"").append(attribute.getValue()).append("\"");
@@ -257,7 +259,7 @@ public class StAXSerializerTest {
    * @param isElem Determines if it is an element or an attribute.
    */
   @Ignore
-  private void emitQName(final boolean isElem, final XMLEvent event,
+  private static void emitQName(final boolean isElem, final XMLEvent event,
       final StringBuilder strBuilder) {
     QName qName;
     if (isElem) {

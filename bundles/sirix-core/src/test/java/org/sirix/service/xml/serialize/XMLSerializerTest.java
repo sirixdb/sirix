@@ -34,7 +34,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 
 public class XMLSerializerTest {
 
@@ -54,7 +54,7 @@ public class XMLSerializerTest {
     final ResourceManager manager = database.getResourceManager(
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
 
@@ -63,7 +63,7 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreater.XML, out.toString());
+    assertEquals(DocumentCreator.XML, out.toString());
     manager.close();
   }
 
@@ -73,7 +73,7 @@ public class XMLSerializerTest {
     final ResourceManager manager = database.getResourceManager(
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
 
@@ -82,7 +82,7 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreater.REST, out.toString());
+    assertEquals(DocumentCreator.REST, out.toString());
 
     manager.close();
   }
@@ -93,7 +93,7 @@ public class XMLSerializerTest {
     final ResourceManager manager = database.getResourceManager(
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
 
@@ -102,7 +102,7 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreater.ID, out.toString());
+    assertEquals(DocumentCreator.ID, out.toString());
     manager.close();
   }
 
@@ -115,18 +115,18 @@ public class XMLSerializerTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     // generate serialize all from this session
-    DocumentCreater.createVersioned(wtx);
+    DocumentCreator.createVersioned(wtx);
     wtx.close();
 
     XMLSerializer serializerall =
         new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
     out.reset();
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
     manager.close();
   }
 
@@ -143,7 +143,7 @@ public class XMLSerializerTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     // generate serialize all from this session
-    DocumentCreater.createVersioned(wtx);
+    DocumentCreator.createVersioned(wtx);
     wtx.commit();
     wtx.close();
 
@@ -158,7 +158,7 @@ public class XMLSerializerTest {
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
     manager.close();
   }
 }

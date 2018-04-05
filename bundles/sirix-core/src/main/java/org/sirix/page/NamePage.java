@@ -269,7 +269,7 @@ public final class NamePage extends AbstractForwardingPage {
         && reference.getPersistentLogKey() == Constants.NULL_ID_LONG) {
       PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageReadTrx, log);
       if (mMaxNodeKeys.get(index) == null) {
-        mMaxNodeKeys.put(index, 0l);
+        mMaxNodeKeys.put(index, 0L);
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
       }
