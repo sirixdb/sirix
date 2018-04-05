@@ -57,7 +57,6 @@ import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;

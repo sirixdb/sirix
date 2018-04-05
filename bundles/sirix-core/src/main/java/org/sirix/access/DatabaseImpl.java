@@ -23,7 +23,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -311,7 +310,7 @@ public final class DatabaseImpl implements Database {
   // END general methods //////////////////////////////////////
   // //////////////////////////////////////////////////////////
 
-  BufferManager getPageCache(final File resourceFile) {
+  BufferManager getPageCache(final Path resourceFile) {
     return mBufferManagers.get(resourceFile);
   }
 

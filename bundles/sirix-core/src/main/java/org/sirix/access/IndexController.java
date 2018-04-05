@@ -124,7 +124,7 @@ public final class IndexController {
    * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
    *         for the specified {@code revision}
    */
-  public boolean containsIndex(final IndexType type, final ResourceManager resourceManager,
+  public static boolean containsIndex(final IndexType type, final ResourceManager resourceManager,
       final int revision) throws SirixIOException {
     final Indexes indexes = new Indexes();
 
@@ -181,7 +181,7 @@ public final class IndexController {
    * @param out the {@link InputStream} from which to deserialize the XML fragment
    * @throws SirixException if an exception occurs during serialization
    */
-  public Node<?> deserialize(final InputStream in) throws SirixException {
+  public static Node<?> deserialize(final InputStream in) throws SirixException {
     try {
       final DocumentParser parser = new DocumentParser(in);
       final D2NodeBuilder builder = new D2NodeBuilder();
@@ -201,8 +201,8 @@ public final class IndexController {
    *        node)
    * @throws SirixIOException if an I/O error occurs
    */
-  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node, final long pathNodeKey)
-      throws SirixIOException {
+  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node,
+      final long pathNodeKey) throws SirixIOException {
     for (final ChangeListener listener : mListeners) {
       listener.listen(type, node, pathNodeKey);
     }
@@ -331,7 +331,7 @@ public final class IndexController {
     return mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 
-  public NameFilter createNameFilter(final String[] queryString) {
+  public static NameFilter createNameFilter(final String[] queryString) {
     final Set<QNm> includes = new HashSet<>(queryString.length);
     for (final String name : queryString) {
       // TODO: Prefix/NspURI
@@ -340,7 +340,7 @@ public final class IndexController {
     return new NameFilter(includes, Collections.emptySet());
   }
 
-  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx)
+  public static PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx)
       throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
@@ -348,7 +348,7 @@ public final class IndexController {
     return new PathFilter(paths, new PCRCollectorImpl(rtx));
   }
 
-  public CASFilter createCASFilter(final String[] pathArray, final Atomic key,
+  public static CASFilter createCASFilter(final String[] pathArray, final Atomic key,
       final SearchMode mode, final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
     if (pathArray.length > 0) {
@@ -358,7 +358,7 @@ public final class IndexController {
     return new CASFilter(paths, key, mode, pcrCollector);
   }
 
-  public CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min,
+  public static CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min,
       final Atomic max, final boolean incMin, final boolean incMax, final PCRCollector pcrCollector)
       throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);

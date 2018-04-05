@@ -67,7 +67,7 @@ public final class FMSEImport {
    * @throws XMLStreamException if XML document isn't well formed
    * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
    */
-  private void shredder(final Path resNewRev, @Nonnull Path newRev)
+  private static void shredder(final Path resNewRev, @Nonnull final Path newRev)
       throws SirixException, IOException, XMLStreamException {
     assert resNewRev != null;
     assert newRev != null;
@@ -96,7 +96,7 @@ public final class FMSEImport {
    * @param resOldRev {@link File} for old revision (sirix resource)
    * @param resNewRev {@link File} for new revision (XML resource)
    */
-  private void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
+  private static void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
 
     try {
       final Path newRevTarget = Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
@@ -142,7 +142,6 @@ public final class FMSEImport {
     final Path resOldRev = Paths.get(args[0]);
     final Path resNewRev = Paths.get(args[1]);
 
-    final FMSEImport fmse = new FMSEImport();
-    fmse.dataImport(resOldRev, resNewRev);
+    FMSEImport.dataImport(resOldRev, resNewRev);
   }
 }

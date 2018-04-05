@@ -55,7 +55,7 @@ public enum StorageType {
   BERKELEY_DB {
     @Override
     public Storage getInstance(final ResourceConfiguration resourceConf) {
-      return new BerkeleyStorageFactory().createStorage(resourceConf);
+      return BerkeleyStorageFactory.createStorage(resourceConf);
     }
   };
 

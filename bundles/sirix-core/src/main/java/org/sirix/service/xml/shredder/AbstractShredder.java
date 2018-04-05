@@ -11,14 +11,14 @@ import org.sirix.settings.Fixed;
 
 /**
  * Skeleton implementation of {@link Shredder} interface methods.
- * 
+ *
  * All methods throw {@link NullPointerException}s in case of {@code null} values for reference
  * parameters and check the arguments, whereas in case they are not valid a
  * {@link IllegalArgumentException} is thrown.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
  * @author Marc Kramis, Seabix GmbH
- * 
+ *
  */
 public abstract class AbstractShredder implements Shredder<String, QNm> {
 
@@ -33,7 +33,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 
   /**
    * Constructor.
-   * 
+   *
    * @throws NullPointerException if {@code pWtx} is {@code null}
    */
   public AbstractShredder(final XdmNodeWriteTrx wtx, final Insert insertLocation) {
@@ -123,6 +123,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
         key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
         mInsertLocation = Insert.ASFIRSTCHILD;
         break;
+      default:
+        // Must not happen.
     }
 
     mParents.pop();

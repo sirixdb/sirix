@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -35,9 +35,9 @@ import org.sirix.settings.Fixed;
 /**
  * Determines the position of the insertion of nodes and appropriate methods for movement and the
  * copy of whole subtrees.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public enum InsertPos {
   /** Insert as first child. */
@@ -133,6 +133,7 @@ public enum InsertPos {
           assert wtx.getKind() == Kind.ELEMENT;
           wtx.insertTextAsFirstChild(rtx.getValue());
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node type not known!");
       }
@@ -275,6 +276,7 @@ public enum InsertPos {
         case TEXT:
           wtx.insertTextAsRightSibling(rtx.getValue());
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node type not known!");
       }
@@ -304,6 +306,7 @@ public enum InsertPos {
           wtx.insertAttribute(rtx.getName(), rtx.getValue());
           wtx.moveToParent();
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Only namespace- and attribute-nodes are permitted!");
       }
@@ -312,23 +315,24 @@ public enum InsertPos {
 
   ASLEFTSIBLING {
     @Override
-    void processMove(final StructNode pFromNode, final StructNode pToNode,
-        final XdmNodeWriteTrx pWtx) throws SirixException {
+    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx)
+        throws SirixException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    void insertNode(final XdmNodeWriteTrx pWtx, final XdmNodeReadTrx pRtx) throws SirixException {
-      assert pWtx != null;
-      assert pRtx != null;
-      assert pWtx.getKind() == Kind.ELEMENT || pWtx.getKind() == Kind.TEXT;
-      switch (pRtx.getKind()) {
+    void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) throws SirixException {
+      assert wtx != null;
+      assert rtx != null;
+      assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
+      switch (rtx.getKind()) {
         case ELEMENT:
-          pWtx.insertElementAsLeftSibling(pRtx.getName());
+          wtx.insertElementAsLeftSibling(rtx.getName());
           break;
         case TEXT:
-          pWtx.insertTextAsLeftSibling(pRtx.getValue());
+          wtx.insertTextAsLeftSibling(rtx.getValue());
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node type not known!");
       }
@@ -337,7 +341,7 @@ public enum InsertPos {
 
   /**
    * Process movement of a subtree.
-   * 
+   *
    * @param fromNode root of subtree to move
    * @param toNode determines where the subtree has to be inserted
    * @param wtx write-transaction which implements the {@link XdmNodeWriteTrx} interface
@@ -348,7 +352,7 @@ public enum InsertPos {
 
   /**
    * Insert a node (copy operation).
-   * 
+   *
    * @param rtx read-transaction which implements the {@link XdmNodeReadTrx} interface
    * @param wtx write-transaction which implements the {@link XdmNodeWriteTrx} interface
    * @throws SirixException if insertion of node fails

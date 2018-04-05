@@ -108,9 +108,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /** Max length for Levenshtein comparsion. */
   private static final int MAX_LENGTH = 50;
 
-  /** {@code Levenshtein} reference, can be reused among instances. */
-  private static final Levenshtein mLevenshtein = new Levenshtein();
-
   /**
    * Used by emitInsert: when inserting a whole subtree - keep track that nodes are not inserted
    * multiple times.
@@ -336,12 +333,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final List<Long> second = commonChildren(x, w, rtx, wtx, ReverseMap.TRUE);
     // 3 && 4
     final List<Pair<Long, Long>> s =
-        Util.longestCommonSubsequence(first, second, new Comparator<Long>() {
-          @Override
-          public boolean isEqual(final Long pX, final Long pY) {
-            return mTotalMatching.contains(pX, pY);
-          }
-        });
+        Util.longestCommonSubsequence(first, second, (pX, pY) -> mTotalMatching.contains(pX, pY));
     // 5
     final Map<Long, Long> seen = new HashMap<>();
     for (final Pair<Long, Long> p : s) {
@@ -378,7 +370,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param rtx {@link XdmNodeReadTrx} reference
    * @param inOrder {@link Map} to put all children out of order
    */
-  private void markOutOfOrder(final XdmNodeReadTrx rtx, final Map<Long, Boolean> inOrder) {
+  private static void markOutOfOrder(final XdmNodeReadTrx rtx, final Map<Long, Boolean> inOrder) {
     for (final AbstractAxis axis = new ChildAxis(rtx); axis.hasNext();) {
       axis.next();
       inOrder.put(axis.getTrx().getNodeKey(), false);
@@ -436,8 +428,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param wtx {@link XdmNodeWriteTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
    */
-  private long emitMove(final long child, final long parent, int pos, final XdmNodeWriteTrx wtx,
-      final XdmNodeReadTrx rtx) {
+  private long emitMove(final long child, final long parent, final int pos,
+      final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) {
     assert child >= 0;
     assert parent >= 0;
     assert wtx != null;
@@ -534,7 +526,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   private void checkFromNodeForTextRemoval(final XdmNodeWriteTrx wtx, final long child) {
-    boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child
+    final boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child
         ? true
         : false;
     if (wtx.moveTo(child).hasMoved()) {
@@ -573,7 +565,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param rtx {@link XdmNodeReadTrx} implementation reference on new revision
    * @return updated {@link Node}
    */
-  private long emitUpdate(final long fromNode, final long toNode, final XdmNodeWriteTrx wtx,
+  private static long emitUpdate(final long fromNode, final long toNode, final XdmNodeWriteTrx wtx,
       final XdmNodeReadTrx rtx) {
     assert fromNode >= 0;
     assert toNode >= 0;
@@ -602,6 +594,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           assert wtx.getKind() == Kind.TEXT;
           wtx.setValue(rtx.getValue());
           break;
+        // $CASES-OMITTED$
         default:
       }
     } catch (final SirixException e) {
@@ -658,6 +651,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           }
           process(wtx.getNodeKey(), rtx.getNodeKey());
           break;
+        // $CASES-OMITTED$
         default:
           // In case of other node types.
           long oldKey = 0;
@@ -667,8 +661,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                 oldKey = wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
                 break;
               case TEXT:
-                // Remove first child text node if there is one and a new text node
-                // is inserted.
+                // Remove first child text node if there is one and a new text node is inserted.
                 if (wtx.hasFirstChild()) {
                   wtx.moveToFirstChild();
                   if (wtx.getKind() == Kind.TEXT) {
@@ -680,6 +673,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
                 oldKey = wtx.insertTextAsFirstChild(rtx.getValue()).getNodeKey();
                 break;
+              // $CASES-OMITTED$
               default:
                 // Already inserted.
             }
@@ -700,6 +694,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               case TEXT:
                 oldKey = wtx.insertTextAsRightSibling(rtx.getValue()).getNodeKey();
                 break;
+              // $CASES-OMITTED$
               default:
                 // Already inserted.
                 throw new IllegalStateException("Child should be already inserted!");
@@ -713,8 +708,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
             oldAxis.next();
             newAxis.next();
-            final XdmNodeReadTrx oldRtx = (XdmNodeReadTrx) oldAxis.getTrx();
-            final XdmNodeReadTrx newRtx = (XdmNodeReadTrx) newAxis.getTrx();
+            final XdmNodeReadTrx oldRtx = oldAxis.getTrx();
+            final XdmNodeReadTrx newRtx = newAxis.getTrx();
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
@@ -864,7 +859,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       Long u = mTotalMatching.reversePartner(v);
       int i = -1;
       if (u != null) {
-        boolean moved = wtx.moveTo(u).hasMoved();
+        final boolean moved = wtx.moveTo(u).hasMoved();
         assert moved;
 
         // Suppose u is the i-th child of its parent (counting from left to
@@ -930,8 +925,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param matching {@link Matching} reference
    * @param cmp functional class
    */
-  private void match(final Map<Kind, List<Long>> oldLabels, final Map<Kind, List<Long>> newLabels,
-      final Matching matching, final Comparator<Long> cmp) {
+  private static void match(final Map<Kind, List<Long>> oldLabels,
+      final Map<Kind, List<Long>> newLabels, final Matching matching, final Comparator<Long> cmp) {
     final Set<Kind> labels = oldLabels.keySet();
     labels.retainAll(newLabels.keySet()); // intersection
 
@@ -989,7 +984,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param list {@link List} of {@link Node}s
    * @param seen {@link Map} of {@link Node}s
    */
-  private void removeCommonNodes(final List<Long> list, final Map<Long, Boolean> seen) {
+  private static void removeCommonNodes(final List<Long> list, final Map<Long, Boolean> seen) {
     assert list != null;
     assert seen != null;
 
@@ -1009,7 +1004,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param visitor {@link Visitor} reference
    * @throws SirixException if anything in sirix fails
    */
-  private void init(final XdmNodeReadTrx rtx, final Visitor visitor) {
+  private static void init(final XdmNodeReadTrx rtx, final Visitor visitor) {
     assert visitor != null;
 
     final long nodeKey = rtx.getNodeKey();
@@ -1031,7 +1026,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param rtx {@link XdmNodeReadTrx} reference
    * @param visitor {@link LabelFMSEVisitor} used to save node type/list
    */
-  private void getLabels(final XdmNodeReadTrx rtx, final LabelFMSEVisitor visitor) {
+  private static void getLabels(final XdmNodeReadTrx rtx, final LabelFMSEVisitor visitor) {
     assert rtx != null;
     assert visitor != null;
 
@@ -1057,7 +1052,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param pWtx {@link XdmNodeWriteTrx} implementation reference
    * @return true iff the values of the nodes are equal
    */
-  private boolean nodeValuesEqual(final long x, final long y, final XdmNodeReadTrx rtxOld,
+  private static boolean nodeValuesEqual(final long x, final long y, final XdmNodeReadTrx rtxOld,
       final XdmNodeReadTrx rtxNew) {
     assert x >= 0;
     assert y >= 0;
@@ -1080,7 +1075,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param rtx {@link XdmNodeReadTrx} implementation reference
    * @return string value of current node
    */
-  private String getNodeValue(final long nodeKey, final XdmNodeReadTrx rtx) {
+  private static String getNodeValue(final long nodeKey, final XdmNodeReadTrx rtx) {
     assert nodeKey >= 0;
     assert rtx != null;
     rtx.moveTo(nodeKey);
@@ -1098,6 +1093,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       case PROCESSING_INSTRUCTION:
         retVal.append(rtx.getName().getLocalName()).append(" ").append(rtx.getValue());
         break;
+      // $CASES-OMITTED$
       default:
         // Do nothing.
     }
@@ -1240,7 +1236,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @return ratio between 0 and 1, whereas 1 is a complete match and 0 denotes that the Strings are
    *         completely different
    */
-  private float calculateRatio(final String oldValue, final String newValue) {
+  private static float calculateRatio(final String oldValue, final String newValue) {
     assert oldValue != null;
     assert newValue != null;
     float ratio;
@@ -1248,7 +1244,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     if (oldValue.length() > MAX_LENGTH || newValue.length() > MAX_LENGTH) {
       ratio = Util.quickRatio(oldValue, newValue);
     } else {
-      ratio = mLevenshtein.getSimilarity(oldValue, newValue);
+      ratio = Levenshtein.getSimilarity(oldValue, newValue);
     }
 
     return ratio;

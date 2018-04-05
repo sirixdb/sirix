@@ -233,6 +233,7 @@ public final class UberPage extends AbstractForwardingPage {
    * @param pageKind page to lookup the exponent in the constant definition
    * @return page count exponent
    */
+  @SuppressWarnings("static-method")
   public int[] getPageCountExp(final PageKind pageKind) {
     int[] inpLevelPageCountExp = new int[0];
     switch (pageKind) {
@@ -248,12 +249,14 @@ public final class UberPage extends AbstractForwardingPage {
       case UBERPAGE:
         inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("page kind not known!");
     }
     return inpLevelPageCountExp;
   }
 
+  @SuppressWarnings("static-method")
   public int getPageReferenceCount(final PageKind pageKind) {
     int referenceCount;
     switch (pageKind) {
@@ -269,12 +272,14 @@ public final class UberPage extends AbstractForwardingPage {
       case UBERPAGE:
         referenceCount = Constants.UBPINP_REFERENCE_COUNT;
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("page kind not known!");
     }
     return referenceCount;
   }
 
+  @SuppressWarnings("static-method")
   public int getPageReferenceCountExp(final PageKind pageKind) {
     int referenceCount;
     switch (pageKind) {
@@ -290,6 +295,7 @@ public final class UberPage extends AbstractForwardingPage {
       case UBERPAGE:
         referenceCount = Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("page kind not known!");
     }

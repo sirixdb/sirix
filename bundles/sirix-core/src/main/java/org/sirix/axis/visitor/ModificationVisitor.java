@@ -21,9 +21,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to modify nodes.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class ModificationVisitor extends AbstractVisitor {
 
@@ -48,7 +48,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 
   /**
    * Constructor.
-   * 
+   *
    * @param wtx sirix {@link XdmNodeWriteTrx}
    * @param startKey start key
    */
@@ -66,7 +66,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 
   /**
    * Process a node, that is decide if it has to be deleted and move accordingly.
-   * 
+   *
    * @param pNode the node to check
    * @return the appropriate {@link VisitResultType} value
    */
@@ -89,7 +89,7 @@ public final class ModificationVisitor extends AbstractVisitor {
    * it must not be deleted {@code false} is returned. The transaction is moved accordingly in case
    * of a remove-operation such that the {@link DescendantAxis} can move to the next node after a
    * delete occurred.
-   * 
+   *
    * @param node the node to check and possibly delete
    * @return {@code true} if node has been deleted, {@code false} otherwise
    */
@@ -104,7 +104,7 @@ public final class ModificationVisitor extends AbstractVisitor {
             final QNm insert = new QNm("testInsert");
             final long key = mWtx.getNodeKey();
             mWtx.insertElementAsLeftSibling(insert);
-            boolean moved = mWtx.moveTo(key).hasMoved();
+            final boolean moved = mWtx.moveTo(key).hasMoved();
             assert moved;
             return VisitResultType.CONTINUE;
           case 1:
@@ -119,6 +119,8 @@ public final class ModificationVisitor extends AbstractVisitor {
           case 3:
             mWtx.replaceNode("<foo/>");
             return VisitResultType.CONTINUE;
+          default:
+            break;
         }
       } catch (final SirixException | IOException | XMLStreamException e) {
         LOGWRAPPER.error(e.getMessage(), e);

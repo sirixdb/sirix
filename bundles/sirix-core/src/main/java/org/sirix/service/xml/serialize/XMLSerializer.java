@@ -46,7 +46,6 @@ import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
@@ -214,6 +213,7 @@ public final class XMLSerializer extends AbstractSerializer {
           }
           mOut.write(CharsForSerializing.CLOSEPI.getBytes());
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node kind not known!");
       }

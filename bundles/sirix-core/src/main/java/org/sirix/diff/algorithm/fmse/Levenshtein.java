@@ -2,26 +2,26 @@
  * SimMetrics - SimMetrics is a java library of Similarity or Distance Metrics, e.g. Levenshtein
  * Distance, that provide float based similarity measures between String Data. All metrics return
  * consistant measures rather than unbounded similarity scores.
- * 
+ *
  * Copyright (C) 2005 Sam Chapman - Open Source Release v1.1
- * 
+ *
  * Please Feel free to contact me about this library, I would appreciate knowing quickly what you
  * wish to use it for and any criticisms/comments upon the SimMetric library.
- * 
+ *
  * email: s.chapman@dcs.shef.ac.uk www: http://www.dcs.shef.ac.uk/~sam/ www:
  * http://www.dcs.shef.ac.uk/~sam/stringmetrics.html
- * 
+ *
  * address: Sam Chapman, Department of Computer Science, University of Sheffield, Sheffield, S.
  * Yorks, S1 4DP United Kingdom,
- * 
+ *
  * This program is free software; you can redistribute it and/or modify it under the terms of the
  * GNU General Public License as published by the Free Software Foundation; either version 2 of the
  * License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
  * even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License along with this program; if
  * not, write to the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
  * 02111-1307 USA
@@ -36,9 +36,9 @@ import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
 
 /**
  * Implements the levenstein distance function.
- * 
+ *
  * Date: 24-Mar-2004 Time: 10:54:06
- * 
+ *
  * @author Sam Chapman <a href="http://www.dcs.shef.ac.uk/~sam/">Website</a>,
  *         <a href="mailto:sam@dcs.shef.ac.uk">Email</a>.
  * @author Johannes Lichtenberger, University of Konstanz
@@ -61,39 +61,40 @@ public final class Levenshtein {
 
   /**
    * Get the description.
-   * 
+   *
    * @return the string identifier for the metric
    */
-  public String getShortDescriptionString() {
+  public static String getShortDescriptionString() {
     return "Levenshtein";
   }
 
   /**
    * returns the long string identifier for the metric.
-   * 
+   *
    * @return the long string identifier for the metric
    */
-  public String getLongDescriptionString() {
+  public static String getLongDescriptionString() {
     return "Implements the basic Levenshtein algorithm providing a similarity measure between two strings";
   }
 
   /**
    * Get the estimated time in milliseconds it takes to perform a similarity timing.
-   * 
-   * @param pFirst first string
-   * @param pSecond second string
-   * 
+   *
+   * @param first first string
+   * @param second second string
+   *
    * @return the estimated time in milliseconds taken to perform the similarity measure
    */
-  public float getSimilarityTimingEstimated(final String pFirst, @Nonnull final String pSecond) {
+  public static float getSimilarityTimingEstimated(final String first,
+      @Nonnull final String second) {
     // timed millisecond times with string lengths from 1 + 50 each increment
     // 0 0.31 1.12 2.4 4.41 6.77 11.28 14.5 24.33 31.29 43.6 51 54.5 67.67 68 78
     // 88.67 101.5 109 117.5
     // 140.5 148.5 156 180 187.5 219 203 250 250 312 297 328 297 359 360 406 453
     // 422 437 469 500 516 578
     // 578 578 609 672 656 688 766 765 781 829 843 875 891 984 954 984 1078
-    final float str1Length = pFirst.length();
-    final float str2Length = pSecond.length();
+    final float str1Length = first.length();
+    final float str2Length = second.length();
     return (str1Length * str2Length) * ESTIMATEDTIMINGCONST;
   }
 
@@ -101,37 +102,39 @@ public final class Levenshtein {
    * Gets the similarity of the two strings using levenstein distance if string lengths are between
    * {@link Levenshtein#MIN} and {@link Levenshtein#MAX}. Otherwise string equality is used whereas
    * {@code 0} is returned if the strings aren't equal and {@code 1} if they are equal.
-   * 
-   * @param pFirst first string
-   * @param pSecond second string
+   *
+   * @param first first string
+   * @param second second string
    * @return a value between {@code 0} and {@code 1}. {@code 0} denotes that the strings are
    *         completely different, {@code 1} denotes that the strings are equal
    * @throws NullPointerException if {@code pFirst} or {@code pSecond} is {@code null}
    */
-  public float getSimilarity(final String pFirst, @Nonnull final String pSecond) {
-    checkNotNull(pFirst);
-    checkNotNull(pSecond);
-    if (pFirst == pSecond || pFirst.equals(pSecond)) {
+  public static float getSimilarity(final String first, @Nonnull final String second) {
+    checkNotNull(first);
+    checkNotNull(second);
+    if (first == second || first.equals(second)) {
       return 1f;
     }
 
-    final int firstLength = pFirst.length();
-    final int secondLength = pSecond.length();
+    final int firstLength = first.length();
+    final int secondLength = second.length();
     if (firstLength > MAX | secondLength > MAX | firstLength < MIN | secondLength < MIN) {
-      if (pFirst.equals(pSecond)) {
+      if (first.equals(second)) {
         return 1f;
       } else {
         return 0f;
       }
     }
 
-    final float levenshteinDistance = getUnNormalisedSimilarity(pFirst, pSecond);
+    final float levenshteinDistance = getUnNormalisedSimilarity(first, second);
 
     // Convert into zero to one and return value.
     // ================================================
 
     // Get the max possible levenshtein distance score for string.
-    final float maxLen = firstLength > secondLength ? firstLength : secondLength;
+    final float maxLen = firstLength > secondLength
+        ? firstLength
+        : secondLength;
 
     // Actual / possible levenshtein distance to get 0-1 range.
     final float norm = 1f - (levenshteinDistance / maxLen);
@@ -142,24 +145,24 @@ public final class Levenshtein {
 
   /**
    * Implements the levenstein distance function.
-   * 
+   *
    * Copy character from string1 over to string2 (cost 0) Delete a character in string1 (cost 1)
    * Insert a character in string2 (cost 1) Substitute one character for another (cost 1)
-   * 
+   *
    * <pre>
    * D(i - 1, j - 1) + d(si, tj) // subst/copy D(i,j) = min D(i-1,j)+1 //insert
    *                             // D(i,j-1)+1 //delete
    * </pre>
-   * 
+   *
    * <pre>
    * d(i,j) is a function whereby d(c,d)=0 if c=d, 1 else.
    * </pre>
-   * 
+   *
    * @param s first string
    * @param t second string to compare
    * @return the levenstein distance between given strings
    */
-  private float getUnNormalisedSimilarity(final String s, final String t) {
+  private static float getUnNormalisedSimilarity(final String s, final String t) {
     assert s != null;
     assert t != null;
     final float[][] d; // matrix
@@ -206,7 +209,7 @@ public final class Levenshtein {
 
   /**
    * Get the minimum of three numbers.
-   * 
+   *
    * @param x first number
    * @param y second number
    * @param z third number

@@ -9,7 +9,7 @@ import org.brackit.xquery.atomic.QNm;
 
 /**
  * This class provides convenience operations for XML-specific character operations.
- * 
+ *
  * @author BaseX Team 2005-11, BSD License
  * @author Christian Gruen
  */
@@ -21,7 +21,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified character is a valid XML character.
-   * 
+   *
    * @param ch the letter to be checked
    * @return result of comparison
    */
@@ -33,13 +33,15 @@ public final class XMLToken {
   /**
    * Checks if the specified character is a name start character, as required e.g. by QName and
    * NCName.
-   * 
+   *
    * @param ch character
    * @return result of check
    */
   public static boolean isNCStartChar(final int ch) {
-    return ch < 0x80 ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch == '_'
-        : ch < 0x300 ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
+    return ch < 0x80
+        ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch == '_'
+        : ch < 0x300
+            ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
             : ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
                 || ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F
                 || ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
@@ -49,18 +51,19 @@ public final class XMLToken {
 
   /**
    * Checks if the specified character is an XML letter.
-   * 
+   *
    * @param ch character
    * @return result of check
    */
   public static boolean isNCChar(final int ch) {
-    return isNCStartChar(ch) || (ch < 0x100 ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7
+    return isNCStartChar(ch) || (ch < 0x100
+        ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7
         : ch >= 0x300 && ch <= 0x36F || ch == 0x203F || ch == 0x2040);
   }
 
   /**
    * Checks if the specified character is an XML first-letter.
-   * 
+   *
    * @param ch the letter to be checked
    * @return result of comparison
    */
@@ -70,7 +73,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified character is an XML letter.
-   * 
+   *
    * @param ch the letter to be checked
    * @return result of comparison
    */
@@ -80,7 +83,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified token is a valid NCName.
-   * 
+   *
    * @param v value to be checked
    * @return result of check
    */
@@ -91,7 +94,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified token is a valid name.
-   * 
+   *
    * @param v value to be checked
    * @return result of check
    */
@@ -99,7 +102,9 @@ public final class XMLToken {
     final int l = v.length;
     for (int i = 0; i < l; i += cl(v, i)) {
       final int c = cp(v, i);
-      if (i == 0 ? !isStartChar(c) : !isChar(c))
+      if (i == 0
+          ? !isStartChar(c)
+          : !isChar(c))
         return false;
     }
     return l != 0;
@@ -107,7 +112,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified token is a valid NMToken.
-   * 
+   *
    * @param v value to be checked
    * @return result of check
    */
@@ -121,7 +126,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified token is a valid QName.
-   * 
+   *
    * @param val value to be checked
    * @return result of check
    */
@@ -142,7 +147,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified token is a valid {@link QName}.
-   * 
+   *
    * @param name {@link QName} reference to check
    * @return {@code true} if it's valid, {@code false} otherwise
    * @throws NullPointerException if {@code name} is {@code null}
@@ -164,11 +169,11 @@ public final class XMLToken {
 
   /**
    * Determines if the provided {@code namespaceURI} is a valid {@code URI}.
-   * 
+   *
    * @param namespaceURI the {@code URI} to check
    * @return {@code true} if {@code namespaceURI} is valid, {@code false} otherwise
    */
-  private boolean isUrl(final String namespaceURI) {
+  public static boolean isUrl(final String namespaceURI) {
     // NamespaceURI is never null.
     try {
       new URL(namespaceURI).toURI();
@@ -181,7 +186,7 @@ public final class XMLToken {
   /**
    * Returns the codepoint (unicode value) of the specified token, starting at the specified
    * position. Returns a unicode replacement character for invalid values.
-   * 
+   *
    * @param token token
    * @param pos character position
    * @return current character
@@ -208,7 +213,7 @@ public final class XMLToken {
 
   /**
    * Checks the specified token as an NCName.
-   * 
+   *
    * @param v value to be checked
    * @param p start position
    * @return end position
@@ -217,7 +222,9 @@ public final class XMLToken {
     final int l = v.length;
     for (int i = p; i < l; i += cl(v, i)) {
       final int c = cp(v, i);
-      if (i == p ? !isNCStartChar(c) : !isNCChar(c))
+      if (i == p
+          ? !isNCStartChar(c)
+          : !isNCChar(c))
         return i;
     }
     return l;
@@ -225,12 +232,14 @@ public final class XMLToken {
 
   /**
    * Returns the codepoint length of the specified byte.
-   * 
+   *
    * @param first first character byte
    * @return character length
    */
   public static int cl(final byte first) {
-    return first >= 0 ? 1 : CHLEN[first >> 4 & 0xF];
+    return first >= 0
+        ? 1
+        : CHLEN[first >> 4 & 0xF];
   }
 
   /*** Character lengths. */
@@ -238,7 +247,7 @@ public final class XMLToken {
 
   /**
    * Returns the codepoint length of the specified byte.
-   * 
+   *
    * @param token token
    * @param pos character position
    * @return character length
@@ -249,7 +258,7 @@ public final class XMLToken {
 
   /**
    * Checks if the specified character is a digit (0 - 9).
-   * 
+   *
    * @param ch the letter to be checked
    * @return result of comparison
    */
@@ -259,7 +268,7 @@ public final class XMLToken {
 
   /**
    * Escape characters not allowed in attribute values.
-   * 
+   *
    * @param value the string value to escape
    * @return escaped value
    * @throws NullPointerException if {@code pValue} is {@code null}
@@ -293,7 +302,7 @@ public final class XMLToken {
 
   /**
    * Escape characters not allowed text content.
-   * 
+   *
    * @param value the string value to escape
    * @return escaped value
    * @throws NullPointerException if {@code pValue} is {@code null}

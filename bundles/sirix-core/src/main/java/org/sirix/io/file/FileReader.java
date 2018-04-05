@@ -88,6 +88,8 @@ public final class FileReader implements Reader {
         case TRANSACTION_INTENT_LOG:
           mFile.seek(reference.getPersistentLogKey());
           break;
+        default:
+          // Must not happen.
       }
       final int dataLength = mFile.readInt();
       reference.setLength(dataLength + FileReader.OTHER_BEACON);

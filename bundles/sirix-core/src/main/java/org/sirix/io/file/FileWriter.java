@@ -54,7 +54,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   /** {@link FileReader} reference for this writer. */
   private final FileReader mReader;
 
-  private SerializationType mType;
+  private final SerializationType mType;
 
   /**
    * Constructor.
@@ -71,7 +71,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(int revision) {
+  public Writer truncateTo(final int revision) {
     UberPage uberPage = (UberPage) mReader.readUberPageReference().getPage();
 
     while (uberPage.getRevisionNumber() != revision) {
@@ -122,7 +122,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       // Getting actual offset and appending to the end of the current
       // file.
       final long fileSize = mFile.length();
-      final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
+      final long offset = fileSize == 0
+          ? FileReader.FIRST_BEACON
+          : fileSize;
       mFile.seek(offset);
       mFile.write(writtenPage);
 
@@ -134,6 +136,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
         case TRANSACTION_INTENT_LOG:
           pageReference.setPersistentLogKey(offset);
           break;
+        default:
+          // Must not happen.
       }
 
       pageReference.setLength(writtenPage.length);
