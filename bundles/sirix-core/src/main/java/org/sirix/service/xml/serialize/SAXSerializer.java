@@ -100,6 +100,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
       case PROCESSING_INSTRUCTION:
         generatePI(rtx);
         break;
+      // $CASES-OMITTED$
       default:
         throw new UnsupportedOperationException("Node kind not supported by sirix!");
     }

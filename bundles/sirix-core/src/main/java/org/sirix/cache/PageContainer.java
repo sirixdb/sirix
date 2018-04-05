@@ -25,8 +25,6 @@ import javax.annotation.Nullable;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -50,11 +48,6 @@ import com.google.common.base.Objects;
  *
  */
 public final class PageContainer {
-
-  /** Logger. */
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(PageContainer.class));
-
   /**
    * {@link UnorderedKeyValuePage} reference, which references the complete key/value page.
    */

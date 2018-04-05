@@ -211,7 +211,7 @@ public final class IndexDef implements Materializable {
     }
   }
 
-  private Type resolveType(final String s) throws DocumentException {
+  private static Type resolveType(final String s) throws DocumentException {
     final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
         s.substring(Namespaces.XS_PREFIX.length() + 1));
     for (final Type type : Type.builtInTypes) {

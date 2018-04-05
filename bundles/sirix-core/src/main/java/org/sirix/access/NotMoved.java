@@ -36,8 +36,4 @@ public class NotMoved extends Move<NodeCursor> {
   public int hashCode() {
     return 0x598df91c;
   }
-
-  private Object readResolve() {
-    return INSTANCE;
-  }
 }

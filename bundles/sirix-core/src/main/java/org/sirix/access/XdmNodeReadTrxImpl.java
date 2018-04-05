@@ -144,6 +144,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
         return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
       case DOCUMENT:
         return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");
     }

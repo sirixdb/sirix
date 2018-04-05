@@ -389,13 +389,17 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   @Override
   public boolean isDocumentRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty() ? true : false;
+    return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+        ? true
+        : false;
   }
 
   @Override
   public boolean isRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty() ? true : false;
+    return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
+        ? true
+        : false;
   }
 
   @Override
@@ -504,7 +508,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
    * @return a zero-length string if s is null, otherwise s
    */
   private static String emptyIfNull(final String s) {
-    return (s == null ? "" : s);
+    return (s == null
+        ? ""
+        : s);
   }
 
   /**
@@ -553,19 +559,25 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   @Override
   public DBNode getParent() throws DocumentException {
     moveRtx();
-    return mRtx.hasParent() ? new DBNode(mRtx.moveToParent().get(), mCollection) : null;
+    return mRtx.hasParent()
+        ? new DBNode(mRtx.moveToParent().get(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getFirstChild() throws DocumentException {
     moveRtx();
-    return mRtx.hasFirstChild() ? new DBNode(mRtx.moveToFirstChild().get(), mCollection) : null;
+    return mRtx.hasFirstChild()
+        ? new DBNode(mRtx.moveToFirstChild().get(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getLastChild() throws DocumentException {
     moveRtx();
-    return mRtx.hasLastChild() ? new DBNode(mRtx.moveToLastChild().get(), mCollection) : null;
+    return mRtx.hasLastChild()
+        ? new DBNode(mRtx.moveToLastChild().get(), mCollection)
+        : null;
   }
 
   @Override
@@ -591,17 +603,22 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   @Override
   public DBNode getNextSibling() throws DocumentException {
     moveRtx();
-    return mRtx.hasRightSibling() ? new DBNode(mRtx.moveToRightSibling().get(), mCollection) : null;
+    return mRtx.hasRightSibling()
+        ? new DBNode(mRtx.moveToRightSibling().get(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getPreviousSibling() throws DocumentException {
     moveRtx();
-    return mRtx.hasLeftSibling() ? new DBNode(mRtx.moveToLeftSibling().get(), mCollection) : null;
+    return mRtx.hasLeftSibling()
+        ? new DBNode(mRtx.moveToLeftSibling().get(), mCollection)
+        : null;
   }
 
   @Override
-  public DBNode append(Kind kind, QNm name, Atomic value) throws DocumentException {
+  public DBNode append(final Kind kind, final QNm name, final Atomic value)
+      throws DocumentException {
     if (mIsWtx) {
       moveRtx();
       final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) mRtx;
@@ -622,8 +639,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode append(XdmNodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-      throws SirixException {
+  private DBNode append(final XdmNodeWriteTrx wtx, final Kind kind, final QNm name,
+      final Atomic value) throws SirixException {
     if (wtx.hasFirstChild()) {
       wtx.moveToLastChild();
       switch (kind) {
@@ -647,6 +664,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
         case PROCESSING_INSTRUCTION:
           wtx.insertPIAsRightSibling(value.asStr().stringValue(), name.getLocalName());
           break;
+        default:
+          // May not happen.
       }
     } else {
       switch (kind) {
@@ -670,6 +689,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
         case PROCESSING_INSTRUCTION:
           wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
           break;
+        default:
+          // May not happen.
       }
     }
 
@@ -699,7 +720,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode append(XdmNodeReadTrx rtx, Node<?> child) throws DocumentException {
+  private DBNode append(final XdmNodeReadTrx rtx, final Node<?> child) throws DocumentException {
     try {
       SubtreeBuilder builder = null;
       if (rtx.hasFirstChild()) {
@@ -742,7 +763,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode append(XdmNodeReadTrx rtx, SubtreeParser parser) throws DocumentException {
+  private DBNode append(final XdmNodeReadTrx rtx, final SubtreeParser parser)
+      throws DocumentException {
     try {
       if (rtx.hasFirstChild()) {
         rtx.moveToLastChild();
@@ -750,7 +772,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
       parser.parse(
           new SubtreeBuilder(mCollection, (XdmNodeWriteTrx) rtx, Insert.ASRIGHTSIBLING,
-              Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList()));
+              Collections.emptyList()));
 
       moveRtx();
       rtx.moveToFirstChild();
@@ -784,8 +806,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode prepend(XdmNodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-      throws DocumentException {
+  private DBNode prepend(final XdmNodeWriteTrx wtx, final Kind kind, final QNm name,
+      final Atomic value) throws DocumentException {
     try {
       switch (kind) {
         case DOCUMENT:
@@ -808,6 +830,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
         case PROCESSING_INSTRUCTION:
           wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.getLocalName());
           break;
+        default:
+          // May not happen.
       }
     } catch (final SirixException e) {
       throw new DocumentException(e);
@@ -839,7 +863,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode prepend(XdmNodeWriteTrx wtx, Node<?> child) throws DocumentException {
+  private DBNode prepend(final XdmNodeWriteTrx wtx, final Node<?> child) throws DocumentException {
     try {
       SubtreeBuilder builder = null;
       if (wtx.hasFirstChild()) {
@@ -882,7 +906,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode prepend(XdmNodeWriteTrx wtx, SubtreeParser parser) throws DocumentException {
+  private DBNode prepend(final XdmNodeWriteTrx wtx, final SubtreeParser parser)
+      throws DocumentException {
     try {
       parser.parse(
           new SubtreeBuilder(mCollection, wtx, Insert.ASFIRSTCHILD,
@@ -919,8 +944,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertBefore(XdmNodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-      throws DocumentException {
+  private DBNode insertBefore(final XdmNodeWriteTrx wtx, final Kind kind, final QNm name,
+      final Atomic value) throws DocumentException {
     try {
       switch (kind) {
         case DOCUMENT:
@@ -974,7 +999,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertBefore(XdmNodeWriteTrx wtx, Node<?> node) throws DocumentException {
+  private DBNode insertBefore(final XdmNodeWriteTrx wtx, final Node<?> node)
+      throws DocumentException {
     try {
       final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx, Insert.ASLEFTSIBLING,
           Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
@@ -1010,7 +1036,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertBefore(XdmNodeWriteTrx wtx, SubtreeParser parser) throws DocumentException {
+  private DBNode insertBefore(final XdmNodeWriteTrx wtx, final SubtreeParser parser)
+      throws DocumentException {
     try {
       final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx, Insert.ASLEFTSIBLING,
           Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
@@ -1045,8 +1072,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertAfter(XdmNodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-      throws SirixException {
+  private DBNode insertAfter(final XdmNodeWriteTrx wtx, final Kind kind, final QNm name,
+      final Atomic value) throws SirixException {
     switch (kind) {
       case DOCUMENT:
         break;
@@ -1096,7 +1123,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertAfter(XdmNodeWriteTrx wtx, Node<?> node) throws DocumentException {
+  private DBNode insertAfter(final XdmNodeWriteTrx wtx, final Node<?> node)
+      throws DocumentException {
     try {
       final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING,
           Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
@@ -1131,7 +1159,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode insertAfter(XdmNodeWriteTrx wtx, SubtreeParser parser) throws DocumentException {
+  private DBNode insertAfter(final XdmNodeWriteTrx wtx, final SubtreeParser parser)
+      throws DocumentException {
     try {
       final SubtreeBuilder builder = new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING,
           Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
@@ -1166,7 +1195,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode setAttribute(XdmNodeWriteTrx wtx, Node<?> attribute) throws DocumentException {
+  private DBNode setAttribute(final XdmNodeWriteTrx wtx, final Node<?> attribute)
+      throws DocumentException {
     if (wtx.isElement()) {
       final String value = attribute.getValue().asStr().stringValue();
       final QNm name = attribute.getName();
@@ -1204,7 +1234,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode setAttribute(XdmNodeWriteTrx wtx, QNm name, Atomic value)
+  private DBNode setAttribute(final XdmNodeWriteTrx wtx, final QNm name, final Atomic value)
       throws DocumentException {
     if (wtx.isElement()) {
       try {
@@ -1241,7 +1271,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private boolean deleteAttribute(XdmNodeWriteTrx wtx, QNm name) throws DocumentException {
+  private boolean deleteAttribute(final XdmNodeWriteTrx wtx, final QNm name)
+      throws DocumentException {
     if (wtx.isElement()) {
       if (wtx.moveToAttributeByName(name).hasMoved()) {
         try {
@@ -1295,7 +1326,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode replaceWith(XdmNodeWriteTrx wtx, Node<?> node) throws DocumentException {
+  private DBNode replaceWith(final XdmNodeWriteTrx wtx, final Node<?> node)
+      throws DocumentException {
     if (node instanceof DBNode) {
       final DBNode other = (DBNode) node;
       try {
@@ -1341,7 +1373,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode replaceWith(XdmNodeWriteTrx wtx, SubtreeParser parser) throws DocumentException {
+  private DBNode replaceWith(final XdmNodeWriteTrx wtx, final SubtreeParser parser)
+      throws DocumentException {
     final SubtreeBuilder builder = createBuilder(wtx);
     parser.parse(builder);
     try {
@@ -1376,8 +1409,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode replaceWith(XdmNodeWriteTrx wtx, Kind kind, QNm name, Atomic value)
-      throws DocumentException {
+  private DBNode replaceWith(final XdmNodeWriteTrx wtx, final Kind kind, final QNm name,
+      final Atomic value) throws DocumentException {
     if (wtx.hasLeftSibling()) {
       wtx.moveToLeftSibling();
     } else {
@@ -1511,7 +1544,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     final int firstCollectionID = mCollection.getID();
     final int secondCollectionID = ((DBCollection) otherNode.getCollection()).getID();
     if (firstCollectionID != secondCollectionID) {
-      return firstCollectionID < secondCollectionID ? -1 : 1;
+      return firstCollectionID < secondCollectionID
+          ? -1
+          : 1;
     }
 
     // Compare document IDs.
@@ -1519,7 +1554,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     final long secondDocumentID =
         ((DBNode) otherNode).getTrx().getResourceManager().getResourceConfig().getID();
     if (firstDocumentID != secondDocumentID) {
-      return firstDocumentID < secondDocumentID ? -1 : 1;
+      return firstDocumentID < secondDocumentID
+          ? -1
+          : 1;
     }
 
     // Temporal extension.
@@ -1552,8 +1589,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
       // Do they have the same parent (common case)?
       if (firstParent.getNodeKey() == secondParent.getNodeKey()) {
-        int cat1 = nodeCategories(this.getKind());
-        int cat2 = nodeCategories(otherNode.getKind());
+        final int cat1 = nodeCategories(this.getKind());
+        final int cat2 = nodeCategories(otherNode.getKind());
         if (cat1 == cat2) {
           final DBNode other = (DBNode) otherNode;
           if (cat1 == 1) {
@@ -1654,7 +1691,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
    * @param kind node kind
    * @return category number
    */
-  private int nodeCategories(final Kind kind) {
+  private static int nodeCategories(final Kind kind) {
     switch (kind) {
       case DOCUMENT:
         return 0;
@@ -1695,41 +1732,53 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getNext() {
     moveRtx();
     final AbstractTemporalAxis axis = new NextAxis(mRtx);
-    return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
+    return axis.hasNext()
+        ? new DBNode(axis.getTrx(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getPrevious() {
     moveRtx();
     final AbstractTemporalAxis axis = new PreviousAxis(mRtx);
-    return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
+    return axis.hasNext()
+        ? new DBNode(axis.getTrx(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getFirst() {
     moveRtx();
     final AbstractTemporalAxis axis = new FirstAxis(mRtx);
-    return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
+    return axis.hasNext()
+        ? new DBNode(axis.getTrx(), mCollection)
+        : null;
   }
 
   @Override
   public DBNode getLast() {
     moveRtx();
     final AbstractTemporalAxis axis = new LastAxis(mRtx);
-    return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
+    return axis.hasNext()
+        ? new DBNode(axis.getTrx(), mCollection)
+        : null;
   }
 
   @Override
   public Stream<AbstractTemporalNode<DBNode>> getEarlier(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixStream(new PastAxis(mRtx, include), mCollection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<DBNode>> getFuture(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixStream(new FutureAxis(mRtx, include), mCollection);
   }
 
@@ -1740,7 +1789,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isNextOf(TemporalNode<?> other) {
+  public boolean isNextOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1750,7 +1799,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isPreviousOf(TemporalNode<?> other) {
+  public boolean isPreviousOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1760,7 +1809,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isFutureOf(TemporalNode<?> other) {
+  public boolean isFutureOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1770,7 +1819,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isFutureOrSelfOf(TemporalNode<?> other) {
+  public boolean isFutureOrSelfOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1780,7 +1829,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isEarlierOf(TemporalNode<?> other) {
+  public boolean isEarlierOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1790,7 +1839,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isEarlierOrSelfOf(TemporalNode<?> other) {
+  public boolean isEarlierOrSelfOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1800,7 +1849,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isLastOf(TemporalNode<?> other) {
+  public boolean isLastOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;
@@ -1812,7 +1861,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   }
 
   @Override
-  public boolean isFirstOf(TemporalNode<?> other) {
+  public boolean isFirstOf(final TemporalNode<?> other) {
     moveRtx();
     if (other instanceof DBNode) {
       final DBNode otherNode = (DBNode) other;

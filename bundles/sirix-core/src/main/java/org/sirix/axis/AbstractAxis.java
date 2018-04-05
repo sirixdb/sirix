@@ -115,7 +115,7 @@ public abstract class AbstractAxis implements Axis {
    *
    * @return null node key to indicate that the travesal is done
    */
-  protected final long done() {
+  protected final static long done() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
@@ -141,6 +141,8 @@ public abstract class AbstractAxis implements Axis {
         return false;
       case READY:
         return true;
+      case FAILED:
+      case NOT_READY:
       default:
     }
 

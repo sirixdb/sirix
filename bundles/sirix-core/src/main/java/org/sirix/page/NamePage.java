@@ -100,7 +100,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @return raw name of name key
    */
   public byte[] getRawName(final int key, final Kind nodeKind) {
-    byte[] rawName = new byte[] {};
+    final byte[] rawName;
     switch (nodeKind) {
       case ELEMENT:
         rawName = mElements.getRawName(key);
@@ -114,6 +114,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         rawName = mPIs.getRawName(key);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
     }
@@ -127,7 +128,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @return raw name of name key, or {@code null} if not present
    */
   public String getName(final int key, @Nonnull final Kind nodeKind) {
-    String name;
+    final String name;
     switch (nodeKind) {
       case ELEMENT:
         name = mElements.getName(key);
@@ -141,6 +142,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         name = mPIs.getName(key);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
     }
@@ -168,6 +170,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         count = mPIs.getCount(key);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
     }
@@ -195,6 +198,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.setName(key, name);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
     }
@@ -244,6 +248,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.removeName(key);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
     }
@@ -277,7 +282,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param offset the offset of the indirect page, that is the index number
    * @return indirect page reference
    */
-  public PageReference getIndirectPageReference(int offset) {
+  public PageReference getIndirectPageReference(final int offset) {
     return getReference(offset);
   }
 

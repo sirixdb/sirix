@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -47,13 +47,13 @@ import org.sirix.utils.XMLToken;
 
 /**
  * <h1>StAXSerializer</h1>
- * 
+ *
  * <p>
  * Provides a StAX implementation (event API) for retrieving a sirix database.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class StAXSerializer implements XMLEventReader {
 
@@ -95,7 +95,7 @@ public final class StAXSerializer implements XMLEventReader {
   private long mLastKey;
 
   /** Determines if {@link XdmNodeReadTrx} should be closed afterwards. */
-  private boolean mCloseRtx;
+  private final boolean mCloseRtx;
 
   /** First call. */
   private boolean mFirst;
@@ -109,10 +109,10 @@ public final class StAXSerializer implements XMLEventReader {
   private boolean mHasNext;
 
   /** Right sibling key of start node. */
-  private long mStartRightSibling;
+  private final long mStartRightSibling;
 
   /** Parent key of start node. */
-  private long mStartParent;
+  private final long mStartParent;
 
   /** Determines if {@code hasNext()} has been called. */
   private boolean mCalledHasNext;
@@ -120,7 +120,7 @@ public final class StAXSerializer implements XMLEventReader {
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read. Do not serialize the tank ids.
-   * 
+   *
    * @param pAxis {@link XdmNodeReadTrx} which is used to iterate over and generate StAX events
    */
   public StAXSerializer(final XdmNodeReadTrx rtx) {
@@ -130,7 +130,7 @@ public final class StAXSerializer implements XMLEventReader {
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read. Do not serialize the tank ids.
-   * 
+   *
    * @param pAxis {@link pRtx} which is used to iterate over and generate StAX events
    * @param pCloseRtx Determines if rtx should be closed afterwards.
    */
@@ -148,7 +148,7 @@ public final class StAXSerializer implements XMLEventReader {
 
   /**
    * Emit end tag.
-   * 
+   *
    * @param rtx Sirix reading transaction {@link XdmNodeReadTrx}
    */
   private void emitEndTag(final XdmNodeReadTrx rtx) {
@@ -162,7 +162,7 @@ public final class StAXSerializer implements XMLEventReader {
 
   /**
    * Emit a node.
-   * 
+   *
    * @param rtx Sirix reading transaction {@link XdmNodeReadTrx}
    */
   private void emitNode(final XdmNodeReadTrx rtx) {
@@ -187,6 +187,7 @@ public final class StAXSerializer implements XMLEventReader {
       case PROCESSING_INSTRUCTION:
         mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalName(), rtx.getValue());
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Kind not known!");
     }
@@ -297,43 +298,40 @@ public final class StAXSerializer implements XMLEventReader {
   public XMLEvent peek() throws XMLStreamException {
     final long currNodeKey = mAxis.getTrx().getNodeKey();
     final XdmNodeReadTrx rtx = mAxis.getTrx();
-    try {
-      if (!mHasNext && mEmitEndDocument) {
-        mEvent = mFac.createEndDocument();
-      } else if (!mHasNext) {
-        return null;
+
+    if (!mHasNext && mEmitEndDocument) {
+      mEvent = mFac.createEndDocument();
+    } else if (!mHasNext) {
+      return null;
+    } else {
+      if (mCloseElements && !mCloseElementsEmitted && !mStack.isEmpty()) {
+        rtx.moveTo(mStack.peek());
+        emitEndTag(rtx);
       } else {
-        if (mCloseElements && !mCloseElementsEmitted && !mStack.isEmpty()) {
-          rtx.moveTo(mStack.peek());
-          emitEndTag(rtx);
+        if (mFirst && mAxis.isSelfIncluded() == IncludeSelf.YES) {
+          emitNode(rtx);
         } else {
-          if (mFirst && mAxis.isSelfIncluded() == IncludeSelf.YES) {
+          if (rtx.hasFirstChild()) {
+            rtx.moveToFirstChild();
             emitNode(rtx);
-          } else {
-            if (rtx.hasFirstChild()) {
-              rtx.moveToFirstChild();
-              emitNode(rtx);
-            } else if (rtx.hasRightSibling()) {
-              if (rtx.getRightSiblingKey() == mStartRightSibling) {
-                mEvent = mFac.createEndDocument();
-              } else {
-                rtx.moveToRightSibling();
-                final Kind nodeKind = rtx.getKind();
-                processNode(nodeKind);
-              }
-            } else if (rtx.hasParent()) {
-              if (rtx.getParentKey() == mStartParent) {
-                mEvent = mFac.createEndDocument();
-              } else {
-                rtx.moveToParent();
-                emitEndTag(rtx);
-              }
+          } else if (rtx.hasRightSibling()) {
+            if (rtx.getRightSiblingKey() == mStartRightSibling) {
+              mEvent = mFac.createEndDocument();
+            } else {
+              rtx.moveToRightSibling();
+              final Kind nodeKind = rtx.getKind();
+              processNode(nodeKind);
+            }
+          } else if (rtx.hasParent()) {
+            if (rtx.getParentKey() == mStartParent) {
+              mEvent = mFac.createEndDocument();
+            } else {
+              rtx.moveToParent();
+              emitEndTag(rtx);
             }
           }
         }
       }
-    } catch (final IOException e) {
-      throw new XMLStreamException(e);
     }
 
     rtx.moveTo(currNodeKey);
@@ -343,7 +341,7 @@ public final class StAXSerializer implements XMLEventReader {
 
   /**
    * Just calls {@link #nextEvent()}.
-   * 
+   *
    * @return next event
    */
   @Override
@@ -364,13 +362,12 @@ public final class StAXSerializer implements XMLEventReader {
 
   /**
    * Determines if a node or an end element has to be emitted.
-   * 
-   * @param pNodeKind the node kind
-   * @throws IOException if any I/O error occurred
+   *
+   * @param nodeKind the node kind
    */
-  private void processNode(final Kind pNodeKind) throws IOException {
-    assert pNodeKind != null;
-    switch (pNodeKind) {
+  private void processNode(final Kind nodeKind) {
+    assert nodeKind != null;
+    switch (nodeKind) {
       case ELEMENT:
         emitEndTag(mAxis.getTrx());
         break;
@@ -379,6 +376,7 @@ public final class StAXSerializer implements XMLEventReader {
       case TEXT:
         emitNode(mAxis.getTrx());
         break;
+      // $CASES-OMITTED$
       default:
         // Do nothing.
     }
@@ -386,7 +384,7 @@ public final class StAXSerializer implements XMLEventReader {
 
   /**
    * Move to node and emit it.
-   * 
+   *
    * @param rtx Read Transaction.
    * @throws IOException if any I/O error occurred
    */
@@ -464,7 +462,7 @@ public final class StAXSerializer implements XMLEventReader {
 
     /**
      * Constructor.
-     * 
+     *
      * @param rtx reference implementing the {@link XdmNodeReadTrx} interface
      */
     public AttributeIterator(final XdmNodeReadTrx rtx) {
@@ -532,7 +530,7 @@ public final class StAXSerializer implements XMLEventReader {
 
     /**
      * Constructor.
-     * 
+     *
      * @param rtx reference implementing the {@link XdmNodeReadTrx} interface
      */
     public NamespaceIterator(final XdmNodeReadTrx rtx) {

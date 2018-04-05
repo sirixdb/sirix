@@ -161,7 +161,7 @@ final class PageReadTrxImpl implements PageReadTrx {
               String.valueOf(revision) + ".xml");
       if (Files.exists(indexes)) {
         try (final InputStream in = new FileInputStream(indexes.toFile())) {
-          mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
+          mIndexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
         } catch (IOException | DocumentException | SirixException e) {
           throw new SirixIOException("Index definitions couldn't be deserialized!", e);
         }
@@ -268,6 +268,7 @@ final class PageReadTrxImpl implements PageReadTrx {
         case NAMEPAGE:
           cont = mNodeCache.get(new IndexLogKey(pageKind, recordPageKey, index));
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException();
       }
@@ -289,7 +290,7 @@ final class PageReadTrxImpl implements PageReadTrx {
    * @param toCheck node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final Optional<Record> checkItemIfDeleted(final @Nullable Record toCheck) {
+  final static Optional<Record> checkItemIfDeleted(final @Nullable Record toCheck) {
     if (toCheck instanceof DeletedNode) {
       return Optional.empty();
     } else {
@@ -534,6 +535,7 @@ final class PageReadTrxImpl implements PageReadTrx {
    *
    * @param revisionRoot {@link RevisionRootPage} instance
    * @param pageKind the page kind to determine the right subtree
+   * @param index the index to use
    */
   PageReference getPageReference(final RevisionRootPage revisionRoot, final PageKind pageKind,
       final int index) throws SirixIOException {
@@ -556,6 +558,7 @@ final class PageReadTrxImpl implements PageReadTrx {
       case PATHSUMMARYPAGE:
         ref = getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException(
             "Only defined for node, path summary, text value and attribute value pages!");

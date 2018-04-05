@@ -36,7 +36,7 @@ public final class BerkeleyStorageFactory {
    * @throws NullPointerException if {@link ResourceConfiguration} is {@code null}
    * @throws SirixIOException if the storage couldn't be created because of an I/O exception
    */
-  public BerkeleyStorage createStorage(final ResourceConfiguration resourceConfig) {
+  public static BerkeleyStorage createStorage(final ResourceConfiguration resourceConfig) {
     try {
       final Path repoFile =
           resourceConfig.mPath.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile());

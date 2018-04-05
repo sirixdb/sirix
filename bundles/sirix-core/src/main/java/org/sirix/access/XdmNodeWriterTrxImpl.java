@@ -569,6 +569,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
       case ASNONSTRUCTURAL:
         // Do not decrement child count.
         break;
+      case ASLEFTSIBLING:
       default:
     }
 
@@ -812,6 +813,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           case ASLEFTSIBLING:
             moveToLeftSibling();
             break;
+          default:
+            // May not happen.
         }
         nodeKey = getCurrentNode().getNodeKey();
         postOrderTraversalHashes();
@@ -876,7 +879,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         long leftSibKey = 0;
         long rightSibKey = 0;
         InsertPos pos = InsertPos.ASFIRSTCHILD;
-        Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+        Optional<SirixDeweyID> id = Optional.empty();
         switch (insert) {
           case ASFIRSTCHILD:
             parentKey = getCurrentNode().getNodeKey();
@@ -966,13 +969,15 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         long parentKey = 0;
         long leftSibKey = 0;
         long rightSibKey = 0;
-        InsertPos pos = InsertPos.ASFIRSTCHILD;
-        Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+        final InsertPos pos;
+        final Optional<SirixDeweyID> id;
+
         switch (insert) {
           case ASFIRSTCHILD:
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+            pos = InsertPos.ASFIRSTCHILD;
             id = newFirstChildID();
             break;
           case ASRIGHTSIBLING:
@@ -1202,7 +1207,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if generating an ID fails
    */
   private Optional<SirixDeweyID> newNamespaceID() throws SirixException {
-    Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+    Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.hasNamespaces()) {
         mNodeReadTrx.moveToNamespace(mNodeReadTrx.getNamespaceCount() - 1);
@@ -1222,7 +1227,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if generating an ID fails
    */
   private Optional<SirixDeweyID> newAttributeID() throws SirixException {
-    Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+    Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.hasAttributes()) {
         mNodeReadTrx.moveToAttribute(mNodeReadTrx.getAttributeCount() - 1);
@@ -1242,7 +1247,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if generating an ID fails
    */
   private Optional<SirixDeweyID> newFirstChildID() throws SirixException {
-    Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+    Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.getStructuralNode().hasFirstChild()) {
         mNodeReadTrx.moveToFirstChild();
@@ -1261,7 +1266,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if generating an ID fails
    */
   private Optional<SirixDeweyID> newLeftSiblingID() throws SirixException {
-    Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+    Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       final SirixDeweyID currID = mNodeReadTrx.getCurrentNode().getDeweyID().get();
       if (mNodeReadTrx.hasLeftSibling()) {
@@ -1283,7 +1288,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if generating an ID fails
    */
   private Optional<SirixDeweyID> newRightSiblingID() throws SirixException {
-    Optional<SirixDeweyID> id = Optional.<SirixDeweyID>empty();
+    Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       final SirixDeweyID currID = mNodeReadTrx.getCurrentNode().getDeweyID().get();
       if (mNodeReadTrx.hasRightSibling()) {
@@ -1301,11 +1306,11 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
   /**
    * Get a byte-array from a value.
    *
-   * @param pValue the value
+   * @param value the value
    * @return byte-array representation of {@code pValue}
    */
-  private byte[] getBytes(final String pValue) {
-    return pValue.getBytes(Constants.DEFAULT_ENCODING);
+  private static byte[] getBytes(final String value) {
+    return value.getBytes(Constants.DEFAULT_ENCODING);
   }
 
   @Override
@@ -1493,10 +1498,10 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           removeName();
         }
 
-        // Set current node (don't remove the moveTo(long) inside the if-clause
-        // which is needed because
-        // of text merges.
+        // Set current node (don't remove the moveTo(long) inside the if-clause which is needed
+        // because of text merges.
         if (mNodeReadTrx.hasRightSibling() && moveTo(node.getRightSiblingKey()).hasMoved()) {
+          // Do nothing.
         } else if (node.hasLeftSibling()) {
           moveTo(node.getLeftSiblingKey());
         } else {
@@ -1556,8 +1561,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         removeName();
         removeValue();
         getPageTransaction().removeEntry(
-            getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
-            Optional.<UnorderedKeyValuePage>empty());
+            getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1, Optional.empty());
         moveToParent();
       }
       final int nspCount = mNodeReadTrx.getNamespaceCount();
@@ -1565,8 +1569,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         moveToNamespace(i);
         removeName();
         getPageTransaction().removeEntry(
-            getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1,
-            Optional.<UnorderedKeyValuePage>empty());
+            getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1, Optional.empty());
         moveToParent();
       }
     }
@@ -1919,6 +1922,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         break;
       case POSTORDER:
         break;
+      case NONE:
       default:
     }
   }
@@ -1956,6 +1960,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
       case POSTORDER:
         postorderAdd();
         break;
+      case NONE:
       default:
     }
   }
@@ -2163,6 +2168,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         case POSTORDER:
           postorderAdd();
           break;
+        case NONE:
         default:
       }
     }
@@ -2182,6 +2188,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         case POSTORDER:
           postorderRemove();
           break;
+        case NONE:
         default:
       }
     }
@@ -2202,6 +2209,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
         case POSTORDER:
           postorderAdd();
           break;
+        case NONE:
         default:
       }
     }
@@ -2408,7 +2416,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param nodeToModify node to modify
    * @param descendantCount the descendantCount to add
    */
-  private void setAddDescendants(final ImmutableNode startNode, final Node nodeToModifiy,
+  private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModifiy,
       final @Nonnegative long descendantCount) {
     assert startNode != null;
     assert descendantCount >= 0;
@@ -2539,6 +2547,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
             throw new IllegalStateException();
         }
         break;
+      // $CASES-OMITTED$
       default:
         new XMLShredder.Builder(this, new StAXSerializer(rtx), insert).build().call();
     }
@@ -2587,6 +2596,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
                 remove();
                 moveTo(insertedRootNode.getNodeKey());
                 break;
+              default:
+                // Do nothing.
             }
           }
         } else {
@@ -2597,9 +2608,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           moveTo(insertedRootNode.getNodeKey());
         }
       } else {
-
+        throw new IllegalArgumentException("Not supported for attributes / namespaces.");
       }
-
     } finally {
       unLock();
     }
@@ -2629,6 +2639,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
           }
           insertNamespace(rtx.getName());
           break;
+        // $CASES-OMITTED$
         default:
           throw new UnsupportedOperationException("Node type not supported!");
       }

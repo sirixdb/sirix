@@ -82,6 +82,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
           pageWriteTrx.appendLogRecord(reference, new PageContainer(namePage, namePage));
           namePage.createNameIndexTree(pageWriteTrx, index, pageWriteTrx.getLog());
           break;
+        default:
+          // Must not happen.
       }
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
@@ -157,7 +159,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
         return node.getValue();
       }
 
-      final boolean moved = c < 0 ? moveToFirstChild().hasMoved() : moveToLastChild().hasMoved();
+      final boolean moved = c < 0
+          ? moveToFirstChild().hasMoved()
+          : moveToLastChild().hasMoved();
       if (moved) {
         node = mAVLTreeReader.getAVLNode();
         continue;
@@ -327,7 +331,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     if (node == null || node.getLeftChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
-    return moveTo(node.getLeftChildKey()).hasMoved() ? mAVLTreeReader.getAVLNode() : null;
+    return moveTo(node.getLeftChildKey()).hasMoved()
+        ? mAVLTreeReader.getAVLNode()
+        : null;
   }
 
   /**
@@ -340,7 +346,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     if (node == null || node.getRightChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
-    return moveTo(node.getRightChildKey()).hasMoved() ? mAVLTreeReader.getAVLNode() : null;
+    return moveTo(node.getRightChildKey()).hasMoved()
+        ? mAVLTreeReader.getAVLNode()
+        : null;
   }
 
   /**
@@ -353,7 +361,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     if (node == null || node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return null;
     }
-    return moveTo(node.getParentKey()).hasMoved() ? mAVLTreeReader.getAVLNode() : null;
+    return moveTo(node.getParentKey()).hasMoved()
+        ? mAVLTreeReader.getAVLNode()
+        : null;
   }
 
   /**

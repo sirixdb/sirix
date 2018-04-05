@@ -212,7 +212,7 @@ public final class PageDelegate implements Page {
     return helper.toString();
   }
 
-  private String dumpBitmap(final BitSet bitmap) {
+  private static String dumpBitmap(final BitSet bitmap) {
     final StringBuilder s = new StringBuilder();
 
     for (int i = 0; i < bitmap.length(); i++) {

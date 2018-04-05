@@ -67,6 +67,7 @@ public final class FollowingAxis extends AbstractAxis {
         case ATTRIBUTE:
         case NAMESPACE:
           return done();
+        // $CASES-OMITTED$
         default:
       }
     }

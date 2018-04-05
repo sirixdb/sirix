@@ -137,7 +137,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
             String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
+        mIndexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
       } catch (IOException | DocumentException | SirixException e) {
         throw new SirixIOException("Index definitions couldn't be deserialized!", e);
       }
@@ -290,6 +290,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
         final NamePage namePage = ((NamePage) mNewRoot.getNamePageReference().getPage());
         recordKey = namePage.incrementAndGetMaxNodeKey(index);
         break;
+      // $CASES-OMITTED$
       default:
         throw new IllegalStateException();
     }
@@ -337,7 +338,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       if (node == null) {
         node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(recordKey);
       }
-      return mPageRtx.checkItemIfDeleted(node);
+      return PageReadTrxImpl.checkItemIfDeleted(node);
     }
   }
 
@@ -584,6 +585,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
         case NAMEPAGE:
           appendLogRecord(reference, pageContainer);
           break;
+        // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Page kind not known!");
       }

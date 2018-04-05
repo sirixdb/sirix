@@ -219,7 +219,7 @@ public final class XdmResourceManager implements ResourceManager {
     return reader;
   }
 
-  Node getDocumentNode(final PageReadTrx pageReadTrx) {
+  static Node getDocumentNode(final PageReadTrx pageReadTrx) {
     final Node documentNode;
 
     @SuppressWarnings("unchecked")

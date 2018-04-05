@@ -94,7 +94,7 @@ public final class Names {
    * @param name the string representation
    * @return byte representation of a string value in a map
    */
-  private byte[] getBytes(final String name) {
+  private static byte[] getBytes(final String name) {
     return name.getBytes(Constants.DEFAULT_ENCODING);
   }
 
