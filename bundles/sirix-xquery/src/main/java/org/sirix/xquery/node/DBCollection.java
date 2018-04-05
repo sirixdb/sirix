@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,7 +12,6 @@ import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.node.AbstractCollection;
 import org.brackit.xquery.node.parser.CollectionParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
-import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
@@ -35,6 +33,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+import com.google.common.base.Preconditions;
 
 /**
  * Database collection.
@@ -65,8 +64,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
    * @param database Sirix {@link Database} reference
    */
   public DBCollection(final String name, final Database database) {
-    super(checkNotNull(name));
-    mDatabase = checkNotNull(database);
+    super(Preconditions.checkNotNull(name));
+    mDatabase = Preconditions.checkNotNull(database);
     mID = ID_SEQUENCE.incrementAndGet();
   }
 
@@ -75,12 +74,15 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof DBCollection) {
-      final DBCollection coll = (DBCollection) obj;
-      return mDatabase.equals(coll.mDatabase);
-    }
-    return false;
+  public boolean equals(final @Nullable Object other) {
+    if (this == other)
+      return true;
+
+    if (!(other instanceof DBCollection))
+      return false;
+
+    final DBCollection coll = (DBCollection) other;
+    return mDatabase.equals(coll.mDatabase);
   }
 
   @Override
@@ -137,7 +139,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final ResourceManager session = mDatabase.getResourceManager(
           ResourceManagerConfiguration.newBuilder(resources.get(0).getFileName().toString())
                                       .build());
-      final int version = revision == -1 ? session.getMostRecentRevisionNumber() : revision;
+      final int version = revision == -1
+          ? session.getMostRecentRevisionNumber()
+          : revision;
       final XdmNodeReadTrx rtx = session.beginNodeReadTrx(version);
       return new DBNode(rtx, this);
     } catch (final SirixException e) {
@@ -160,8 +164,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final ResourceManager manager =
           mDatabase.getResourceManager(ResourceManagerConfiguration.newBuilder(resource).build());
       final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD,
-          Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
+      final SubtreeHandler handler =
+          new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -192,8 +196,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
           ResourceManagerConfiguration.newBuilder(resourceName).build());
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD,
-          Collections.<SubtreeListener<? super AbstractTemporalNode<DBNode>>>emptyList());
+      final SubtreeHandler handler =
+          new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -272,7 +276,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   private DBNode getDocumentInternal(final ResourceManagerConfiguration resourceManagerConfig,
       final int revision, final boolean updatable) throws SirixException {
     final ResourceManager resource = mDatabase.getResourceManager(resourceManagerConfig);
-    final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
+    final int version = revision == -1
+        ? resource.getMostRecentRevisionNumber()
+        : revision;
 
     final XdmNodeReadTrx trx;
     if (updatable) {
@@ -320,21 +326,22 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     final List<Path> resources = mDatabase.listResources();
     final List<DBNode> documents = new ArrayList<>(resources.size());
 
+    // Foreach because of throwing of an unchecked exception (DocumentException).
     for (final Path resourcePath : resources) {
       try {
         final String resourceName = resourcePath.getFileName().toString();
         final ResourceManager resource = mDatabase.getResourceManager(
             ResourceManagerConfiguration.newBuilder(resourceName).build());
-        final XdmNodeReadTrx trx =
-            updatable ? resource.beginNodeWriteTrx() : resource.beginNodeReadTrx();
+        final XdmNodeReadTrx trx = updatable
+            ? resource.beginNodeWriteTrx()
+            : resource.beginNodeReadTrx();
         documents.add(new DBNode(trx, this));
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
     }
 
-    return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents.size()]));
-
+    return new ArrayStream<>(documents.toArray(new DBNode[documents.size()]));
   }
 
   @Override

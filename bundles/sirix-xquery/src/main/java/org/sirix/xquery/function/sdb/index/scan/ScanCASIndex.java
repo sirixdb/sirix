@@ -59,7 +59,7 @@ public final class ScanCASIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = (DBNode) args[0];
     final XdmNodeReadTrx rtx = doc.getTrx();

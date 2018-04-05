@@ -35,13 +35,13 @@ import org.sirix.xquery.node.DBStore;
  * <p>
  * Function for storing a document in a collection/database. The Supported signature is:
  * </p>
- * 
+ *
  * <pre>
  * <code>sdb:store($coll as xs:string, $res as xs:string, $fragment as xs:node, $create-new as xs:boolean?) as ()</code>
  * </pre>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
@@ -55,7 +55,7 @@ public final class Store extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param createNew determines if a new collection has to be created or not
    */
   public Store(final boolean createNew) {
@@ -64,22 +64,21 @@ public final class Store extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the function name
    * @param createNew determines if a new collection has to be created or not
    */
   public Store(final QNm name, final boolean createNew) {
-    super(name,
-        createNew
-            ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
-            : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AtomicType.STR, Cardinality.One),
-                new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-                new SequenceType(AtomicType.BOOL, Cardinality.One)),
+    super(name, createNew
+        ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
+        : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
   }
 
@@ -91,9 +90,13 @@ public final class Store extends AbstractFunction {
       final Sequence nodes = args[2];
       if (nodes == null)
         throw new QueryException(new QNm("No sequence of nodes specified!"));
-      final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
-      final String resName =
-          FunUtil.getString(args, 1, "resName", "resource", null, createNew ? false : true);
+      final boolean createNew = args.length == 4
+          ? args[3].booleanValue()
+          : true;
+      final String resName = FunUtil.getString(
+          args, 1, "resName", "resource", null, createNew
+              ? false
+              : true);
 
       final DBStore store = (DBStore) ctx.getStore();
       if (createNew) {
@@ -102,7 +105,7 @@ public final class Store extends AbstractFunction {
         try {
           final DBCollection coll = (DBCollection) store.lookup(collName);
           add(store, coll, resName, nodes);
-        } catch (DocumentException e) {
+        } catch (final DocumentException e) {
           // collection does not exist
           create(store, collName, resName, nodes);
         }
@@ -114,7 +117,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private void add(final org.brackit.xquery.xdm.Store store, final DBCollection coll,
+  private static void add(final org.brackit.xquery.xdm.Store store, final DBCollection coll,
       final String resName, final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
@@ -131,7 +134,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private void create(final DBStore store, final String collName, final String resName,
+  private static void create(final DBStore store, final String collName, final String resName,
       final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
@@ -144,7 +147,7 @@ public final class Store extends AbstractFunction {
   private static class StoreParser extends StreamSubtreeParser {
     private final boolean intercept;
 
-    public StoreParser(Node<?> node) throws DocumentException {
+    public StoreParser(final Node<?> node) throws DocumentException {
       super(node.getSubtree());
       intercept = (node.getKind() != Kind.DOCUMENT);
     }
@@ -161,68 +164,83 @@ public final class Store extends AbstractFunction {
   private static class InterceptorHandler implements SubtreeHandler {
     private final SubtreeHandler handler;
 
-    public InterceptorHandler(SubtreeHandler handler) {
+    public InterceptorHandler(final SubtreeHandler handler) {
       this.handler = handler;
     }
 
+    @Override
     public void beginFragment() throws DocumentException {
       handler.beginFragment();
       handler.startDocument();
     }
 
+    @Override
     public void endFragment() throws DocumentException {
       handler.endDocument();
       handler.endFragment();
     }
 
+    @Override
     public void startDocument() throws DocumentException {
       handler.startDocument();
     }
 
+    @Override
     public void endDocument() throws DocumentException {
       handler.endDocument();
     }
 
-    public void text(Atomic content) throws DocumentException {
+    @Override
+    public void text(final Atomic content) throws DocumentException {
       handler.text(content);
     }
 
-    public void comment(Atomic content) throws DocumentException {
+    @Override
+    public void comment(final Atomic content) throws DocumentException {
       handler.comment(content);
     }
 
-    public void processingInstruction(QNm target, Atomic content) throws DocumentException {
+    @Override
+    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
       handler.processingInstruction(target, content);
     }
 
-    public void startMapping(String prefix, String uri) throws DocumentException {
+    @Override
+    public void startMapping(final String prefix, final String uri) throws DocumentException {
       handler.startMapping(prefix, uri);
     }
 
-    public void endMapping(String prefix) throws DocumentException {
+    @Override
+    public void endMapping(final String prefix) throws DocumentException {
       handler.endMapping(prefix);
     }
 
-    public void startElement(QNm name) throws DocumentException {
+    @Override
+    public void startElement(final QNm name) throws DocumentException {
       handler.startElement(name);
     }
 
-    public void endElement(QNm name) throws DocumentException {
+    @Override
+    public void endElement(final QNm name) throws DocumentException {
       handler.endElement(name);
     }
 
-    public void attribute(QNm name, Atomic value) throws DocumentException {
+    @Override
+    public void attribute(final QNm name, final Atomic value) throws DocumentException {
       handler.attribute(name, value);
     }
 
+    @Override
     public void begin() throws DocumentException {
       handler.begin();
     }
 
+    @Override
     public void end() throws DocumentException {
       handler.end();
     }
 
+    @Override
     public void fail() throws DocumentException {
       handler.fail();
     }
@@ -249,7 +267,7 @@ public final class Store extends AbstractFunction {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
               "Cannot create subtree parser for item of type: %s", i.itemType());
         }
-      } catch (QueryException e) {
+      } catch (final QueryException e) {
         throw new DocumentException(e);
       }
     }
