@@ -12,7 +12,7 @@ import com.google.common.base.MoreObjects;
  *
  * @param <T> the cursor instance
  */
-public class Moved<T extends NodeCursor> extends Move<T> {
+public final class Moved<T extends NodeCursor> extends Move<T> {
 
   /** {@link NodeCursor} implementation. */
   private final T mNodeCursor;
@@ -38,11 +38,14 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 
   @Override
   public boolean equals(final @Nullable Object object) {
-    if (object instanceof Moved) {
-      final Moved<?> other = (Moved<?>) object;
-      return mNodeCursor.equals(other.mNodeCursor);
-    }
-    return false;
+    if (this == object)
+      return true;
+
+    if (!(object instanceof Moved))
+      return false;
+
+    final Moved<?> other = (Moved<?>) object;
+    return mNodeCursor.equals(other.mNodeCursor);
   }
 
   @Override
