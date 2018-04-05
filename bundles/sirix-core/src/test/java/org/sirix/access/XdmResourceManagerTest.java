@@ -42,7 +42,7 @@ import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Constants;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 
 public class XdmResourceManagerTest {
 
@@ -99,7 +99,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testInsertChild() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-      DocumentCreater.create(wtx);
+      DocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
       assertEquals(Kind.DOCUMENT, wtx.getKind());
 
@@ -143,7 +143,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testShreddedRevision() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-      DocumentCreater.create(wtx);
+      DocumentCreator.create(wtx);
       assertEquals(1L, wtx.getRevisionNumber());
       wtx.commit();
     }
@@ -178,7 +178,7 @@ public class XdmResourceManagerTest {
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
 
     final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
-    DocumentCreater.create(wtx1);
+    DocumentCreator.create(wtx1);
     assertEquals(1L, wtx1.getRevisionNumber());
     wtx1.commit();
     wtx1.close();
@@ -218,7 +218,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testIdempotentClose() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     wtx.close();
@@ -234,7 +234,7 @@ public class XdmResourceManagerTest {
   public void testAutoCommitWithNodeThreshold() {
     // After each bunch of 5 nodes commit.
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(5)) {
-      DocumentCreater.create(wtx);
+      DocumentCreator.create(wtx);
       wtx.commit();
       assertEquals(4, wtx.getRevisionNumber());
     }

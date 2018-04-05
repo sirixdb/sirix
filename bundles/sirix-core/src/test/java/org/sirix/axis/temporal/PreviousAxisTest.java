@@ -8,7 +8,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -30,7 +30,7 @@ public final class PreviousAxisTest {
   @Before
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
-    DocumentCreater.createVersioned(Holder.generateWtx().getWriter());
+    DocumentCreator.createVersioned(Holder.generateWtx().getWriter());
     holder = Holder.generateRtx();
   }
 

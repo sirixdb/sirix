@@ -31,7 +31,7 @@ import org.sirix.TestHelper;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 
 public final class MinimumCommitTest {
 
@@ -57,7 +57,7 @@ public final class MinimumCommitTest {
 
     holder = Holder.generateWtx();
     assertEquals(2L, holder.getWriter().getRevisionNumber());
-    DocumentCreater.create(holder.getWriter());
+    DocumentCreator.create(holder.getWriter());
     holder.getWriter().commit();
     holder.close();
 

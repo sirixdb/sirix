@@ -42,7 +42,7 @@ import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 import com.google.common.collect.ImmutableSet;
 
 public final class DiffTestHelper {
@@ -55,7 +55,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpFirst(final Holder holder) throws SirixException {
-    DocumentCreater.createVersioned(holder.getWriter());
+    DocumentCreator.createVersioned(holder.getWriter());
   }
 
   static void setUpSecond(final Holder holder)
@@ -109,7 +109,7 @@ public final class DiffTestHelper {
   static void setUpSeventh(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
     final XdmNodeWriteTrx wtx = holder.getWriter();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
     rtx.moveTo(1);
@@ -122,7 +122,7 @@ public final class DiffTestHelper {
   static void setUpEighth(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
     final XdmNodeWriteTrx wtx = holder.getWriter();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
     wtx.commit();
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
     rtx.moveTo(11);

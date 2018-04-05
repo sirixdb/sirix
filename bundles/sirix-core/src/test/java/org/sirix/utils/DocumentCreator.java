@@ -93,7 +93,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  *
  * </p>
  */
-public final class DocumentCreater {
+public final class DocumentCreator {
 
   /** String representation of revisioned xml file. */
   public static final String REVXML =
@@ -156,7 +156,7 @@ public final class DocumentCreater {
   /**
    * Private Constructor, not used.
    */
-  private DocumentCreater() {
+  private DocumentCreator() {
     throw new AssertionError("Not permitted to call constructor!");
   }
 

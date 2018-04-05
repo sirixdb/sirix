@@ -427,7 +427,7 @@ public class ConXPathAxisTest {
           new XPathAxis(holder.getReader(), "child::b[child::c]"), new long[] {5L, 9L});
 
       AbsAxisTest.testIAxisConventions(
-          new XPathAxis(holder.getReader(), "child::*[text() or c]"), new long[] {5l, 9L});
+          new XPathAxis(holder.getReader(), "child::*[text() or c]"), new long[] {5L, 9L});
 
       // IAxisTest.testIAxisConventions(new XPathAxis(
       // holder.getRtx(),

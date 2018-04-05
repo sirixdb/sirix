@@ -36,7 +36,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
-import org.sirix.utils.DocumentCreater;
+import org.sirix.utils.DocumentCreator;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -58,7 +58,7 @@ public class PathSummaryTest {
     TestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
     wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
+    DocumentCreator.create(wtx);
   }
 
   @After
@@ -674,7 +674,7 @@ public class PathSummaryTest {
   public void testFirstMoveToFirstChild() throws SirixException {
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(9);
-    PathSummaryReader pathSummary = wtx.getPathSummary();
+    final PathSummaryReader pathSummary = wtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     wtx.commit();
     wtx.close();
