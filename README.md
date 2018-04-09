@@ -7,17 +7,25 @@
 "Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
 ## What it is
-Sirix is a storage system, which brings versioning to a sub-file granular level. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types.
+Sirix is a storage system, which brings versioning to a sub-file granular level. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types, that is support in JSONiq. We aim to provide
+
+1. The current revision of the resource or any subset thereof;
+2. The full revision history of the resource or any subset thereof;
+3. The full modification history of the resource or any subset thereof.
+
+We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time,
 
 ## Simple Example 
-Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
+Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
 (* Update loaded document: *)
-INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
+let $doc := doc('mydoc.xml')
+INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO $doc/log
 
-(* intermediate commit *)
+(* intermediate explicit commit *)
+sdb:commit($doc)
 
 (* Query loaded document: *)
 doc('mydoc.xml')/log/all-time::*
