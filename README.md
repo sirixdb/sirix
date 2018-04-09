@@ -69,6 +69,15 @@ Many more examples of creating name indexes, content and structure indexes and h
 
 Have a look into the wiki for examples regarding a lower level (really powerful) cursor based API to navigate/and or modify  the tree structure or to navigate in time.
 
+A lot of the ideas still stem from the Ph.D. thesis of Marc Kramis: Evolutionary Tree-Structured Storage: Concepts, Interfaces, and Applications
+
+http://www.uni-konstanz.de/mmsp/pubsys/publishedFiles/Kramis2014.pdf
+
+As well as from Sebastian Graft's work and thesis:
+
+https://kops.uni-konstanz.de/handle/123456789/27250
+
+
 ## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
