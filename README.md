@@ -7,7 +7,7 @@
 "Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
 ## What it is
-Sirix is a storage system, which brings versioning to a sub-file granular level. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types, that is support in JSONiq. We aim to provide
+Sirix is a storage system, which brings versioning to a sub-file granular level. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We aim to provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
@@ -54,7 +54,7 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 </code></pre>
 
 Creation of a path index for all paths (note that we already can keep a path summary):
-<code><pre>
+<pre><code>
 // Create and commit path index on all elements.
 try (final DBStore store = DBStore.newBuilder().build()) {
   final QueryContext ctx3 = new QueryContext(store);
@@ -64,7 +64,7 @@ try (final DBStore store = DBStore.newBuilder().build()) {
               + "return <rev>{sdb:commit($doc)}</rev>");
   q.serialize(ctx3, System.out);
 }
-</pre></code>
+</code></pre>
 
 Many more examples of creating name indexes, content and structure indexes and how to query them can be found in the examples module.
 
