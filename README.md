@@ -53,6 +53,21 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 &lt;/a&gt;
 </code></pre>
 
+Creation of a path index for all paths (note that we already can keep a path summary):
+<code><pre>
+// Create and commit path index on all elements.
+try (final DBStore store = DBStore.newBuilder().build()) {
+  final QueryContext ctx3 = new QueryContext(store);
+  final XQuery q = new XQuery(new SirixCompileChain(store),
+          "let $doc := sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
+              + "let $stats := sdb:create-path-index($doc, '//*') "
+              + "return <rev>{sdb:commit($doc)}</rev>");
+  q.serialize(ctx3, System.out);
+}
+</pre></code>
+
+Many more examples of creating name indexes, content and structure indexes and how to query them can be found in the examples module.
+
 ## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
