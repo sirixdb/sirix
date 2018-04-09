@@ -61,7 +61,7 @@ try (final DBStore store = DBStore.newBuilder().build()) {
   final XQuery q = new XQuery(new SirixCompileChain(store),
           "let $doc := sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
               + "let $stats := sdb:create-path-index($doc, '//*') "
-              + "return <rev>{sdb:commit($doc)}</rev>");
+              + "return <rev>{sdb:commit($doc)}</rev>");
   q.serialize(ctx3, System.out);
 }
 </pre></code>
