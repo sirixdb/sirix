@@ -7,7 +7,7 @@
 "Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
 ## Storage system for temporal data
-Sirix is a storage system, which brings versioning to a sub-file granular level taking full advantage of flash based diskas as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We aim to provide
+Sirix is a storage system, which brings versioning to a sub-file granular level taking full advantage of flash based disks as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We aim to provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
