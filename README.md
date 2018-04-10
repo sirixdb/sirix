@@ -26,9 +26,19 @@ Databases.createDatabase(config);
 
 // Open the database.
 try (final Database database = Databases.openDatabase(file)) {
-  // Create a resource in the database with the name "resource1".
-  database.createResource(new ResourceConfiguration.Builder("resource1", config).build());
-
+  /* 
+   * Create a resource in the database with the name "resource1".
+   * Store deweyID, use text node compression, build a summary
+   * of all paths in the resource and use the SLIDING_SNAPSHOT
+   * versioning algorithm.
+   */
+  database.createResource(
+            ResourceConfiguration.newBuilder("resource1", config)
+                                 .useDeweyIDs(true)
+                                 .useTextCompression(true)
+                                 .buildPathSummary(true)
+                                 .versioningApproach(Versioning.SLIDING_SNAPSHOT)
+                                 .build());
   try (
       // Start a resource manager on the given resource.
       final ResourceManager resource = database.getResourceManager(
