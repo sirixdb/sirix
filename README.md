@@ -205,8 +205,8 @@ public interface DiffObserver {
    * Called for every node comparsion.
    *
    * @param diffType the {@link DiffType} type
-   * @param pNewNode node key of node in new revision
-   * @param pOldNode node key of node in old revision
+   * @param newNodeKey node key of node in new revision
+   * @param oldNodeKey node key of node in old revision
    * @param depth current {@link DiffDepth} instance
    */
   void diffListener(@Nonnull DiffType diffType, long newNodeKey, long oldNodeKey,
@@ -406,7 +406,7 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 ## Further information
 
-Sirix was initially forked from Treetank (https://github.com/disy/treetank) due to the specialization on XML, which isn't the focus of Treetank anymore.
+Sirix was initially forked from Treetank (https://github.com/disy/treetank).
 As such my deepest gratitude to all the other students who worked on the project.
 
 First of all:
