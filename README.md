@@ -15,7 +15,7 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
-## Simple Example
+## Simple Examples
 <pre><code>final Path file = Paths.get("sirix-database");
 
 // Create the database.
@@ -131,6 +131,10 @@ There are also several ways to start the single write-transaction:
   XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
       final int maxTime);
 </code></pre>
+
+Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
+<pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
+<pre><code>final PostOrderAxis axis = new PostOrderAxis(rtx)</code></pre>
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
