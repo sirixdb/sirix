@@ -15,7 +15,87 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
-## Simple Example 
+## Simple Example
+<pre><code>final Path file = Paths.get("sirix-database");
+Databases.createDatabase(new DatabaseConfiguration(file));
+
+try (final Database database = Databases.openDatabase(file)) {
+  database.createResource(new ResourceConfiguration.Builder("resource", config).build());
+
+  try (
+      final ResourceManager resource = database.getResourceManager(
+          new ResourceManagerConfiguration.Builder("resource").build());
+      final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+    wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
+    wtx.moveTo(2);
+    wtx.moveSubtreeToFirstChild(4).commit();
+
+    final OutputStream out = new ByteArrayOutputStream();
+    new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
+
+    System.out.println(out);
+  }
+} catch (final SirixException | IOException | XMLStreamException e) {
+  // LOG or do anything, the database is closed properly.
+}
+</code></pre>
+
+There are N reading transactions as well as one write-transaction permitted on a resource.
+
+A read-only transaction can be opened through:
+
+<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()</code></pre>
+
+This starts a transaction on the most recent revision.
+
+<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)</code></pre>
+
+This starts a transaction at revision 1.
+
+<pre><code>final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())</code></pre>
+
+This starts a transaction on the revision, which has been committed at the closest timestamp to the given point in time.
+
+There are also several ways to start the single write-transaction:
+
+<pre><code>
+  /**
+   * Begin exclusive read/write transaction without auto commit.
+   *
+   * @param trx the transaction to use
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @return {@link XdmNodeWriteTrx} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx();
+
+  /**
+   * Begin exclusive read/write transaction with auto commit.
+   *
+   * @param maxNodes count of node modifications after which a commit is issued
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @throws IllegalArgumentException if {@code maxNodes < 0}
+   * @return {@link XdmNodeReaderWriter} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
+
+  /**
+   * Begin exclusive read/write transaction with auto commit.
+   *
+   * @param timeUnit unit used for time
+   * @param maxTime time after which a commit is issued
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
+   * @throws IllegalArgumentException if {@code maxTime < 0}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
+   * @return {@link XdmNodeReaderWriter} instance
+   */
+  XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+</code></pre>
+
+## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
