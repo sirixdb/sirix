@@ -15,8 +15,10 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
+The following shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance public DBNode getLastChild(), public DBNode getFirstChild()...).
+
 ## Simple Examples
-Think of the XDM-node API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
+Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
 
 <pre><code>// Path to the database.
 final Path file = Paths.get("sirix-database");
@@ -54,6 +56,12 @@ try (final Database database = Databases.openDatabase(file)) {
     
     // Then move the subtree located at this node to the first child of node 4.
     wtx.moveSubtreeToFirstChild(4)
+    
+    // Get the name of the current node.
+    final QName name = wtx.getName();
+    
+    // Get the value of the current node.
+    final String value = wtx.getValue();
     
     // Commit revision 1.
     wtx.commit();
