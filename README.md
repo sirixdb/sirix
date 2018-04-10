@@ -122,7 +122,7 @@ There are also several ways to start the single write-transaction:
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
+  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -135,7 +135,7 @@ There are also several ways to start the single write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+  XdmNodeWriteTrx beginNodeWriteTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -149,8 +149,7 @@ There are also several ways to start the single write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
-      final int maxTime);
+  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 </code></pre>
 
 With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
