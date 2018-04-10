@@ -159,6 +159,18 @@ Or navigate to a specific node and then in time, for instance through all future
 
 and many more as well.
 
+Besides, we for instance provide diff-algorithms to import differences between several versions of (currently XML)-documents.
+
+For instance after storing one revision in Sirix, we can import only the differences encountered by a sophisticated tree-to-tree diff-algorithm.
+
+<pre><code>final Path resOldRev = Paths.get("sirix-resource-to-update");
+final Path resNewRev = Paths.get("new-revision-as-xml-file");
+
+FMSEImport.dataImport(resOldRev, resNewRev);
+</code></pre>
+
+Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
+
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
@@ -221,7 +233,6 @@ As well as from Sebastian Graft's work and thesis:
 
 https://kops.uni-konstanz.de/handle/123456789/27250
 
-
 ## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
@@ -248,14 +259,6 @@ Core project:
 &lt;/dependency&gt;
 </code></pre>
 
-Examples:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
 Brackit binding:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
@@ -263,6 +266,14 @@ Brackit binding:
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
 </pre></code>
+
+Examples:
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
