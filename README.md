@@ -16,6 +16,8 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
 ## Simple Examples
+Think of the XDM-node API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
+
 <pre><code>final Path file = Paths.get("sirix-database");
 
 // Create the database.
@@ -45,11 +47,11 @@ try (final Database database = Databases.openDatabase(file)) {
     // Commit revision 1.
     wtx.commit();
     
-    // Reuse transaction handle and insert an element to the first child the current transaction cursor resides.
+    // Reuse transaction handle and insert an element to the first child where the current transaction cursor resides.
     wtx.insertElementAsFirstChild(new QName("foo"));
     
-    // Commit revision 2.
-    wtx.commit();
+    // Commit revision 2 with a commit message.
+    wtx.commit("[MOD] Inserted another element.");
 
     // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
@@ -134,11 +136,17 @@ There are also several ways to start the single write-transaction:
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
 <pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
+
+Post-order traversal:
 <pre><code>final PostOrderAxis axis = new PostOrderAxis(rtx)</code></pre>
+
+And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
 <pre><code>final FutureAxis axis = new FutureAxis(rtx)</code></pre>
 <pre><code>final PastAxis axis = new PastAxis(rtx)</code></pre>
+
+and many more as well.
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
