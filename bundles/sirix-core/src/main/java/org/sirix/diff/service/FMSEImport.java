@@ -97,7 +97,6 @@ public final class FMSEImport {
    * @param resNewRev {@link File} for new revision (XML resource)
    */
   private static void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
-
     try {
       final Path newRevTarget = Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
       if (Files.exists(newRevTarget)) {
