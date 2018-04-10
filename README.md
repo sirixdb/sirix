@@ -171,6 +171,42 @@ FMSEImport.dataImport(resOldRev, resNewRev);
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
 
+In order to invoke a diff you either use with a resource-manager and an immutable set of observers (2 and 1 are the revision numbers to compare):
+
+<pre><code>DiffFactory.invokeFullDiff(
+        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
+            ImmutableSet.of(observer)))</code></pre>
+
+Or you invoke a structural diff, which does not check attributes or namespace-nodes:
+
+<pre><code>DiffFactory.invokeStructuralDiff(
+        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
+            ImmutableSet.of(observer)))</code></pre>
+
+An observer simply has to implement this interface:
+
+<pre><code>/**
+ * Interface for observers, which are listening for diffs.
+ *
+ * @author Johannes Lichtenberger, University of Konstanz
+ *
+ */
+public interface DiffObserver {
+  /**
+   * Called for every node comparsion.
+   *
+   * @param diffType the {@link DiffType} type
+   * @param pNewNode node key of node in new revision
+   * @param pOldNode node key of node in old revision
+   * @param depth current {@link DiffDepth} instance
+   */
+  void diffListener(@Nonnull DiffType diffType, long newNodeKey, long oldNodeKey,
+      @Nonnull DiffDepth depth);
+
+  /** Signals that the diff calculation is done. */
+  void diffDone();
+}</code></pre>
+
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
