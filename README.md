@@ -17,19 +17,41 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 
 ## Simple Example
 <pre><code>final Path file = Paths.get("sirix-database");
-Databases.createDatabase(new DatabaseConfiguration(file));
 
+// Create the database.
+final DatabaseConfiguration config = new DatabaseConfiguration(file);
+Databases.createDatabase(config);
+
+// Open the database.
 try (final Database database = Databases.openDatabase(file)) {
-  database.createResource(new ResourceConfiguration.Builder("resource", config).build());
+  // Create a resource in the database with the name "resource1".
+  database.createResource(new ResourceConfiguration.Builder("resource1", config).build());
 
   try (
+      // Start a resource manager on the given resource.
       final ResourceManager resource = database.getResourceManager(
           new ResourceManagerConfiguration.Builder("resource").build());
+      // Start the single read/write transaction.
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+    // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
+    
+    // Move to the node which automatically got the node-key 2 from Sirix during the import of the XML-document.
     wtx.moveTo(2);
-    wtx.moveSubtreeToFirstChild(4).commit();
+    
+    // Then move the subtree located at this node to the first child of node 4.
+    wtx.moveSubtreeToFirstChild(4)
+    
+    // Commit revision 1.
+    wtx.commit();
+    
+    // Reuse transaction handle and insert an element to the first child the current transaction cursor resides.
+    wtx.insertElementAsFirstChild(new QName("foo"));
+    
+    // Commit revision 2.
+    wtx.commit();
 
+    // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
     new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
 
