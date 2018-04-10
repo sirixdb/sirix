@@ -172,16 +172,16 @@ public final class DiffFactory {
     /**
      * Constructor.
      * 
-     * @param session the {@link ResourceManager} to use
+     * @param resMgr the {@link ResourceManager} to use
      * @param newRev new revision to compare
      * @param oldRev old revision to compare
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceManager session, final @Nonnegative int newRev,
+    public Builder(final ResourceManager resMgr, final @Nonnegative int newRev,
         final @Nonnegative int oldRev, final DiffOptimized diffKind,
         final Set<DiffObserver> observers) {
-      mSession = checkNotNull(session);
+      mSession = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       mNewRev = newRev;
       checkArgument(oldRev >= 0, "paramOldRev must be >= 0!");
