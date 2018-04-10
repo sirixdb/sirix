@@ -18,7 +18,8 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 ## Simple Examples
 Think of the XDM-node API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
 
-<pre><code>final Path file = Paths.get("sirix-database");
+<pre><code>// Path to the database.
+final Path file = Paths.get("sirix-database");
 
 // Create the database.
 final DatabaseConfiguration config = new DatabaseConfiguration(file);
