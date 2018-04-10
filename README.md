@@ -145,6 +145,8 @@ There are also several ways to start the single write-transaction:
       final int maxTime);
 </code></pre>
 
+With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
+
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
 <pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
 
