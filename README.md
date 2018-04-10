@@ -136,6 +136,10 @@ Use one of the provided axis to navigate through the DOM-like tree-structre (for
 <pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
 <pre><code>final PostOrderAxis axis = new PostOrderAxis(rtx)</code></pre>
 
+Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
+<pre><code>final FutureAxis axis = new FutureAxis(rtx)</code></pre>
+<pre><code>final PastAxis axis = new PastAxis(rtx)</code></pre>
+
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
