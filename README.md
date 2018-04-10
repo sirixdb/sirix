@@ -29,8 +29,8 @@ Databases.createDatabase(config);
 try (final Database database = Databases.openDatabase(file)) {
   /* 
    * Create a resource in the database with the name "resource1".
-   * Store deweyID, use text node compression, build a summary
-   * of all paths in the resource and use the SLIDING_SNAPSHOT
+   * Store deweyIDs (hierarchical node labels), use text node compression,
+   * build a summary of all paths in the resource and use the SLIDING_SNAPSHOT
    * versioning algorithm.
    */
   database.createResource(
