@@ -110,7 +110,7 @@ import com.google.common.hash.Hashing;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
+final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     implements XdmNodeWriteTrx {
 
   /** Hash-function. */
@@ -182,7 +182,7 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixIOException if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  XdmNodeWriterTrxImpl(final @Nonnegative long transactionID,
+  XdmNodeWriteTrxImpl(final @Nonnegative long transactionID,
       final XdmResourceManager resourceManager,
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
@@ -2769,8 +2769,8 @@ final class XdmNodeWriterTrxImpl extends AbstractForwardingXdmNodeReadTrx
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XdmNodeWriterTrxImpl) {
-      final XdmNodeWriterTrxImpl wtx = (XdmNodeWriterTrxImpl) obj;
+    if (obj instanceof XdmNodeWriteTrxImpl) {
+      final XdmNodeWriteTrxImpl wtx = (XdmNodeWriteTrxImpl) obj;
       return Objects.equal(mNodeReadTrx, wtx.mNodeReadTrx);
     }
     return false;

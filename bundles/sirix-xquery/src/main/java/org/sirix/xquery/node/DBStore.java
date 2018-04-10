@@ -195,7 +195,7 @@ public final class DBStore implements Store, AutoCloseable {
         try (
             final ResourceManager resource = database.getResourceManager(
                 new ResourceManagerConfiguration.Builder(resName).build());
-            final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();) {
+            final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
           parser.parse(
               new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
