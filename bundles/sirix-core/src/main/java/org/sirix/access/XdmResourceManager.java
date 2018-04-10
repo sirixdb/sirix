@@ -289,7 +289,7 @@ public final class XdmResourceManager implements ResourceManager {
     final Node documentNode = getDocumentNode(pageWtx);
 
     // Create new node write transaction.
-    final XdmNodeWriteTrx wtx = new XdmNodeWriterTrxImpl(currentTrxID, this, pageWtx, maxNodeCount,
+    final XdmNodeWriteTrx wtx = new XdmNodeWriteTrxImpl(currentTrxID, this, pageWtx, maxNodeCount,
         timeUnit, maxTime, documentNode);
 
     // Remember node transaction for debugging and safe close.

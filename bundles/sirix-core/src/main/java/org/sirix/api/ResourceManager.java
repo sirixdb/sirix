@@ -155,8 +155,7 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeReaderWriter} instance
+   * @return {@link XdmNodeWriteTrx} instance
    */
   XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
 
@@ -167,9 +166,9 @@ public interface ResourceManager extends AutoCloseable {
    * @param maxTime time after which a commit is issued
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @throws IllegalArgumentException if {@code maxNodes < 0}
+   * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeReaderWriter} instance
+   * @return {@link XdmNodeWriteTrx} instance
    */
   XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
 
@@ -183,7 +182,7 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeReaderWriter} instance
+   * @return {@link XdmNodeWriteTrx} instance
    */
   XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
       final int maxTime);

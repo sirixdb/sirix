@@ -68,13 +68,13 @@ import com.google.common.annotations.Beta;
  *
  * <pre>
  * // Without auto commit.
- * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+ * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx()) {
  *   wtx.insertElementAsFirstChild(&quot;foo&quot;);
  *   wtx.commit();
  * }
  *
  * // With auto commit after every 10th modification.
- * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
+ * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(10,
  * 		TimeUnit.MINUTES, 0)) {
  *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
  *   // 9 other modifications.
@@ -82,7 +82,7 @@ import com.google.common.annotations.Beta;
  * }
  *
  * // With auto commit after every minute.
- * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(0,
+ * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(0,
  * 		TimeUnit.MINUTES, 1)) {
  *   wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  *   ...
@@ -91,7 +91,7 @@ import com.google.common.annotations.Beta;
  * }
  *
  * // With auto commit after every 10th modification and every second.
- * try (final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
+ * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(10,
  * 		TimeUnit.SECONDS, 1)) {
  *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
  *   ...
@@ -166,7 +166,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullpointerException if {@code pXML} is {@code null}
    * @throws SirixException if anything in Sirix fails
    */
-  XdmNodeWriteTrx replaceNode(String xml) throws SirixException, IOException, XMLStreamException;
+  XdmNodeWriteTrx replaceNode(String xml)
+      throws SirixException, IOException, XMLStreamException;
 
   /**
    * Replace a node with another node or subtree (the subtree rooted at the provided transaction),
