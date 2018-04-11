@@ -209,7 +209,7 @@ There are also several ways to start the single write-transaction:
   XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 ```
 
-With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
+With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
 ```java
@@ -235,11 +235,12 @@ Besides, we for instance provide diff-algorithms to import differences between s
 
 For instance after storing one revision in Sirix, we can import only the differences encountered by a sophisticated tree-to-tree diff-algorithm.
 
-<pre><code>final Path resOldRev = Paths.get("sirix-resource-to-update");
+```java
+final Path resOldRev = Paths.get("sirix-resource-to-update");
 final Path resNewRev = Paths.get("new-revision-as-xml-file");
 
 FMSEImport.dataImport(resOldRev, resNewRev);
-</code></pre>
+```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
 
