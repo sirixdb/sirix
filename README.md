@@ -266,6 +266,20 @@ try (final DBStore store = DBStore.newBuilder().build()) {
 }
 </code></pre>
 
+Temporal XPath axis extensions include:
+
+<pre><code>future::
+future-or-self::
+past::
+past-or-self::
+previous::
+previous-or-self::
+next::
+next-or-self::
+first::
+last::
+all-time::</code></pre>
+
 Many more examples of creating name indexes, content and structure indexes and how to query them can be found in the examples module.
 
 Have a look into the wiki for examples regarding a lower level (really powerful) cursor based API to navigate/and or modify  the tree structure or to navigate in time.
