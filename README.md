@@ -26,7 +26,7 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 ### [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) or Git Clone
 
 ```
-git clone https://github.com/sirixdb/sirix/sirix.git
+git clone https://github.com/sirixdb/sirix.git
 ```
 
 or use the following dependencies in your Maven (or Cradle?) project.
