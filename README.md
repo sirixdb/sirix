@@ -15,6 +15,8 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
+![SunburstView](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png "SunburstView")
+
 ## Maven artifacts / how to get the dependencies for your project
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
@@ -64,7 +66,8 @@ The following sections shows some short snippets of our core API. On top of that
 ## Simple Examples
 Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
 
-<pre><code>// Path to the database.
+```java
+// Path to the database.
 final Path file = Paths.get("sirix-database");
 
 // Create the database.
@@ -125,7 +128,7 @@ try (final Database database = Databases.openDatabase(file)) {
 } catch (final SirixException | IOException | XMLStreamException e) {
   // LOG or do anything, the database is closed properly.
 }
-</code></pre>
+```
 
 There are N reading transactions as well as one write-transaction permitted on a resource.
 
@@ -146,8 +149,8 @@ This starts a transaction on the revision, which has been committed at the close
 
 There are also several ways to start the single write-transaction:
 
-<pre><code>
-  /**
+```java
+  /**
    * Begin exclusive read/write transaction without auto commit.
    *
    * @param trx the transaction to use
@@ -194,7 +197,7 @@ There are also several ways to start the single write-transaction:
    * @return {@link XdmNodeWriteTrx} instance
    */
   XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
-</code></pre>
+```
 
 With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
 
@@ -226,19 +229,22 @@ Furthermore we provide diff-algorithms to determine all differences between any 
 
 In order to invoke a diff you either use with a resource-manager and an immutable set of observers (2 and 1 are the revision numbers to compare):
 
-<pre><code>DiffFactory.invokeFullDiff(
-        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
-            ImmutableSet.of(observer)))</code></pre>
+```java
+DiffFactory.invokeFullDiff(
+    new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED, ImmutableSet.of(observer)))
+```
 
 Or you invoke a structural diff, which does not check attributes or namespace-nodes:
 
-<pre><code>DiffFactory.invokeStructuralDiff(
-        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
-            ImmutableSet.of(observer)))</code></pre>
+```java
+DiffFactory.invokeStructuralDiff(
+    new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED, ImmutableSet.of(observer)))
+```
 
 An observer simply has to implement this interface:
 
-<pre><code>/**
+```java
+/**
  * Interface for observers, which are listening for diffs.
  *
  * @author Johannes Lichtenberger, University of Konstanz
@@ -258,7 +264,8 @@ public interface DiffObserver {
 
   /** Signals that the diff calculation is done. */
   void diffDone();
-}</code></pre>
+}
+```
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
@@ -299,7 +306,9 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 </code></pre>
 
 Creation of a path index for all paths (note that we already can keep a path summary):
-<pre><code>// Create and commit path index on all elements.
+
+```java
+// Create and commit path index on all elements.
 try (final DBStore store = DBStore.newBuilder().build()) {
   final QueryContext ctx3 = new QueryContext(store);
   final XQuery q = new XQuery(new SirixCompileChain(store),
@@ -308,7 +317,7 @@ try (final DBStore store = DBStore.newBuilder().build()) {
           + "return <rev>{sdb:commit($doc)}</rev>");
   q.serialize(ctx3, System.out);
 }
-</code></pre>
+```
 
 Temporal XPath axis extensions include:
 
