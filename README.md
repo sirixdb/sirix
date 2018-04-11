@@ -13,7 +13,7 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 2. The full revision history of the resource or any subset thereof;
 3. The full modification history of the resource or any subset thereof.
 
-We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
+We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
 The following shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
 
