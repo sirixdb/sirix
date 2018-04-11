@@ -21,7 +21,17 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 
 <p>&nbsp;&nbsp;</p>
 
-## Maven artifacts / how to get the dependencies for your project
+## Getting started
+
+### [Download ZIP](https://github.com/sirixdb/sirix/archive/dev.zip) or Git Clone
+
+```
+git clone https://github.com/tabler/tabler.git
+```
+
+or use the following dependencies in your Maven (or Cradle?) project.
+
+## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
 ```xml
