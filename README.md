@@ -24,44 +24,39 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 ## Maven artifacts / how to get the dependencies for your project
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
 Just add the following repository section to your POM file:
-<pre><code>&lt;repository&gt;
-  &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
-  &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
-  &lt;url&gt;https://oss.sonatype.org/content/repositories/snapshots&lt;/url&gt;
-  &lt;releases&gt;
-    &lt;enabled&gt;false&lt;/enabled&gt;
-  &lt;/releases&gt;
-  &lt;snapshots&gt;
-    &lt;enabled&gt;true&lt;/enabled&gt;
-  &lt;/snapshots&gt;
-&lt;/repository&gt;
-</code></pre>
+```xml
+<repository>
+  <id>sonatype-nexus-snapshots</id>
+  <name>Sonatype Nexus Snapshots</name>
+  <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+  <releases>
+    <enabled>false</enabled>
+  </releases>
+  <snapshots>
+    <enabled>true</enabled>
+  </snapshots>
+</repository>
+```
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
 Core project:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
+```xml
+<dependency>
+  <groupId>com.github.sirixdb.sirix</groupId>
+  <artifactId>sirix-core</artifactId>
+  <version>0.1.2-SNAPSHOT</version>
+</dependency>
+```
 
 Brackit binding:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency>
-</pre></code>
-
-Examples:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
+```xml
+<dependency>
+  <groupId>com.github.sirixdb.sirix</groupId>
+  <artifactId>sirix-xquery</artifactId>
+  <version>0.1.2-SNAPSHOT</version>
+</dependency>
+```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
