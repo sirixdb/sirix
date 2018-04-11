@@ -15,7 +15,11 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 
 We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
-![SunburstView](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png "SunburstView")
+
+
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png"/></p>
+
+
 
 ## Maven artifacts / how to get the dependencies for your project
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
@@ -134,16 +138,22 @@ There are N reading transactions as well as one write-transaction permitted on a
 
 A read-only transaction can be opened through:
 
-<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()</code></pre>
+```java
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()
+```
 
 This starts a transaction on the most recent revision.
 
-<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)</code></pre>
+```java
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)
+```
 
 This starts a transaction at revision 1.
 
-<pre><code>final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())</code></pre>
+```java
+final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())
+```
 
 This starts a transaction on the revision, which has been committed at the closest timestamp to the given point in time.
 
@@ -202,16 +212,22 @@ There are also several ways to start the single write-transaction:
 With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
-<pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
-
+```java
+final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
+```
 Post-order traversal:
-<pre><code>final PostOrderAxis axis = new PostOrderAxis(rtx)</code></pre>
-
+```java
+final PostOrderAxis axis = new PostOrderAxis(rtx)
+```
 And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
-<pre><code>final FutureAxis axis = new FutureAxis(rtx)</code></pre>
-<pre><code>final PastAxis axis = new PastAxis(rtx)</code></pre>
+```java
+final FutureAxis axis = new FutureAxis(rtx)
+```
+```java
+final PastAxis axis = new PastAxis(rtx)
+```
 
 and many more as well.
 
