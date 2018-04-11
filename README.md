@@ -286,12 +286,13 @@ public interface DiffObserver {
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
-<pre><code>(* Loading document: *)
+```xquery
+(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
 (* Update loaded document: *)
 let $doc := doc('mydoc.xml')
-INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO $doc/log
+INSERT NODES <a><b/>test</a> INTO $doc/log
 
 (* intermediate explicit commit *)
 sdb:commit($doc)
@@ -299,28 +300,28 @@ sdb:commit($doc)
 (* Query loaded document: *)
 doc('mydoc.xml')/log/all-time::*
 (* First version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-&lt;/log&gt;
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+</log>
 (* Second version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-  &lt;a&gt;
-    &lt;b/&gt;
-    test
-  &lt;/a&gt;
-&lt;/log&gt;
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+  <a>
+    <b/>
+    test
+  </a>
+</log>
 
 (* Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
 (* The second revision is initially loaded *)
 doc('mydoc.xml', 2)/log/*[not(past::*)]
-&lt;a&gt;
-  &lt;b/&gt;
-  test
-&lt;/a&gt;
-</code></pre>
+<a>
+  <b/>
+  test
+</a>
+```
 
 Creation of a path index for all paths (note that we already can keep a path summary):
 
@@ -338,7 +339,8 @@ try (final DBStore store = DBStore.newBuilder().build()) {
 
 Temporal XPath axis extensions include:
 
-<pre><code>future::
+```xquery
+future::
 future-or-self::
 past::
 past-or-self::
@@ -348,7 +350,8 @@ next::
 next-or-self::
 first::
 last::
-all-time::</code></pre>
+all-time::
+```
 
 Many more examples of creating name indexes, content and structure indexes and how to query them can be found in the examples module.
 
