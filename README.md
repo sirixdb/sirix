@@ -17,6 +17,50 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 
 The following shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
 
+## Maven artifacts / how to get the dependencies for your project
+At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
+Just add the following repository section to your POM file:
+<pre><code>&lt;repository&gt;
+  &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
+  &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
+  &lt;url&gt;https://oss.sonatype.org/content/repositories/snapshots&lt;/url&gt;
+  &lt;releases&gt;
+    &lt;enabled&gt;false&lt;/enabled&gt;
+  &lt;/releases&gt;
+  &lt;snapshots&gt;
+    &lt;enabled&gt;true&lt;/enabled&gt;
+  &lt;/snapshots&gt;
+&lt;/repository&gt;
+</code></pre>
+
+Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
+
+Core project:
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+
+Brackit binding:
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
+&lt;/dependency>
+</pre></code>
+
+Examples:
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
+
 ## Simple Examples
 Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
 
@@ -291,50 +335,6 @@ http://www.uni-konstanz.de/mmsp/pubsys/publishedFiles/Kramis2014.pdf
 As well as from Sebastian Graft's work and thesis:
 
 https://kops.uni-konstanz.de/handle/123456789/27250
-
-## Maven artifacts
-At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
-Just add the following repository section to your POM file:
-<pre><code>&lt;repository&gt;
-  &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
-  &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
-  &lt;url&gt;https://oss.sonatype.org/content/repositories/snapshots&lt;/url&gt;
-  &lt;releases&gt;
-    &lt;enabled&gt;false&lt;/enabled&gt;
-  &lt;/releases&gt;
-  &lt;snapshots&gt;
-    &lt;enabled&gt;true&lt;/enabled&gt;
-  &lt;/snapshots&gt;
-&lt;/repository&gt;
-</code></pre>
-
-Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
-
-Core project:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Brackit binding:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency>
-</pre></code>
-
-Examples:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
 ## Introduction
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
