@@ -336,8 +336,12 @@ As well as from Sebastian Graft's work and thesis:
 
 https://kops.uni-konstanz.de/handle/123456789/27250
 
-## Introduction
-Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
+## Mailinglist
+Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+
+## Why should you even bother?
+Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
+
 Do you have to store a snapshot of this irregular data? Furthermore questions such as 
 
 - How do we store snapshots of time varying data effectively and efficiently?
@@ -405,9 +409,6 @@ Developers which are eager to put forth the idea of a versioned, secure database
 ## Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
 Please also have a look at and play with our sirix-example bundle which is available via maven.
-
-## Mailinglist
-Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ## GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
