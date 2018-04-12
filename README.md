@@ -2,25 +2,91 @@
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 
-# Sirix - Beyond Versioning of Persistent Trees
+<h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
 
-"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
+>"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-## Storage system for temporal data
-Sirix is a storage system, which brings versioning to a sub-file granular level taking full advantage of flash based disks as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We aim to provide
+## Storage system / time machine for temporal data
+Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
 3. The full modification history of the resource or any subset thereof.
 
-We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time, A transaction on a resource can be started either by specifying a revision number to open or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
+We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
-The following shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
+<p>&nbsp;&nbsp;</p>
 
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png"/></p>
+
+<p>&nbsp;&nbsp;</p>
+
+## Getting started
+
+### [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) or Git Clone
+
+```
+git clone https://github.com/sirixdb/sirix.git
+```
+
+or use the following dependencies in your Maven (or Gradle?) project.
+
+## Maven artifacts
+At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
+Just add the following repository section to your POM file:
+```xml
+<repository>
+  <id>sonatype-nexus-snapshots</id>
+  <name>Sonatype Nexus Snapshots</name>
+  <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+  <releases>
+    <enabled>false</enabled>
+  </releases>
+  <snapshots>
+    <enabled>true</enabled>
+  </snapshots>
+</repository>
+```
+
+Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
+
+Core project:
+```xml
+<dependency>
+  <groupId>com.github.sirixdb.sirix</groupId>
+  <artifactId>sirix-core</artifactId>
+  <version>0.8.9-SNAPSHOT</version>
+</dependency>
+```
+
+Brackit binding:
+```xml
+<dependency>
+  <groupId>com.github.sirixdb.sirix</groupId>
+  <artifactId>sirix-xquery</artifactId>
+  <version>0.8.9-SNAPSHOT</version>
+</dependency>
+```
+
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
+
+## Visualizations
+<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
+
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
+
+A screencast is available depicting the SunburstView and the TextView side by side: 
+http://www.youtube.com/watch?v=l9CXXBkl5vI
+
+<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
+
+The following sections shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
+ 
 ## Simple Examples
 Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
 
-<pre><code>// Path to the database.
+```java
+// Path to the database.
 final Path file = Paths.get("sirix-database");
 
 // Create the database.
@@ -81,29 +147,35 @@ try (final Database database = Databases.openDatabase(file)) {
 } catch (final SirixException | IOException | XMLStreamException e) {
   // LOG or do anything, the database is closed properly.
 }
-</code></pre>
+```
 
 There are N reading transactions as well as one write-transaction permitted on a resource.
 
 A read-only transaction can be opened through:
 
-<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()</code></pre>
+```java
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()
+```
 
 This starts a transaction on the most recent revision.
 
-<pre><code>final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)</code></pre>
+```java
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)
+```
 
 This starts a transaction at revision 1.
 
-<pre><code>final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())</code></pre>
+```java
+final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
+final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())
+```
 
 This starts a transaction on the revision, which has been committed at the closest timestamp to the given point in time.
 
 There are also several ways to start the single write-transaction:
 
-<pre><code>
-  /**
+```java
+  /**
    * Begin exclusive read/write transaction without auto commit.
    *
    * @param trx the transaction to use
@@ -122,7 +194,7 @@ There are also several ways to start the single write-transaction:
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
+  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -135,7 +207,7 @@ There are also several ways to start the single write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+  XdmNodeWriteTrx beginNodeWriteTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -149,23 +221,28 @@ There are also several ways to start the single write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
-      final int maxTime);
-</code></pre>
+  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
+```
 
-With wtx.revertTo(int) you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
+With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
-<pre><code>final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()</code></pre>
-
+```java
+final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
+```
 Post-order traversal:
-<pre><code>final PostOrderAxis axis = new PostOrderAxis(rtx)</code></pre>
-
+```java
+final PostOrderAxis axis = new PostOrderAxis(rtx)
+```
 And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
-<pre><code>final FutureAxis axis = new FutureAxis(rtx)</code></pre>
-<pre><code>final PastAxis axis = new PastAxis(rtx)</code></pre>
+```java
+final FutureAxis axis = new FutureAxis(rtx)
+```
+```java
+final PastAxis axis = new PastAxis(rtx)
+```
 
 and many more as well.
 
@@ -173,29 +250,33 @@ Besides, we for instance provide diff-algorithms to import differences between s
 
 For instance after storing one revision in Sirix, we can import only the differences encountered by a sophisticated tree-to-tree diff-algorithm.
 
-<pre><code>final Path resOldRev = Paths.get("sirix-resource-to-update");
+```java
+final Path resOldRev = Paths.get("sirix-resource-to-update");
 final Path resNewRev = Paths.get("new-revision-as-xml-file");
 
 FMSEImport.dataImport(resOldRev, resNewRev);
-</code></pre>
+```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
 
 In order to invoke a diff you either use with a resource-manager and an immutable set of observers (2 and 1 are the revision numbers to compare):
 
-<pre><code>DiffFactory.invokeFullDiff(
-        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
-            ImmutableSet.of(observer)))</code></pre>
+```java
+DiffFactory.invokeFullDiff(
+    new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED, ImmutableSet.of(observer)))
+```
 
 Or you invoke a structural diff, which does not check attributes or namespace-nodes:
 
-<pre><code>DiffFactory.invokeStructuralDiff(
-        new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED,
-            ImmutableSet.of(observer)))</code></pre>
+```java
+DiffFactory.invokeStructuralDiff(
+    new DiffFactory.Builder(resourceMgr, 2, 1, DiffOptimized.HASHED, ImmutableSet.of(observer)))
+```
 
 An observer simply has to implement this interface:
 
-<pre><code>/**
+```java
+/**
  * Interface for observers, which are listening for diffs.
  *
  * @author Johannes Lichtenberger, University of Konstanz
@@ -206,8 +287,8 @@ public interface DiffObserver {
    * Called for every node comparsion.
    *
    * @param diffType the {@link DiffType} type
-   * @param pNewNode node key of node in new revision
-   * @param pOldNode node key of node in old revision
+   * @param newNodeKey node key of node in new revision
+   * @param oldNodeKey node key of node in old revision
    * @param depth current {@link DiffDepth} instance
    */
   void diffListener(@Nonnull DiffType diffType, long newNodeKey, long oldNodeKey,
@@ -215,16 +296,18 @@ public interface DiffObserver {
 
   /** Signals that the diff calculation is done. */
   void diffDone();
-}</code></pre>
+}
+```
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
-<pre><code>(* Loading document: *)
+```xquery
+(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
 (* Update loaded document: *)
 let $doc := doc('mydoc.xml')
-INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO $doc/log
+INSERT NODES <a><b/>test</a> INTO $doc/log
 
 (* intermediate explicit commit *)
 sdb:commit($doc)
@@ -232,31 +315,33 @@ sdb:commit($doc)
 (* Query loaded document: *)
 doc('mydoc.xml')/log/all-time::*
 (* First version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-&lt;/log&gt;
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+</log>
 (* Second version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-  &lt;a&gt;
-    &lt;b/&gt;
-    test
-  &lt;/a&gt;
-&lt;/log&gt;
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+  <a>
+    <b/>
+    test
+  </a>
+</log>
 
 (* Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
 (* The second revision is initially loaded *)
 doc('mydoc.xml', 2)/log/*[not(past::*)]
-&lt;a&gt;
-  &lt;b/&gt;
-  test
-&lt;/a&gt;
-</code></pre>
+<a>
+  <b/>
+  test
+</a>
+```
 
 Creation of a path index for all paths (note that we already can keep a path summary):
-<pre><code>// Create and commit path index on all elements.
+
+```java
+// Create and commit path index on all elements.
 try (final DBStore store = DBStore.newBuilder().build()) {
   final QueryContext ctx3 = new QueryContext(store);
   final XQuery q = new XQuery(new SirixCompileChain(store),
@@ -265,7 +350,23 @@ try (final DBStore store = DBStore.newBuilder().build()) {
           + "return <rev>{sdb:commit($doc)}</rev>");
   q.serialize(ctx3, System.out);
 }
-</code></pre>
+```
+
+Temporal XPath axis extensions include:
+
+```xquery
+future::
+future-or-self::
+past::
+past-or-self::
+previous::
+previous-or-self::
+next::
+next-or-self::
+first::
+last::
+all-time::
+```
 
 Many more examples of creating name indexes, content and structure indexes and how to query them can be found in the examples module.
 
@@ -279,52 +380,12 @@ As well as from Sebastian Graft's work and thesis:
 
 https://kops.uni-konstanz.de/handle/123456789/27250
 
-## Maven artifacts
-At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
-Just add the following repository section to your POM file:
-<pre><code>&lt;repository&gt;
-  &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
-  &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
-  &lt;url&gt;https://oss.sonatype.org/content/repositories/snapshots&lt;/url&gt;
-  &lt;releases&gt;
-    &lt;enabled&gt;false&lt;/enabled&gt;
-  &lt;/releases&gt;
-  &lt;snapshots&gt;
-    &lt;enabled&gt;true&lt;/enabled&gt;
-  &lt;/snapshots&gt;
-&lt;/repository&gt;
-</code></pre>
+## Mailinglist
+Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
-Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
+## Why should you even bother?
+Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
 
-Core project:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Brackit binding:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency>
-</pre></code>
-
-Examples:
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
-
-## Introduction
-Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
 Do you have to store a snapshot of this irregular data? Furthermore questions such as 
 
 - How do we store snapshots of time varying data effectively and efficiently?
@@ -393,21 +454,13 @@ Developers which are eager to put forth the idea of a versioned, secure database
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
 Please also have a look at and play with our sirix-example bundle which is available via maven.
 
-## Mailinglist
-Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
-
-## GUI
-A screencast is available depicting the SunburstView and the TextView side by side: 
-http://www.youtube.com/watch?v=l9CXXBkl5vI
-
-![Moves visualized through Hierarchical Edge Bundles](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png "Moves visualized through Hierarchical Edge Bundles")
-![SunburstView](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png "SunburstView")
+## More visualizations
 ![Wikipedia / SunburstView comparison mode / TextView comparison mode](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-scrolled.png "Wikipedia / SunburstView comparison mode / TextView comparison mode")
 ![Small Multiple Displays (incremental variant)](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-incremental.png "Small Multiple Displays (incremental variant)")
 
 ## Further information
 
-Sirix was initially forked from Treetank (https://github.com/disy/treetank) due to the specialization on XML, which isn't the focus of Treetank anymore.
+Sirix was initially forked from Treetank (https://github.com/disy/treetank).
 As such my deepest gratitude to all the other students who worked on the project.
 
 First of all:
