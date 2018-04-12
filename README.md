@@ -2,7 +2,7 @@
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
 
@@ -383,7 +383,7 @@ As well as from Sebastian Graft's work and thesis:
 https://kops.uni-konstanz.de/handle/123456789/27250
 
 ## Mailinglist
-Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-discuss to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+Any questions or even consider to contribute or use Sirix? Use the [Mailing List](https://groups.google.com/d/forum/sirix-discuss) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
