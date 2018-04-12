@@ -55,7 +55,7 @@ Core project:
 <dependency>
   <groupId>com.github.sirixdb.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.8.9-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -64,7 +64,7 @@ Brackit binding:
 <dependency>
   <groupId>com.github.sirixdb.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.8.9-SNAPSHOT</version>
 </dependency>
 ```
 
