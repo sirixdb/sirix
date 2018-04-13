@@ -19,7 +19,8 @@
 	OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE 
 	OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
 	ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
@@ -42,18 +43,68 @@
 		</repository>
 	</repositories>
 
+	<properties>
+		<!-- plugins -->
+		<maven.assembly.plugin.version>2.4</maven.assembly.plugin.version>
+		<!-- dependencies -->
+		<dep.version>0.8.9-SNAPSHOT</dep.version>
+	</properties>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-assembly-plugin</artifactId>
+			</plugin>
+		</plugins>
+
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-assembly-plugin</artifactId>
+					<version>${maven.assembly.plugin.version}</version>
+					<configuration>
+						<descriptorRefs>
+							<descriptorRef>jar-with-dependencies</descriptorRef>
+						</descriptorRefs>
+						<archive>
+							<manifest>
+								<mainClass>org.sirix.xquery.Main</mainClass>
+							</manifest>
+						</archive>
+					</configuration>
+					<executions>
+						<execution>
+							<id>make-assembly</id>
+							<phase>package</phase>
+							<goals>
+								<goal>single</goal>
+							</goals>
+						</execution>
+					</executions>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+	</build>
+
+
 	<dependencies>
 		<dependency>
 			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>${dep.version}</version>
 		</dependency>
-		<dependency>
+		<!-- <dependency>
 			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>0.8.9-SNAPSHOT</version>
 			<type>test-jar</type>
 			<scope>test</scope>
-		</dependency>
+		</dependency> -->
 	</dependencies>
 </project>
