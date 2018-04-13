@@ -66,10 +66,10 @@ public final class XQueryUsage {
       // loadCollectionAndQuery();
       System.out.println();
       loadDocumentAndQueryTemporal();
-    } catch (IOException e) {
+    } catch (final IOException e) {
       System.err.print("I/O error: ");
       System.err.println(e.getMessage());
-    } catch (QueryException e) {
+    } catch (final QueryException e) {
       System.err.print("XQuery error ");
       System.err.println(e.getMessage());
     }
@@ -82,17 +82,16 @@ public final class XQueryUsage {
     final Path doc = Paths.get("src", "main", "resources", "test.xml");
 
     // Initialize query context and store.
-    final DBStore store = DBStore.newBuilder().build();
-    QueryContext ctx = new QueryContext(store);
+    try (final DBStore store = DBStore.newBuilder().build()) {
+      final QueryContext ctx = new QueryContext(store);
 
-    // Use XQuery to load sample document into store.
-    System.out.println("Loading document:");
-    URI docUri = doc.toUri();
-    String xq1 = String.format("bit:load('mydoc.xml', '%s')", docUri.toString());
-    System.out.println(xq1);
-    new XQuery(xq1).evaluate(ctx);
+      // Use XQuery to load sample document into store.
+      System.out.println("Loading document:");
+      final URI docUri = doc.toUri();
+      final String xq1 = String.format("bit:load('mydoc.xml', '%s')", docUri.toString());
+      System.out.println(xq1);
+      new XQuery(xq1).evaluate(ctx);
 
-    try (final Database database = Databases.openDatabase(LOCATION.resolve("mydoc.xml"))) {
       // Reuse store and query loaded document.
       final QueryContext ctx2 = new QueryContext(store);
       System.out.println();
@@ -100,12 +99,11 @@ public final class XQueryUsage {
       final String xq2 =
           "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
       System.out.println(xq2);
-      XQuery query = new XQuery(new SirixCompileChain(store), xq2);
+      final XQuery query = new XQuery(new SirixCompileChain(store), xq2);
       query.prettyPrint().serialize(ctx2, System.out);
-    }
 
-    System.out.println();
-    store.close();
+      System.out.println();
+    }
   }
 
   /**
@@ -121,7 +119,7 @@ public final class XQueryUsage {
 
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
-      URI docUri = doc.toUri();
+      final URI docUri = doc.toUri();
       final String xq1 =
           String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')", docUri.toString());
       System.out.println(xq1);
@@ -232,7 +230,7 @@ public final class XQueryUsage {
       System.out.println("Query loaded document:");
       final String xq3 = "let $doc:= doc('mydocs.col')/log return sdb:select-node($doc, 7) ";
       System.out.println(xq3);
-      XQuery q = new XQuery(new SirixCompileChain(store), xq3);
+      final XQuery q = new XQuery(new SirixCompileChain(store), xq3);
       q.prettyPrint();
       q.serialize(ctx, System.out);
     }
@@ -243,7 +241,7 @@ public final class XQueryUsage {
       System.out.println("Query loaded document:");
       final String xq3 = "doc('mydocs.col')/log/all-time::*";
       System.out.println(xq3);
-      XQuery q = new XQuery(new SirixCompileChain(store), xq3);
+      final XQuery q = new XQuery(new SirixCompileChain(store), xq3);
       q.prettyPrint();
       q.serialize(ctx, System.out);
     }
@@ -493,7 +491,7 @@ public final class XQueryUsage {
     final byte[] bytes = new byte[mlen];
     int i = 0;
     while (i < mlen) {
-      int wlen = 1 + rnd.nextInt(8);
+      final int wlen = 1 + rnd.nextInt(8);
       int j = i;
       while (j < Math.min(i + wlen, mlen)) {
         bytes[j++] = (byte) ('a' + rnd.nextInt('z' - 'a' + 1));
