@@ -32,9 +32,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Scanner;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -112,9 +114,8 @@ public class Main {
         if (((config.isSet("-q")) && (!"-".equals(config.getValue("-q"))))) {
           query = readFile(config.getValue("-q"));
         } else {
-          query = readString(System.in);
+          query = readStringFromScanner(System.in);
         }
-
 
         final XQuery xq = new XQuery(new SirixCompileChain(store), query);
         if (config.isSet("-p")) {
@@ -131,6 +132,23 @@ public class Main {
     } catch (final Throwable e) {
       System.out.println("Error: " + e.getMessage());
       System.exit(-4);
+    }
+  }
+
+  private static String readStringFromScanner(final InputStream in) {
+    try (final Scanner scanner = new Scanner(in)) {
+      final StringBuilder strbuf = new StringBuilder();
+
+      while (scanner.hasNextLine()) {
+        final String line = scanner.nextLine();
+
+        if (line.trim().isEmpty())
+          break;
+
+        strbuf.append(line);
+      }
+
+      return strbuf.toString();
     }
   }
 
@@ -172,7 +190,7 @@ public class Main {
     while ((r = in.read()) != -1) {
       payload.write(r);
     }
-    final String string = payload.toString("UTF-8");
+    final String string = payload.toString(StandardCharsets.UTF_8.toString());
     return string;
   }
 
