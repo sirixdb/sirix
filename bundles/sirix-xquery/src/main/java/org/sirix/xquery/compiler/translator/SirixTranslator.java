@@ -624,7 +624,8 @@ public final class SirixTranslator extends TopDownTranslator {
         throws QueryException {
       final DBNode dbNode = (DBNode) node;
       final XdmNodeReadTrx rtx = dbNode.getTrx();
-      if (test.getNodeKind() == Kind.ELEMENT && rtx.getChildCount() > CHILD_THRESHOLD) {
+      if (test.getNodeKind() == Kind.ELEMENT && test.getQName() != null
+          && rtx.getChildCount() > CHILD_THRESHOLD) {
         try {
           final long pcr = dbNode.getPCR();
           BitSet matches = mFilterMap.get(pcr);
@@ -693,7 +694,7 @@ public final class SirixTranslator extends TopDownTranslator {
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test)
         throws QueryException {
-      if (test.getNodeKind() == Kind.ELEMENT) {
+      if (test.getNodeKind() == Kind.ELEMENT && test.getQName() != null) {
         final DBNode dbNode = (DBNode) node;
         try {
           final long pcr = dbNode.getPCR();
