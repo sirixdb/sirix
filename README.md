@@ -132,15 +132,11 @@ Open last revision but basically query for every revision (all-time):
 
 ``` java -jar sirix-xquery.jar -p -q query-all-time.xq ```
 
-Open first revision but basically query for every revision (all-time):
-
-``` java -jar sirix-xquery.jar -p -q query-all-time.xq ```
-
-Query the past revisions:
+Open last revision but query the past revisions:
 
 ``` java -jar sirix-xquery.jar -p -q query-past.xq ```
 
-Open third revision, query for a subtree and then navigate in to (show a subtree in all revisions):
+Open third revision, query for a subtree and then navigate in time (to show a subtree in all revisions):
 
 ``` java -jar sirix-xquery.jar -p -q query-third-subtree-all-time.xq ```
 
