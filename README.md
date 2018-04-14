@@ -2,7 +2,7 @@
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
@@ -100,23 +100,46 @@ or use the file redirection of your shell:
 java -jar sirix-xquery-x.y.z-with-dependencies.jar < test.xq
 ```
 
-#### Querying documents
+#### Simple showcase
+We've added a [ZIP](https://github.com/sirixdb/sirix/raw/master/simple-showcase.zip)
 
-Querying documents is as simple as running any other query.
-
-The default "storage" module resolves any referred documents accessed by the XQuery functions ```fn:doc()``` and ```fn:collection()``` at query runtime.
-
-To query a document in your local filesytem simply type use the path to this document in the fn:doc() function:
-
+For instance
 ```
-echo "doc('products.xml', 1)//product[@prodno = '4711']" | java -jar java -jar sirix-xquery-x.y.z-with-dependencies.jar
+java -jar sirix-xquery.jar -q load.xq
 ```
 
-Of course, you can also directly query documents via http(s), or ftp. For example:
+to load an XML-file into a database/resource in Sirix. It's currently stored in your home-directory (sirix-data).
 
-```
-echo "count(doc('http://example.org/foo.xml', 1)//bar)" | java -jar java -jar sirix-xquery-x.y.z-with-dependencies.jar
-```
+Then do some XQuery Updates with auto-commit (creates a new revision for each update query).
+
+``` java -jar sirix-xquery.jar -q update-first.xq ```
+
+``` java -jar sirix-xquery.jar -q update-second.xq ```
+
+``` java -jar sirix-xquery.jar -q update-third.xq ```
+
+Then do some querying:
+
+Query 1. revision:
+
+``` java -jar sirix-xquery.jar -p -q query-first.xq ```
+
+Query 4. revision:
+
+``` java -jar sirix-xquery.jar -p -q query-fourth.xq ```
+
+Open last revision but basically query for every revision (all-time):
+
+``` java -jar sirix-xquery.jar -p -q query-all-time.xq ```
+
+Open last revision but query the past revisions:
+
+``` java -jar sirix-xquery.jar -p -q query-past.xq ```
+
+Open third revision, query for a subtree and then navigate in time (to show a subtree in all revisions):
+
+``` java -jar sirix-xquery.jar -p -q query-third-subtree-all-time.xq ```
+
 
 ## Visualizations
 <p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
