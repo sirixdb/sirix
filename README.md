@@ -34,8 +34,8 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven (or Gradle?) project.
 
-## Maven artifacts
-At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/.
+### Maven artifacts
+At this stage of development please use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/).
 Just add the following repository section to your POM file:
 ```xml
 <repository>
@@ -72,6 +72,51 @@ Brackit binding:
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
+
+### Command line tool
+We ship a (very) simple command line tool for the sirix-xquery bundle:
+
+First get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/sirix-xquery/0.8.9-SNAPSHOT/) with dependencies:
+
+#### Simple queries
+
+The simplest way to run a query is by passing it via stdin:
+
+```
+echo 1+1 | java -jar sirix-xquery-x.y.z-with-dependencies.jar
+
+=> 2
+```
+
+If the query is stored in a separate file, let's say test.xq, type:
+
+```
+java -jar sirix-xquery-x.y.z-with-dependencies.jar -q test.xq
+```
+
+or use the file redirection of your shell:
+
+```
+java -jar sirix-xquery-x.y.z-with-dependencies.jar < test.xq
+```
+
+#### Querying documents
+
+Querying documents is as simple as running any other query.
+
+The default "storage" module resolves any referred documents accessed by the XQuery functions ```fn:doc()``` and ```fn:collection()``` at query runtime.
+
+To query a document in your local filesytem simply type use the path to this document in the fn:doc() function:
+
+```
+echo "doc('products.xml', 1)//product[@prodno = '4711']" | java -jar java -jar sirix-xquery-x.y.z-with-dependencies.jar
+```
+
+Of course, you can also directly query documents via http(s), or ftp. For example:
+
+```
+echo "count(doc('http://example.org/foo.xml', 1)//bar)" | java -jar java -jar sirix-xquery-x.y.z-with-dependencies.jar
+```
 
 ## Visualizations
 <p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
