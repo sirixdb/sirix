@@ -9,11 +9,11 @@
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
-<p>&nbsp;&nbsp;</p>
+<p>&nbsp;</p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/screencast.gif"/></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/screencast-faster.gif"/></p>
 
-<p>&nbsp;&nbsp;</p>
+<p>&nbsp;</p>
 
 
 ## Storing and querying of your temporal data
