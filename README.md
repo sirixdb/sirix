@@ -100,6 +100,14 @@ or use the file redirection of your shell:
 java -jar sirix-xquery-x.y.z-with-dependencies.jar < test.xq
 ```
 
+or simply type in a query in your shell:
+
+```
+java -jar sirix-xquery-x.y.z-with-dependencies.jar -p -q -
+```
+
+Afterwards type in your query and terminate it by two consecutive newlines.
+
 #### Simple showcase
 We've added a [ZIP](https://github.com/sirixdb/sirix/raw/master/simple-showcase.zip)
 
