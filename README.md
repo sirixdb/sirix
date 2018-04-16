@@ -15,7 +15,6 @@
 
 <p>&nbsp;</p>
 
-
 ## Storing and querying of your temporal data
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We provide
 
@@ -30,6 +29,27 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 <p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png"/></p>
 
 <p>&nbsp;&nbsp;</p>
+
+## Table of contents
+
+-   [Getting Started](#getting-started)
+    -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
+    -   [Maven Artifacts](#maven-artifacts)
+    -   [Command line tool](#command-line-tool)
+    -   [First steps](#first-steps)
+    -   [Documentation](#documentation)
+-   [Visualizations](#visualizations)
+-   [Simple Examples](#simple-examples) 💪
+-   [Simple XQuery Examples ](#simple-xquery-examples)
+-   [Getting Help](#getting-help)
+    -   [Mailinglist](#mailinglist)
+    -   [Join us on Slack](#join-us-on-slack)
+-   [Why should you even bother?](#why-should-you-even-bother)
+-   [Features in a nutshell](#features-in-a-nutshell)
+-   [Developers](#developers)
+-   [Further information](#further-information)
+-   [License](#license)
+-   [Involved People](#involved-people)
 
 ## Getting started
 
@@ -155,6 +175,12 @@ Open third revision, query for a subtree and then navigate in time (to show a su
 
 ``` java -jar sirix-xquery.jar -p -q query-third-subtree-all-time.xq ```
 
+### First steps
+Please have a look into our sirix-example project how to use Sirix. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
+
+### Documentation
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
+Please also have a look at and play with our sirix-example bundle which is available via maven.
 
 ## Visualizations
 <p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
@@ -466,8 +492,13 @@ As well as from Sebastian Graft's work and thesis:
 
 https://kops.uni-konstanz.de/handle/123456789/27250
 
-## Mailinglist
+## Getting Help
+
+### Mailinglist
 Any questions or even consider to contribute or use Sirix? Use the [Mailing List](https://groups.google.com/d/forum/sirix-discuss) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+
+### Join us on Slack
+You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
 
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
@@ -530,15 +561,8 @@ Besides, the architecture for versioning data is not restricted to tree-structur
 
 Storing files natively is also on our agenda. Furthermore a key management schema similar to the one described in Sebastian's Thesis has to be implemented. 
 
-## First steps
-Please have a look into our sirix-example project how to use Sirix. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
-
 ## Developers
 Developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON) are always welcome. The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
-
-## Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
-Please also have a look at and play with our sirix-example bundle which is available via maven.
 
 ## More visualizations
 ![Wikipedia / SunburstView comparison mode / TextView comparison mode](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-scrolled.png "Wikipedia / SunburstView comparison mode / TextView comparison mode")
