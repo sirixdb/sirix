@@ -703,7 +703,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     if (mIsWtx) {
       moveRtx();
       try {
-        return append(mRtx, child);
+        return append((XdmNodeWriteTrx) mRtx, child);
       } catch (final DocumentException e) {
         ((XdmNodeWriteTrx) mRtx).rollback();
         mRtx.close();
@@ -721,25 +721,28 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     }
   }
 
-  private DBNode append(final XdmNodeReadTrx rtx, final Node<?> child) throws DocumentException {
+  private DBNode append(final XdmNodeWriteTrx wtx, final Node<?> child) throws DocumentException {
     try {
+      if (!(child.getKind() == Kind.ELEMENT))
+        return append(wtx, child.getKind(), child.getName(), child.getValue());
+
       final SubtreeBuilder builder;
 
-      if (rtx.hasFirstChild()) {
-        rtx.moveToLastChild();
+      if (wtx.hasFirstChild()) {
+        wtx.moveToLastChild();
 
-        builder = new SubtreeBuilder(mCollection, (XdmNodeWriteTrx) rtx, Insert.ASRIGHTSIBLING,
-            Collections.emptyList());
+        builder =
+            new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING, Collections.emptyList());
       } else {
-        builder = new SubtreeBuilder(mCollection, (XdmNodeWriteTrx) rtx, Insert.ASFIRSTCHILD,
-            Collections.emptyList());
+        builder =
+            new SubtreeBuilder(mCollection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
       }
       child.parse(builder);
-      rtx.moveTo(builder.getStartNodeKey());
+      wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
-    return new DBNode(rtx, mCollection);
+    return new DBNode(wtx, mCollection);
   }
 
   @Override
@@ -867,6 +870,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
   private DBNode prepend(final XdmNodeWriteTrx wtx, final Node<?> child) throws DocumentException {
     try {
+      if (!(child.getKind() == Kind.ELEMENT))
+        return prepend(wtx, child.getKind(), child.getName(), child.getValue());
+
       SubtreeBuilder builder = null;
       if (wtx.hasFirstChild()) {
         wtx.moveToFirstChild();
@@ -1005,6 +1011,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private DBNode insertBefore(final XdmNodeWriteTrx wtx, final Node<?> node)
       throws DocumentException {
     try {
+      if (!(node.getKind() == Kind.ELEMENT))
+        return insertBefore(wtx, node.getKind(), node.getName(), node.getValue());
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, Insert.ASLEFTSIBLING, Collections.emptyList());
       node.parse(builder);
@@ -1131,6 +1139,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private DBNode insertAfter(final XdmNodeWriteTrx wtx, final Node<?> node)
       throws DocumentException {
     try {
+      if (node.getKind() == Kind.ELEMENT)
+        return insertAfter(wtx, node.getKind(), node.getName(), node.getValue());
+
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING, Collections.emptyList());
       node.parse(builder);
