@@ -269,20 +269,20 @@ A read-only transaction can be opened through:
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()
 ```
 
-This starts a transaction on the most recent revision.
+The codè above starts a transaction on the most recent revision.
+
+The following code starts a transaction at revision 1.
 
 ```java
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)
 ```
 
-This starts a transaction at revision 1.
+The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
 final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())
 ```
-
-This starts a transaction on the revision, which has been committed at the closest timestamp to the given point in time.
 
 There are also several ways to start the single write-transaction:
 
