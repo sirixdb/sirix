@@ -36,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -49,12 +50,13 @@ import org.sirix.xquery.node.DBStore;
 
 /**
  * @author Sebastian Baechle
+ * @author Johannes Lichtenberger
  *
  */
-public class Main {
+public final class Main {
 
   private static class Config {
-    HashMap<String, String> options = new HashMap<String, String>();
+    final Map<String, String> options = new HashMap<String, String>();
 
     boolean isSet(final String option) {
       return options.containsKey(option);
