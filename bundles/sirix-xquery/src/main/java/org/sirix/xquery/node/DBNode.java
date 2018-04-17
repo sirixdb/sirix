@@ -1139,7 +1139,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private DBNode insertAfter(final XdmNodeWriteTrx wtx, final Node<?> node)
       throws DocumentException {
     try {
-      if (node.getKind() == Kind.ELEMENT)
+      if (!(node.getKind() == Kind.ELEMENT))
         return insertAfter(wtx, node.getKind(), node.getName(), node.getValue());
 
       final SubtreeBuilder builder =
