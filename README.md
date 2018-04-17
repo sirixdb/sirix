@@ -11,7 +11,7 @@
 
 <p>&nbsp;</p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/showcase/screencast-three-revisions.gif"/></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/showcase/screencast-three-revisions-faster.gif"/></p>
 
 <p>&nbsp;</p>
 
