@@ -2,7 +2,7 @@
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 
-[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
@@ -11,7 +11,7 @@
 
 <p>&nbsp;</p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/screencast-faster.gif"/></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/showcase/screencast-three-revisions.gif"/></p>
 
 <p>&nbsp;</p>
 
