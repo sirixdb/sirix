@@ -56,22 +56,22 @@ public class MultipleCommitTest {
 
   @Test
   public void test() throws SirixException {
-    assertEquals(1L, holder.getWriter().getRevisionNumber());
-    holder.getWriter().commit();
+    assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    holder.getXdmNodeWriteTrx().commit();
 
-    holder.getWriter().insertElementAsFirstChild(new QNm("foo"));
-    assertEquals(2L, holder.getWriter().getRevisionNumber());
-    holder.getWriter().moveTo(1);
-    assertEquals(new QNm("foo"), holder.getWriter().getName());
-    holder.getWriter().rollback();
+    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm("foo"));
+    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    holder.getXdmNodeWriteTrx().moveTo(1);
+    assertEquals(new QNm("foo"), holder.getXdmNodeWriteTrx().getName());
+    holder.getXdmNodeWriteTrx().rollback();
 
-    assertEquals(2L, holder.getWriter().getRevisionNumber());
+    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
   }
 
   @Test
   public void testAutoCommit() throws SirixException {
-    DocumentCreator.create(holder.getWriter());
-    holder.getWriter().commit();
+    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    holder.getXdmNodeWriteTrx().commit();
 
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
     rtx.close();
@@ -79,44 +79,44 @@ public class MultipleCommitTest {
 
   @Test
   public void testRemove() throws SirixException {
-    DocumentCreator.create(holder.getWriter());
-    holder.getWriter().commit();
-    assertEquals(2L, holder.getWriter().getRevisionNumber());
+    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    holder.getXdmNodeWriteTrx().commit();
+    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
 
-    holder.getWriter().moveToDocumentRoot();
-    holder.getWriter().moveToFirstChild();
-    holder.getWriter().remove();
-    holder.getWriter().commit();
-    assertEquals(3L, holder.getWriter().getRevisionNumber());
+    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+    holder.getXdmNodeWriteTrx().moveToFirstChild();
+    holder.getXdmNodeWriteTrx().remove();
+    holder.getXdmNodeWriteTrx().commit();
+    assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
   }
 
   @Test
   public void testAttributeRemove() throws SirixException {
-    DocumentCreator.create(holder.getWriter());
-    holder.getWriter().commit();
-    holder.getWriter().moveToDocumentRoot();
+    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 
-    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getWriter());
+    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXdmNodeWriteTrx());
     while (postorderAxis.hasNext()) {
       postorderAxis.next();
-      if (holder.getWriter().getKind() == Kind.ELEMENT
-          && holder.getWriter().getAttributeCount() > 0) {
-        for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
-          holder.getWriter().moveToAttribute(i);
-          holder.getWriter().remove();
+      if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT
+          && holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
+        for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+          holder.getXdmNodeWriteTrx().moveToAttribute(i);
+          holder.getXdmNodeWriteTrx().remove();
         }
       }
     }
-    holder.getWriter().commit();
-    holder.getWriter().moveToDocumentRoot();
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 
     int attrTouch = 0;
-    final Axis descAxis = new DescendantAxis(holder.getWriter());
+    final Axis descAxis = new DescendantAxis(holder.getXdmNodeWriteTrx());
     while (descAxis.hasNext()) {
       descAxis.next();
-      if (holder.getWriter().getKind() == Kind.ELEMENT) {
-        for (int i = 0, attrCount = holder.getWriter().getAttributeCount(); i < attrCount; i++) {
-          if (holder.getWriter().moveToAttribute(i).hasMoved()) {
+      if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT) {
+        for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+          if (holder.getXdmNodeWriteTrx().moveToAttribute(i).hasMoved()) {
             attrTouch++;
           } else {
             throw new IllegalStateException("Should never occur!");

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -30,9 +30,9 @@ import org.sirix.exception.SirixException;
 /**
  * Implements {@link DiffObservable}, which can be used for all classes, which implement the
  * {@link IDiff} interface.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 abstract class AbstractDiffObservable implements DiffObservable {
 
@@ -49,10 +49,10 @@ abstract class AbstractDiffObservable implements DiffObservable {
   }
 
   @Override
-  public final void fireDiff(final DiffType pDiff, @Nonnull final long pNewNodeKey,
-      @Nonnull final long pOldNodeKey, @Nonnull final DiffDepth pDepth) {
+  public final void fireDiff(final DiffType diff, final @Nonnull long newNodeKey,
+      final @Nonnull long oldNodeKey, final @Nonnull DiffDepth depth) {
     for (final DiffObserver observer : mDiffObservers) {
-      observer.diffListener(pDiff, pNewNodeKey, pOldNodeKey, pDepth);
+      observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
     }
   }
 
@@ -64,12 +64,12 @@ abstract class AbstractDiffObservable implements DiffObservable {
   }
 
   @Override
-  public final void addObserver(final DiffObserver pObserver) {
-    mDiffObservers.add(pObserver);
+  public final void addObserver(final DiffObserver observer) {
+    mDiffObservers.add(observer);
   }
 
   @Override
-  public final void removeObserver(final DiffObserver pObserver) {
-    mDiffObservers.remove(pObserver);
+  public final void removeObserver(final DiffObserver observer) {
+    mDiffObservers.remove(observer);
   }
 }

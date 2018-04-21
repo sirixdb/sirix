@@ -262,6 +262,34 @@ public final class DocumentCreator {
   }
 
   /**
+   * Create simple revision test in current database.
+   *
+   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @throws SirixException if anything went wrong
+   */
+  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeWriteTrx wtx)
+      throws SirixException {
+    assertNotNull(wtx);
+    create(wtx);
+    wtx.commit();
+    for (int i = 0; i <= 1; i++) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
+      wtx.insertTextAsFirstChild("OOPS4!");
+      wtx.commit();
+    }
+
+    wtx.moveToDocumentRoot().get().moveToFirstChild().get().moveToLastChild().get();
+    wtx.remove();
+    wtx.commit();
+
+    wtx.moveTo(4);
+    wtx.setValue("fooooooo");
+    wtx.commit();
+  }
+
+  /**
    * Create simple test document containing all supported node kinds except the attributes.
    *
    * @param paramWtx {@link XdmNodeWriteTrx} to write to

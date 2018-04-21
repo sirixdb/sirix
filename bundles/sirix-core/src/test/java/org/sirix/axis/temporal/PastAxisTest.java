@@ -31,7 +31,7 @@ public final class PastAxisTest {
   @Before
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
-    DocumentCreator.createVersioned(Holder.generateWtx().getWriter());
+    DocumentCreator.createVersioned(Holder.generateWtx().getXdmNodeWriteTrx());
     holder = Holder.generateRtx();
   }
 
