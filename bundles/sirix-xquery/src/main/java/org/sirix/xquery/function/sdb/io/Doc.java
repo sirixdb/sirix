@@ -18,17 +18,17 @@ import org.sirix.xquery.node.DBCollection;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
+ * <li><code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as xs:node</code>
  * </li>
- * <li><code>sdb:doc($coll as xs:string, $res as xs:string) as node()</code></li>
+ * <li><code>sdb:doc($coll as xs:string, $res as xs:string) as xs:node</code></li>
  * <li>
- * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?, $updatable as xs:boolean?) as node()</code>
+ * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?, $updatable as xs:boolean?) as xs:node</code>
  * </li>
  * </ul>
- * 
+ *
  * @author Max Bechtold
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class Doc extends AbstractFunction {
 
@@ -37,16 +37,16 @@ public final class Doc extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public Doc(QNm name, Signature signature) {
+  public Doc(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     if (args.length < 2 || args.length > 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));

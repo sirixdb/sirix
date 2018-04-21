@@ -29,7 +29,7 @@ import org.sirix.diff.DiffFactory.DiffType;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-enum EFoundEqualNode {
+enum FoundMatchingNode {
   /** Node found. */
   TRUE {
     @Override

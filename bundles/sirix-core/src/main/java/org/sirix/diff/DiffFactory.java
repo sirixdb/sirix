@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -31,9 +31,9 @@ import org.sirix.exception.SirixException;
 
 /**
  * Factory method for public access.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class DiffFactory {
 
@@ -107,7 +107,7 @@ public final class DiffFactory {
 
     /**
      * Invoke diff.
-     * 
+     *
      * @param pBuilder {@link Builder} reference
      * @throws SirixException if anything while diffing goes wrong related to sirix
      */
@@ -116,7 +116,7 @@ public final class DiffFactory {
 
   /**
    * Create a new {@link Builder} instance.
-   * 
+   *
    * @param session the {@link ResourceManager} to use
    * @param newRev new revision to compare
    * @param oldRev old revision to compare
@@ -134,7 +134,7 @@ public final class DiffFactory {
   public static final class Builder {
 
     /** {@link ResourceManager} reference. */
-    final ResourceManager mSession;
+    final ResourceManager mResMgr;
 
     /** Start key of new revision. */
     transient long mNewStartKey;
@@ -169,9 +169,12 @@ public final class DiffFactory {
     /** Set if the GUI is used. */
     transient boolean mIsGUI = true;
 
+    /** Determines if subtrees are skipped after detecting an insert/delete... */
+    transient boolean mSkipSubtrees = false;
+
     /**
      * Constructor.
-     * 
+     *
      * @param resMgr the {@link ResourceManager} to use
      * @param newRev new revision to compare
      * @param oldRev old revision to compare
@@ -181,7 +184,7 @@ public final class DiffFactory {
     public Builder(final ResourceManager resMgr, final @Nonnegative int newRev,
         final @Nonnegative int oldRev, final DiffOptimized diffKind,
         final Set<DiffObserver> observers) {
-      mSession = checkNotNull(resMgr);
+      mResMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       mNewRev = newRev;
       checkArgument(oldRev >= 0, "paramOldRev must be >= 0!");
@@ -192,22 +195,22 @@ public final class DiffFactory {
 
     /**
      * Set to true if the algorithm is used by the GUI, otherwise false.
-     * 
+     *
      * @param isGUI determines if the algorithm is used by the GUI or not
      * @return this builder
      */
-    public Builder setIsGUI(final boolean isGUI) {
+    public Builder isGUI(final boolean isGUI) {
       mIsGUI = isGUI;
       return this;
     }
 
     /**
      * Set start node key in old revision.
-     * 
+     *
      * @param oldKey start node key in old revision
      * @return this builder
      */
-    public Builder setOldStartKey(final @Nonnegative long oldKey) {
+    public Builder oldStartKey(final @Nonnegative long oldKey) {
       checkArgument(oldKey >= 0, "oldKey must be >= 0!");
       mOldStartKey = oldKey;
       return this;
@@ -215,11 +218,11 @@ public final class DiffFactory {
 
     /**
      * Set start node key in new revision.
-     * 
+     *
      * @param pNewKey start node key in new revision
      * @return this builder
      */
-    public Builder setNewStartKey(final @Nonnegative long newKey) {
+    public Builder newStartKey(final @Nonnegative long newKey) {
       checkArgument(newKey >= 0, "newKey must be >= 0!");
       mNewStartKey = newKey;
       return this;
@@ -227,11 +230,11 @@ public final class DiffFactory {
 
     /**
      * Set new depth.
-     * 
+     *
      * @param newDepth depth of "root" node in new revision
      * @return this builder
      */
-    public Builder setNewDepth(final @Nonnegative int newDepth) {
+    public Builder newDepth(final @Nonnegative int newDepth) {
       checkArgument(newDepth >= 0, "newDepth must be >= 0!");
       mNewDepth = newDepth;
       return this;
@@ -239,11 +242,11 @@ public final class DiffFactory {
 
     /**
      * Set old depth.
-     * 
+     *
      * @param oldDepth depth of "root" node in old revision
      * @return this builder
      */
-    public Builder setOldDepth(final int oldDepth) {
+    public Builder oldDepth(final int oldDepth) {
       checkArgument(oldDepth >= 0, "oldDepth must be >= 0!");
       mOldDepth = oldDepth;
       return this;
@@ -251,24 +254,35 @@ public final class DiffFactory {
 
     /**
      * Set kind of diff-algorithm.
-     * 
+     *
      * @param pDiffAlgorithm {@link DiffAlgorithm} instance
-     * 
+     *
      * @return this builder
      */
-    public Builder setDiffAlgorithm(final DiffAlgorithm pDiffAlgorithm) {
+    public Builder diffAlgorithm(final DiffAlgorithm pDiffAlgorithm) {
       mDiffKind = checkNotNull(pDiffAlgorithm);
       return this;
     }
 
     /**
      * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
-     * 
+     *
      * @param kind {@link HashKind} instance
      * @return this builder
      */
-    public Builder setHashKind(final HashKind kind) {
+    public Builder hashKind(final HashKind kind) {
       mHashKind = checkNotNull(kind);
+      return this;
+    }
+
+    /**
+     * Set if subtrees after detecting an insert/delete/replace should be skipped..
+     *
+     * @param skipSubtrees {@code true}, if subtrees should be skipped, {@code false} if not
+     * @return this builder
+     */
+    public Builder skipSubtrees(final boolean skipSubtrees) {
+      mSkipSubtrees = skipSubtrees;
       return this;
     }
   }
@@ -283,7 +297,7 @@ public final class DiffFactory {
 
   /**
    * Do a full diff.
-   * 
+   *
    * @param builder {@link Builder} reference
    * @throws SirixException
    */
@@ -293,7 +307,7 @@ public final class DiffFactory {
 
   /**
    * Do a structural diff.
-   * 
+   *
    * @param builder {@link Builder} reference
    * @throws SirixException
    */

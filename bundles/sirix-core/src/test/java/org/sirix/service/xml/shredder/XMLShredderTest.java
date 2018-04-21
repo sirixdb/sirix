@@ -75,7 +75,7 @@ public class XMLShredderTest extends XMLTestCase {
     // Setup parsed session.
     XMLShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
-    final XdmNodeReadTrx expectedTrx = holder.getWriter();
+    final XdmNodeReadTrx expectedTrx = holder.getXdmNodeWriteTrx();
 
     // Verify.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
@@ -113,7 +113,7 @@ public class XMLShredderTest extends XMLTestCase {
 
   @Test
   public void testShredIntoExisting() throws Exception {
-    final XdmNodeWriteTrx wtx = holder.getWriter();
+    final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
     final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML),
         Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
     shredder.call();
@@ -170,7 +170,7 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testAttributesNSPrefix() throws Exception {
     // Setup expected session.
-    final XdmNodeWriteTrx expectedTrx2 = holder.getWriter();
+    final XdmNodeWriteTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
     DocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 

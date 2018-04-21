@@ -46,8 +46,9 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   @Override
   public void processComment(final String commentValue) throws SirixException {
     final String value = checkNotNull(commentValue);
-    long key;
     if (!value.isEmpty()) {
+      final long key;
+
       if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
         key = mWtx.insertCommentAsFirstChild(value).getNodeKey();
       } else {
@@ -64,8 +65,10 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
       throws SirixException {
     final String content = checkNotNull(processingContent);
     final String target = checkNotNull(processingTarget);
-    long key;
+
     if (!target.isEmpty()) {
+      final long key;
+
       if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
         key = mWtx.insertPIAsFirstChild(target, content).getNodeKey();
       } else {
@@ -80,8 +83,9 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   @Override
   public void processText(final String textValue) throws SirixException {
     final String text = checkNotNull(textValue);
-    long key;
     if (!text.isEmpty()) {
+      final long key;
+
       if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
         key = mWtx.insertTextAsFirstChild(text).getNodeKey();
       } else {
@@ -124,7 +128,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
         mInsertLocation = Insert.ASFIRSTCHILD;
         break;
       default:
-        // Must not happen.
+        throw new AssertionError();// Must not happen.
     }
 
     mParents.pop();

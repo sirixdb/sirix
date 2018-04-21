@@ -113,39 +113,43 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /** {@link XdmNodeReadTrx} on old revision. */
   private final XdmNodeReadTrx mOldRtx;
 
+  private final boolean mSkipSubtrees;
+
   /**
    * Constructor.
    *
-   * @param pBuilder {@link Builder} reference
+   * @param builder {@link Builder} reference
    * @throws SirixException if setting up transactions failes
    */
-  AbstractDiff(final Builder pBuilder) throws SirixException {
-    mDiffKind = checkNotNull(pBuilder).mKind;
-    synchronized (pBuilder.mSession) {
-      mNewRtx = pBuilder.mSession.beginNodeReadTrx(pBuilder.mNewRev);
-      mOldRtx = pBuilder.mSession.beginNodeReadTrx(pBuilder.mOldRev);
-      mHashKind = pBuilder.mHashKind;
+  AbstractDiff(final Builder builder) throws SirixException {
+    mSkipSubtrees = builder.mSkipSubtrees;
+    mDiffKind = checkNotNull(builder).mKind;
+    synchronized (builder.mResMgr) {
+      mNewRtx = builder.mResMgr.beginNodeReadTrx(builder.mNewRev);
+      mOldRtx = builder.mResMgr.beginNodeReadTrx(builder.mOldRev);
+      mHashKind = builder.mHashKind;
     }
-    mNewRtxMoved = mNewRtx.moveTo(pBuilder.mNewStartKey).hasMoved();
-    mOldRtxMoved = mOldRtx.moveTo(pBuilder.mOldStartKey).hasMoved();
+    mNewRtxMoved = mNewRtx.moveTo(builder.mNewStartKey).hasMoved();
+    mOldRtxMoved = mOldRtx.moveTo(builder.mOldStartKey).hasMoved();
     if (mNewRtx.getKind() == Kind.DOCUMENT) {
       mNewRtx.moveToFirstChild();
     }
     if (mOldRtx.getKind() == Kind.DOCUMENT) {
       mOldRtx.moveToFirstChild();
     }
-    mRootKey = pBuilder.mNewStartKey;
-    mOldRootKey = pBuilder.mOldStartKey;
+    mRootKey = builder.mNewStartKey;
+    mOldRootKey = builder.mOldStartKey;
 
-    synchronized (pBuilder.mObservers) {
-      for (final DiffObserver observer : pBuilder.mObservers) {
+    synchronized (builder.mObservers) {
+      for (final DiffObserver observer : builder.mObservers) {
         addObserver(observer);
       }
     }
+
     mDiff = DiffType.SAME;
-    mDiffKind = pBuilder.mKind;
-    mDepth = new DepthCounter(pBuilder.mNewDepth, pBuilder.mOldDepth);
-    mIsGUI = pBuilder.mIsGUI;
+    mDiffKind = builder.mKind;
+    mDepth = new DepthCounter(builder.mNewDepth, builder.mOldDepth);
+    mIsGUI = builder.mIsGUI;
     mIsFirst = true;
   }
 
@@ -184,6 +188,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     } else {
       mDiff = optimizedDiff(mNewRtx, mOldRtx, mDepth);
     }
+
     mIsFirst = false;
 
     // Iterate over new revision (order of operators significant -- regarding
@@ -256,11 +261,17 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     fireDiff(
         DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
         new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+
     mIsFirst = false;
-    while (moveCursor(mOldRtx, Revision.OLD, Move.DOCUMENT_ORDER)) {
-      final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
-      fireDiff(DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), depth);
-      emitNonStructuralDiff(mNewRtx, mOldRtx, depth, DiffType.DELETED);
+
+    if (mSkipSubtrees) {
+      mOldRtx.moveToNextFollowing();
+    } else {
+      while (moveCursor(mOldRtx, Revision.OLD, Move.DOCUMENT_ORDER)) {
+        final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
+        fireDiff(DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), depth);
+        emitNonStructuralDiff(mNewRtx, mOldRtx, depth, DiffType.DELETED);
+      }
     }
   }
 
@@ -271,11 +282,17 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     fireDiff(
         DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
         new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+
     mIsFirst = false;
-    while (moveCursor(mNewRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
-      final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
-      fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), depth);
-      emitNonStructuralDiff(mNewRtx, mOldRtx, depth, DiffType.DELETED);
+
+    if (mSkipSubtrees) {
+      mNewRtx.moveToNextFollowing();
+    } else {
+      while (moveCursor(mNewRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
+        final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
+        fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), depth);
+        emitNonStructuralDiff(mNewRtx, mOldRtx, depth, DiffType.DELETED);
+      }
     }
   }
 
@@ -496,8 +513,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     assert depth != null;
     DiffType diff = null;
 
-    if (depth.getOldDepth() > depth.getNewDepth()) { // Check if node has been
-                                                     // deleted.
+    if (depth.getOldDepth() > depth.getNewDepth()) { // Check if node has been deleted.
       diff = DiffType.DELETED;
       emitDiffs(diff);
     } else if (checkUpdate(newRtx, oldRtx)) { // Check if node has been updated.
@@ -505,8 +521,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
       fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
       emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
-    } else if (checkReplace(newRtx, oldRtx)) { // Check if node has been
-                                               // replaced.
+    } else if (checkReplace(newRtx, oldRtx)) { // Check if node has been replaced.
       diff = DiffType.REPLACED;
     } else {
       final long oldKey = oldRtx.getNodeKey();
@@ -523,12 +538,12 @@ abstract class AbstractDiff extends AbstractDiffObservable {
         diff = DiffType.DELETED;
       } else {
         // Determine if one of the right sibling matches.
-        EFoundEqualNode found = EFoundEqualNode.FALSE;
+        FoundMatchingNode found = FoundMatchingNode.FALSE;
 
         while (oldRtx.hasRightSibling() && oldRtx.moveToRightSibling().hasMoved()
-            && found == EFoundEqualNode.FALSE) {
+            && found == FoundMatchingNode.FALSE) {
           if (checkNodes(newRtx, oldRtx)) {
-            found = EFoundEqualNode.TRUE;
+            found = FoundMatchingNode.TRUE;
             break;
           }
         }
@@ -560,13 +575,21 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     final XdmNodeReadTrx rtx = diff == DiffType.DELETED
         ? mOldRtx
         : mNewRtx;
-    do {
+
+    if (mSkipSubtrees) {
       final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
       fireDiff(diff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), diffDepth);
       emitNonStructuralDiff(mNewRtx, mOldRtx, diffDepth, diff);
-    } while (moveCursor(rtx, revision, Move.DOCUMENT_ORDER)
-        && ((diff == DiffType.INSERTED && mDepth.getNewDepth() > depth)
-            || (diff == DiffType.DELETED && mDepth.getOldDepth() > depth)));
+      rtx.moveToNextFollowing();
+    } else {
+      do {
+        final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
+        fireDiff(diff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), diffDepth);
+        emitNonStructuralDiff(mNewRtx, mOldRtx, diffDepth, diff);
+      } while (moveCursor(rtx, revision, Move.DOCUMENT_ORDER)
+          && ((diff == DiffType.INSERTED && mDepth.getNewDepth() > depth)
+              || (diff == DiffType.DELETED && mDepth.getOldDepth() > depth)));
+    }
   }
 
   /**
@@ -651,65 +674,76 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       oldRtx.moveTo(oldKey);
 
       if (replaced) {
-        final long newNodeKey = newRtx.getNodeKey();
-        final long oldNodeKey = oldRtx.getNodeKey();
-        final Axis oldAxis = new DescendantAxis(oldRtx, IncludeSelf.YES);
-        final Axis newAxis = new DescendantAxis(newRtx, IncludeSelf.YES);
-        while (oldAxis.hasNext()) {
-          oldAxis.next();
+        if (mSkipSubtrees) {
           fireDiff(
               DiffType.REPLACEDOLD, newRtx.getNodeKey(), oldRtx.getNodeKey(),
               new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          adjustDepth(oldRtx, oldNodeKey, Revision.OLD);
-        }
-
-        while (newAxis.hasNext()) {
-          newAxis.next();
           fireDiff(
               DiffType.REPLACEDNEW, newRtx.getNodeKey(), oldRtx.getNodeKey(),
               new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          adjustDepth(newRtx, newNodeKey, Revision.NEW);
+          newRtx.moveToNext();
+          oldRtx.moveToNext();
+        } else {
+          final long newNodeKey = newRtx.getNodeKey();
+          final long oldNodeKey = oldRtx.getNodeKey();
+          final Axis oldAxis = new DescendantAxis(oldRtx, IncludeSelf.YES);
+          final Axis newAxis = new DescendantAxis(newRtx, IncludeSelf.YES);
+          while (oldAxis.hasNext()) {
+            oldAxis.next();
+            fireDiff(
+                DiffType.REPLACEDOLD, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+                new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+            adjustDepth(oldRtx, oldNodeKey, Revision.OLD);
+          }
+
+          while (newAxis.hasNext()) {
+            newAxis.next();
+            fireDiff(
+                DiffType.REPLACEDNEW, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+                new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+            adjustDepth(newRtx, newNodeKey, Revision.NEW);
+          }
+          newRtx.moveTo(newNodeKey);
+          oldRtx.moveTo(oldNodeKey);
+          mDiff = DiffType.REPLACED;
+          // final IAxis oldAxis = new DescendantAxis(pOldRtx, EIncludeSelf.YES);
+          // final IAxis newAxis = new DescendantAxis(pNewRtx, EIncludeSelf.YES);
+          // if (pNewRtx.getDescendantCount() >= pOldRtx
+          // .getDescendantCount()) {
+          // while (newAxis.hasNext()) {
+          // newAxis.next();
+          // boolean moved = false;
+          // if (oldAxis.hasNext()) {
+          // oldAxis.next();
+          // moved = true;
+          // }
+          // fireDiff(EDiff.REPLACEDNEW, pNewRtx, pOldRtx,
+          // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+          // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
+          // if (moved) {
+          // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
+          // }
+          // }
+          //
+          // } else {
+          // while (oldAxis.hasNext()) {
+          // oldAxis.next();
+          // boolean moved = false;
+          // if (newAxis.hasNext()) {
+          // newAxis.next();
+          // moved = true;
+          // }
+          // fireDiff(EDiff.REPLACEDOLD, pNewRtx, pOldRtx,
+          // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+          // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
+          // if (moved) {
+          // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
+          // }
+          // }
+          // }
+          newRtx.moveTo(newNodeKey);
+          oldRtx.moveTo(oldNodeKey);
         }
-        newRtx.moveTo(newNodeKey);
-        oldRtx.moveTo(oldNodeKey);
-        mDiff = DiffType.REPLACED;
-        // final IAxis oldAxis = new DescendantAxis(pOldRtx, EIncludeSelf.YES);
-        // final IAxis newAxis = new DescendantAxis(pNewRtx, EIncludeSelf.YES);
-        // if (pNewRtx.getDescendantCount() >= pOldRtx
-        // .getDescendantCount()) {
-        // while (newAxis.hasNext()) {
-        // newAxis.next();
-        // boolean moved = false;
-        // if (oldAxis.hasNext()) {
-        // oldAxis.next();
-        // moved = true;
-        // }
-        // fireDiff(EDiff.REPLACEDNEW, pNewRtx, pOldRtx,
-        // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-        // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
-        // if (moved) {
-        // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
-        // }
-        // }
-        //
-        // } else {
-        // while (oldAxis.hasNext()) {
-        // oldAxis.next();
-        // boolean moved = false;
-        // if (newAxis.hasNext()) {
-        // newAxis.next();
-        // moved = true;
-        // }
-        // fireDiff(EDiff.REPLACEDOLD, pNewRtx, pOldRtx,
-        // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-        // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
-        // if (moved) {
-        // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
-        // }
-        // }
-        // }
-        newRtx.moveTo(newNodeKey);
-        oldRtx.moveTo(oldNodeKey);
       }
     }
     return replaced;

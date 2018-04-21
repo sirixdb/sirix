@@ -35,8 +35,8 @@ public interface DiffObserver {
    * Called for every node comparsion.
    *
    * @param diffType the {@link DiffType} type
-   * @param pNewNode node key of node in new revision
-   * @param pOldNode node key of node in old revision
+   * @param newNodeKey node key of node in new revision
+   * @param oldNodeKey node key of node in old revision
    * @param depth current {@link DiffDepth} instance
    */
   void diffListener(@Nonnull DiffType diffType, long newNodeKey, long oldNodeKey,

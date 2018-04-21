@@ -66,81 +66,81 @@ public final class OverallTest extends TestCase {
 
   @Test
   public void testJustEverything() throws SirixException {
-    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm(getString()));
+    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm(getString()));
     for (int i = 0; i < ELEMENTS; i++) {
       if (ran.nextBoolean()) {
-        switch (holder.getWriter().getKind()) {
+        switch (holder.getXdmNodeWriteTrx().getKind()) {
           case ELEMENT:
-            holder.getWriter().setName(new QNm(getString()));
+            holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
             break;
           case ATTRIBUTE:
-            holder.getWriter().setName(new QNm(getString()));
-            holder.getWriter().setValue(getString());
+            holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
+            holder.getXdmNodeWriteTrx().setValue(getString());
             break;
           case NAMESPACE:
-            holder.getWriter().setName(new QNm(getString()));
+            holder.getXdmNodeWriteTrx().setName(new QNm(getString()));
             break;
           case PROCESSING_INSTRUCTION:
           case TEXT:
           case COMMENT:
-            holder.getWriter().setValue(getString());
+            holder.getXdmNodeWriteTrx().setValue(getString());
             break;
           default:
         }
       } else {
-        if (holder.getWriter().getKind() == Kind.ELEMENT) {
-          if (holder.getWriter().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
-            assertTrue(holder.getWriter().moveToFirstChild().hasMoved());
+        if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT) {
+          if (holder.getXdmNodeWriteTrx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild().hasMoved());
+            assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild().hasMoved());
           }
           if (ran.nextBoolean()) {
-            holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
+            holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm(getString()));
           } else {
-            holder.getWriter().insertElementAsRightSibling(new QNm(getString()));
+            holder.getXdmNodeWriteTrx().insertElementAsRightSibling(new QNm(getString()));
           }
           if (ran.nextBoolean()) {
-            holder.getWriter().insertAttribute(new QNm(getString()), getString());
-            holder.getWriter().moveToParent();
+            holder.getXdmNodeWriteTrx().insertAttribute(new QNm(getString()), getString());
+            holder.getXdmNodeWriteTrx().moveToParent();
           }
           if (ran.nextBoolean()) {
-            holder.getWriter().insertNamespace(new QNm(getString(), getString()));
-            holder.getWriter().moveToParent();
+            holder.getXdmNodeWriteTrx().insertNamespace(new QNm(getString(), getString()));
+            holder.getXdmNodeWriteTrx().moveToParent();
           }
         }
 
         if (ran.nextInt(100) < REMOVEPERCENTAGE) {
-          holder.getWriter().remove();
+          holder.getXdmNodeWriteTrx().remove();
         }
 
         if (ran.nextInt(100) < COMMITPERCENTAGE) {
-          holder.getWriter().commit();
+          holder.getXdmNodeWriteTrx().commit();
         }
         do {
           final int newKey = ran.nextInt(i + 1) + 1;
 
           if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            holder.getWriter().moveToFirstChild();
-            holder.getWriter().moveToFirstChild();
+            holder.getXdmNodeWriteTrx().moveToFirstChild();
+            holder.getXdmNodeWriteTrx().moveToFirstChild();
           } else {
-            holder.getWriter().moveTo(newKey);
-            if (holder.getWriter()
+            holder.getXdmNodeWriteTrx().moveTo(newKey);
+            if (holder.getXdmNodeWriteTrx()
                       .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-              holder.getWriter().moveToFirstChild();
+              holder.getXdmNodeWriteTrx().moveToFirstChild();
             }
           }
-        } while (holder.getWriter() == null);
-        if (holder.getWriter().getKind() != Kind.ELEMENT) {
-          holder.getWriter().moveToParent();
+        } while (holder.getXdmNodeWriteTrx() == null);
+        if (holder.getXdmNodeWriteTrx().getKind() != Kind.ELEMENT) {
+          holder.getXdmNodeWriteTrx().moveToParent();
         }
       }
     }
-    final long key = holder.getWriter().getNodeKey();
-    holder.getWriter().remove();
-    holder.getWriter().insertElementAsFirstChild(new QNm(getString()));
-    holder.getWriter().moveTo(key);
-    holder.getWriter().commit();
-    holder.getWriter().close();
+    final long key = holder.getXdmNodeWriteTrx().getNodeKey();
+    holder.getXdmNodeWriteTrx().remove();
+    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm(getString()));
+    holder.getXdmNodeWriteTrx().moveTo(key);
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().close();
   }
 
   @Override

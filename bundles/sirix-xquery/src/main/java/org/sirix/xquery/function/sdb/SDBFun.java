@@ -19,6 +19,7 @@ import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECEN
 import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
+import static org.sirix.xquery.function.sdb.diff.Diff.DIFF;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -29,6 +30,7 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.datamining.GetChildCount;
 import org.sirix.xquery.function.sdb.datamining.GetDescendantCount;
 import org.sirix.xquery.function.sdb.datamining.GetHash;
+import org.sirix.xquery.function.sdb.diff.Diff;
 import org.sirix.xquery.function.sdb.index.SortByDocOrder;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
 import org.sirix.xquery.function.sdb.index.create.CreateNameIndex;
@@ -50,8 +52,8 @@ import org.sirix.xquery.function.sdb.trx.GetNamespaceCount;
 import org.sirix.xquery.function.sdb.trx.GetNodeKey;
 import org.sirix.xquery.function.sdb.trx.GetPath;
 import org.sirix.xquery.function.sdb.trx.GetRevision;
-import org.sirix.xquery.function.sdb.trx.SelectNode;
 import org.sirix.xquery.function.sdb.trx.Rollback;
+import org.sirix.xquery.function.sdb.trx.SelectNode;
 
 /**
  * Function definitions.
@@ -224,5 +226,10 @@ public final class SDBFun {
     Functions.predefine(new ScanCASIndex());
     Functions.predefine(new ScanCASIndexRange());
     Functions.predefine(new ScanNameIndex());
+
+    // diff
+    Functions.predefine(
+        new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
+            SequenceType.INTEGER, SequenceType.INTEGER)));
   }
 }

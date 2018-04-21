@@ -116,11 +116,11 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager session = database.getResourceManager(
+    final ResourceManager resMgr = database.getResourceManager(
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setResourceManager(session);
+    holder.setResourceManager(resMgr);
     return holder;
   }
 
@@ -210,7 +210,7 @@ public class Holder {
    *
    * @return {@link XdmNodeWriteTrx} handle
    */
-  public XdmNodeWriteTrx getWriter() {
+  public XdmNodeWriteTrx getXdmNodeWriteTrx() {
     return mWriter;
   }
 
