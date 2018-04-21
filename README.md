@@ -22,7 +22,7 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 2. The full revision history of the resource or any subset thereof;
 3. The full modification history of the resource or any subset thereof.
 
-We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow the navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
+We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
 <p>&nbsp;&nbsp;</p>
 
@@ -269,20 +269,20 @@ A read-only transaction can be opened through:
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()
 ```
 
-This starts a transaction on the most recent revision.
+The codè above starts a transaction on the most recent revision.
+
+The following code starts a transaction at revision 1.
 
 ```java
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)
 ```
 
-This starts a transaction at revision 1.
+The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
 final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
 final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())
 ```
-
-This starts a transaction on the revision, which has been committed at the closest timestamp to the given point in time.
 
 There are also several ways to start the single write-transaction:
 
