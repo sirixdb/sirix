@@ -172,7 +172,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(System.getProperty("line.separator"));
               break;
             case DELETED:
-              mBuf.append("  delete node sdb:select-node($doc");
+              mBuf.append("  delete nodes sdb:select-node($doc");
               mBuf.append(", ");
               mBuf.append(diffTuple.getOldNodeKey());
               mBuf.append(")");
