@@ -634,8 +634,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       try {
         return append(wtx, kind, name, value);
       } catch (final SirixException e) {
-        wtx.close();
         throw new DocumentException(e);
+      } finally {
+        wtx.close();
       }
     }
   }
@@ -1529,7 +1530,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private XdmNodeWriteTrx getWtx() {
     final ResourceManager resource = mRtx.getResourceManager();
     final XdmNodeWriteTrx wtx;
-    if (resource.getAvailableNodeWriteTrx() == 0) {
+    if (resource.getAvailableNodeWriteTrx() == 0 && resource.getXdmNodeWriteTrx().isPresent()) {
       wtx = resource.getXdmNodeWriteTrx().get();
     } else {
       wtx = resource.beginNodeWriteTrx();

@@ -280,6 +280,8 @@ public final class XdmResourceManager implements ResourceManager {
       throw new SirixThreadedException(e);
     }
 
+    assert mWriteSemaphore.availablePermits() == 0;
+
     // Create new page write transaction (shares the same ID with the node write trx).
     final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();

@@ -25,22 +25,13 @@ public final class ResourceStore implements AutoCloseable {
   /** Central repository of all open resource managers. */
   private final ConcurrentMap<Path, ResourceManager> mResourceManagers;
 
-  /** Makes sure there is at maximum a specific number of readers per resource. */
-  private final Semaphore mReadSemaphore;
-
-  /** Makes sure there is at maximum one writer per resource. */
-  private final Semaphore mWriteSempahore;
-
   /**
    * Constructor.
    *
-   * @param readSempahore makes sure there is at maximum a specific number of readers per resource
-   * @param writeSempahore makes sure there is at maximum one writer per resource.
+   * @throws NullPointerException if one if the arguments is {@code null}
    */
-  public ResourceStore(final Semaphore readSempahore, final Semaphore writeSemaphore) {
+  public ResourceStore() {
     mResourceManagers = new ConcurrentHashMap<>();
-    mReadSemaphore = checkNotNull(readSempahore);
-    mWriteSempahore = checkNotNull(writeSemaphore);
   }
 
   /**
@@ -53,6 +44,7 @@ public final class ResourceStore implements AutoCloseable {
    * @param bufferManager The buffer manager.
    * @param resourceFile The resource to open.
    * @return A resource manager.
+   * @throws NullPointerException if one if the arguments is {@code null}
    */
   public ResourceManager openResource(final @Nonnull DatabaseImpl database,
       final @Nonnull ResourceConfiguration resourceConfig,
@@ -78,10 +70,21 @@ public final class ResourceStore implements AutoCloseable {
         uberPage = new UberPage();
       }
 
-      final ResourceManager resourceManager = new XdmResourceManager(database, this, resourceConfig,
-          resourceManagerConfig, bufferManager, StorageType.getStorage(resourceConfig), uberPage,
-          mReadSemaphore, mWriteSempahore);
+      // Get sempahores.
+      final Semaphore readSem = Databases.computeReadSempahoreIfAbsent(
+          resourceConfig.getResource(), database.getDatabaseConfig().getMaxResourceReadTrx());
+      final Semaphore writeSem =
+          Databases.computeWriteSempahoreIfAbsent(resourceConfig.getResource(), 1);
+
+      // Create the resource manager instance.
+      final ResourceManager resourceManager =
+          new XdmResourceManager(database, this, resourceConfig, resourceManagerConfig,
+              bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeSem);
+
+      // Put it in the databases cache.
       Databases.putResourceManager(resourceFile, resourceManager);
+
+      // And return it.
       return resourceManager;
     });
   }

@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
@@ -33,6 +34,24 @@ public final class Databases {
   /** Central repository of all running resource managers. */
   private static final ConcurrentMap<Path, Set<ResourceManager>> RESOURCE_MANAGERS =
       new ConcurrentHashMap<>();
+
+  /** Central repository of all resource {@code <=>} read semaphore mappings. */
+  private static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES =
+      new ConcurrentHashMap<>();
+
+  /** Central repository of all resource {@code <=>} write semaphore mappings. */
+  private static final ConcurrentMap<Path, Semaphore> RESOURCE_WRITE_SEMAPHORES =
+      new ConcurrentHashMap<>();
+
+  public static Semaphore computeReadSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
+    return RESOURCE_READ_SEMAPHORES.computeIfAbsent(
+        resourcePath, res -> new Semaphore(numberOfPermits));
+  }
+
+  public static Semaphore computeWriteSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
+    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(
+        resourcePath, res -> new Semaphore(numberOfPermits));
+  }
 
   /**
    * Creating a database. This includes loading the database configuration, building up the
@@ -172,8 +191,12 @@ public final class Databases {
    *
    * @param file database file to remove
    */
-  static synchronized void removeDatabase(final Path file) {
-    DATABASE_SESSIONS.remove(file);
+  static synchronized void removeDatabase(final Path file, final Database database) {
+    final Set<Database> databases = DATABASE_SESSIONS.get(file);
+    databases.remove(database);
+
+    if (databases.isEmpty())
+      DATABASE_SESSIONS.remove(file);
   }
 
   /**

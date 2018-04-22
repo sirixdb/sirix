@@ -27,8 +27,10 @@
  */
 package org.sirix.xquery.function.sdb.diff;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -58,8 +60,9 @@ public final class DiffTest extends TestCase {
   @Before
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
-    DocumentCreator.createVersionedWithUpdatesAndDeletes(Holder.generateWtx().getXdmNodeWriteTrx());
-    holder = Holder.generateRtx();
+    holder = Holder.generateWtx();
+    DocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+    holder.getXdmNodeWriteTrx().close();
   }
 
   @Override
@@ -83,7 +86,14 @@ public final class DiffTest extends TestCase {
       final String xq = "sdb:diff('" + dbName + "', '" + resName + "', 1, 5)";
 
       final XQuery query = new XQuery(new SirixCompileChain(store), xq);
-      query.serialize(ctx, System.out);
+
+      try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        query.serialize(ctx, new PrintStream(out));
+
+        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+
+        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+      }
     }
   }
 }

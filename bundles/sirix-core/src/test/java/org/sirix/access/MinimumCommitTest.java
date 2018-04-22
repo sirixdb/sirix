@@ -53,18 +53,18 @@ public final class MinimumCommitTest {
   public void test() {
     assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
     holder.getXdmNodeWriteTrx().commit();
-    holder.close();
+    holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateWtx();
     assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
     DocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
-    holder.close();
+    holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateWtx();
     assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
     holder.getXdmNodeWriteTrx().commit();
-    holder.close();
+    holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateRtx();
     assertEquals(3L, holder.getReader().getRevisionNumber());
