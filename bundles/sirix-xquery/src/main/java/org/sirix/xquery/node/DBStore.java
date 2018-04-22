@@ -175,34 +175,33 @@ public final class DBStore implements Store, AutoCloseable {
     try {
       Databases.truncateDatabase(dbConf);
       Databases.createDatabase(dbConf);
-      try (final Database database = Databases.openDatabase(dbConf.getFile())) {
-        mDatabases.add(database);
-        final String resName = optResName.isPresent()
-            ? optResName.get()
-            : new StringBuilder(3).append("resource")
-                                  .append(database.listResources().size() + 1)
-                                  .toString();
-        database.createResource(
-            ResourceConfiguration.newBuilder(resName, dbConf)
-                                 .useDeweyIDs(true)
-                                 .useTextCompression(true)
-                                 .buildPathSummary(true)
-                                 .storageType(mStorageType)
-                                 .build());
-        final DBCollection collection = new DBCollection(collName, database);
-        mCollections.put(database, collection);
+      final Database database = Databases.openDatabase(dbConf.getFile());
+      mDatabases.add(database);
+      final String resName = optResName.isPresent()
+          ? optResName.get()
+          : new StringBuilder(3).append("resource")
+                                .append(database.listResources().size() + 1)
+                                .toString();
+      database.createResource(
+          ResourceConfiguration.newBuilder(resName, dbConf)
+                               .useDeweyIDs(true)
+                               .useTextCompression(true)
+                               .buildPathSummary(true)
+                               .storageType(mStorageType)
+                               .build());
+      final DBCollection collection = new DBCollection(collName, database);
+      mCollections.put(database, collection);
 
-        try (
-            final ResourceManager resource = database.getResourceManager(
-                new ResourceManagerConfiguration.Builder(resName).build());
-            final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
-          parser.parse(
-              new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
+      try (
+          final ResourceManager resource = database.getResourceManager(
+              new ResourceManagerConfiguration.Builder(resName).build());
+          final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+        parser.parse(
+            new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
-          wtx.commit();
-        }
-        return collection;
+        wtx.commit();
       }
+      return collection;
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
