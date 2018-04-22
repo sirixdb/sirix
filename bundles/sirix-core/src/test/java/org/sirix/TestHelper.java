@@ -108,7 +108,7 @@ public final class TestHelper {
   }
 
   /**
-   * Getting a database and create one of not existing. This includes the creation of a resource
+   * Getting a database and create one if not existing. This includes the creation of a resource
    * with the settings in the builder as standard.
    *
    * @param file to be created
@@ -268,16 +268,15 @@ public final class TestHelper {
    * @throws SirixException
    */
   public static void createTestDocument() throws SirixException {
-    try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(
-          new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-      try (
-          final ResourceManager manager = database.getResourceManager(
-              new ResourceManagerConfiguration.Builder(RESOURCE).build());
-          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-        DocumentCreator.create(wtx);
-        wtx.commit();
-      }
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    try (
+        final ResourceManager manager =
+            database.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+      DocumentCreator.create(wtx);
+      wtx.commit();
     }
   }
 
@@ -287,16 +286,15 @@ public final class TestHelper {
    * @throws SirixException
    */
   public static void createPICommentTestDocument() throws SirixException {
-    try (final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(
-          new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-      try (
-          final ResourceManager manager = database.getResourceManager(
-              new ResourceManagerConfiguration.Builder(RESOURCE).build());
-          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-        DocumentCreator.createCommentPI(wtx);
-        wtx.commit();
-      }
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    database.createResource(
+        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    try (
+        final ResourceManager manager =
+            database.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+      DocumentCreator.createCommentPI(wtx);
+      wtx.commit();
     }
   }
 

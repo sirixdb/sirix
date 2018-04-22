@@ -686,6 +686,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
       if (!mResourceManager.getXdmNodeReadTrx(mTrxId).isPresent())
         mResourceManager.closeReadTransaction(mTrxId);
+
       mClosed = true;
     }
   }

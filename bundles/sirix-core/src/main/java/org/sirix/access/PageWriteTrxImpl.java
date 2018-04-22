@@ -502,10 +502,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       mPageWriter.close();
       mIsClosed = true;
 
-      final long trxId = mPageRtx.getTrxId();
-
-      if (!mPageRtx.mResourceManager.getXdmNodeReadTrx(trxId).isPresent())
-        mPageRtx.mResourceManager.closeWriteTransaction(trxId);
+      // final long trxId = mPageRtx.getTrxId();
+      //
+      // if (!mPageRtx.mResourceManager.getXdmNodeReadTrx(trxId).isPresent())
+      // mPageRtx.mResourceManager.closeWriteTransaction(trxId);
     }
   }
 

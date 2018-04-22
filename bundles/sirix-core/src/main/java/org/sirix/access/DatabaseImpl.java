@@ -87,6 +87,9 @@ public final class DatabaseImpl implements Database {
   /** The transaction manager. */
   private final TransactionManager mTransactionManager;
 
+  /** Determines if the database instance is in the closed state or not. */
+  private boolean mClosed;
+
   /**
    * Package private constructor.
    *
@@ -97,8 +100,7 @@ public final class DatabaseImpl implements Database {
     mDBConfig = checkNotNull(dbConfig);
     mResources = Maps.synchronizedBiMap(HashBiMap.create());
     mBufferManagers = new ConcurrentHashMap<>();
-    mResourceStore = new ResourceStore(new Semaphore(mDBConfig.getMaxResourceReadTrx()),
-        new Semaphore(DatabaseConfiguration.MAX_RESOURCE_WTX));
+    mResourceStore = new ResourceStore();
     mTransactionManager = new TransactionManagerImpl();
   }
 
@@ -108,6 +110,8 @@ public final class DatabaseImpl implements Database {
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resConfig) {
+    assertNotClosed();
+
     boolean returnVal = true;
     final Path path =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
@@ -176,6 +180,8 @@ public final class DatabaseImpl implements Database {
 
   @Override
   public synchronized Database truncateResource(final String name) {
+    assertNotClosed();
+
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             name);
@@ -206,12 +212,14 @@ public final class DatabaseImpl implements Database {
 
   @Override
   public synchronized String getResourceName(final @Nonnegative long id) {
+    assertNotClosed();
     checkArgument(id >= 0, "pID must be >= 0!");
     return mResources.get(id);
   }
 
   @Override
   public synchronized long getResourceID(final String name) {
+    assertNotClosed();
     return mResources.inverse().get(checkNotNull(name));
   }
 
@@ -226,6 +234,8 @@ public final class DatabaseImpl implements Database {
   @Override
   public synchronized ResourceManager getResourceManager(
       final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
+    assertNotClosed();
+
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             resourceManagerConfig.getResource());
@@ -244,6 +254,10 @@ public final class DatabaseImpl implements Database {
     // Resource of must be associated to this database.
     assert resourceConfig.mPath.getParent().getParent().equals(mDBConfig.getFile());
 
+    // Keep track of the resource-ID.
+    mResources.forcePut(
+        resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+
     if (!mBufferManagers.containsKey(resourceFile))
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
@@ -256,24 +270,35 @@ public final class DatabaseImpl implements Database {
 
   @Override
   public synchronized void close() throws SirixException {
+    if (mClosed)
+      return;
+    mClosed = true;
     mResourceStore.close();
     mTransactionManager.close();
 
     // Remove from database mapping.
-    Databases.removeDatabase(mDBConfig.getFile());
+    Databases.removeDatabase(mDBConfig.getFile(), this);
 
     // Remove lock file.
     SirixFiles.recursiveRemove(
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
   }
 
+  private void assertNotClosed() {
+    if (mClosed) {
+      throw new IllegalStateException("Database is already closed.");
+    }
+  }
+
   @Override
   public DatabaseConfiguration getDatabaseConfig() {
+    assertNotClosed();
     return mDBConfig;
   }
 
   @Override
   public synchronized boolean existsResource(final String resourceName) {
+    assertNotClosed();
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             resourceName);
@@ -285,6 +310,7 @@ public final class DatabaseImpl implements Database {
 
   @Override
   public List<Path> listResources() {
+    assertNotClosed();
     try (final Stream<Path> stream = Files.list(
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());

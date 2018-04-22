@@ -120,87 +120,95 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     final int rev1 = FunUtil.getInt(args, 2, "revision1", -1, null, false);
     final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
     final DBNode doc = col.getDocument(expResName);
-    final ResourceManager resMrg = doc.getTrx().getResourceManager();
 
-    mPool.submit(
-        () -> DiffFactory.invokeFullDiff(
-            new DiffFactory.Builder(resMrg, rev2, rev1,
-                resMrg.getResourceConfig().mHashKind != HashKind.NONE
-                    ? DiffOptimized.HASHED
-                    : DiffOptimized.NO,
-                ImmutableSet.of(this)).skipSubtrees(true)));
+    try (final ResourceManager resMrg = doc.getTrx().getResourceManager()) {
+      mPool.submit(
+          () -> DiffFactory.invokeFullDiff(
+              new DiffFactory.Builder(resMrg, rev2, rev1,
+                  resMrg.getResourceConfig().mHashKind != HashKind.NONE
+                      ? DiffOptimized.HASHED
+                      : DiffOptimized.NO,
+                  ImmutableSet.of(this)).skipSubtrees(true)));
 
-    try {
-      mLatch.await(10, TimeUnit.SECONDS);
-    } catch (InterruptedException e) {
-      throw new QueryException(new QNm("Interrupted exception"), e);
-    }
+      try {
+        mLatch.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        throw new QueryException(new QNm("Interrupted exception"), e);
+      }
 
-    mBuf.append("let $doc := ");
-    createDocString(args, rev1);
-    mBuf.append(System.getProperty("line.separator"));
-    mBuf.append("return (");
-    mBuf.append(System.getProperty("line.separator"));
+      mBuf.append("let $doc := ");
+      createDocString(args, rev1);
+      mBuf.append(System.getProperty("line.separator"));
+      mBuf.append("return (");
+      mBuf.append(System.getProperty("line.separator"));
 
-    try (final XdmNodeReadTrx oldRtx = resMrg.beginNodeReadTrx(rev1);
-        final XdmNodeReadTrx newRtx = resMrg.beginNodeReadTrx(rev2)) {
-      // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a collection).
-      for (int i = 0, length = mDiffs.size(); i < length; i++) {
-        final DiffTuple diffTuple = mDiffs.get(i);
-        final DiffType diffType = diffTuple.getDiff();
-        newRtx.moveTo(diffTuple.getNewNodeKey());
-        oldRtx.moveTo(diffTuple.getOldNodeKey());
+      try (final XdmNodeReadTrx oldRtx = resMrg.beginNodeReadTrx(rev1);
+          final XdmNodeReadTrx newRtx = resMrg.beginNodeReadTrx(rev2)) {
+        // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a
+        // collection).
+        for (int i = 0, length = mDiffs.size(); i < length; i++) {
+          final DiffTuple diffTuple = mDiffs.get(i);
+          final DiffType diffType = diffTuple.getDiff();
+          newRtx.moveTo(diffTuple.getNewNodeKey());
+          oldRtx.moveTo(diffTuple.getOldNodeKey());
 
-        switch (diffType) {
-          case INSERTED:
-            mBuf.append("  insert nodes ");
-            mBuf.append(printSubtreeNode(newRtx));
+          switch (diffType) {
+            case INSERTED:
+              mBuf.append("  insert nodes ");
+              mBuf.append(printSubtreeNode(newRtx));
 
-            if (oldRtx.hasLeftSibling()) {
-              mBuf.append(" before into sdb:select-node($doc");
-            } else {
-              oldRtx.moveToParent();
-              mBuf.append(" as first into sdb:select-node($doc");
-            }
+              if (oldRtx.hasLeftSibling()) {
+                mBuf.append(" before into sdb:select-node($doc");
+              } else {
+                oldRtx.moveToParent();
+                mBuf.append(" as first into sdb:select-node($doc");
+              }
 
-            mBuf.append(", ");
-            mBuf.append(oldRtx.getNodeKey());
-            mBuf.append(")");
-            if (i != length - 1)
-              mBuf.append(",");
-            mBuf.append(System.getProperty("line.separator"));
-            break;
-          case DELETED:
-            mBuf.append("  delete node sdb:select-node($doc");
-            mBuf.append(", ");
-            mBuf.append(diffTuple.getOldNodeKey());
-            mBuf.append(")");
-            if (i != length - 1)
-              mBuf.append(",");
-            mBuf.append(System.getProperty("line.separator"));
-            break;
-          case REPLACEDNEW:
-            mBuf.append("  replace node sdb:select-node($doc");
-            mBuf.append(", ");
-            mBuf.append(diffTuple.getOldNodeKey());
-            mBuf.append(") with ");
-            mBuf.append(printNode(newRtx));
-            if (i != length - 1)
-              mBuf.append(",");
-            mBuf.append(System.getProperty("line.separator"));
-            break;
-          case UPDATED:
-            mBuf.append("  rename node sdb:select-node($doc");
-            mBuf.append(", ");
-            mBuf.append(diffTuple.getOldNodeKey());
-            mBuf.append(") as ");
-            mBuf.append(printNode(newRtx));
-            if (i != length - 1)
-              mBuf.append(",");
-            mBuf.append(System.getProperty("line.separator"));
-            // $CASES-OMITTED$
-          default:
-            // Do nothing.
+              mBuf.append(", ");
+              mBuf.append(oldRtx.getNodeKey());
+              mBuf.append(")");
+              if (i != length - 1)
+                mBuf.append(",");
+              mBuf.append(System.getProperty("line.separator"));
+              break;
+            case DELETED:
+              mBuf.append("  delete node sdb:select-node($doc");
+              mBuf.append(", ");
+              mBuf.append(diffTuple.getOldNodeKey());
+              mBuf.append(")");
+              if (i != length - 1)
+                mBuf.append(",");
+              mBuf.append(System.getProperty("line.separator"));
+              break;
+            case REPLACEDNEW:
+              mBuf.append("  replace node sdb:select-node($doc");
+              mBuf.append(", ");
+              mBuf.append(diffTuple.getOldNodeKey());
+              mBuf.append(") with ");
+              mBuf.append(printNode(newRtx));
+              if (i != length - 1)
+                mBuf.append(",");
+              mBuf.append(System.getProperty("line.separator"));
+              break;
+            case UPDATED:
+              if (oldRtx.isText())
+                mBuf.append("  replace node sdb:select-node($doc");
+              else
+                mBuf.append("  rename node sdb:select-node($doc");
+              mBuf.append(", ");
+              mBuf.append(diffTuple.getOldNodeKey());
+              if (oldRtx.isText())
+                mBuf.append(") with ");
+              else
+                mBuf.append(") as ");
+              mBuf.append(printNode(newRtx));
+              if (i != length - 1)
+                mBuf.append(",");
+              mBuf.append(System.getProperty("line.separator"));
+              // $CASES-OMITTED$
+            default:
+              // Do nothing.
+          }
         }
       }
     }
@@ -208,7 +216,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append(")");
 
     return new Str(mBuf.toString());
-
   }
 
   private void createDocString(final Sequence[] args, final int rev1) {
