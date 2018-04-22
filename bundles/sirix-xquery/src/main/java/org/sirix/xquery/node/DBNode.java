@@ -1534,9 +1534,10 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       wtx = resource.getXdmNodeWriteTrx().get();
     } else {
       wtx = resource.beginNodeWriteTrx();
+
+      if (mRtx.getRevisionNumber() < resource.getMostRecentRevisionNumber())
+        wtx.revertTo(mRtx.getRevisionNumber());
     }
-    if (mRtx.getRevisionNumber() < resource.getMostRecentRevisionNumber())
-      wtx.revertTo(mRtx.getRevisionNumber());
     wtx.moveTo(mNodeKey);
     return wtx;
   }
