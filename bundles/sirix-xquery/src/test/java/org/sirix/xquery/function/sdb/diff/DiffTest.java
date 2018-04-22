@@ -83,16 +83,42 @@ public final class DiffTest extends TestCase {
       final String dbName = database.toString();
       final String resName = TestHelper.RESOURCE;
 
-      final String xq = "sdb:diff('" + dbName + "', '" + resName + "', 1, 5)";
+      final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "', 1, 5)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
 
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
+        System.out.println(content);
+
         new XQuery(new SirixCompileChain(store), content).execute(ctx);
+
+        System.out.println("");
+        System.out.println("rev 6: ");
+
+        final String xq2 = "sdb:doc('" + dbName + "', '" + resName + "')";
+
+        new XQuery(new SirixCompileChain(store), xq2).serialize(
+            new SirixQueryContext(store), System.out);
+
+        System.out.println("");
+        System.out.println("rev 5: ");
+
+        final String xq3 = "sdb:doc('" + dbName + "', '" + resName + "', 5)";
+
+        new XQuery(new SirixCompileChain(store), xq3).serialize(
+            new SirixQueryContext(store), System.out);
+
+        System.out.println("");
+        System.out.println("rev 1: ");
+
+        final String xq4 = "sdb:doc('" + dbName + "', '" + resName + "', 1)";
+
+        new XQuery(new SirixCompileChain(store), xq4).serialize(
+            new SirixQueryContext(store), System.out);
       }
     }
   }

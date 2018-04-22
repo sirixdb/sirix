@@ -99,7 +99,7 @@ public final class XMLSerializer extends AbstractSerializer {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
    *
-   * @param resourceMgr session for read XML
+   * @param resourceMgr resource manager to read the resource
    * @param nodeKey start node key
    * @param builder builder of XML Serializer
    * @param revision revision to serialize
@@ -395,28 +395,28 @@ public final class XMLSerializer extends AbstractSerializer {
   /**
    * Constructor, setting the necessary stuff.
    *
-   * @param session Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceManager}
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final ResourceManager session,
+  public static XMLSerializerBuilder newBuilder(final ResourceManager resMgr,
       final OutputStream stream, final int... revisions) {
-    return new XMLSerializerBuilder(session, stream, revisions);
+    return new XMLSerializerBuilder(resMgr, stream, revisions);
   }
 
   /**
    * Constructor.
    *
-   * @param session Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceManager}
    * @param nodeKey root node key of subtree to shredder
    * @param stream {@link OutputStream} to write to
    * @param properties {@link XMLSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final ResourceManager session,
+  public static XMLSerializerBuilder newBuilder(final ResourceManager resMgr,
       final @Nonnegative long nodeKey, final OutputStream stream,
       final XMLSerializerProperties properties, final int... revisions) {
-    return new XMLSerializerBuilder(session, nodeKey, stream, properties, revisions);
+    return new XMLSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
 
   /**
