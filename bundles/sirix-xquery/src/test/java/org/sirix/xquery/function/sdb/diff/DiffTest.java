@@ -92,33 +92,25 @@ public final class DiffTest extends TestCase {
 
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        System.out.println(content);
+        out.reset();
 
         new XQuery(new SirixCompileChain(store), content).execute(ctx);
 
-        System.out.println("");
-        System.out.println("rev 6: ");
+        final String xq2 = "sdb:doc('" + dbName + "', '" + resName + "', 6)";
 
-        final String xq2 = "sdb:doc('" + dbName + "', '" + resName + "')";
+        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
 
-        new XQuery(new SirixCompileChain(store), xq2).serialize(
-            new SirixQueryContext(store), System.out);
+        final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        System.out.println("");
-        System.out.println("rev 5: ");
+        out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "', '" + resName + "', 5)";
 
-        new XQuery(new SirixCompileChain(store), xq3).serialize(
-            new SirixQueryContext(store), System.out);
+        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
 
-        System.out.println("");
-        System.out.println("rev 1: ");
+        final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        final String xq4 = "sdb:doc('" + dbName + "', '" + resName + "', 1)";
-
-        new XQuery(new SirixCompileChain(store), xq4).serialize(
-            new SirixQueryContext(store), System.out);
+        assertEquals(contentNewRev, contentOldRev);
       }
     }
   }
