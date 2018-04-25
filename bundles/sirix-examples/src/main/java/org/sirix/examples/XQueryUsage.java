@@ -59,6 +59,7 @@ public final class XQueryUsage {
    */
   public static void main(final String[] args) throws SirixException {
     try {
+      // loadOrgaDocumentAndQuery();
       loadDocumentAndQuery();
       System.out.println();
       loadDocumentAndUpdate();
@@ -83,7 +84,7 @@ public final class XQueryUsage {
 
     // Initialize query context and store.
     try (final DBStore store = DBStore.newBuilder().build()) {
-      final QueryContext ctx = new QueryContext(store);
+      final QueryContext ctx = new SirixQueryContext(store);
 
       // Use XQuery to load sample document into store.
       System.out.println("Loading document:");
@@ -93,11 +94,48 @@ public final class XQueryUsage {
       new XQuery(xq1).evaluate(ctx);
 
       // Reuse store and query loaded document.
-      final QueryContext ctx2 = new QueryContext(store);
+      final QueryContext ctx2 = new SirixQueryContext(store);
+      System.out.println();
+      System.out.println("Query loaded document:");
+      final String xq2 = "doc('mydoc.xml')//*"; // nachrichten/nachricht[betreff/text()='sommer' or
+                                                // betreff/text()='strand' or text/text()='sommer'
+                                                // or text/text()='strand']";
+      System.out.println(xq2);
+      final XQuery query = new XQuery(new SirixCompileChain(store), xq2);
+      query.prettyPrint().serialize(ctx2, System.out);
+
+      System.out.println();
+    }
+  }
+
+  /**
+   * Load a document and query it.
+   */
+  private static void loadOrgaDocumentAndQuery()
+      throws QueryException, IOException, SirixException {
+    final Path doc = Paths.get("src", "main", "resources", "orga.xml");
+
+    // Initialize query context and store.
+    try (final DBStore store = DBStore.newBuilder().build()) {
+      final QueryContext ctx = new SirixQueryContext(store);
+
+      // Use XQuery to load sample document into store.
+      System.out.println("Loading document:");
+      final URI docUri = doc.toUri();
+      final String xq1 =
+          String.format("sdb:load('mydoc.col', 'mydoc.xml', '%s')", docUri.toString());
+      System.out.println(xq1);
+      new XQuery(xq1).evaluate(ctx);
+
+      // Reuse store and query loaded document.
+      final QueryContext ctx2 = new SirixQueryContext(store);
       System.out.println();
       System.out.println("Query loaded document:");
       final String xq2 =
-          "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
+          "sdb:doc('mydoc.col', 'mydoc.xml')/Organization/Project[@id='4711']/past::*"; // nachrichten/nachricht[betreff/text()='sommer'
+      // or
+      // betreff/text()='strand' or text/text()='sommer'
+      // or text/text()='strand']";
       System.out.println(xq2);
       final XQuery query = new XQuery(new SirixCompileChain(store), xq2);
       query.prettyPrint().serialize(ctx2, System.out);

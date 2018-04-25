@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.index.create;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -24,7 +25,6 @@ import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -40,9 +40,9 @@ import com.google.common.collect.ImmutableSet;
  * <li><code>sdb:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
  * <li><code>sdb:create-cas-index($doc as node()) as node()</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class CreateCASIndex extends AbstractFunction {
 
@@ -52,7 +52,7 @@ public final class CreateCASIndex extends AbstractFunction {
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
@@ -97,7 +97,7 @@ public final class CreateCASIndex extends AbstractFunction {
     }
 
     final IndexDef idxDef = IndexDefs.createCASIdxDef(
-        false, Optional.fromNullable(type), paths,
+        false, Optional.ofNullable(type), paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeWriteTrx) doc.getTrx());

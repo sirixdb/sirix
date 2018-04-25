@@ -1,10 +1,10 @@
 package org.sirix.index;
 
+import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 
 /**

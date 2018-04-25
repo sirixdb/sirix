@@ -63,8 +63,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
     final Set<Long> pcrsAvailable =
         filter.getPCRCollector().getPCRsForPaths(indexDef.getPaths()).getPCRs();
 
-    // Only one path indexed and requested. All PCRs are the same in each
-    // CASValue.
+    // Only one path indexed and requested. All PCRs are the same in each CASValue.
     if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1) {
       final Atomic atomic = filter.getKey();
       final long pcr = pcrsRequested.iterator().next();

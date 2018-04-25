@@ -2,21 +2,39 @@ package org.sirix.indexes;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
+import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathException;
+import org.brackit.xquery.xdm.Type;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
+import org.sirix.access.IndexController;
+import org.sirix.access.Movement;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexDef;
+import org.sirix.index.IndexDefs;
+import org.sirix.index.IndexType;
+import org.sirix.index.SearchMode;
+import org.sirix.index.avltree.AVLTreeReader;
+import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * Test the AVLTree implementation.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class AVLTreeTest {
 
@@ -36,27 +54,42 @@ public class AVLTreeTest {
   }
 
   @Test
-  public void testAttributeIndex() throws SirixException {
-    // final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-    // wtx.insertElementAsFirstChild(new QNm("bla"));
-    // wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
-    // wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
-    // wtx.insertElementAsFirstChild(new QNm("blabla"));
-    // wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
-    // wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
-    // wtx.commit();
-    // final AVLTreeReader<CASValue, NodeReferences> attIndex = wtx
-    // .getAttributeValueIndex();
-    // final Optional<NodeReferences> fooRefs = attIndex.get(new CASValue(new
-    // Str(
-    // "foo"), Type.STR, 0), SearchMode.EQUAL);
-    // assertTrue(!fooRefs.isPresent());
-    // final Optional<NodeReferences> barRefs1 = attIndex.get(new CASValue(
-    // new Str("bar"), Type.STR, 2), SearchMode.EQUAL);
-    // check(barRefs1, ImmutableSet.of(2L));
-    // final Optional<NodeReferences> barRefs2 = attIndex.get(new CASValue(
-    // new Str("bar"), Type.STR, 5), SearchMode.EQUAL);
-    // check(barRefs2, ImmutableSet.of(5L));
+  public void testAttributeIndex() throws SirixException, PathException {
+    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+
+    final IndexController indexController =
+        holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
+
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(
+        false, Optional.ofNullable(Type.STR), Collections.singleton(Path.parse("//bla/@foobar")),
+        0);
+
+    indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
+
+    wtx.insertElementAsFirstChild(new QNm("bla"));
+    wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+    wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
+    wtx.insertElementAsFirstChild(new QNm("blabla"));
+    wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+    wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
+    wtx.moveTo(1);
+    wtx.insertElementAsFirstChild(new QNm("bla"));
+    wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
+    wtx.commit();
+
+    final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+
+    final AVLTreeReader<CASValue, NodeReferences> reader =
+        AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
+    final Optional<NodeReferences> fooRefs =
+        reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
+    assertTrue(!fooRefs.isPresent());
+    final Optional<NodeReferences> bazRefs1 =
+        reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
+    check(bazRefs1, ImmutableSet.of(3L));
+    final Optional<NodeReferences> bazRefs2 =
+        reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+    check(bazRefs2, ImmutableSet.of(8L));
   }
 
   @Test

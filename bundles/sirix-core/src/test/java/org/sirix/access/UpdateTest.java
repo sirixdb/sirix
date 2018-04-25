@@ -46,7 +46,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.DocumentCreator;
-import org.sirix.utils.DocumentCreator;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;

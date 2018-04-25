@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Builds a content-and-structure (CAS) index.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -76,8 +76,10 @@ final class CASIndexBuilder extends AbstractVisitor {
       if (node.getKind() == Kind.TEXT) {
         mRtx.moveTo(node.getParentKey());
       }
-      final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode().getPathNodeKey();
-      if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
+      final long PCR = mRtx.isDocumentRoot()
+          ? 0
+          : mRtx.getNameNode().getPathNodeKey();
+      if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths, true).contains(PCR)) {
         final Str strValue = new Str(((ImmutableValueNode) node).getValue());
 
         boolean isOfType = false;

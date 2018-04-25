@@ -42,7 +42,7 @@ final class PathIndexListener implements ChangeListener {
       try {
         switch (type) {
           case INSERT:
-            if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(pathNodeKey)) {
+            if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
               final Optional<NodeReferences> textReferences =
                   mAVLTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
               if (textReferences.isPresent()) {
@@ -53,7 +53,7 @@ final class PathIndexListener implements ChangeListener {
             }
             break;
           case DELETE:
-            if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(pathNodeKey)) {
+            if (mPathSummaryReader.getPCRsForPaths(mPaths, false).contains(pathNodeKey)) {
               mAVLTreeWriter.remove(pathNodeKey, node.getNodeKey());
             }
             break;

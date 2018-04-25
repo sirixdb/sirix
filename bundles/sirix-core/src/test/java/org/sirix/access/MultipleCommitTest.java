@@ -36,7 +36,6 @@ import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.utils.DocumentCreator;
-import org.sirix.utils.DocumentCreator;
 
 public class MultipleCommitTest {
 
@@ -101,7 +100,8 @@ public class MultipleCommitTest {
       postorderAxis.next();
       if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT
           && holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
-        for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+        for (int i = 0, attrCount =
+            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
           holder.getXdmNodeWriteTrx().moveToAttribute(i);
           holder.getXdmNodeWriteTrx().remove();
         }
@@ -115,7 +115,8 @@ public class MultipleCommitTest {
     while (descAxis.hasNext()) {
       descAxis.next();
       if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT) {
-        for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+        for (int i = 0, attrCount =
+            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
           if (holder.getXdmNodeWriteTrx().moveToAttribute(i).hasMoved()) {
             attrTouch++;
           } else {

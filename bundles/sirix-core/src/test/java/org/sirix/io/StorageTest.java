@@ -127,10 +127,8 @@ public final class StorageTest {
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() throws SirixIOException {
-    Object[][] returnVal = {{Storage.class,
-        new Storage[] {new FileStorage(mResourceConfig),
-            new BerkeleyStorageFactory().createStorage(mResourceConfig),
-            new RAMStorage(mResourceConfig)}}};
+    Object[][] returnVal = {{Storage.class, new Storage[] {new FileStorage(mResourceConfig),
+        BerkeleyStorageFactory.createStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
     return returnVal;
   }
 
