@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -24,63 +24,68 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 
 /**
  * Mutable node with a name.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ * @author Johannes Lichtenberger
+ *
  */
 public interface NameNode extends ImmutableNameNode {
   /**
    * Gets key of prefix.
-   * 
+   *
    * @return key of prefix of the qualified name
    */
+  @Override
   int getPrefixKey();
 
   /**
    * Gets key of local name.
-   * 
+   *
    * @return key of local name of the qualified name
    */
+  @Override
   int getLocalNameKey();
 
   /**
    * Gets key of the URI.
-   * 
+   *
    * @return URI key
    */
+  @Override
   int getURIKey();
 
   /**
    * Get a path node key.
-   * 
+   *
    * @return path node key
    */
+  @Override
   long getPathNodeKey();
 
   /**
    * Setting the prefix key.
-   * 
+   *
    * @param nameKey the prefix key to be set
    */
   void setPrefixKey(int prefixKey);
 
   /**
    * Setting the local name key.
-   * 
+   *
    * @param localNameKey the local name key to be set
    */
   void setLocalNameKey(int localNameKey);
 
   /**
    * Setting the uri key.
-   * 
+   *
    * @param uriKey the urikey to be set
    */
   void setURIKey(int uriKey);
 
   /**
    * Set a path node key.
-   * 
+   *
    * @param nodeKey
    */
   void setPathNodeKey(long nodeKey);
