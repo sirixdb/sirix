@@ -224,14 +224,16 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
    * Get a set of PCRs matching the specified collection of paths
    *
    * @param expressions the paths to lookup
+   * @param useCache determines if the cache can be used or not
    * @return a set of PCRs matching the specified collection of paths
    * @throws SirixException if parsing a path fails
    */
-  public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions) throws PathException {
+  public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions, final boolean useCache)
+      throws PathException {
     assertNotClosed();
     final Set<Long> pcrs = new HashSet<>();
     for (final Path<QNm> path : expressions) {
-      final Set<Long> pcrsForPath = getPCRsForPath(path);
+      final Set<Long> pcrsForPath = getPCRsForPath(path, useCache);
       pcrs.addAll(pcrsForPath);
     }
     return pcrs;
@@ -267,17 +269,22 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
    * Get path class records (PCRs) for the specified path.
    *
    * @param path the path for which to get a set of PCRs
+   * @param usePathCache determines if the path cache can be used or not
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
-  public Set<Long> getPCRsForPath(final Path<QNm> path) throws PathException {
-    Set<Long> pcrSet = mPathCache.get(path);
-
-    if (pcrSet != null) {
-      return pcrSet;
+  public Set<Long> getPCRsForPath(final Path<QNm> path, final boolean useCache)
+      throws PathException {
+    final Set<Long> pcrSet;
+    if (useCache) {
+      if (mPathCache.containsKey(path) && mPathCache.get(path) != null) {
+        return mPathCache.get(path);
+      } else {
+        pcrSet = new HashSet<>();
+      }
+    } else {
+      pcrSet = new HashSet<>();
     }
-
-    pcrSet = new HashSet<Long>();
 
     final boolean isAttributePattern = path.isAttribute();
     final int pathLength = path.getLength();
@@ -305,7 +312,8 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
       }
     }
     moveTo(nodeKey);
-    mPathCache.put(path, pcrSet);
+    if (useCache)
+      mPathCache.put(path, pcrSet);
     return pcrSet;
   }
 
