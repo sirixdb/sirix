@@ -29,7 +29,7 @@ public final class PCRCollectorImpl implements PCRCollector {
         ? ((XdmNodeWriteTrx) mRtx).getPathSummary()
         : mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber())) {
       final long maxPCR = reader.getMaxNodeKey();
-      final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths, false);
+      final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths, true);
       return PCRValue.getInstance(maxPCR, pathClassRecords);
     } catch (final PathException e) {
       LOGGER.error(e.getMessage(), e);
