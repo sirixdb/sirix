@@ -130,13 +130,14 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    if (pObj instanceof NodeDelegate) {
-      final NodeDelegate other = (NodeDelegate) pObj;
-      return Objects.equal(mNodeKey, other.mNodeKey) && Objects.equal(mTypeKey, other.mTypeKey)
-          && Objects.equal(mHash, other.mHash) && Objects.equal(mParentKey, other.mParentKey);
-    }
-    return false;
+  public boolean equals(final Object otherObj) {
+    if (!(otherObj instanceof NodeDelegate))
+      return false;
+
+    final NodeDelegate other = (NodeDelegate) otherObj;
+
+    return Objects.equal(mNodeKey, other.mNodeKey) && Objects.equal(mTypeKey, other.mTypeKey)
+        && Objects.equal(mHash, other.mHash) && Objects.equal(mParentKey, other.mParentKey);
   }
 
   @Override

@@ -8,8 +8,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.SirixDeweyID;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Persistenting a record (first byte of a record must be its type).
@@ -19,13 +17,13 @@ import com.google.common.io.ByteArrayDataOutput;
  */
 public interface RecordPersistenter {
   /**
-   * Deserialize a record using a {@link ByteArrayDataInput} instance.
+   * Deserialize a record.
    *
    * @param source input source
    * @param recordID the unique recordID
    * @param deweyID optional deweyID of the record
    * @param pageReadTrx {@link PageReadTrx} instance
-   * @return a {@link Node} instance
+   * @return a {@link Record} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during deserialization
    */
@@ -34,12 +32,10 @@ public interface RecordPersistenter {
       PageReadTrx pageReadTrx) throws IOException;
 
   /**
-   * Serialize a record from a {@link ByteArrayDataOutput} instance.
+   * Serialize a record.
    *
    * @param sink where the data should be serialized to
    * @param record the record to serialize
-   * @param previousRecord the previous record to serialize, is {@code null} for the first record of
-   *        a RecordPage
    * @param pageReadTrx {@link PageReadTrx} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during serialization

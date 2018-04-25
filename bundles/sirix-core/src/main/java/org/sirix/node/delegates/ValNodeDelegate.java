@@ -74,7 +74,9 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 
   @Override
   public byte[] getRawValue() {
-    return mCompressed ? Compression.decompress(mVal) : mVal;
+    return mCompressed
+        ? Compression.decompress(mVal)
+        : mVal;
   }
 
   @Override
@@ -93,8 +95,12 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 
   @Override
   public void setValue(final byte[] value) {
-    mCompressed = new String(value).length() > 10 ? true : false;
-    mVal = mCompressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION) : value;
+    mCompressed = new String(value).length() > 10
+        ? true
+        : false;
+    mVal = mCompressed
+        ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
+        : value;
   }
 
   /**
@@ -122,11 +128,11 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof ValNodeDelegate) {
-      final ValNodeDelegate other = (ValNodeDelegate) obj;
-      return Objects.equal(mDelegate, other.mDelegate) && Arrays.equals(mVal, other.mVal);
-    }
-    return false;
+    if (!(obj instanceof ValNodeDelegate))
+      return false;
+
+    final ValNodeDelegate other = (ValNodeDelegate) obj;
+    return Objects.equal(mDelegate, other.mDelegate) && Arrays.equals(mVal, other.mVal);
   }
 
   @Override

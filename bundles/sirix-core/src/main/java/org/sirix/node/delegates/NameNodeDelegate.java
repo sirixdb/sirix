@@ -151,12 +151,13 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NameNodeDelegate) {
-      final NameNodeDelegate other = (NameNodeDelegate) obj;
-      return Objects.equal(mUriKey, other.mUriKey) && Objects.equal(mPrefixKey, other.mPrefixKey)
-          && Objects.equal(mLocalNameKey, other.mLocalNameKey);
-    }
-    return false;
+    if (!(obj instanceof NameNodeDelegate))
+      return false;
+
+    final NameNodeDelegate other = (NameNodeDelegate) obj;
+
+    return Objects.equal(mUriKey, other.mUriKey) && Objects.equal(mPrefixKey, other.mPrefixKey)
+        && Objects.equal(mLocalNameKey, other.mLocalNameKey);
   }
 
   @Override

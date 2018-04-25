@@ -165,16 +165,17 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public boolean equals(final Object obj) {
-    if (obj instanceof StructNodeDelegate) {
-      final StructNodeDelegate other = (StructNodeDelegate) obj;
-      return Objects.equal(mChildCount, other.mChildCount)
-          && Objects.equal(mDelegate, other.mDelegate)
-          && Objects.equal(mFirstChild, other.mFirstChild)
-          && Objects.equal(mLeftSibling, other.mLeftSibling)
-          && Objects.equal(mRightSibling, other.mRightSibling)
-          && Objects.equal(mDescendantCount, other.mDescendantCount);
-    }
-    return false;
+    if (!(obj instanceof StructNodeDelegate))
+      return false;
+
+    final StructNodeDelegate other = (StructNodeDelegate) obj;
+
+    return Objects.equal(mChildCount, other.mChildCount)
+        && Objects.equal(mDelegate, other.mDelegate)
+        && Objects.equal(mFirstChild, other.mFirstChild)
+        && Objects.equal(mLeftSibling, other.mLeftSibling)
+        && Objects.equal(mRightSibling, other.mRightSibling)
+        && Objects.equal(mDescendantCount, other.mDescendantCount);
   }
 
   @Override
@@ -210,7 +211,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public boolean isSameItem(@Nullable final Node other) {
+  public boolean isSameItem(final @Nullable Node other) {
     return mDelegate.isSameItem(other);
   }
 
