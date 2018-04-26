@@ -289,9 +289,8 @@ There are also several ways to start the single write-transaction:
 ```java
   /**
    * Begin exclusive read/write transaction without auto commit.
-   *
-   * @param trx the transaction to use
-   * @throws SirixThreadedException if the thread is interrupted
+   *
+   * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @return {@link XdmNodeWriteTrx} instance
    */
