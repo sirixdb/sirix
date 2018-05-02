@@ -75,6 +75,11 @@ public final class ImportTestCase extends TestCase {
     super.tearDown();
   }
 
+  public void test() {
+
+  }
+
+  // @Test
   // public void test() throws QueryException, IOException, SAXException {
   // final Path doc = Paths.get("src", "test", "resources", "revXMLsAll");
   //
