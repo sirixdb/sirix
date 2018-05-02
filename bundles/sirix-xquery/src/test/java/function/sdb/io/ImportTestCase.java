@@ -75,55 +75,53 @@ public final class ImportTestCase extends TestCase {
     super.tearDown();
   }
 
-  @org.junit.Ignore
-  @Test
-  public void test() throws QueryException, IOException, SAXException {
-    final Path doc = Paths.get("src", "test", "resources", "revXMLsAll");
-
-    // Initialize query context and store.
-    try (final DBStore store =
-        DBStore.newBuilder().location(mTempDir).buildPathSummary(false).build()) {
-      final CompileChain cc = new SirixCompileChain(store);
-      final QueryContext ctx = new SirixQueryContext(store);
-
-      // Use XQuery to load sample document into store.
-      final String xq1 = String.format(
-          "sdb:load('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("1.xml").toString());
-      new XQuery(cc, xq1).evaluate(ctx);
-
-      // final String xq = "sdb:doc('mydoc.col', 'mydoc.xml')";
-      // final DBNode node = (DBNode) new XQuery(cc, xq).evaluate(ctx);
-      // final OutputStream out = new ByteArrayOutputStream();
-      // final XMLSerializer serializer =
-      // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).prettyPrint().build();
-      // serializer.call();
-      // System.out.println(out.toString());
-
-      // Use XQuery to import the differences.
-      final String xq2 = String.format(
-          "sdb:import('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("2.xml").toString());
-      final DBNode node = (DBNode) new XQuery(cc, xq2).evaluate(ctx);
-
-      final OutputStream out = new ByteArrayOutputStream();
-      final XMLSerializer serializer =
-          new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).build();
-      serializer.call();
-      System.out.println(out.toString());
-
-      final StringBuilder sBuilder = TestHelper.readFile(doc.resolve("2.xml"), false);
-
-      final Diff diff = new Diff(sBuilder.toString(), out.toString());
-      final DetailedDiff detDiff = new DetailedDiff(diff);
-      @SuppressWarnings("unchecked")
-      final List<Difference> differences = detDiff.getAllDifferences();
-      for (final Difference difference : differences) {
-        System.err.println("***********************");
-        System.err.println(difference);
-        System.err.println("***********************");
-      }
-
-      assertTrue("pieces of XML are similar " + diff, diff.similar());
-      assertTrue("but are they identical? " + diff, diff.identical());
-    }
-  }
+  // public void test() throws QueryException, IOException, SAXException {
+  // final Path doc = Paths.get("src", "test", "resources", "revXMLsAll");
+  //
+  // // Initialize query context and store.
+  // try (final DBStore store =
+  // DBStore.newBuilder().location(mTempDir).buildPathSummary(false).build()) {
+  // final CompileChain cc = new SirixCompileChain(store);
+  // final QueryContext ctx = new SirixQueryContext(store);
+  //
+  // // Use XQuery to load sample document into store.
+  // final String xq1 = String.format(
+  // "sdb:load('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("1.xml").toString());
+  // new XQuery(cc, xq1).evaluate(ctx);
+  //
+  // // final String xq = "sdb:doc('mydoc.col', 'mydoc.xml')";
+  // // final DBNode node = (DBNode) new XQuery(cc, xq).evaluate(ctx);
+  // // final OutputStream out = new ByteArrayOutputStream();
+  // // final XMLSerializer serializer =
+  // // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).prettyPrint().build();
+  // // serializer.call();
+  // // System.out.println(out.toString());
+  //
+  // // Use XQuery to import the differences.
+  // final String xq2 = String.format(
+  // "sdb:import('mydoc.col', 'mydoc.xml', '%s')", doc.resolve("2.xml").toString());
+  // final DBNode node = (DBNode) new XQuery(cc, xq2).evaluate(ctx);
+  //
+  // final OutputStream out = new ByteArrayOutputStream();
+  // final XMLSerializer serializer =
+  // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).build();
+  // serializer.call();
+  // System.out.println(out.toString());
+  //
+  // final StringBuilder sBuilder = TestHelper.readFile(doc.resolve("2.xml"), false);
+  //
+  // final Diff diff = new Diff(sBuilder.toString(), out.toString());
+  // final DetailedDiff detDiff = new DetailedDiff(diff);
+  // @SuppressWarnings("unchecked")
+  // final List<Difference> differences = detDiff.getAllDifferences();
+  // for (final Difference difference : differences) {
+  // System.err.println("***********************");
+  // System.err.println(difference);
+  // System.err.println("***********************");
+  // }
+  //
+  // assertTrue("pieces of XML are similar " + diff, diff.similar());
+  // assertTrue("but are they identical? " + diff, diff.identical());
+  // }
+  // }
 }
