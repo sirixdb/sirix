@@ -35,7 +35,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * Delegate method for all nodes containing \"value\"-data. That means that independent values are
+ * Delegate method for all nodes containing "value"-data. That means that independent values are
  * stored by the nodes delegating the calls of the interface {@link ValueNode} to this class.
  *
  * @author Sebastian Graf, University of Konstanz

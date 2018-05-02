@@ -15,17 +15,37 @@ import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
+import org.sirix.node.json.JSONArray;
+import org.sirix.node.json.JSONObject;
 
 /**
  * Node factory for creating nodes.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public interface NodeFactory {
   /**
+   * Create a JSONObject.
+   *
+   * @param parentKey parent node key
+   * @return the created node
+   * @throws SirixIOException if an I/O error occurs
+   */
+  JSONObject createJSONObjectNode(final @Nonnegative long parentKey) throws SirixIOException;
+
+  /**
+   * Create a JSONArray.
+   *
+   * @param parentKey parent node key
+   * @return the created node
+   * @throws SirixIOException if an I/O error occurs
+   */
+  JSONArray createJSONArrayNode(final @Nonnegative long parentKey) throws SirixIOException;
+
+  /**
    * Create a {@link PathNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
@@ -41,7 +61,7 @@ public interface NodeFactory {
 
   /**
    * Create a {@link PINode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
@@ -59,7 +79,7 @@ public interface NodeFactory {
 
   /**
    * Create a {@link CommentNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
@@ -76,14 +96,14 @@ public interface NodeFactory {
 
   /**
    * Create an {@link ElementNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param hash hash value associated with the node
    * @param name {@link QNm} of the node
-   * @param pPCR path class record of node
-   * @param pSiblingPos sibling position
+   * @param pathNodeKey path node key associated with the element node
+   * @param if the Dewey-ID
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
@@ -94,13 +114,13 @@ public interface NodeFactory {
 
   /**
    * Create a {@link TextNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param value value of the node
    * @param isCompressed determines if the value should be compressed or not
-   * @param pSiblingPos sibling position
+   * @param id the Dewey-ID
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
@@ -110,10 +130,12 @@ public interface NodeFactory {
 
   /**
    * Create an {@link AttributeNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param name the {@link QNm} of the attribute
+   * @param value the value
    * @param pathNodeKey the path class record
+   * @param id the Dewey-ID
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
@@ -123,10 +145,11 @@ public interface NodeFactory {
 
   /**
    * Create a {@link NamespaceNode}.
-   * 
+   *
    * @param parentKey parent node key
    * @param name the {@link QNm} of the namespace
    * @param pathNodeKey the path class record
+   * @param id the Dewey-ID
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */

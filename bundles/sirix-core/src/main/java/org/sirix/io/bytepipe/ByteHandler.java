@@ -20,7 +20,7 @@ public interface ByteHandler {
    * @return result of the serialization
    * @throws IOException if a byte handling exception occurs
    */
-  OutputStream serialize(OutputStream pToSerialize) throws IOException;
+  OutputStream serialize(OutputStream toSerialize) throws IOException;
 
   /**
    * Method to deserialize any byte-chunk.

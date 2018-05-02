@@ -19,7 +19,6 @@ import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -58,6 +57,8 @@ public final class DBStore implements Store, AutoCloseable {
   /** The location to store created collections/databases. */
   private final Path mLocation;
 
+  private boolean mBuildPathSummary;
+
   /** Get a new builder instance. */
   public static Builder newBuilder() {
     return new Builder();
@@ -73,6 +74,8 @@ public final class DBStore implements Store, AutoCloseable {
     /** The location to store created collections/databases. */
     private Path mLocation = LOCATION;
 
+    private boolean mBuildPathSummary;
+
     /**
      * Set the storage type (default: file backend).
      *
@@ -81,6 +84,17 @@ public final class DBStore implements Store, AutoCloseable {
      */
     public Builder storageType(final StorageType storageType) {
       mStorageType = checkNotNull(storageType);
+      return this;
+    }
+
+    /**
+     * Set the storage type (default: file backend).
+     *
+     * @param storageType storage type
+     * @return this builder instance
+     */
+    public Builder buildPathSummary(final boolean buildPathSummary) {
+      mBuildPathSummary = buildPathSummary;
       return this;
     }
 
@@ -115,6 +129,7 @@ public final class DBStore implements Store, AutoCloseable {
     mCollections = new ConcurrentHashMap<>();
     mStorageType = builder.mStorageType;
     mLocation = builder.mLocation;
+    mBuildPathSummary = builder.mBuildPathSummary;
   }
 
   /** Get the location of the generated collections/databases. */
@@ -123,7 +138,7 @@ public final class DBStore implements Store, AutoCloseable {
   }
 
   @Override
-  public TemporalCollection<?> lookup(final String name) throws DocumentException {
+  public DBCollection lookup(final String name) throws DocumentException {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
     if (Databases.existsDatabase(dbConf)) {
       try {
@@ -145,7 +160,7 @@ public final class DBStore implements Store, AutoCloseable {
   }
 
   @Override
-  public TemporalCollection<?> create(final String name) throws DocumentException {
+  public DBCollection create(final String name) throws DocumentException {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
     try {
       if (Databases.createDatabase(dbConf)) {
@@ -164,12 +179,12 @@ public final class DBStore implements Store, AutoCloseable {
   }
 
   @Override
-  public TemporalCollection<?> create(final String collName, final SubtreeParser parser)
+  public DBCollection create(final String collName, final SubtreeParser parser)
       throws DocumentException {
     return create(collName, Optional.<String>empty(), parser);
   }
 
-  public TemporalCollection<?> create(final String collName, final Optional<String> optResName,
+  public DBCollection create(final String collName, final Optional<String> optResName,
       final SubtreeParser parser) throws DocumentException {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
     try {
@@ -186,7 +201,7 @@ public final class DBStore implements Store, AutoCloseable {
           ResourceConfiguration.newBuilder(resName, dbConf)
                                .useDeweyIDs(true)
                                .useTextCompression(true)
-                               .buildPathSummary(true)
+                               .buildPathSummary(mBuildPathSummary)
                                .storageType(mStorageType)
                                .build());
       final DBCollection collection = new DBCollection(collName, database);
@@ -208,8 +223,8 @@ public final class DBStore implements Store, AutoCloseable {
   }
 
   @Override
-  public TemporalCollection<?> create(final String collName,
-      final @Nullable Stream<SubtreeParser> parsers) throws DocumentException {
+  public DBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers)
+      throws DocumentException {
     if (parsers != null) {
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
       try {

@@ -62,13 +62,13 @@ public class ExpressionSingleTest {
     final ExpressionSingle builder = new ExpressionSingle();
 
     // test one axis
-    AbstractAxis self = new SelfAxis(holder.getReader());
+    AbstractAxis self = new SelfAxis(holder.getXdmNodeReadTrx());
     builder.add(self);
     assertEquals(builder.getExpr(), self);
 
     // test 2 axis
-    AbstractAxis axis1 = new SelfAxis(holder.getReader());
-    AbstractAxis axis2 = new SelfAxis(holder.getReader());
+    AbstractAxis axis1 = new SelfAxis(holder.getXdmNodeReadTrx());
+    AbstractAxis axis2 = new SelfAxis(holder.getXdmNodeReadTrx());
     builder.add(axis1);
     builder.add(axis2);
     assertTrue(builder.getExpr() instanceof NestedAxis);
@@ -77,40 +77,40 @@ public class ExpressionSingleTest {
   @Test
   public void testDup() throws SirixException {
     ExpressionSingle builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new DescendantAxis(holder.getReader()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new DescendantAxis(holder.getXdmNodeReadTrx()));
     assertTrue(builder.getExpr() instanceof NestedAxis);
 
     builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new DescendantAxis(holder.getReader()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new DescendantAxis(holder.getXdmNodeReadTrx()));
     assertEquals(true, builder.isOrdered());
     assertTrue(builder.getExpr() instanceof NestedAxis);
 
     builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new DescendantAxis(holder.getReader()));
-    builder.add(new ChildAxis(holder.getReader()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new DescendantAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
     assertEquals(false, builder.isOrdered());
 
     builder = new ExpressionSingle();
     builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new DescendantAxis(holder.getReader()));
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new ParentAxis(holder.getReader()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new DescendantAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new ParentAxis(holder.getXdmNodeReadTrx()));
     assertEquals(true, builder.isOrdered());
 
     builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getReader()));
-    builder.add(new DescendantAxis(holder.getReader()));
-    builder.add(new FollowingSiblingAxis(holder.getReader()));
+    builder.add(new ChildAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new DescendantAxis(holder.getXdmNodeReadTrx()));
+    builder.add(new FollowingSiblingAxis(holder.getXdmNodeReadTrx()));
     assertEquals(false, builder.isOrdered());
 
     builder = new ExpressionSingle();
     builder.add(
-        new UnionAxis(holder.getReader(), new DescendantAxis(holder.getReader()),
-            new ParentAxis(holder.getReader())));
+        new UnionAxis(holder.getXdmNodeReadTrx(), new DescendantAxis(holder.getXdmNodeReadTrx()),
+            new ParentAxis(holder.getXdmNodeReadTrx())));
     assertEquals(false, builder.isOrdered());
     assertTrue(builder.getExpr() instanceof DupFilterAxis);
 

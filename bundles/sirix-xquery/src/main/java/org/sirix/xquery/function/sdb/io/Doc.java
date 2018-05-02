@@ -32,7 +32,7 @@ import org.sirix.xquery.node.DBCollection;
  */
 public final class Doc extends AbstractFunction {
 
-  /** CAS index function name. */
+  /** Doc function name. */
   public final static QNm DOC = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "doc");
 
   /**

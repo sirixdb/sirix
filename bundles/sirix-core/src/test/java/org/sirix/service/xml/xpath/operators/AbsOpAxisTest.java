@@ -59,21 +59,21 @@ public class AbsOpAxisTest {
     final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbstractAxis op1 =
-        new LiteralExpr(holder.getReader(), holder.getReader().getItemList().addItem(item1));
+        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item1));
     AbstractAxis op2 =
-        new LiteralExpr(holder.getReader(), holder.getReader().getItemList().addItem(item2));
-    AbstractObAxis axis = new DivOpAxis(holder.getReader(), op1, op2);
+        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item2));
+    AbstractObAxis axis = new DivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
-    assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
     // here both operands are the empty sequence
-    axis = new DivOpAxis(holder.getReader(), op1, op2);
+    axis = new DivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(Double.NaN, is(Double.parseDouble(holder.getReader().getValue())));
-    assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
+    assertThat(Double.NaN, is(Double.parseDouble(holder.getXdmNodeReadTrx().getValue())));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

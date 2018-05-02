@@ -48,7 +48,7 @@ public class TextFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx reader = holder.getReader();
+    final XdmNodeReadTrx reader = holder.getXdmNodeReadTrx();
     reader.moveTo(8L);
     FilterTest.testFilterConventions(new TextFilter(reader), true);
 

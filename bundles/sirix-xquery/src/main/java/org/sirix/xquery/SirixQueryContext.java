@@ -60,8 +60,9 @@ public final class SirixQueryContext extends QueryContext {
     super.applyUpdates();
 
     if (mCommitStrategy == CommitStrategy.AUTO) {
-      final List<UpdateOp> updateList =
-          getUpdateList() == null ? Collections.emptyList() : getUpdateList().list();
+      final List<UpdateOp> updateList = getUpdateList() == null
+          ? Collections.emptyList()
+          : getUpdateList().list();
 
       if (!updateList.isEmpty()) {
         final Function<Sequence, Optional<XdmNodeWriteTrx>> mapDBNodeToWtx = sequence -> {

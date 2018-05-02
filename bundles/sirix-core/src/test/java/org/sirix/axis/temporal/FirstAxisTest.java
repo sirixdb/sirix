@@ -48,7 +48,7 @@ public final class FirstAxisTest {
         ImmutableList.of(firstRtx), null) {
       @Override
       protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new FirstAxis(holder.getReader());
+        return new FirstAxis(holder.getXdmNodeReadTrx());
       }
     }.test();
   }

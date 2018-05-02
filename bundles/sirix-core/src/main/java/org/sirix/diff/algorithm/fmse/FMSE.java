@@ -420,7 +420,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   /**
-   * Emits the move of node "child" to the pPos-th child of node "parent".
+   * Emits the move of node "child" to the pos-th child of node "parent".
    *
    * @param child child node to move
    * @param parent node where to insert the moved subtree
@@ -1000,7 +1000,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Initialize data structures.
    *
-   * @param rtx {@link IRriteTransaction} implementation reference on old revision
+   * @param rtx {@link XdmNodeReadTrx} reference on old revision
    * @param visitor {@link Visitor} reference
    * @throws SirixException if anything in sirix fails
    */

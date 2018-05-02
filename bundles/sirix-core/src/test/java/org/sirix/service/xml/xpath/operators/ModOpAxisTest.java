@@ -61,45 +61,45 @@ public class ModOpAxisTest {
     AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbstractAxis op1 =
-        new LiteralExpr(holder.getReader(), holder.getReader().getItemList().addItem(item1));
+        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item1));
     AbstractAxis op2 =
-        new LiteralExpr(holder.getReader(), holder.getReader().getItemList().addItem(item2));
-    AbstractObAxis axis = new ModOpAxis(holder.getReader(), op1, op2);
+        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item2));
+    AbstractObAxis axis = new ModOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(1.0, is(Double.parseDouble(holder.getReader().getValue())));
-    assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
+    assertThat(1.0, is(Double.parseDouble(holder.getXdmNodeReadTrx().getValue())));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
   }
 
   @Test
   public final void testGetReturnType() throws SirixException {
 
-    AbstractAxis op1 = new SequenceAxis(holder.getReader());
-    AbstractAxis op2 = new SequenceAxis(holder.getReader());
-    AbstractObAxis axis = new ModOpAxis(holder.getReader(), op1, op2);
+    AbstractAxis op1 = new SequenceAxis(holder.getXdmNodeReadTrx());
+    AbstractAxis op2 = new SequenceAxis(holder.getXdmNodeReadTrx());
+    AbstractObAxis axis = new ModOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
 
     assertEquals(
         Type.DOUBLE,
         axis.getReturnType(
-            holder.getReader().keyForName("xs:double"),
-            holder.getReader().keyForName("xs:double")));
+            holder.getXdmNodeReadTrx().keyForName("xs:double"),
+            holder.getXdmNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.DOUBLE,
         axis.getReturnType(
-            holder.getReader().keyForName("xs:decimal"),
-            holder.getReader().keyForName("xs:double")));
+            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
+            holder.getXdmNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.FLOAT,
         axis.getReturnType(
-            holder.getReader().keyForName("xs:float"),
-            holder.getReader().keyForName("xs:decimal")));
+            holder.getXdmNodeReadTrx().keyForName("xs:float"),
+            holder.getXdmNodeReadTrx().keyForName("xs:decimal")));
     assertEquals(
         Type.DECIMAL,
         axis.getReturnType(
-            holder.getReader().keyForName("xs:decimal"),
-            holder.getReader().keyForName("xs:integer")));
+            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
+            holder.getXdmNodeReadTrx().keyForName("xs:integer")));
     // assertEquals(Type.INTEGER,
     // axis.getReturnType(holder.getRtx().keyForName("xs:integer"),
     // holder.getRtx().keyForName("xs:integer")));
@@ -107,8 +107,8 @@ public class ModOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getReader().keyForName("xs:dateTime"),
-          holder.getReader().keyForName("xs:yearMonthDuration"));
+          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"),
+          holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -121,7 +121,7 @@ public class ModOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getReader().keyForName("xs:dateTime"), holder.getReader().keyForName("xs:double"));
+          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:double"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -134,8 +134,8 @@ public class ModOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getReader().keyForName("xs:string"),
-          holder.getReader().keyForName("xs:yearMonthDuration"));
+          holder.getXdmNodeReadTrx().keyForName("xs:string"),
+          holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -148,7 +148,7 @@ public class ModOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getReader().keyForName("xs:dateTime"), holder.getReader().keyForName("xs:IDREF"));
+          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:IDREF"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(

@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import org.sirix.access.IndexController;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceManagerConfiguration;
@@ -136,7 +137,7 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
    * @return {@link XdmNodeReadTrx} instance
    */
-  XdmNodeReadTrx beginNodeReadTrx(@Nonnegative Instant pointInTime);
+  XdmNodeReadTrx beginNodeReadTrx(@Nonnull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -147,6 +148,15 @@ public interface ResourceManager extends AutoCloseable {
    * @return {@link XdmNodeWriteTrx} instance
    */
   XdmNodeWriteTrx beginNodeWriteTrx();
+
+  /**
+   * Get the revision number, which was committed at the closest time to the given point in time.
+   * 
+   * @param pointInTime the point in time
+   * @return the revision number, which was committed at the closest time to the given point in
+   *         time.
+   */
+  int getRevisionNumber(@Nonnull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.

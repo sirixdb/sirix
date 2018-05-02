@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.function.Predicate;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -36,50 +37,49 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class FMSETest extends XMLTestCase {
-  private static final String RESOURCES =
-      "src" + File.separator + "test" + File.separator + "resources";
+  private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
-  private static final String XMLINSERTFIRST = RESOURCES + File.separator + "revXMLsInsert";
+  private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
 
-  private static final String XMLINSERTSECOND = RESOURCES + File.separator + "revXMLsInsert1";
+  private static final Path XMLINSERTSECOND = RESOURCES.resolve("revXMLsInsert1");
 
-  private static final String XMLINSERTTHIRD = RESOURCES + File.separator + "revXMLsInsert2";
+  private static final Path XMLINSERTTHIRD = RESOURCES.resolve("revXMLsInsert2");
 
-  private static final String XMLDELETEFIRST = RESOURCES + File.separator + "revXMLsDelete";
+  private static final Path XMLDELETEFIRST = RESOURCES.resolve("revXMLsDelete");
 
-  private static final String XMLDELETESECOND = RESOURCES + File.separator + "revXMLsDelete1";
+  private static final Path XMLDELETESECOND = RESOURCES.resolve("revXMLsDelete1");
 
-  private static final String XMLDELETETHIRD = RESOURCES + File.separator + "revXMLsDelete2";
+  private static final Path XMLDELETETHIRD = RESOURCES.resolve("revXMLsDelete2");
 
-  private static final String XMLDELETEFOURTH = RESOURCES + File.separator + "revXMLsDelete3";
+  private static final Path XMLDELETEFOURTH = RESOURCES.resolve("revXMLsDelete3");
 
-  private static final String XMLSAMEFIRST = RESOURCES + File.separator + "revXMLsSame";
+  private static final Path XMLSAMEFIRST = RESOURCES.resolve("revXMLsSame");
 
-  private static final String XMLSAMESECOND = RESOURCES + File.separator + "revXMLsSame1";
+  private static final Path XMLSAMESECOND = RESOURCES.resolve("revXMLsSame1");
 
-  private static final String XMLALLFIRST = RESOURCES + File.separator + "revXMLsAll";
+  private static final Path XMLALLFIRST = RESOURCES.resolve("revXMLsAll");
 
-  private static final String XMLALLSECOND = RESOURCES + File.separator + "revXMLsAll1";
+  private static final Path XMLALLSECOND = RESOURCES.resolve("revXMLsAll1");
 
-  private static final String XMLALLTHIRD = RESOURCES + File.separator + "revXMLsAll2";
+  private static final Path XMLALLTHIRD = RESOURCES.resolve("revXMLsAll2");
 
-  private static final String XMLALLFOURTH = RESOURCES + File.separator + "revXMLsAll3";
+  private static final Path XMLALLFOURTH = RESOURCES.resolve("revXMLsAll3");
 
-  private static final String XMLALLFIFTH = RESOURCES + File.separator + "revXMLsAll4";
+  private static final Path XMLALLFIFTH = RESOURCES.resolve("revXMLsAll4");
 
-  private static final String XMLALLSIXTH = RESOURCES + File.separator + "revXMLsAll5";
+  private static final Path XMLALLSIXTH = RESOURCES.resolve("revXMLsAll5");
 
-  private static final String XMLALLSEVENTH = RESOURCES + File.separator + "revXMLsAll6";
+  private static final Path XMLALLSEVENTH = RESOURCES.resolve("revXMLsAll6");
 
-  private static final String XMLALLEIGHTH = RESOURCES + File.separator + "revXMLsAll7";
+  private static final Path XMLALLEIGHTH = RESOURCES.resolve("revXMLsAll7");
 
-  private static final String XMLALLNINETH = RESOURCES + File.separator + "revXMLsAll8";
+  private static final Path XMLALLNINETH = RESOURCES.resolve("revXMLsAll8");
 
-  private static final String XMLALLTENTH = RESOURCES + File.separator + "revXMLsAll9";
+  private static final Path XMLALLTENTH = RESOURCES.resolve("revXMLsAll9");
 
-  private static final String XMLALLELEVENTH = RESOURCES + File.separator + "revXMLsAll10";
+  private static final Path XMLALLELEVENTH = RESOURCES.resolve("revXMLsAll10");
 
-  private static final String XMLLINGUISTICS = RESOURCES + File.separator + "linguistics";
+  private static final Path XMLLINGUISTICS = RESOURCES.resolve("linguistics");
 
   static {
     XMLUnit.setIgnoreComments(true);
@@ -206,16 +206,15 @@ public final class FMSETest extends XMLTestCase {
   /**
    * Test a folder of XML files.
    *
-   * @param FOLDER path string
+   * @param folder path to the files
    * @throws Exception if any exception occurs
    */
-  private void test(final String FOLDER) throws Exception {
+  private void test(final Path folder) throws Exception {
     Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     ResourceManager resource = database.getResourceManager(
         new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
-    final Path folder = Paths.get(FOLDER);
-    final List<Path> list =
-        Files.list(folder).filter(path -> path.getFileName().endsWith(".xml")).collect(toList());
+    Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
+    final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
     // Sort files list according to file names.
     list.sort((first, second) -> {
@@ -237,7 +236,7 @@ public final class FMSETest extends XMLTestCase {
 
     // Shredder files.
     for (final Path file : list) {
-      if (file.getFileName().endsWith(".xml")) {
+      if (file.getFileName().toString().endsWith(".xml")) {
         if (first) {
           first = false;
           try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {

@@ -48,7 +48,7 @@ public class NameFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(9L);
     FilterTest.testFilterConventions(new NameFilter(rtx, "b"), true);

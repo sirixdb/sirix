@@ -45,7 +45,7 @@ public final class FutureAxisTest {
   public void testFutureOrSelfAxis() throws SirixException {
     final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
     final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
-    final XdmNodeReadTrx thirdRtx = holder.getReader();
+    final XdmNodeReadTrx thirdRtx = holder.getXdmNodeReadTrx();
 
     new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
@@ -60,7 +60,7 @@ public final class FutureAxisTest {
   public void testFutureAxis() throws SirixException {
     final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
     final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
-    final XdmNodeReadTrx thirdRtx = holder.getReader();
+    final XdmNodeReadTrx thirdRtx = holder.getXdmNodeReadTrx();
 
     new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(secondRtx, thirdRtx), null) {

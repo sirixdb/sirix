@@ -55,31 +55,31 @@ public class NestedFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    holder.getReader().moveTo(9L);
+    holder.getXdmNodeReadTrx().moveTo(9L);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
-            new ElementFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
+        new NestedFilter(holder.getXdmNodeReadTrx(), new ItemFilter(holder.getXdmNodeReadTrx()),
+            new ElementFilter(holder.getXdmNodeReadTrx()), new NameFilter(holder.getXdmNodeReadTrx(), "b")),
         true);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getReader(), new ItemFilter(holder.getReader()),
-            new AttributeFilter(holder.getReader()), new NameFilter(holder.getReader(), "b")),
+        new NestedFilter(holder.getXdmNodeReadTrx(), new ItemFilter(holder.getXdmNodeReadTrx()),
+            new AttributeFilter(holder.getXdmNodeReadTrx()), new NameFilter(holder.getXdmNodeReadTrx(), "b")),
         false);
 
-    holder.getReader().moveTo(4L);
+    holder.getXdmNodeReadTrx().moveTo(4L);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getReader(), new NodeFilter(holder.getReader()),
-            new ElementFilter(holder.getReader())),
+        new NestedFilter(holder.getXdmNodeReadTrx(), new NodeFilter(holder.getXdmNodeReadTrx()),
+            new ElementFilter(holder.getXdmNodeReadTrx())),
         false);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getReader(), new NodeFilter(holder.getReader()),
-            new TextFilter(holder.getReader())),
+        new NestedFilter(holder.getXdmNodeReadTrx(), new NodeFilter(holder.getXdmNodeReadTrx()),
+            new TextFilter(holder.getXdmNodeReadTrx())),
         true);
 
-    holder.getReader().moveTo(1L);
-    holder.getReader().moveToAttribute(0);
+    holder.getXdmNodeReadTrx().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveToAttribute(0);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getReader(), new AttributeFilter(holder.getReader()),
-            new NameFilter(holder.getReader(), "i")),
+        new NestedFilter(holder.getXdmNodeReadTrx(), new AttributeFilter(holder.getXdmNodeReadTrx()),
+            new NameFilter(holder.getXdmNodeReadTrx(), "i")),
         true);
   }
 }

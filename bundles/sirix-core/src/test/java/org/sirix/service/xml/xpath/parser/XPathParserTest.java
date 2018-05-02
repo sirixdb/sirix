@@ -51,50 +51,50 @@ public class XPathParserTest {
   @Test
   public void testLiterals() throws SirixException {
 
-    holder.getReader().moveTo(2L);
+    holder.getXdmNodeReadTrx().moveTo(2L);
 
     AbstractAxis axis;
 
-    axis = new XPathAxis(holder.getReader(), "\"12.5\"");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "\"12.5\"");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals("12.5", holder.getReader().getValue());
-    assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
+    assertEquals("12.5", holder.getXdmNodeReadTrx().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:string"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
-    axis = new XPathAxis(holder.getReader(), "\"He said, \"\"I don't like it\"\"\"");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "\"He said, \"\"I don't like it\"\"\"");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals("He said, I don't like it", holder.getReader().getValue());
-    assertEquals(holder.getReader().keyForName("xs:string"), holder.getReader().getTypeKey());
+    assertEquals("He said, I don't like it", holder.getXdmNodeReadTrx().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:string"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
-    axis = new XPathAxis(holder.getReader(), "12");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "12");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
-    assertEquals("12", holder.getReader().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:integer"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals("12", holder.getXdmNodeReadTrx().getValue());
     assertEquals(false, axis.hasNext());
 
-    axis = new XPathAxis(holder.getReader(), "12.5");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "12.5");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals(holder.getReader().keyForName("xs:decimal"), holder.getReader().getTypeKey());
-    assertEquals("12.5", holder.getReader().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:decimal"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals("12.5", holder.getXdmNodeReadTrx().getValue());
     assertEquals(false, axis.hasNext());
 
-    axis = new XPathAxis(holder.getReader(), "12.5E2");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "12.5E2");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals(holder.getReader().keyForName("xs:double"), holder.getReader().getTypeKey());
-    assertEquals("12.5E2", holder.getReader().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals("12.5E2", holder.getXdmNodeReadTrx().getValue());
     assertEquals(false, axis.hasNext());
 
-    axis = new XPathAxis(holder.getReader(), "1");
+    axis = new XPathAxis(holder.getXdmNodeReadTrx(), "1");
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertEquals("1", holder.getReader().getValue());
-    assertEquals(holder.getReader().keyForName("xs:integer"), holder.getReader().getTypeKey());
+    assertEquals("1", holder.getXdmNodeReadTrx().getValue());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:integer"), holder.getXdmNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }
@@ -102,34 +102,34 @@ public class XPathParserTest {
   @Test
   public void testEBNF() throws SirixException {
 
-    XPathParser parser = new XPathParser(holder.getReader(), "/p:a");
+    XPathParser parser = new XPathParser(holder.getXdmNodeReadTrx(), "/p:a");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "/p:a/node(), /b/descendant-or-self::adsfj");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "/p:a/node(), /b/descendant-or-self::adsfj");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "for $i in /p:a return $i");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "for $i in /p:a return $i");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "for $i in /p:a return /p:a");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "for $i in /p:a return /p:a");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "child::element(person)");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "child::element(person)");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "child::element(person, xs:string)");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "child::element(person, xs:string)");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), " child::element(*, xs:string)");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), " child::element(*, xs:string)");
     parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "child::element()");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "child::element()");
     parser.parseQuery();
 
     // parser = new XPathParser(holder.getRtx(), ". treat as item()");
     // parser.parseQuery();
 
-    parser = new XPathParser(holder.getReader(), "/b instance of item()");
+    parser = new XPathParser(holder.getXdmNodeReadTrx(), "/b instance of item()");
     parser.parseQuery();
 
   }
