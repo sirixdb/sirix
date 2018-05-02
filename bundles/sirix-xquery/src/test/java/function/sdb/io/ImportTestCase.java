@@ -41,7 +41,6 @@ import org.brackit.xquery.compiler.CompileChain;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -76,7 +75,7 @@ public final class ImportTestCase extends TestCase {
     super.tearDown();
   }
 
-  @Ignore
+  @org.junit.Ignore
   @Test
   public void test() throws QueryException, IOException, SAXException {
     final Path doc = Paths.get("src", "test", "resources", "revXMLsAll");
