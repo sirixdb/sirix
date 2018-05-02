@@ -74,7 +74,8 @@ public final class DBStore implements Store, AutoCloseable {
     /** The location to store created collections/databases. */
     private Path mLocation = LOCATION;
 
-    private boolean mBuildPathSummary;
+    /** Determines if for resources a path summary should be build. */
+    private boolean mBuildPathSummary = true;
 
     /**
      * Set the storage type (default: file backend).
@@ -88,9 +89,10 @@ public final class DBStore implements Store, AutoCloseable {
     }
 
     /**
-     * Set the storage type (default: file backend).
+     * Set if path summaries should be build for resources.
      *
-     * @param storageType storage type
+     * @param buildPathSummary {@code true} if path summaries should be build, {@code false}
+     *        otherwise
      * @return this builder instance
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {

@@ -624,7 +624,8 @@ public final class SirixTranslator extends TopDownTranslator {
         throws QueryException {
       final DBNode dbNode = (DBNode) node;
       final XdmNodeReadTrx rtx = dbNode.getTrx();
-      if (test.getNodeKind() == Kind.ELEMENT && test.getQName() != null
+      if (rtx.getResourceManager().getResourceConfig().mPathSummary
+          && test.getNodeKind() == Kind.ELEMENT && test.getQName() != null
           && rtx.getChildCount() > CHILD_THRESHOLD) {
         try {
           final long pcr = dbNode.getPCR();
@@ -694,12 +695,13 @@ public final class SirixTranslator extends TopDownTranslator {
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test)
         throws QueryException {
-      if (test.getNodeKind() == Kind.ELEMENT && test.getQName() != null) {
-        final DBNode dbNode = (DBNode) node;
+      final DBNode dbNode = (DBNode) node;
+      final XdmNodeReadTrx rtx = dbNode.getTrx();
+      if (rtx.getResourceManager().getResourceConfig().mPathSummary
+          && test.getNodeKind() == Kind.ELEMENT && test.getQName() != null) {
         try {
           final long pcr = dbNode.getPCR();
           BitSet matches = mFilterMap.get(pcr);
-          final XdmNodeReadTrx rtx = dbNode.getTrx();
           final PathSummaryReader reader =
               rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber());
           if (matches == null) {
