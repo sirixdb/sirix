@@ -56,26 +56,26 @@ public class ExceptAxisTest {
   @Test
   public void testExcept() throws SirixException {
 
-    holder.getReader().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node() except b"), new long[] {4L, 8L, 13L});
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node() except b"), new long[] {4L, 8L, 13L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node() except child::node()[attribute::p:x]"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node() except child::node()[attribute::p:x]"),
         new long[] {4L, 5L, 8L, 13L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node()/parent::node() except self::node()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node()/parent::node() except self::node()"),
         new long[] {});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "//node() except //text()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "//node() except //text()"),
         new long[] {1L, 5L, 9L, 7L, 11L});
 
-    holder.getReader().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "b/preceding::node() except text()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "b/preceding::node() except text()"),
         new long[] {7L, 6L, 5L});
 
   }

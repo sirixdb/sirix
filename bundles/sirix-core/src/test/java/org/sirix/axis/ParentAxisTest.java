@@ -48,7 +48,7 @@ public class ParentAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(5L);
     AbsAxisTest.testIAxisConventions(new ParentAxis(rtx), new long[] {1L});

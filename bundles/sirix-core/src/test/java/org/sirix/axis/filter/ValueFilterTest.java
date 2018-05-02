@@ -48,7 +48,7 @@ public class ValueFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx reader = holder.getReader();
+    final XdmNodeReadTrx reader = holder.getXdmNodeReadTrx();
     reader.moveTo(4L);
     FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
     FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);

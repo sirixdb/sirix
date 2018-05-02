@@ -117,9 +117,9 @@ public class StAXSerializerTest {
 
       // Check getElementText().
       // ========================================================
-      holder.getReader().moveToDocumentRoot();
-      holder.getReader().moveToFirstChild();
-      serializer = new StAXSerializer(holder.getReader());
+      holder.getXdmNodeReadTrx().moveToDocumentRoot();
+      holder.getXdmNodeReadTrx().moveToFirstChild();
+      serializer = new StAXSerializer(holder.getXdmNodeReadTrx());
       String elemText = null;
 
       // <p:a>

@@ -48,7 +48,7 @@ public class DocumentRootNodeFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(0L);
     FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), true);

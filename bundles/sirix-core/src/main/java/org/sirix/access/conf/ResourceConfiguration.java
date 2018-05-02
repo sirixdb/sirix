@@ -71,7 +71,7 @@ public final class ResourceConfiguration {
     DATA(Paths.get("data"), true),
 
     /** Folder for the transaction log. */
-    TRANSACTION_LOG(Paths.get("log"), true),
+    TRANSACTION_INTENT_LOG(Paths.get("log"), true),
 
     /** File to store the resource settings. */
     CONFIG_BINARY(Paths.get("ressetting.obj"), false),

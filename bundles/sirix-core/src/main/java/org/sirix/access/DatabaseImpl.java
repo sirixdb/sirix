@@ -29,7 +29,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -272,6 +271,7 @@ public final class DatabaseImpl implements Database {
   public synchronized void close() throws SirixException {
     if (mClosed)
       return;
+
     mClosed = true;
     mResourceStore.close();
     mTransactionManager.close();

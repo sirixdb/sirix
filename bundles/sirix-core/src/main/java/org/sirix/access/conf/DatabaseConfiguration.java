@@ -209,12 +209,11 @@ public final class DatabaseConfiguration {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof DatabaseConfiguration) {
-      final DatabaseConfiguration other = (DatabaseConfiguration) obj;
-      return Objects.equal(mFile, other.mFile)
-          && Objects.equal(mBinaryVersion, other.mBinaryVersion);
-    }
-    return false;
+    if (!(obj instanceof DatabaseConfiguration))
+      return false;
+
+    final DatabaseConfiguration other = (DatabaseConfiguration) obj;
+    return Objects.equal(mFile, other.mFile) && Objects.equal(mBinaryVersion, other.mBinaryVersion);
   }
 
   @Override

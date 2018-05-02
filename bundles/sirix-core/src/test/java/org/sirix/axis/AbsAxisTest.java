@@ -115,7 +115,7 @@ public class AbsAxisTest {
 
   @Test
   public void testAxisUserExample() throws SirixException {
-    final Axis axis = new DescendantAxis(holder.getReader());
+    final Axis axis = new DescendantAxis(holder.getXdmNodeReadTrx());
     long count = 0L;
     while (axis.hasNext()) {
       axis.next();

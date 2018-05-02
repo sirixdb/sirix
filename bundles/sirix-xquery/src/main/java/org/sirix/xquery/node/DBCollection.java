@@ -1,6 +1,7 @@
 package org.sirix.xquery.node;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -106,6 +107,63 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
    */
   public Database getDatabase() {
     return mDatabase;
+  }
+
+  @Override
+  public DBNode getDocument(Instant pointInTime) throws DocumentException {
+    return getDocument(pointInTime, name, false);
+  }
+
+  @Override
+  public DBNode getDocument(Instant pointInTime, boolean updatable) throws DocumentException {
+    return getDocument(pointInTime, name, updatable);
+  }
+
+  @Override
+  public DBNode getDocument(Instant pointInTime, String name) throws DocumentException {
+    return getDocument(pointInTime, name, false);
+  }
+
+  @Override
+  public DBNode getDocument(Instant pointInTime, String name, boolean updatable)
+      throws DocumentException {
+    try {
+      final ResourceManagerConfiguration resMgrConf =
+          ResourceManagerConfiguration.newBuilder(name).build();
+      return getDocumentInternal(resMgrConf, pointInTime, updatable);
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause());
+    }
+  }
+
+  private DBNode getDocumentInternal(final ResourceManagerConfiguration resourceManagerConfig,
+      final Instant pointInTime, final boolean updatable) throws SirixException {
+    final ResourceManager resource = mDatabase.getResourceManager(resourceManagerConfig);
+
+    final XdmNodeReadTrx trx;
+
+    if (updatable) {
+      if (resource.getAvailableNodeWriteTrx() == 0) {
+        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getXdmNodeWriteTrx();
+
+        if (optionalWriteTrx.isPresent()) {
+          trx = optionalWriteTrx.get();
+        } else {
+          trx = resource.beginNodeWriteTrx();
+        }
+      } else {
+        trx = resource.beginNodeWriteTrx();
+      }
+
+      final int revision = resource.getRevisionNumber(pointInTime);
+
+      if (revision < resource.getMostRecentRevisionNumber())
+        ((XdmNodeWriteTrx) trx).revertTo(revision);
+    } else {
+      trx = resource.beginNodeReadTrx(pointInTime);
+    }
+
+    return new DBNode(trx, this);
   }
 
   @Override
@@ -265,9 +323,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode getDocument(final int revision, final String name, final boolean updatable)
       throws DocumentException {
     try {
-      final ResourceManagerConfiguration sessionConfig =
+      final ResourceManagerConfiguration resMgrConf =
           ResourceManagerConfiguration.newBuilder(name).build();
-      return getDocumentInternal(sessionConfig, revision, updatable);
+      return getDocumentInternal(resMgrConf, revision, updatable);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -283,8 +341,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     final XdmNodeReadTrx trx;
     if (updatable) {
       if (resource.getAvailableNodeWriteTrx() == 0) {
-        final Optional<XdmNodeWriteTrx> optionalWriteTrx;
-        optionalWriteTrx = resource.getXdmNodeWriteTrx();
+        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getXdmNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();

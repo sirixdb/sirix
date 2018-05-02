@@ -53,7 +53,7 @@ public class LevelOrderAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(11L);
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {12L});

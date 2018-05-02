@@ -48,26 +48,26 @@ public class AttributeAndNamespaceTest {
 
   @Test
   public void testAttribute() throws SirixException {
-    holder.getReader().moveTo(1L);
-    assertEquals(1, holder.getReader().getAttributeCount());
-    holder.getReader().moveToAttribute(0);
-    assertEquals("i", holder.getReader().getName().getLocalName());
+    holder.getXdmNodeReadTrx().moveTo(1L);
+    assertEquals(1, holder.getXdmNodeReadTrx().getAttributeCount());
+    holder.getXdmNodeReadTrx().moveToAttribute(0);
+    assertEquals("i", holder.getXdmNodeReadTrx().getName().getLocalName());
 
-    holder.getReader().moveTo(9L);
-    assertEquals(1, holder.getReader().getAttributeCount());
-    holder.getReader().moveToAttribute(0);
+    holder.getXdmNodeReadTrx().moveTo(9L);
+    assertEquals(1, holder.getXdmNodeReadTrx().getAttributeCount());
+    holder.getXdmNodeReadTrx().moveToAttribute(0);
     assertEquals(
-        "p:x", new StringBuilder(holder.getReader().getName().getPrefix()).append(
-            ":").append(holder.getReader().getName().getLocalName()).toString());
-    assertEquals("ns", holder.getReader().getName().getNamespaceURI());
+        "p:x", new StringBuilder(holder.getXdmNodeReadTrx().getName().getPrefix()).append(
+            ":").append(holder.getXdmNodeReadTrx().getName().getLocalName()).toString());
+    assertEquals("ns", holder.getXdmNodeReadTrx().getName().getNamespaceURI());
   }
 
   @Test
   public void testNamespace() throws SirixException {
-    holder.getReader().moveTo(1L);
-    assertEquals(1, holder.getReader().getNamespaceCount());
-    holder.getReader().moveToNamespace(0);
-    assertEquals("p", holder.getReader().getName().getPrefix());
-    assertEquals("ns", holder.getReader().getName().getNamespaceURI());
+    holder.getXdmNodeReadTrx().moveTo(1L);
+    assertEquals(1, holder.getXdmNodeReadTrx().getNamespaceCount());
+    holder.getXdmNodeReadTrx().moveToNamespace(0);
+    assertEquals("p", holder.getXdmNodeReadTrx().getName().getPrefix());
+    assertEquals("ns", holder.getXdmNodeReadTrx().getName().getNamespaceURI());
   }
 }

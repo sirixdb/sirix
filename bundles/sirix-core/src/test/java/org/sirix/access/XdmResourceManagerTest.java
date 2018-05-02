@@ -76,7 +76,7 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testClosed() {
-    final XdmNodeReadTrx rtx = holder.getReader();
+    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
     rtx.close();
 
     try {
@@ -117,7 +117,7 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testRevision() {
-    XdmNodeReadTrx rtx = holder.getReader();
+    XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
     assertEquals(0L, rtx.getRevisionNumber());
 
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {

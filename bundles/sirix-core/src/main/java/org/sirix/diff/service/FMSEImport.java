@@ -62,12 +62,13 @@ public final class FMSEImport {
    *
    * @param resNewRev {@link File} reference for new revision (XML resource)
    * @param newRev {@link File} reference for shreddered new revision (sirix resource)
+   * @return XdmNodeWriteTrx the wr
    * @throws SirixException if sirix fails to shredder the file
    * @throws IOException if file couldn't be read
    * @throws XMLStreamException if XML document isn't well formed
    * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
    */
-  private static void shredder(final Path resNewRev, @Nonnull final Path newRev)
+  public static void shredder(final Path resNewRev, @Nonnull final Path newRev)
       throws SirixException, IOException, XMLStreamException {
     assert resNewRev != null;
     assert newRev != null;
@@ -98,7 +99,7 @@ public final class FMSEImport {
    */
   private static void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
     try {
-      final Path newRevTarget = Files.createTempDirectory(resNewRev.toAbsolutePath().toString());
+      final Path newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
       if (Files.exists(newRevTarget)) {
         SirixFiles.recursiveRemove(newRevTarget);
       }

@@ -53,6 +53,8 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
+import org.sirix.node.json.JSONArray;
+import org.sirix.node.json.JSONObject;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
@@ -102,10 +104,13 @@ public enum Kind implements NodePersistenter {
 
       final String uri = pageReadTrx.getName(nameDel.getURIKey(), Kind.NAMESPACE);
       final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, Kind.ELEMENT);
+      final String prefix = prefixKey == -1
+          ? ""
+          : pageReadTrx.getName(prefixKey, Kind.ELEMENT);
       final int localNameKey = nameDel.getLocalNameKey();
-      final String localName =
-          localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, Kind.ELEMENT);
+      final String localName = localNameKey == -1
+          ? ""
+          : pageReadTrx.getName(localNameKey, Kind.ELEMENT);
 
       return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys,
           new QNm(uri, prefix, localName));
@@ -143,17 +148,22 @@ public enum Kind implements NodePersistenter {
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
       // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
+      final boolean isCompressed = source.readByte() == (byte) 1
+          ? true
+          : false;
       final byte[] vals = new byte[source.readInt()];
       source.readFully(vals, 0, vals.length);
       final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
 
       final String uri = pageReadTrx.getName(nameDel.getURIKey(), Kind.NAMESPACE);
       final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, Kind.ATTRIBUTE);
+      final String prefix = prefixKey == -1
+          ? ""
+          : pageReadTrx.getName(prefixKey, Kind.ATTRIBUTE);
       final int localNameKey = nameDel.getLocalNameKey();
-      final String localName =
-          localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, Kind.ATTRIBUTE);
+      final String localName = localNameKey == -1
+          ? ""
+          : pageReadTrx.getName(localNameKey, Kind.ATTRIBUTE);
 
       final QNm name = new QNm(uri, prefix, localName);
 
@@ -184,10 +194,13 @@ public enum Kind implements NodePersistenter {
 
       final String uri = pageReadTrx.getName(nameDel.getURIKey(), Kind.NAMESPACE);
       final int prefixKey = nameDel.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, Kind.ELEMENT);
+      final String prefix = prefixKey == -1
+          ? ""
+          : pageReadTrx.getName(prefixKey, Kind.ELEMENT);
       final int localNameKey = nameDel.getLocalNameKey();
-      final String localName =
-          localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, Kind.ELEMENT);
+      final String localName = localNameKey == -1
+          ? ""
+          : pageReadTrx.getName(localNameKey, Kind.ELEMENT);
 
       final QNm name = new QNm(uri, prefix, localName);
 
@@ -212,7 +225,9 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
+      final boolean isCompressed = source.readByte() == (byte) 1
+          ? true
+          : false;
       final byte[] vals = new byte[source.readInt()];
       source.readFully(vals, 0, vals.length);
       final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
@@ -255,7 +270,9 @@ public enum Kind implements NodePersistenter {
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
       // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
+      final boolean isCompressed = source.readByte() == (byte) 1
+          ? true
+          : false;
       final byte[] vals = new byte[source.readInt()];
       source.readFully(vals, 0, vals.length);
       final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
@@ -284,7 +301,9 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
+      final boolean isCompressed = source.readByte() == (byte) 1
+          ? true
+          : false;
       final byte[] vals = new byte[source.readInt()];
       source.readFully(vals, 0, vals.length);
       final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
@@ -323,7 +342,10 @@ public enum Kind implements NodePersistenter {
           Optional.of(SirixDeweyID.newRootID()));
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          source.readByte() == ((byte) 0) ? 0 : 1, source.readLong());
+          source.readByte() == ((byte) 0)
+              ? 0
+              : 1,
+          source.readLong());
       return new DocumentRootNode(nodeDel, structDel);
     }
 
@@ -334,7 +356,10 @@ public enum Kind implements NodePersistenter {
       sink.writeLong(node.getHash());
       putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
-      sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
+      sink.writeByte(
+          node.hasFirstChild()
+              ? (byte) 1
+              : (byte) 0);
       sink.writeLong(node.getDescendantCount());
     }
 
@@ -794,6 +819,64 @@ public enum Kind implements NodePersistenter {
     }
   },
 
+  /** JSON object node. */
+  JSONOBJECT((byte) 24, JSONObject.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
+        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record,
+        final PageReadTrx pageReadTrx) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
+        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+        throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
+        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
+        throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /** JSON array node. */
+  JSONARRAY((byte) 25, JSONArray.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
+        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record,
+        final PageReadTrx pageReadTrx) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
+        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+        throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
+        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
+        throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
   /** Node type not known. */
   UNKNOWN((byte) 22, null) {
     @Override
@@ -1080,8 +1163,13 @@ public enum Kind implements NodePersistenter {
   private static final void serializeValDelegate(final ValNodeDelegate valueDel,
       final DataOutput sink) throws IOException {
     final boolean isCompressed = valueDel.isCompressed();
-    sink.writeByte(isCompressed ? (byte) 1 : (byte) 0);
-    final byte[] value = isCompressed ? valueDel.getCompressed() : valueDel.getRawValue();
+    sink.writeByte(
+        isCompressed
+            ? (byte) 1
+            : (byte) 0);
+    final byte[] value = isCompressed
+        ? valueDel.getCompressed()
+        : valueDel.getRawValue();
     sink.writeInt(value.length);
     sink.write(value);
   }

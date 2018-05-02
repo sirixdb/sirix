@@ -17,9 +17,9 @@ import org.sirix.service.xml.shredder.Insert;
 
 /**
  * Subtree builder to build a new tree.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  * @param <E> temporal node which extends {@link AbstractTemporalNode}
  */
 public final class SubtreeBuilder extends AbstractShredder implements SubtreeHandler {
@@ -42,9 +42,12 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   /** Start node key. */
   private long mStartNodeKey;
 
+  /** Stack of namespace mappings. */
+  private final Deque<QNm> mNamespaces;
+
   /**
    * Constructor.
-   * 
+   *
    * @param wtx Sirix {@link IWriteTransaction}
    * @param insertPos determines how to insert (as a right sibling, first child or left sibling)
    * @param listeners listeners which implement
@@ -57,15 +60,16 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
       throws SirixException {
     super(wtx, insertPos);
     mCollection = checkNotNull(collection);
-    mSubtreeProcessor = new SubtreeProcessor<AbstractTemporalNode<DBNode>>(checkNotNull(listeners));
+    mSubtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
     mWtx = checkNotNull(wtx);
     mParents = new ArrayDeque<>();
     mFirst = true;
+    mNamespaces = new ArrayDeque<>();
   }
 
   /**
    * Get start node key.
-   * 
+   *
    * @return start node key
    */
   public long getStartNodeKey() {
@@ -138,10 +142,14 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   }
 
   @Override
-  public void startMapping(final String prefix, final String uri) throws DocumentException {}
+  public void startMapping(final String prefix, final String uri) throws DocumentException {
+    mNamespaces.push(new QNm(uri, prefix, null));
+  }
 
   @Override
-  public void endMapping(final String prefix) throws DocumentException {}
+  public void endMapping(final String prefix) throws DocumentException {
+    // mNamespaces.remove();
+  }
 
   @Override
   public void comment(final Atomic content) throws DocumentException {
@@ -172,6 +180,10 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void startElement(final QNm name) throws DocumentException {
     try {
       processStartTag(name);
+      while (!mNamespaces.isEmpty()) {
+        final QNm namespace = mNamespaces.pop();
+        mWtx.insertNamespace(namespace).moveToParent();
+      }
       if (mFirst) {
         mFirst = false;
         mStartNodeKey = mWtx.getNodeKey();

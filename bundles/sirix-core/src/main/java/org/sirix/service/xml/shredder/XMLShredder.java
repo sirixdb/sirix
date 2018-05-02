@@ -329,7 +329,9 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
               db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
           final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
         final XMLEventReader reader = createFileReader(Paths.get(args[0]));
-        final boolean includeCoPI = args.length == 3 ? Boolean.parseBoolean(args[2]) : false;
+        final boolean includeCoPI = args.length == 3
+            ? Boolean.parseBoolean(args[2])
+            : false;
         final XMLShredder shredder =
             new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD).commitAfterwards()
                                                                      .includeComments(includeCoPI)

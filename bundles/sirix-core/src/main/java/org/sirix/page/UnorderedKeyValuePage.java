@@ -33,7 +33,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -371,7 +370,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   // Add references to OverflowPages.
   private void addReferences() throws IOException {
-    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
+    final boolean storeDeweyIDs =
+        mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
 
     final List<Entry<Long, Record>> entries = sort();
     final Iterator<Entry<Long, Record>> it = entries.iterator();
@@ -404,32 +404,33 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   private List<Entry<Long, Record>> sort() {
     // Sort entries which have deweyIDs according to their byte-length.
-    final List<Map.Entry<Long, Record>> entries =
-        new ArrayList<Map.Entry<Long, Record>>(mRecords.entrySet());
-    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
+    final List<Map.Entry<Long, Record>> entries = new ArrayList<>(mRecords.entrySet());
+    final boolean storeDeweyIDs =
+        mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
     if (storeDeweyIDs && mPersistenter instanceof NodePersistenter) {
-      Collections.sort(entries, new Comparator<Map.Entry<Long, Record>>() {
-        @Override
-        public int compare(Map.Entry<Long, Record> a, Map.Entry<Long, Record> b) {
-          if (a.getValue() instanceof Node && b.getValue() instanceof Node) {
-            final Optional<SirixDeweyID> first = ((Node) a.getValue()).getDeweyID();
-            final Optional<SirixDeweyID> second = ((Node) b.getValue()).getDeweyID();
+      entries.sort((a, b) -> {
+        if (a.getValue() instanceof Node && b.getValue() instanceof Node) {
+          final Optional<SirixDeweyID> first = ((Node) a.getValue()).getDeweyID();
+          final Optional<SirixDeweyID> second = ((Node) b.getValue()).getDeweyID();
 
-            // Document node has no DeweyID.
-            if (!first.isPresent())
-              return 1;
+          // Document node has no DeweyID.
+          if (!first.isPresent() && second.isPresent())
+            return 1;
 
-            if (!second.isPresent())
-              return -1;
+          if (!second.isPresent() && first.isPresent())
+            return -1;
 
-            return first.get().toBytes().length == second.get().toBytes().length
-                ? 0
-                : first.get().toBytes().length > second.get().toBytes().length
-                    ? 1
-                    : -1;
-          }
-          return -1;
+          if (!first.isPresent() && !second.isPresent())
+            return 0;
+
+          return first.get().toBytes().length == second.get().toBytes().length
+              ? 0
+              : first.get().toBytes().length > second.get().toBytes().length
+                  ? 1
+                  : -1;
         }
+
+        return -1;
       });
     }
 

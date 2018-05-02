@@ -241,7 +241,7 @@ public final class XdmResourceManager implements ResourceManager {
    */
   Path commitFile() {
     return mResourceConfig.mPath.resolve(
-        ResourceConfiguration.ResourcePaths.TRANSACTION_LOG.getFile()).resolve(".commit");
+        ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getFile()).resolve(".commit");
   }
 
   @Override
@@ -656,5 +656,37 @@ public final class XdmResourceManager implements ResourceManager {
     }
 
     return -(low + 1); // key not found
+  }
+
+  @Override
+  public int getRevisionNumber(Instant pointInTime) {
+    checkNotNull(pointInTime);
+
+    final long timestamp = pointInTime.toEpochMilli();
+
+    int revision = binarySearch(timestamp);
+
+    if (revision < 0) {
+      revision = -revision - 1;
+    }
+
+    if (revision == 0)
+      return 0;
+    else if (revision == getMostRecentRevisionNumber() + 1)
+      return getMostRecentRevisionNumber();
+
+    try (final XdmNodeReadTrx rtxRevisionMinus1 = beginNodeReadTrx(revision - 1);
+        final XdmNodeReadTrx rtxRevision = beginNodeReadTrx(revision)) {
+      final int revisionNumber;
+
+      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(
+          timestamp, rtxRevision.getRevisionTimestamp())) {
+        revisionNumber = rtxRevisionMinus1.getRevisionNumber();
+      } else {
+        revisionNumber = rtxRevision.getRevisionNumber();
+      }
+
+      return revisionNumber;
+    }
   }
 }

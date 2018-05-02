@@ -103,14 +103,14 @@ public final class Load extends AbstractFunction {
       final DBStore store = (DBStore) ctx.getStore();
       DBCollection coll;
       if (createNew) {
-        coll = (DBCollection) create(store, collName, resName, resources);
+        coll = create(store, collName, resName, resources);
       } else {
         try {
-          coll = (DBCollection) store.lookup(collName);
+          coll = store.lookup(collName);
           add(store, coll, resName, resources);
         } catch (final DocumentException e) {
           // collection does not exist
-          coll = (DBCollection) create(store, collName, resName, resources);
+          coll = create(store, collName, resName, resources);
         }
       }
 
@@ -140,7 +140,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static TemporalCollection<?> create(final DBStore store, final String collName,
+  private static DBCollection create(final DBStore store, final String collName,
       final String resName, final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;

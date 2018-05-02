@@ -44,13 +44,13 @@ public final class AllTimeAxisTest {
   public void testAxis() throws SirixException {
     final XdmNodeReadTrx firstReader = holder.getResourceManager().beginNodeReadTrx(1);
     final XdmNodeReadTrx secondReader = holder.getResourceManager().beginNodeReadTrx(2);
-    final XdmNodeReadTrx thirdReader = holder.getReader();
+    final XdmNodeReadTrx thirdReader = holder.getXdmNodeReadTrx();
 
     new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(firstReader, secondReader, thirdReader), null) {
       @Override
       protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new AllTimeAxis(holder.getReader());
+        return new AllTimeAxis(holder.getXdmNodeReadTrx());
       }
     }.test();
   }

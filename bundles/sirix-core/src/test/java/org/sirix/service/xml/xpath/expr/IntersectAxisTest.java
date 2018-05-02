@@ -56,31 +56,31 @@ public class IntersectAxisTest {
   @Test
   public void testIntersect() throws SirixException {
 
-    holder.getReader().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node() intersect b"), new long[] {5L, 9L});
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node() intersect b"), new long[] {5L, 9L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(),
+        new XPathAxis(holder.getXdmNodeReadTrx(),
             "child::node() intersect b intersect child::node()[@p:x]"),
         new long[] {9L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node() intersect child::node()[attribute::p:x]"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node() intersect child::node()[attribute::p:x]"),
         new long[] {9L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "child::node()/parent::node() intersect self::node()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node()/parent::node() intersect self::node()"),
         new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "//node() intersect //text()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "//node() intersect //text()"),
         new long[] {4L, 8L, 13L, 6L, 12L});
 
-    holder.getReader().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "b/preceding::node() intersect text()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "b/preceding::node() intersect text()"),
         new long[] {4L, 8L});
 
   }

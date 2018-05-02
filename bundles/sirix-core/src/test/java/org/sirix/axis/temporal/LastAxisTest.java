@@ -43,7 +43,7 @@ public final class LastAxisTest {
   @Test
   public void testAxis() throws SirixException {
     final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
-    final XdmNodeReadTrx thirdRtx = holder.getReader();
+    final XdmNodeReadTrx thirdRtx = holder.getXdmNodeReadTrx();
 
     new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(thirdRtx), null) {

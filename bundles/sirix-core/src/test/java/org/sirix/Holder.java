@@ -51,10 +51,10 @@ public class Holder {
   private ResourceManager mResMgr;
 
   /** {@link XdmNodeReadTrx} implementation. */
-  private XdmNodeReadTrx mReader;
+  private XdmNodeReadTrx mRtx;
 
   /** {@link XdmNodeWriteTrx} implementation. */
-  private XdmNodeWriteTrx mWriter;
+  private XdmNodeWriteTrx mWtx;
 
   private Transaction mTrx;
 
@@ -133,7 +133,7 @@ public class Holder {
   public static Holder generateWtx() throws SirixException {
     final Holder holder = openResourceManager();
     final XdmNodeWriteTrx writer = holder.mResMgr.beginNodeWriteTrx();
-    holder.setWriter(writer);
+    holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
 
@@ -146,7 +146,7 @@ public class Holder {
   public static Holder generateRtx() throws SirixException {
     final Holder holder = openResourceManager();
     final XdmNodeReadTrx reader = holder.mResMgr.beginNodeReadTrx();
-    holder.setReader(reader);
+    holder.setXdmNodeReadTrx(reader);
     return holder;
   }
 
@@ -156,12 +156,12 @@ public class Holder {
    * @throws SirixException if an error occurs
    */
   public void close() throws SirixException {
-    if (mReader != null && !mReader.isClosed()) {
-      mReader.close();
+    if (mRtx != null && !mRtx.isClosed()) {
+      mRtx.close();
     }
-    if (mWriter != null && !mWriter.isClosed()) {
-      mWriter.rollback();
-      mWriter.close();
+    if (mWtx != null && !mWtx.isClosed()) {
+      mWtx.rollback();
+      mWtx.close();
     }
     if (mResMgr != null && !mResMgr.isClosed()) {
       mResMgr.close();
@@ -197,8 +197,8 @@ public class Holder {
    *
    * @return {@link XdmNodeReadTrx} handle
    */
-  public XdmNodeReadTrx getReader() {
-    return mReader;
+  public XdmNodeReadTrx getXdmNodeReadTrx() {
+    return mRtx;
   }
 
   public Transaction getTrx() {
@@ -211,25 +211,25 @@ public class Holder {
    * @return {@link XdmNodeWriteTrx} handle
    */
   public XdmNodeWriteTrx getXdmNodeWriteTrx() {
-    return mWriter;
+    return mWtx;
   }
 
   /**
    * Set the working {@link XdmNodeReaderWriter}.
    *
-   * @param writer {@link XdmNodeReaderWriter} instance
+   * @param wtx {@link XdmNodeReaderWriter} instance
    */
-  private void setWriter(final XdmNodeWriteTrx writer) {
-    mWriter = writer;
+  private void setXdmNodeWriteTrx(final XdmNodeWriteTrx wtx) {
+    mWtx = wtx;
   }
 
   /**
    * Set the working {@link XdmNodeReadTrx}.
    *
-   * @param pRtx {@link XdmNodeReadTrx} instance
+   * @param rtx {@link XdmNodeReadTrx} instance
    */
-  private void setReader(final XdmNodeReadTrx pRtx) {
-    mReader = pRtx;
+  private void setXdmNodeReadTrx(final XdmNodeReadTrx rtx) {
+    mRtx = rtx;
   }
 
   /**

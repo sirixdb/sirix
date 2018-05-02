@@ -56,18 +56,18 @@ public class IfAxisTest {
   @Test
   public void testIf() throws SirixException {
 
-    holder.getReader().moveTo(1L);
+    holder.getXdmNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "if (text()) then . else child::node()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "if (text()) then . else child::node()"),
         new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(), "if (node()) then . else child::node()"),
+        new XPathAxis(holder.getXdmNodeReadTrx(), "if (node()) then . else child::node()"),
         new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getReader(),
+        new XPathAxis(holder.getXdmNodeReadTrx(),
             "if (processing-instruction()) then . else child::node()"),
         new long[] {4L, 5L, 8L, 9L, 13L});
 

@@ -48,7 +48,7 @@ public class AttributeFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx wtx = holder.getReader();
+    final XdmNodeReadTrx wtx = holder.getXdmNodeReadTrx();
     wtx.moveTo(9L);
     FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 

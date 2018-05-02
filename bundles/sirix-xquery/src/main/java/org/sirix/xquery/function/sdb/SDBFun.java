@@ -3,6 +3,7 @@ package org.sirix.xquery.function.sdb;
 import static org.sirix.xquery.function.sdb.datamining.GetChildCount.GET_CHILD_COUNT;
 import static org.sirix.xquery.function.sdb.datamining.GetDescendantCount.GET_DESCENDANT_COUNT;
 import static org.sirix.xquery.function.sdb.datamining.GetHash.HASH;
+import static org.sirix.xquery.function.sdb.diff.Diff.DIFF;
 import static org.sirix.xquery.function.sdb.index.SortByDocOrder.SORT;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreateNameIndex.CREATE_NAME_INDEX;
@@ -11,6 +12,8 @@ import static org.sirix.xquery.function.sdb.index.find.FindCASIndex.FIND_CAS_IND
 import static org.sirix.xquery.function.sdb.index.find.FindNameIndex.FIND_NAME_INDEX;
 import static org.sirix.xquery.function.sdb.index.find.FindPathIndex.FIND_PATH_INDEX;
 import static org.sirix.xquery.function.sdb.io.Doc.DOC;
+import static org.sirix.xquery.function.sdb.io.DocByPointInTime.OPEN;
+import static org.sirix.xquery.function.sdb.io.Import.IMPORT;
 import static org.sirix.xquery.function.sdb.io.Load.LOAD;
 import static org.sirix.xquery.function.sdb.io.Store.STORE;
 import static org.sirix.xquery.function.sdb.trx.Commit.COMMIT;
@@ -19,7 +22,6 @@ import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECEN
 import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
-import static org.sirix.xquery.function.sdb.diff.Diff.DIFF;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -43,6 +45,8 @@ import org.sirix.xquery.function.sdb.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.sdb.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
 import org.sirix.xquery.function.sdb.io.Doc;
+import org.sirix.xquery.function.sdb.io.DocByPointInTime;
+import org.sirix.xquery.function.sdb.io.Import;
 import org.sirix.xquery.function.sdb.io.Load;
 import org.sirix.xquery.function.sdb.io.Serialize;
 import org.sirix.xquery.function.sdb.io.Store;
@@ -152,6 +156,19 @@ public final class SDBFun {
             new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
                 new SequenceType(AtomicType.STR, Cardinality.One))));
 
+    // open
+    Functions.predefine(
+        new DocByPointInTime(OPEN,
+            new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.INR, Cardinality.ZeroOrOne))));
+    Functions.predefine(
+        new DocByPointInTime(OPEN,
+            new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.INR, Cardinality.ZeroOrOne),
+                new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+
     // commit
     Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
@@ -231,5 +248,12 @@ public final class SDBFun {
     Functions.predefine(
         new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
             SequenceType.INTEGER, SequenceType.INTEGER)));
+
+    // import
+    Functions.predefine(
+        new Import(IMPORT,
+            new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One),
+                new SequenceType(AtomicType.STR, Cardinality.One))));
   }
 }
