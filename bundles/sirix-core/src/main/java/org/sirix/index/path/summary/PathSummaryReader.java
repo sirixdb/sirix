@@ -594,6 +594,35 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
     return Move.notMoved();
   }
 
+  /**
+   * Get the path up to the root path node.
+   *
+   * @param reader {@link PathSummaryReader} instance
+   * @return path up to the root
+   */
+  public Path<QNm> getPath() {
+    PathNode node = getPathNode();
+    final long nodeKey = getNodeKey();
+    moveTo(node.getNodeKey());
+    final PathNode[] path = new PathNode[node.getLevel()];
+    for (int i = node.getLevel() - 1; i >= 0; i--) {
+      path[i] = node;
+      node = moveToParent().get().getPathNode();
+    }
+
+    final Path<QNm> p = new Path<QNm>();
+    for (final PathNode n : path) {
+      moveTo(n.getNodeKey());
+      if (n.getPathKind() == Kind.ELEMENT) {
+        p.child(getName());
+      } else {
+        p.attribute(getName());
+      }
+    }
+    moveTo(nodeKey);
+    return p;
+  }
+
   @Override
   public int getNameCount(String name, @Nonnull Kind kind) {
     assertNotClosed();

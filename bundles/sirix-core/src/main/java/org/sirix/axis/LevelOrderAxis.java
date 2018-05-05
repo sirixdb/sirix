@@ -127,7 +127,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @return this builder instance
      */
     public Builder filterLevel(final @Nonnegative int filterLevel) {
-      checkArgument(filterLevel >= 0, "pFilterLevel must be >= 0!");
+      checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
       mFilterLevel = filterLevel;
       return this;
     }
@@ -224,6 +224,15 @@ public final class LevelOrderAxis extends AbstractAxis {
     }
 
     return done();
+  }
+
+  /**
+   * Get the current level.
+   * 
+   * @return the current level
+   */
+  public int getCurrentLevel() {
+    return mLevel;
   }
 
   /** Process an element node. */

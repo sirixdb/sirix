@@ -61,7 +61,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
     mStructNodeDel = checkNotNull(structNodeDel);
     mNameNodeDel = checkNotNull(nameNodeDel);
     mKind = checkNotNull(kind);
-    checkArgument(references > 0, "pReferences must be > 0!");
+    checkArgument(references > 0, "references must be > 0!");
     mReferences = references;
     mLevel = level;
   }
