@@ -1,6 +1,5 @@
 package org.sirix.api;
 
-import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.Restore;
@@ -51,13 +50,11 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * @param value value to add (usually a node)
    * @param pageKind kind of subtree the page belongs to
    * @param index the index number
-   * @param keyValuePage optional keyValue page
    * @return unmodified record for convenience
    * @throws SirixIOException if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index,
-      @Nonnull Optional<S> keyValuePage) throws SirixIOException;
+  V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
@@ -68,14 +65,12 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * @param pageKind the kind of subtree (for instance regular data pages or the kind of index
    *        pages)
    * @param index the index number
-   * @param keyValuePage optional key/value page
    * @return instance of the class implementing the {@link Record} instance
    * @throws SirixIOException if an I/O-error occurs
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException if {@code page} is {@code null}
    */
-  V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind pageKind, int index,
-      @Nonnull Optional<S> keyValuePage);
+  V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind pageKind, int index);
 
   /**
    * Remove an entry from the storage.
@@ -85,9 +80,9 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * @param index the index number
    * @throws SirixIOException if the removal fails
    * @throws IllegalArgumentException if {@code recordKey < 0}
-   * @throws NullPointerException if {@code pageKind} or {@code keyValuePage} is {@code null}
+   * @throws NullPointerException if {@code pageKind} is {@code null}
    */
-  void removeEntry(K key, @Nonnull PageKind pageKind, int index, @Nonnull Optional<S> keyValuePage);
+  void removeEntry(K key, @Nonnull PageKind pageKind, int index);
 
   /**
    * Creating a namekey for a given name.

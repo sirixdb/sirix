@@ -23,6 +23,8 @@ package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -36,6 +38,8 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
+import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.utils.DocumentCreator;
 
 /**
@@ -69,8 +73,6 @@ public class PathSummaryTest {
 
   /**
    * Test insert on test document.
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
   public void testInsert() throws SirixException {
@@ -84,8 +86,8 @@ public class PathSummaryTest {
     pathSummary.close();
   }
 
-  private void testInsertHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testInsertHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -152,11 +154,9 @@ public class PathSummaryTest {
 
   /**
    * Test delete on test document.
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
-  public void testDelete() throws SirixException {
+  public void testDelete() {
     PathSummaryReader pathSummary = wtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     testInsertHelper(pathSummary);
@@ -173,8 +173,8 @@ public class PathSummaryTest {
     pathSummary.close();
   }
 
-  private void testDeleteHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testDeleteHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -235,11 +235,9 @@ public class PathSummaryTest {
 
   /**
    * Test setQNm on test document (does not find a corresponding path summary after rename).
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
-  public void testSetQNmFirst() throws SirixException {
+  public void testSetQNmFirst() {
     wtx.moveTo(9);
     wtx.setName(new QNm("foo"));
     PathSummaryReader pathSummary = wtx.getPathSummary();
@@ -252,8 +250,8 @@ public class PathSummaryTest {
     pathSummary.close();
   }
 
-  private void testSetQNmFirstHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testSetQNmFirstHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -348,26 +346,75 @@ public class PathSummaryTest {
 
   /**
    * Test setQNm on test document (finds a corresponding path summary after rename).
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
-  public void testSetQNmSecond() throws SirixException {
+  public void testSetQNmSecond() {
     wtx.moveTo(9);
     wtx.setName(new QNm("d"));
-    wtx.setName(new QNm("b"));
+    wtx.commit();
+
+    System.out.println("nodes");
+
+    OutputStream out = new ByteArrayOutputStream();
+    XMLSerializer serializer =
+        new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    serializer.call();
+    System.out.println(out.toString());
+
+    System.out.println("summary");
+
     PathSummaryReader pathSummary = wtx.getPathSummary();
+    Axis pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.next();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
+
+    wtx.moveTo(9);
+    wtx.setName(new QNm("b"));
+    wtx.commit();
+
+    System.out.println("");
+    System.out.println("nodes");
+
+    out = new ByteArrayOutputStream();
+    serializer = new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    serializer.call();
+    System.out.println(out.toString());
+
+    System.out.println("summary");
+
+    pathSummary = wtx.getPathSummary();
+    pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.next();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
+
+    pathSummary = wtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     testSetQNmSecondHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
-    testSetQNmSecondHelper(pathSummary);
-    pathSummary.close();
+
+    try (final PathSummaryReader pathSummaryOnMostRecentRev =
+        holder.getResourceManager().openPathSummary()) {
+      testSetQNmSecondHelper(pathSummaryOnMostRecentRev);
+    }
   }
 
-  private void testSetQNmSecondHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testSetQNmSecondHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -441,11 +488,9 @@ public class PathSummaryTest {
   /**
    * Test setQNm on test document (finds no corresponding path summary after rename -- after
    * references dropped to 0).
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
-  public void testSetQNmThird() throws SirixException {
+  public void testSetQNmThird() {
     wtx.moveTo(9);
     wtx.setName(new QNm("d"));
     wtx.moveTo(5);
@@ -460,8 +505,8 @@ public class PathSummaryTest {
     pathSummary.close();
   }
 
-  private void testSetQNmThirdHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testSetQNmThirdHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -557,11 +602,9 @@ public class PathSummaryTest {
   /**
    * Test setQNm on test document (finds no corresponding path summary after rename -- after
    * references dropped to 0).
-   *
-   * @throws SirixException if Sirix fails
    */
   @Test
-  public void testSetQNmFourth() throws SirixException {
+  public void testSetQNmFourth() {
     wtx.moveTo(1);
     wtx.insertElementAsFirstChild(new QNm("b"));
     wtx.moveTo(5);
@@ -576,8 +619,8 @@ public class PathSummaryTest {
     pathSummary.close();
   }
 
-  private void testSetQNmFourthHelper(final PathSummaryReader pSummary) throws SirixException {
-    final Axis axis = new DescendantAxis(pSummary);
+  private void testSetQNmFourthHelper(final PathSummaryReader summaryReader) {
+    final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
     assertTrue(summary != null);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
@@ -671,7 +714,7 @@ public class PathSummaryTest {
   }
 
   @Test
-  public void testFirstMoveToFirstChild() throws SirixException {
+  public void testFirstMoveToFirstChild() {
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(9);
     final PathSummaryReader pathSummary = wtx.getPathSummary();
@@ -683,20 +726,63 @@ public class PathSummaryTest {
   }
 
   @Test
-  public void testSecondMoveToFirstChild() throws SirixException {
+  public void testSecondMoveToFirstChild() {
     wtx.moveTo(9);
     wtx.insertElementAsFirstChild(new QNm("foo"));
     wtx.insertElementAsFirstChild(new QNm("bar"));
-    PathSummaryReader pathSummary = wtx.getPathSummary();
-    pathSummary.moveToDocumentRoot();
     wtx.moveTo(5);
+    wtx.insertElementAsFirstChild(new QNm("b"));
+    wtx.insertElementAsFirstChild(new QNm("foo"));
+    wtx.insertElementAsFirstChild(new QNm("bar"));
+    wtx.commit();
+
+    System.out.println("nodes");
+
+    OutputStream out = new ByteArrayOutputStream();
+    XMLSerializer serializer =
+        new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    serializer.call();
+    System.out.println(out.toString());
+
+    System.out.println("summary");
+
+    PathSummaryReader pathSummary = wtx.getPathSummary();
+    Axis pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.next();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
+
+    wtx.moveToParent().get().moveToParent();
     wtx.moveSubtreeToRightSibling(9);
-    pathSummary = wtx.getPathSummary();
-    pathSummary.moveToDocumentRoot();
     wtx.commit();
     wtx.close();
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-    rtx.close();
+
+    System.out.println("nodes");
+
+    out = new ByteArrayOutputStream();
+    serializer = new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    serializer.call();
+    System.out.println(out.toString());
+
+    System.out.println("summary");
+
+    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.next();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
   }
 
   /**
