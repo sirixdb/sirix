@@ -22,6 +22,8 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -84,7 +86,7 @@ public class PathSummaryTest {
   private void testInsertHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -94,7 +96,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(6L, summary.getFirstChildKey());
@@ -104,7 +106,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(6L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -114,7 +116,7 @@ public class PathSummaryTest {
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(6L, summary.getLeftSiblingKey());
@@ -124,7 +126,7 @@ public class PathSummaryTest {
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -134,7 +136,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -144,7 +146,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
@@ -171,7 +173,7 @@ public class PathSummaryTest {
   private void testDeleteHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -183,7 +185,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(5L, summary.getFirstChildKey());
@@ -195,7 +197,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -207,7 +209,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -219,7 +221,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -230,7 +232,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
@@ -253,7 +255,7 @@ public class PathSummaryTest {
   private void testSetQNmFirstHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(7L, summary.getFirstChildKey());
@@ -265,7 +267,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(7L, summary.getNodeKey());
     assertEquals(9L, summary.getFirstChildKey());
@@ -277,7 +279,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(9L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -289,7 +291,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(8L, summary.getNodeKey());
     assertEquals(9L, summary.getLeftSiblingKey());
@@ -301,7 +303,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(7L, summary.getLeftSiblingKey());
@@ -313,7 +315,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
@@ -325,7 +327,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -337,7 +339,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -349,7 +351,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
@@ -425,7 +427,7 @@ public class PathSummaryTest {
 
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -437,7 +439,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(10L, summary.getFirstChildKey());
@@ -449,7 +451,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getReferences());
     summary = next(axis);
 
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(10L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -461,7 +463,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(10L, summary.getLeftSiblingKey());
@@ -473,7 +475,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -485,7 +487,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -497,7 +499,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
@@ -523,7 +525,7 @@ public class PathSummaryTest {
   private void testSetQNmThirdHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(7L, summary.getFirstChildKey());
@@ -535,7 +537,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(7L, summary.getNodeKey());
     assertEquals(9L, summary.getFirstChildKey());
@@ -547,7 +549,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(9L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -559,7 +561,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(8L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -571,7 +573,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(7L, summary.getLeftSiblingKey());
@@ -583,7 +585,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
@@ -595,7 +597,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -607,7 +609,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -619,7 +621,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getReferences());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
@@ -645,7 +647,7 @@ public class PathSummaryTest {
   private void testSetQNmFourthHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(7L, summary.getFirstChildKey());
@@ -656,7 +658,7 @@ public class PathSummaryTest {
     assertEquals(4, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(7L, summary.getNodeKey());
     assertEquals(8L, summary.getFirstChildKey());
@@ -667,7 +669,7 @@ public class PathSummaryTest {
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(8L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -678,7 +680,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(7L, summary.getLeftSiblingKey());
@@ -689,7 +691,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getChildCount());
     assertEquals(2, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(6L, summary.getNodeKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
@@ -700,7 +702,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(6L, summary.getLeftSiblingKey());
@@ -711,7 +713,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(4L, summary.getLeftSiblingKey());
@@ -722,7 +724,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(3L, summary.getLeftSiblingKey());
@@ -733,7 +735,7 @@ public class PathSummaryTest {
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   @Test
@@ -778,7 +780,7 @@ public class PathSummaryTest {
 
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -791,7 +793,7 @@ public class PathSummaryTest {
     assertEquals("/p:a", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(7L, summary.getFirstChildKey());
@@ -804,7 +806,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(7L, summary.getNodeKey());
     assertEquals(9L, summary.getFirstChildKey());
@@ -817,7 +819,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(9L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -830,7 +832,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/c", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(8L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -843,7 +845,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/@p:x", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -856,7 +858,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/c", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -869,7 +871,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/@i", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -882,7 +884,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/@p:", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   @Test
@@ -956,7 +958,7 @@ public class PathSummaryTest {
 
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -969,7 +971,7 @@ public class PathSummaryTest {
     assertEquals("/p:a", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(9L, summary.getFirstChildKey());
@@ -982,7 +984,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(9L, summary.getNodeKey());
     assertEquals(10L, summary.getFirstChildKey());
@@ -995,7 +997,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(10L, summary.getNodeKey());
     assertEquals(11L, summary.getFirstChildKey());
@@ -1008,7 +1010,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/foo", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(11L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1021,7 +1023,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/foo/bar", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(7L, summary.getNodeKey());
     assertEquals(8L, summary.getFirstChildKey());
@@ -1034,7 +1036,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/foo", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(8L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1047,7 +1049,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/foo/bar", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(6L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1060,7 +1062,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/@p:x", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1073,7 +1075,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/c", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1086,7 +1088,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/@i", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1099,13 +1101,13 @@ public class PathSummaryTest {
     assertEquals("/p:a/@p:", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   private void testSecondMoveToFirstChildAfterMoveHelper(final PathSummaryReader summaryReader) {
     final Axis axis = new DescendantAxis(summaryReader);
     PathSummaryReader summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(1L, summary.getNodeKey());
     assertEquals(4L, summary.getFirstChildKey());
@@ -1118,7 +1120,7 @@ public class PathSummaryTest {
     assertEquals("/p:a", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(4L, summary.getNodeKey());
     assertEquals(13L, summary.getFirstChildKey());
@@ -1131,7 +1133,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(13L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1144,7 +1146,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/c", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(12L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1157,7 +1159,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/@p:x", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(9L, summary.getNodeKey());
     assertEquals(10L, summary.getFirstChildKey());
@@ -1170,7 +1172,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(10L, summary.getNodeKey());
     assertEquals(11L, summary.getFirstChildKey());
@@ -1183,7 +1185,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/foo", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(11L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1196,7 +1198,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/b/foo/bar", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ELEMENT, summary.getPathKind());
     assertEquals(5L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1209,7 +1211,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/b/c", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.ATTRIBUTE, summary.getPathKind());
     assertEquals(3L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1222,7 +1224,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/@i", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary != null);
+    assertNotNull(summary);
     assertEquals(Kind.NAMESPACE, summary.getPathKind());
     assertEquals(2L, summary.getNodeKey());
     assertEquals(-1L, summary.getFirstChildKey());
@@ -1235,7 +1237,7 @@ public class PathSummaryTest {
     assertEquals("/p:a/@p:", summary.getPath().toString());
 
     summary = next(axis);
-    assertTrue(summary == null);
+    assertNull(summary);
   }
 
   /**
