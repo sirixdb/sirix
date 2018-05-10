@@ -33,6 +33,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
+import org.sirix.settings.Constants;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -129,7 +130,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
               ? i
               : mRevisions[i - 1])) {
         if (length > 1) {
-          emitStartManualElement(rtx.getRevisionNumber());
+          emitStartManualElement(rtx);
         }
 
         rtx.moveTo(mNodeKey);
@@ -173,17 +174,16 @@ public abstract class AbstractSerializer implements Callable<Void> {
           if (!rtx.hasFirstChild() && !rtx.hasRightSibling()) {
             closeElements = true;
           }
-
         }
 
         // Finally emit all pending end elements.
-        while (!mStack.isEmpty()) {
+        while (!mStack.isEmpty() && mStack.peek() != Constants.NULL_ID_LONG) {
           rtx.moveTo(mStack.pop());
           emitEndElement(rtx);
         }
 
         if (length > 1) {
-          emitEndManualElement(i);
+          emitEndManualElement(rtx);
         }
       }
     }
@@ -203,14 +203,14 @@ public abstract class AbstractSerializer implements Callable<Void> {
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartElement(final XdmNodeReadTrx rtx);
+  protected abstract void emitStartElement(XdmNodeReadTrx rtx);
 
   /**
    * Emit end tag.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndElement(final XdmNodeReadTrx rtx);
+  protected abstract void emitEndElement(XdmNodeReadTrx rtx);
 
   /** Emit a start tag, which encapsulates several revisions. */
   protected abstract void emitStartManualRootElement();
@@ -221,16 +221,16 @@ public abstract class AbstractSerializer implements Callable<Void> {
   /**
    * Emit a start tag, which specifies a revision.
    *
-   * @param revision the revision to serialize
+   * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartManualElement(final @Nonnegative long revision);
+  protected abstract void emitStartManualElement(XdmNodeReadTrx rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
-   * @param revision the revision to serialize
+   * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndManualElement(final @Nonnegative long revision);
+  protected abstract void emitEndManualElement(XdmNodeReadTrx rtx);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

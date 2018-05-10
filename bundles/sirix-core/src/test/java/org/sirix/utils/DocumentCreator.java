@@ -106,14 +106,14 @@ public final class DocumentCreator {
   /** String representation of ID. */
   public static final String ID =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" "
-          + "ttid=\"1\" i=\"j\">oops1<b ttid=\"5\">foo<c ttid=\"7\"/></b>oops2<b ttid=\"9\" p:x=\"y\">"
-          + "<c ttid=\"11\"/>bar</b>oops3</p:a>";
+          + "sid=\"1\" i=\"j\">oops1<b sid=\"5\">foo<c sid=\"7\"/></b>oops2<b sid=\"9\" p:x=\"y\">"
+          + "<c sid=\"11\"/>bar</b>oops3</p:a>";
 
   /** String representation of rest. */
   public static final String REST = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       + "<rest:sequence xmlns:rest=\"REST\"><rest:item>"
-      + "<p:a xmlns:p=\"ns\" rest:ttid=\"1\" i=\"j\">oops1<b rest:ttid=\"5\">foo<c rest:ttid=\"7\"/></b>oops2<b rest:ttid=\"9\" p:x=\"y\">"
-      + "<c rest:ttid=\"11\"/>bar</b>oops3</p:a>" + "</rest:item></rest:sequence>";
+      + "<p:a xmlns:p=\"ns\" rest:sid=\"1\" i=\"j\">oops1<b rest:sid=\"5\">foo<c rest:sid=\"7\"/></b>oops2<b rest:sid=\"9\" p:x=\"y\">"
+      + "<c rest:sid=\"11\"/>bar</b>oops3</p:a></rest:item></rest:sequence>";
 
   /** String representation of test document. */
   public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
