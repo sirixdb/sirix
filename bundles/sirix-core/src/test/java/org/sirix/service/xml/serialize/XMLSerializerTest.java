@@ -83,6 +83,7 @@ public class XMLSerializerTest {
         XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
     serializer.call();
     assertEquals(DocumentCreator.REST, out.toString());
+    assertEquals(DocumentCreator.REST, out.toString());
 
     manager.close();
   }

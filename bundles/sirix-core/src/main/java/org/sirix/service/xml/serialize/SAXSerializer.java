@@ -26,7 +26,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.service.xml.serialize.AbstractSerializer;
 import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -137,9 +139,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitStartManualElement(final @Nonnegative long revision) {
+  protected void emitStartManualElement(final @Nonnull XdmNodeReadTrx rtx) {
     final AttributesImpl atts = new AttributesImpl();
-    atts.addAttribute("", "revision", "sirix", "", Long.toString(revision));
+    atts.addAttribute("", "revision", "sirix", "", Integer.toString(rtx.getRevisionNumber()));
     try {
       mContHandler.startElement("", "sirix", "sirix", atts);
     } catch (final SAXException e) {
@@ -148,7 +150,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndManualElement(final @Nonnegative long revision) {
+  protected void emitEndManualElement(final @Nonnull XdmNodeReadTrx rtx) {
     try {
       mContHandler.endElement("", "sirix", "sirix");
     } catch (final SAXException e) {
