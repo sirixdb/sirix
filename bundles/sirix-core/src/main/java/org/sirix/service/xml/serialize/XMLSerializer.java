@@ -577,7 +577,15 @@ public final class XMLSerializer extends AbstractSerializer {
      * @return XMLSerializerBuilder reference
      */
     public XMLSerializerBuilder versions(final int[] versions) {
-      mVersions = checkNotNull(versions);
+      checkNotNull(versions);
+
+      mVersion = versions[0];
+
+      mVersions = new int[versions.length - 1];
+      for (int i = 0; i < versions.length - 1; i++) {
+        mVersions[i] = versions[i + 1];
+      }
+
       return this;
     }
 
