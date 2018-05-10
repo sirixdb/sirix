@@ -178,7 +178,7 @@ public final class DatabaseImpl implements Database {
   }
 
   @Override
-  public synchronized Database truncateResource(final String name) {
+  public synchronized Database removeResource(final String name) {
     assertNotClosed();
 
     final Path resourceFile =

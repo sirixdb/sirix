@@ -21,8 +21,8 @@
 
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -276,7 +276,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private void updateShredder() throws SirixException, IOException, XMLStreamException {
     final Path path = Files.createTempDirectory("sdbtmp");
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
-    Databases.truncateDatabase(dbConf);
+    Databases.removeDatabase(path);
     Databases.createDatabase(dbConf);
     final Database db = Databases.openDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
@@ -305,7 +305,7 @@ public final class WikipediaImport implements Import<StartElement> {
     rtx.close();
     resourceManager.close();
     db.close();
-    Databases.truncateDatabase(dbConf);
+    Databases.removeDatabase(path);
   }
 
   /**
@@ -564,7 +564,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
     final Path xml = Paths.get(args[0]);
     final Path resource = Paths.get(args[1]);
-    Databases.truncateDatabase(new DatabaseConfiguration(resource));
+    Databases.removeDatabase(resource);
 
     // Create necessary element nodes.
     final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";

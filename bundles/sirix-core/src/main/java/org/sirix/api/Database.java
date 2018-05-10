@@ -87,7 +87,7 @@ public interface Database extends AutoCloseable {
    *
    * @param name resource name
    */
-  Database truncateResource(String name);
+  Database removeResource(String name);
 
   /**
    * Closing the database for further access.

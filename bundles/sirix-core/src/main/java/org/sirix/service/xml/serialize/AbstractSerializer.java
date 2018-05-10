@@ -129,7 +129,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
               ? i
               : mRevisions[i - 1])) {
         if (length > 1) {
-          emitStartManualElement(i);
+          emitStartManualElement(rtx.getRevisionNumber());
         }
 
         rtx.moveTo(mNodeKey);

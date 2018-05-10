@@ -440,13 +440,13 @@ public class FileSystemWatcher implements AutoCloseable {
     }
 
     if (Boolean.parseBoolean(args[2])) {
-      Databases.truncateDatabase(new DatabaseConfiguration(Paths.get(args[1])));
+      Databases.removeDatabase(Paths.get(args[2]));
     }
     final Path databasePath = Paths.get(args[1]);
     final DatabaseConfiguration conf = new DatabaseConfiguration(databasePath);
     Map<Path, FileSystemPath> index = null;
     if (Files.exists(Paths.get(args[1]))) {
-      Databases.truncateDatabase(conf);
+      Databases.removeDatabase(databasePath);
     }
 
     Databases.createDatabase(conf);

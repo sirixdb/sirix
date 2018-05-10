@@ -1,6 +1,5 @@
 package org.sirix.access;
 
-import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageWriteTrx;

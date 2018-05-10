@@ -30,7 +30,7 @@ public final class ResourceTransactionUsage {
     final Path file = LOCATION.resolve("db");
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (Files.exists(file)) {
-      Databases.truncateDatabase(config);
+      Databases.removeDatabase(file);
     }
     Databases.createDatabase(config);
 

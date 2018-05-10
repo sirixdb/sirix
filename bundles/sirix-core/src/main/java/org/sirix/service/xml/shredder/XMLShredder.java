@@ -319,7 +319,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     final long time = System.nanoTime();
     final Path target = Paths.get(args[1]);
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
-    Databases.truncateDatabase(config);
+    Databases.removeDatabase(target);
     Databases.createDatabase(config);
 
     try (final Database db = Databases.openDatabase(target)) {
