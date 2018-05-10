@@ -356,10 +356,15 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
       throws IOException, XMLStreamException {
     checkNotNull(xmlFile);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
-    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
+    setProperties(factory);
     final InputStream in = new FileInputStream(xmlFile.toFile());
     return factory.createXMLEventReader(in);
+  }
+
+  private static void setProperties(final XMLInputFactory factory) {
+    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+    factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
   }
 
   /**
@@ -374,8 +379,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
       throws IOException, XMLStreamException {
     checkNotNull(xmlString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
-    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
+    setProperties(factory);
     final InputStream in = new ByteArrayInputStream(xmlString.getBytes());
     return factory.createXMLEventReader(in);
   }
