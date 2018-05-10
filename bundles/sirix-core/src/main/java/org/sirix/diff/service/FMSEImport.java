@@ -73,7 +73,7 @@ public final class FMSEImport {
     assert resNewRev != null;
     assert newRev != null;
     final DatabaseConfiguration conf = new DatabaseConfiguration(newRev);
-    Databases.truncateDatabase(conf);
+    Databases.removeDatabase(newRev);
     Databases.createDatabase(conf);
 
     try (final Database db = Databases.openDatabase(newRev)) {

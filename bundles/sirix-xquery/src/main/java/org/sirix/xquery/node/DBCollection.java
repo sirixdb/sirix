@@ -169,8 +169,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   @Override
   public void delete() throws DocumentException {
     try {
-      Databases.truncateDatabase(
-          new DatabaseConfiguration(mDatabase.getDatabaseConfig().getFile()));
+      Databases.removeDatabase(mDatabase.getDatabaseConfig().getFile());
     } catch (final SirixIOException e) {
       throw new DocumentException(e.getCause());
     }
@@ -182,7 +181,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     if (documentID >= 0) {
       final String resource = mDatabase.getResourceName((int) documentID);
       if (resource != null) {
-        mDatabase.truncateResource(resource);
+        mDatabase.removeResource(resource);
       }
     }
   }

@@ -331,12 +331,12 @@ public final class XMLSerializer extends AbstractSerializer {
   /**
    * Write characters of string.
    *
-   * @param pString String to write
+   * @param value value to write
    * @throws IOException if can't write to string
    * @throws UnsupportedEncodingException if unsupport encoding
    */
-  protected void write(final String pString) throws UnsupportedEncodingException, IOException {
-    mOut.write(pString.getBytes(Constants.DEFAULT_ENCODING));
+  protected void write(final String value) throws UnsupportedEncodingException, IOException {
+    mOut.write(value.getBytes(Constants.DEFAULT_ENCODING));
   }
 
   /**

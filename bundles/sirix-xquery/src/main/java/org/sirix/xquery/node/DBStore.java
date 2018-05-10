@@ -141,10 +141,10 @@ public final class DBStore implements Store, AutoCloseable {
 
   @Override
   public DBCollection lookup(final String name) throws DocumentException {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
-    if (Databases.existsDatabase(dbConf)) {
+    final Path dbPath = mLocation.resolve(name);
+    if (Databases.existsDatabase(dbPath)) {
       try {
-        final Database database = Databases.openDatabase(dbConf.getFile());
+        final Database database = Databases.openDatabase(dbPath);
         final Optional<Database> storedCollection =
             mDatabases.stream().findFirst().filter((final Database db) -> db.equals(database));
         if (storedCollection.isPresent()) {
@@ -188,11 +188,12 @@ public final class DBStore implements Store, AutoCloseable {
 
   public DBCollection create(final String collName, final Optional<String> optResName,
       final SubtreeParser parser) throws DocumentException {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
+    final Path dbPath = mLocation.resolve(collName);
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      Databases.truncateDatabase(dbConf);
+      Databases.removeDatabase(dbPath);
       Databases.createDatabase(dbConf);
-      final Database database = Databases.openDatabase(dbConf.getFile());
+      final Database database = Databases.openDatabase(dbPath);
       mDatabases.add(database);
       final String resName = optResName.isPresent()
           ? optResName.get()
@@ -228,9 +229,10 @@ public final class DBStore implements Store, AutoCloseable {
   public DBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers)
       throws DocumentException {
     if (parsers != null) {
-      final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(collName));
+      final Path dbPath = mLocation.resolve(collName);
+      final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
-        Databases.truncateDatabase(dbConf);
+        Databases.removeDatabase(dbPath);
         Databases.createDatabase(dbConf);
         final Database database = Databases.openDatabase(dbConf.getFile());
         mDatabases.add(database);
@@ -281,10 +283,11 @@ public final class DBStore implements Store, AutoCloseable {
 
   @Override
   public void drop(final String name) throws DocumentException {
-    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(mLocation.resolve(name));
-    if (Databases.existsDatabase(dbConfig)) {
+    final Path dbPath = mLocation.resolve(name);
+    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
+    if (Databases.existsDatabase(dbPath)) {
       try {
-        Databases.truncateDatabase(dbConfig);
+        Databases.removeDatabase(dbPath);
         final Database database = Databases.openDatabase(dbConfig.getFile());
         mDatabases.remove(database);
         mCollections.remove(database);

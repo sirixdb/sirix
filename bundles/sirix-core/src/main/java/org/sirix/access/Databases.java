@@ -114,22 +114,21 @@ public final class Databases {
   }
 
   /**
-   * Truncate a database. This deletes all relevant data. All running sessions must be closed
+   * Delete a database. This deletes all relevant data. All running sessions must be closed
    * beforehand.
    *
-   * @param dbConfig the database at this path should be deleted
+   * @param dbFile the database at this path should be deleted
    * @throws SirixIOException if Sirix fails to delete the database
    */
-  public static synchronized void truncateDatabase(final DatabaseConfiguration dbConfig)
-      throws SirixIOException {
+  public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand
-    if (!DATABASE_SESSIONS.containsKey(dbConfig.getFile())) {
+    if (!DATABASE_SESSIONS.containsKey(dbFile)) {
       // if file is existing and folder is a tt-dataplace, delete it
-      if (Files.exists(dbConfig.getFile())) {
+      if (Files.exists(dbFile)) {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
         // 0) {
         // instantiate the database for deletion
-        SirixFiles.recursiveRemove(dbConfig.getFile());
+        SirixFiles.recursiveRemove(dbFile);
       }
     }
   }
@@ -164,14 +163,13 @@ public final class Databases {
   /**
    * Determines if a database already exists.
    *
-   * @param dbConfig database configuration
+   * @param dbPath database path
    * @return {@code true}, if database exists, {@code false} otherwise
    */
-  public static synchronized boolean existsDatabase(final DatabaseConfiguration dbConfig) {
-    return Files.exists(dbConfig.getFile())
-        && DatabaseConfiguration.DatabasePaths.compareStructure(dbConfig.getFile()) == 0
-            ? true
-            : false;
+  public static synchronized boolean existsDatabase(final Path dbPath) {
+    return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0
+        ? true
+        : false;
   }
 
   /**

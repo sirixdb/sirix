@@ -143,8 +143,8 @@ public final class TestHelper {
   @Ignore
   public static final void deleteEverything() throws SirixException {
     closeEverything();
-    Databases.truncateDatabase(PATHS.PATH1.config);
-    Databases.truncateDatabase(PATHS.PATH2.config);
+    Databases.removeDatabase(PATHS.PATH1.getFile());
+    Databases.removeDatabase(PATHS.PATH2.getFile());
   }
 
   /**
