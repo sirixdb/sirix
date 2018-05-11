@@ -1,0 +1,8 @@
+<application>
+  <component name="LanguageInjectionConfiguration">
+    <injection language="kotlin" injector-id="xml">
+      <display-name>dependencies</display-name>
+      <place><![CDATA[xmlTag().withLocalName(string().equalTo("dependencies")).withNamespace(string().equalTo("http://maven.apache.org/POM/4.0.0"))]]></place>
+    </injection>
+  </component>
+</application>
