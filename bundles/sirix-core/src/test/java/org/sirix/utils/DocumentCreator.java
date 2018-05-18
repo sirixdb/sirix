@@ -28,8 +28,8 @@ import java.io.IOException;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.TestHelper;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
@@ -352,53 +352,51 @@ public final class DocumentCreator {
   public static void createRevisioned(final Database database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmNodeWriteTrx firstWtx = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-                                                  .beginNodeWriteTrx()) {
-      final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
-          XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
-      shredder.call();
-    }
+    try (final ResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE)) {
+      try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
+        final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
+            XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
+        shredder.call();
+      }
 
-    try (final XdmNodeWriteTrx secondWtx = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-                                                   .beginNodeWriteTrx()) {
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.setValue("A Contrived Test Document");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToRightSibling();
-      final long key = secondWtx.getNodeKey();
-      secondWtx.insertAttribute(new QNm("role"), "bold");
-      secondWtx.moveTo(key);
-      secondWtx.moveToRightSibling();
-      secondWtx.setValue("changed in it.");
-      secondWtx.moveToParent();
-      secondWtx.insertElementAsRightSibling(new QNm("para"));
-      secondWtx.insertTextAsFirstChild("This is a new para 2b.");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToFirstChild();
-      secondWtx.setValue("This is a different para 4.");
-      secondWtx.moveToParent();
-      secondWtx.insertElementAsRightSibling(new QNm("para"));
-      secondWtx.insertTextAsFirstChild("This is a new para 4b.");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.remove();
-      secondWtx.remove();
-      secondWtx.commit();
-      secondWtx.moveToDocumentRoot();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.remove();
-      secondWtx.commit();
+      try (final XdmNodeWriteTrx secondWtx = resMgr.beginNodeWriteTrx()) {
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.setValue("A Contrived Test Document");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToRightSibling();
+        final long key = secondWtx.getNodeKey();
+        secondWtx.insertAttribute(new QNm("role"), "bold");
+        secondWtx.moveTo(key);
+        secondWtx.moveToRightSibling();
+        secondWtx.setValue("changed in it.");
+        secondWtx.moveToParent();
+        secondWtx.insertElementAsRightSibling(new QNm("para"));
+        secondWtx.insertTextAsFirstChild("This is a new para 2b.");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToFirstChild();
+        secondWtx.setValue("This is a different para 4.");
+        secondWtx.moveToParent();
+        secondWtx.insertElementAsRightSibling(new QNm("para"));
+        secondWtx.insertTextAsFirstChild("This is a new para 4b.");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.remove();
+        secondWtx.remove();
+        secondWtx.commit();
+        secondWtx.moveToDocumentRoot();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.remove();
+        secondWtx.commit();
+      }
     }
   }
 }

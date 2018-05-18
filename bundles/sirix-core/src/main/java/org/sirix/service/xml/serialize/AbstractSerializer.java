@@ -27,8 +27,8 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
@@ -122,7 +122,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
     if (length > 1) {
-      emitStartManualRootElement();
+      emitStartManualRootTag();
     }
     for (int i = 1; i <= length; i++) {
       try (final XdmNodeReadTrx rtx = mResMgr.beginNodeReadTrx(
@@ -130,7 +130,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
               ? i
               : mRevisions[i - 1])) {
         if (length > 1) {
-          emitStartManualElement(rtx);
+          emitRevisionStartTag(rtx);
         }
 
         rtx.moveTo(mNodeKey);
@@ -183,12 +183,12 @@ public abstract class AbstractSerializer implements Callable<Void> {
         }
 
         if (length > 1) {
-          emitEndManualElement(rtx);
+          emitRevisionEndTag(rtx);
         }
       }
     }
     if (length > 1) {
-      emitEndManualRootElement();
+      emitEndManualRootTag();
     }
     emitEndDocument();
 
@@ -213,24 +213,24 @@ public abstract class AbstractSerializer implements Callable<Void> {
   protected abstract void emitEndElement(XdmNodeReadTrx rtx);
 
   /** Emit a start tag, which encapsulates several revisions. */
-  protected abstract void emitStartManualRootElement();
+  protected abstract void emitStartManualRootTag();
 
   /** Emit an end tag, which encapsulates several revisions. */
-  protected abstract void emitEndManualRootElement();
+  protected abstract void emitEndManualRootTag();
 
   /**
    * Emit a start tag, which specifies a revision.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartManualElement(XdmNodeReadTrx rtx);
+  protected abstract void emitRevisionStartTag(XdmNodeReadTrx rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndManualElement(XdmNodeReadTrx rtx);
+  protected abstract void emitRevisionEndTag(XdmNodeReadTrx rtx);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

@@ -26,7 +26,6 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -61,10 +60,10 @@ public interface Database extends AutoCloseable {
   /**
    * Is the resource within this database existing?
    *
-   * @param name resource to be checked
+   * @param resourceName resource to be checked
    * @return {@code true}, if existing, {@code false} otherwise
    */
-  boolean existsResource(String name);
+  boolean existsResource(String resourceName);
 
   /**
    * List all resources within this database.
@@ -76,18 +75,18 @@ public interface Database extends AutoCloseable {
   /**
    * Getting the resource manager to open and work with a resource stored in this database.
    *
-   * @param config {@link ResourceManagerConfiguration.Builder} reference
+   * @param resourceName the resource to work on
    * @return the session
    * @throws SirixException if can't get session
    */
-  ResourceManager getResourceManager(ResourceManagerConfiguration config) throws SirixException;
+  ResourceManager getResourceManager(String resourceName) throws SirixException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.
    *
-   * @param name resource name
+   * @param resourceName resource name
    */
-  Database removeResource(String name);
+  Database removeResource(String resourceName);
 
   /**
    * Closing the database for further access.

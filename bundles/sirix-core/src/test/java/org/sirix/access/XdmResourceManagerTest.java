@@ -34,7 +34,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -64,12 +63,10 @@ public class XdmResourceManagerTest {
   public void testSingleton() {
     final Database database = Holder.openResourceManager().getDatabase();
     assertEquals(database, holder.getDatabase());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     assertEquals(manager, holder.getResourceManager());
     manager.close();
-    final ResourceManager manager2 = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager2 = database.getResourceManager(TestHelper.RESOURCE);
     assertNotSame(manager2, holder.getResourceManager());
     database.close();
   }
@@ -174,8 +171,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testExisting() {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resource = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
 
     final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
     DocumentCreator.create(wtx1);
@@ -184,8 +180,7 @@ public class XdmResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final ResourceManager resource2 = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource2 = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -204,8 +199,7 @@ public class XdmResourceManagerTest {
     wtx2.close();
 
     final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resource3 = database2.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resource3 = database2.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);

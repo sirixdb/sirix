@@ -22,7 +22,6 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;

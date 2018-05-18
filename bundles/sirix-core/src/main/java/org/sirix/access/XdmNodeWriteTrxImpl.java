@@ -2556,6 +2556,8 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
 
             switch (event.getEventType()) {
               case XMLStreamConstants.START_ELEMENT:
+              case XMLStreamConstants.COMMENT:
+              case XMLStreamConstants.PROCESSING_INSTRUCTION:
                 Insert pos = Insert.ASFIRSTCHILD;
                 if (currentNode.hasLeftSibling()) {
                   moveToLeftSibling();
@@ -2603,19 +2605,28 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
       switch (rtx.getKind()) {
         case ELEMENT:
         case TEXT:
+        case COMMENT:
+        case PROCESSING_INSTRUCTION:
           checkCurrentNode();
-          replace(rtx);
+
+          if (isText()) {
+            removeAndThenInsert(rtx);
+          } else {
+            insertAndThenRemove(rtx);
+          }
           break;
         case ATTRIBUTE:
           if (getCurrentNode().getKind() != Kind.ATTRIBUTE) {
             throw new IllegalStateException("Current node must be an attribute node!");
           }
+          remove();
           insertAttribute(rtx.getName(), rtx.getValue());
           break;
         case NAMESPACE:
-          if (mNodeReadTrx.getCurrentNode().getClass() != NamespaceNode.class) {
+          if (getCurrentNode().getKind() != Kind.NAMESPACE) {
             throw new IllegalStateException("Current node must be a namespace node!");
           }
+          remove();
           insertNamespace(rtx.getName());
           break;
         // $CASES-OMITTED$
@@ -2635,6 +2646,26 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     if (!(getCurrentNode() instanceof StructNode)) {
       throw new IllegalStateException("Current node must be a structural node!");
     }
+  }
+
+  private ImmutableNode removeAndThenInsert(final XdmNodeReadTrx rtx) throws SirixException {
+    assert rtx != null;
+    final StructNode currentNode = mNodeReadTrx.getStructuralNode();
+    long key = currentNode.getNodeKey();
+    if (currentNode.hasLeftSibling()) {
+      final long nodeKey = currentNode.getLeftSiblingKey();
+      remove();
+      moveTo(nodeKey);
+      key = copySubtreeAsRightSibling(rtx).getNodeKey();
+    } else {
+      final long nodeKey = currentNode.getParentKey();
+      remove();
+      moveTo(nodeKey);
+      key = copySubtreeAsFirstChild(rtx).getNodeKey();
+      moveTo(key);
+    }
+
+    return mNodeReadTrx.getCurrentNode();
   }
 
   /**
@@ -2663,14 +2694,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     return mNodeReadTrx.getCurrentNode();
   }
 
-  /**
-   * Replace a node.
-   *
-   * @param rtx the transaction which is located at the node to replace
-   * @return
-   * @throws SirixException
-   */
-  private ImmutableNode replace(final XdmNodeReadTrx rtx) throws SirixException {
+  private ImmutableNode insertAndThenRemove(final XdmNodeReadTrx rtx) throws SirixException {
     assert rtx != null;
     final StructNode currentNode = mNodeReadTrx.getStructuralNode();
     long key = currentNode.getNodeKey();
@@ -2683,7 +2707,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
       moveTo(key);
     }
 
-    removeReplaced(currentNode, key);
+    removeOldNode(currentNode, key);
     return mNodeReadTrx.getCurrentNode();
   }
 
@@ -2696,14 +2720,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     return mNodeReadTrx.getCurrentNode();
   }
 
-  /**
-   *
-   * @param node
-   * @param key
-   * @throws SirixException
-   */
-  private void removeReplaced(final StructNode node, @Nonnegative final long key)
-      throws SirixException {
+  private void removeOldNode(final StructNode node, final @Nonnegative long key) {
     assert node != null;
     assert key >= 0;
     moveTo(node.getNodeKey());

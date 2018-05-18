@@ -7,7 +7,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Reader;
@@ -40,7 +39,6 @@ public final class ResourceStore implements AutoCloseable {
    *
    * @param database The database.
    * @param resourceConfig The resource configuration.
-   * @param resourceManagerConfig The resource manager configuration.
    * @param bufferManager The buffer manager.
    * @param resourceFile The resource to open.
    * @return A resource manager.
@@ -48,7 +46,6 @@ public final class ResourceStore implements AutoCloseable {
    */
   public ResourceManager openResource(final @Nonnull DatabaseImpl database,
       final @Nonnull ResourceConfiguration resourceConfig,
-      final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
       final @Nonnull BufferManager bufferManager, final @Nonnull Path resourceFile) {
     checkNotNull(database);
     checkNotNull(resourceConfig);
@@ -77,9 +74,8 @@ public final class ResourceStore implements AutoCloseable {
           Databases.computeWriteSempahoreIfAbsent(resourceConfig.getResource(), 1);
 
       // Create the resource manager instance.
-      final ResourceManager resourceManager =
-          new XdmResourceManager(database, this, resourceConfig, resourceManagerConfig,
-              bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeSem);
+      final ResourceManager resourceManager = new XdmResourceManager(database, this, resourceConfig,
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeSem);
 
       // Put it in the databases cache.
       Databases.putResourceManager(resourceFile, resourceManager);

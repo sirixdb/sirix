@@ -35,7 +35,6 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -81,8 +80,7 @@ public class XMLShredderTest extends XMLTestCase {
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
     database2.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
-    final ResourceManager manager = database2.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database2.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeReadTrx rtx = manager.beginNodeReadTrx();
     rtx.moveToDocumentRoot();
     final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -129,8 +127,7 @@ public class XMLShredderTest extends XMLTestCase {
 
     // Setup expected session.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager expectedSession = database2.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager expectedSession = database2.getResourceManager(TestHelper.RESOURCE);
 
     final XdmNodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
     DocumentCreator.create(expectedTrx);
@@ -176,8 +173,7 @@ public class XMLShredderTest extends XMLTestCase {
 
     // Setup parsed session.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager2 = database2.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager2 = database2.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
     final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML2),
         Insert.ASFIRSTCHILD).commitAfterwards().build();
@@ -214,8 +210,7 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testShreddingLargeText() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML3),
         Insert.ASFIRSTCHILD).commitAfterwards().build();

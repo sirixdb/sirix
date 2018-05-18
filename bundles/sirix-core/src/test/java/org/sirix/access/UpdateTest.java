@@ -494,7 +494,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testReplaceTextNode() throws SirixException, IOException, XMLStreamException {
+  public void testReplaceElementWithTwoSiblingTextNodesWithTextNode() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.commit();
@@ -502,16 +502,16 @@ public class UpdateTest {
     rtx.moveTo(12);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
-    testReplaceTextNode(wtx);
+    testReplaceElementWithTextNode(wtx);
     wtx.commit();
-    testReplaceTextNode(wtx);
+    testReplaceElementWithTextNode(wtx);
     wtx.close();
     rtx = holder.getResourceManager().beginNodeReadTrx();
-    testReplaceTextNode(rtx);
+    testReplaceElementWithTextNode(rtx);
     rtx.close();
   }
 
-  private void testReplaceTextNode(final XdmNodeReadTrx rtx) throws SirixException {
+  private void testReplaceElementWithTextNode(final XdmNodeReadTrx rtx) {
     assertFalse(rtx.moveTo(5).hasMoved());
     assertTrue(rtx.moveTo(4).hasMoved());
     assertEquals("oops1baroops2", rtx.getValue());
@@ -524,6 +524,30 @@ public class UpdateTest {
     assertTrue(rtx.moveTo(1).hasMoved());
     assertEquals(3, rtx.getChildCount());
     assertEquals(5, rtx.getDescendantCount());
+  }
+
+  @Test
+  public void testReplaceTextNodeWithTextNode() {
+    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    DocumentCreator.create(wtx);
+    wtx.commit();
+    XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    rtx.moveTo(12);
+    wtx.moveTo(4);
+    wtx.replaceNode(rtx);
+    testReplaceTextNode(wtx);
+    wtx.commit();
+    testReplaceTextNode(wtx);
+    wtx.close();
+    rtx = holder.getResourceManager().beginNodeReadTrx();
+    testReplaceTextNode(rtx);
+    rtx.close();
+  }
+
+  private void testReplaceTextNode(final XdmNodeReadTrx rtx) throws SirixException {
+    assertTrue(rtx.moveTo(14).hasMoved());
+    assertEquals("bar", rtx.getValue());
+    assertEquals(5, rtx.getRightSiblingKey());
   }
 
   @Test

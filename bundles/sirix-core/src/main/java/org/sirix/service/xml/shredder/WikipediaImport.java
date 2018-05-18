@@ -48,7 +48,6 @@ import javax.xml.stream.events.XMLEvent;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -142,8 +141,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createDatabase(config);
     mDatabase = Databases.openDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    mResourceManager =
-        mDatabase.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+    mResourceManager = mDatabase.getResourceManager("shredded");
     mWtx = mResourceManager.beginNodeWriteTrx();
   }
 
@@ -280,8 +278,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createDatabase(dbConf);
     final Database db = Databases.openDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
-    final ResourceManager resourceManager =
-        db.getResourceManager(new ResourceManagerConfiguration.Builder("wiki").build());
+    final ResourceManager resourceManager = db.getResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
       mPageEvents.addFirst(

@@ -21,9 +21,7 @@ import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
@@ -128,17 +126,15 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode getDocument(Instant pointInTime, String name, boolean updatable)
       throws DocumentException {
     try {
-      final ResourceManagerConfiguration resMgrConf =
-          ResourceManagerConfiguration.newBuilder(name).build();
-      return getDocumentInternal(resMgrConf, pointInTime, updatable);
+      return getDocumentInternal(name, pointInTime, updatable);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
-  private DBNode getDocumentInternal(final ResourceManagerConfiguration resourceManagerConfig,
-      final Instant pointInTime, final boolean updatable) throws SirixException {
-    final ResourceManager resource = mDatabase.getResourceManager(resourceManagerConfig);
+  private DBNode getDocumentInternal(final String resName, final Instant pointInTime,
+      final boolean updatable) {
+    final ResourceManager resource = mDatabase.getResourceManager(resName);
 
     final XdmNodeReadTrx trx;
 
@@ -193,13 +189,12 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final ResourceManager session = mDatabase.getResourceManager(
-          ResourceManagerConfiguration.newBuilder(resources.get(0).getFileName().toString())
-                                      .build());
+      final ResourceManager manager =
+          mDatabase.getResourceManager(resources.get(0).getFileName().toString());
       final int version = revision == -1
-          ? session.getMostRecentRevisionNumber()
+          ? manager.getMostRecentRevisionNumber()
           : revision;
-      final XdmNodeReadTrx rtx = session.beginNodeReadTrx(version);
+      final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(version);
       return new DBNode(rtx, this);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
@@ -218,8 +213,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                .useTextCompression(true)
                                .buildPathSummary(true)
                                .build());
-      final ResourceManager manager =
-          mDatabase.getResourceManager(ResourceManagerConfiguration.newBuilder(resource).build());
+      final ResourceManager manager = mDatabase.getResourceManager(resource);
       final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
       final SubtreeHandler handler =
           new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
@@ -249,8 +243,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                .useTextCompression(true)
                                .buildPathSummary(true)
                                .build());
-      final ResourceManager resource = mDatabase.getResourceManager(
-          ResourceManagerConfiguration.newBuilder(resourceName).build());
+      final ResourceManager resource = mDatabase.getResourceManager(resourceName);
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 
       final SubtreeHandler handler =
@@ -276,8 +269,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
           ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
                                .useDeweyIDs(true)
                                .build());
-      final ResourceManager resource = mDatabase.getResourceManager(
-          ResourceManagerConfiguration.newBuilder(resourceName).build());
+      final ResourceManager resource = mDatabase.getResourceManager(resourceName);
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
@@ -322,17 +314,15 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode getDocument(final int revision, final String name, final boolean updatable)
       throws DocumentException {
     try {
-      final ResourceManagerConfiguration resMgrConf =
-          ResourceManagerConfiguration.newBuilder(name).build();
-      return getDocumentInternal(resMgrConf, revision, updatable);
+      return getDocumentInternal(name, revision, updatable);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
-  private DBNode getDocumentInternal(final ResourceManagerConfiguration resourceManagerConfig,
-      final int revision, final boolean updatable) throws SirixException {
-    final ResourceManager resource = mDatabase.getResourceManager(resourceManagerConfig);
+  private DBNode getDocumentInternal(final String resName, final int revision,
+      final boolean updatable) {
+    final ResourceManager resource = mDatabase.getResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
         : revision;
@@ -367,11 +357,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final ResourceManagerConfiguration sessionConfig =
-          ResourceManagerConfiguration.newBuilder(resources.get(0).getFileName().toString())
-                                      .build();
-
-      return getDocumentInternal(sessionConfig, revision, updatable);
+      return getDocumentInternal(resources.get(0).getFileName().toString(), revision, updatable);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -386,8 +372,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     for (final Path resourcePath : resources) {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final ResourceManager resource = mDatabase.getResourceManager(
-            ResourceManagerConfiguration.newBuilder(resourceName).build());
+        final ResourceManager resource = mDatabase.getResourceManager(resourceName);
         final XdmNodeReadTrx trx = updatable
             ? resource.beginNodeWriteTrx()
             : resource.beginNodeReadTrx();
