@@ -38,7 +38,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -73,9 +72,6 @@ public final class XdmResourceManager implements ResourceManager {
   /** Database for centralized closure of related Sessions. */
   private final DatabaseImpl mDatabase;
 
-  /** The resource manager configuration. */
-  private final ResourceManagerConfiguration mResourceManagerConfig;
-
   /** Write semaphore to assure only one exclusive write transaction exists. */
   private final Semaphore mWriteSemaphore;
 
@@ -91,14 +87,14 @@ public final class XdmResourceManager implements ResourceManager {
   /** Remember all running page transactions (both read and write). */
   private final ConcurrentMap<Long, PageReadTrx> mPageTrxMap;
 
+  /** Remember the write seperately because of the concurrent writes. */
+  private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
+
   /** Lock for blocking the commit. */
   private final Lock mCommitLock;
 
   /** Resource configuration. */
   private final ResourceConfiguration mResourceConfig;
-
-  /** Remember the write seperately because of the concurrent writes. */
-  private final ConcurrentMap<Long, PageWriteTrx<Long, Record, UnorderedKeyValuePage>> mNodePageTrxMap;
 
   /** Factory for all interactions with the storage. */
   private final Storage mFac;
@@ -139,22 +135,17 @@ public final class XdmResourceManager implements ResourceManager {
    * @param database {@link DatabaseImpl} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
-   * @param resourceManagerConfig {@link ResourceManagerConfiguration} for handling this specific
-   *        resource transactions
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource
    *        transactions
    * @throws SirixException if Sirix encounters an exception
    */
   XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
-      final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull ResourceManagerConfiguration resourceManagerConfig,
-      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage,
-      final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
-      final @Nonnull Semaphore writeSemaphore) {
+      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
+      final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
+      final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
     mResourceConfig = checkNotNull(resourceConf);
-    mResourceManagerConfig = checkNotNull(resourceManagerConfig);
     mBufferManager = checkNotNull(bufferManager);
     mFac = checkNotNull(storage);
 
@@ -174,10 +165,6 @@ public final class XdmResourceManager implements ResourceManager {
     mLastCommittedUberPage = new AtomicReference<>(uberPage);
 
     mClosed = false;
-  }
-
-  ResourceManagerConfiguration getResourceManagerConfig() {
-    return mResourceManagerConfig;
   }
 
   Lock getCommitLock() {
@@ -464,10 +451,7 @@ public final class XdmResourceManager implements ResourceManager {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("sessionConf", mResourceManagerConfig)
-                      .add("resourceConf", mResourceConfig)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("resourceConf", mResourceConfig).toString();
   }
 
   /**
@@ -580,11 +564,6 @@ public final class XdmResourceManager implements ResourceManager {
       mWtxIndexControllers.put(revision, controller);
     }
     return controller;
-  }
-
-  @Override
-  public synchronized ResourceManagerConfiguration getResourceManagerCfg() {
-    return mResourceManagerConfig;
   }
 
   @Override

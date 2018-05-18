@@ -28,7 +28,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.IndexController;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -59,13 +58,6 @@ public interface ResourceManager extends AutoCloseable {
    * @return {@link Database} this session is bound to
    */
   Database getDatabase();
-
-  /**
-   * Get the resource manager configuration.
-   *
-   * @return The resource manager configuration.
-   */
-  ResourceManagerConfiguration getResourceManagerCfg();
 
   /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
@@ -151,7 +143,7 @@ public interface ResourceManager extends AutoCloseable {
 
   /**
    * Get the revision number, which was committed at the closest time to the given point in time.
-   * 
+   *
    * @param pointInTime the point in time
    * @return the revision number, which was committed at the closest time to the given point in
    *         time.

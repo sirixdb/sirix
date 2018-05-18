@@ -31,7 +31,6 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -222,8 +221,7 @@ public class HashTest {
     final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
     return wTrx;
   }

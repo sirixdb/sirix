@@ -35,7 +35,6 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
@@ -157,9 +156,8 @@ public final class DatabaseImpl implements Database {
 
       try {
         try (
-            final ResourceManager resourceTrxManager = this.getResourceManager(
-                new ResourceManagerConfiguration.Builder(
-                    resConfig.getResource().getFileName().toString()).build());
+            final ResourceManager resourceTrxManager =
+                this.getResourceManager(resConfig.getResource().getFileName().toString());
             final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
           wtx.commit();
         }
@@ -231,13 +229,13 @@ public final class DatabaseImpl implements Database {
   // //////////////////////////////////////////////////////////
 
   @Override
-  public synchronized ResourceManager getResourceManager(
-      final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
+  public synchronized ResourceManager getResourceManager(final String resource)
+      throws SirixException {
     assertNotClosed();
 
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resourceManagerConfig.getResource());
+            resource);
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException(
@@ -261,8 +259,7 @@ public final class DatabaseImpl implements Database {
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
     final ResourceManager resourceManager = mResourceStore.openResource(
-        this, resourceConfig, resourceManagerConfig, mBufferManagers.get(resourceFile),
-        resourceFile);
+        this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
 
     return resourceManager;
   }

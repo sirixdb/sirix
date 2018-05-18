@@ -32,7 +32,6 @@ import org.sirix.access.Databases;
 import org.sirix.access.HashKind;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -184,8 +183,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final ResourceManager manager = mDatabase.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+    try (final ResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -223,8 +221,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final ResourceManager manager = mDatabase.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+    try (final ResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -274,8 +271,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final ResourceManager manager = mDatabase.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())) {
+    try (final ResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();

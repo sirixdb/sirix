@@ -22,7 +22,6 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -210,10 +209,8 @@ public final class DBStore implements Store, AutoCloseable {
       final DBCollection collection = new DBCollection(collName, database);
       mCollections.put(database, collection);
 
-      try (
-          final ResourceManager resource = database.getResourceManager(
-              new ResourceManagerConfiguration.Builder(resName).build());
-          final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+      try (final ResourceManager manager = database.getResourceManager(resName);
+          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         parser.parse(
             new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
@@ -253,10 +250,8 @@ public final class DBStore implements Store, AutoCloseable {
                                        .useTextCompression(true)
                                        .buildPathSummary(true)
                                        .build());
-              try (
-                  final ResourceManager resource = database.getResourceManager(
-                      new ResourceManagerConfiguration.Builder(resourceName).build());
-                  final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+              try (final ResourceManager manager = database.getResourceManager(resourceName);
+                  final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
                 nextParser.parse(

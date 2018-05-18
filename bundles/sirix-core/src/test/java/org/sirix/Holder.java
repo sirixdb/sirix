@@ -26,7 +26,6 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
@@ -76,8 +75,7 @@ public class Holder {
                                                                                        .useDeweyIDs(
                                                                                            true)
                                                                                        .build());
-    final ResourceManager resourceManager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -100,8 +98,7 @@ public class Holder {
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
             PATHS.PATH1.getConfig()).buildPathSummary(true).build());
-    final ResourceManager resourceManager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -116,8 +113,7 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resMgr = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);

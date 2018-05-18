@@ -43,7 +43,6 @@ import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -308,7 +307,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitStartManualRootElement() {
+  protected void emitStartManualRootTag() {
     try {
       indent();
       write("<sirix>");
@@ -322,7 +321,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitEndManualRootElement() {
+  protected void emitEndManualRootTag() {
     try {
       if (mIndent) {
         mStack.pop();
@@ -338,7 +337,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitStartManualElement(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
       indent();
       write("<sirix revision=\"");
@@ -352,7 +351,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitEndManualElement(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
       if (rtx.hasFirstChild())
         mStack.pop();
@@ -431,8 +430,7 @@ public final class XMLSerializer extends AbstractSerializer {
     Databases.createDatabase(config);
     try (final Database db = Databases.openDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      final ResourceManager resMgr =
-          db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+      final ResourceManager resMgr = db.getResourceManager("shredded");
 
       try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XMLSerializer serializer =

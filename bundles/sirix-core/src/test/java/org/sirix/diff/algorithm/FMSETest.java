@@ -2,7 +2,6 @@ package org.sirix.diff.algorithm;
 
 import static java.util.stream.Collectors.toList;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -20,7 +19,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -211,8 +209,7 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final Path folder) throws Exception {
     Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ResourceManager resource = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    ResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
     Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
     final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -251,8 +248,7 @@ public final class FMSETest extends XMLTestCase {
         }
 
         resource.close();
-        resource = database.getResourceManager(
-            new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+        resource = database.getResourceManager(TestHelper.RESOURCE);
 
         final OutputStream out = new ByteArrayOutputStream();
         final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();

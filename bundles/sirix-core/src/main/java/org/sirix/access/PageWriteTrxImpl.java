@@ -405,10 +405,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       }
     }
 
-    // Forcefully flush write-ahead transaction logs to persistent storage.
-    if (mPageRtx.mResourceManager.getResourceManagerConfig().dumpLogs()) {
-      mLog.toSecondCache();
-    }
+    // // Forcefully flush write-ahead transaction logs to persistent storage.
+    // if (mPageRtx.mResourceManager.getResourceManagerConfig().dumpLogs()) {
+    // mLog.toSecondCache();
+    // }
 
     final PageReference uberPageReference = new PageReference();
     final UberPage uberPage = getUberPage();

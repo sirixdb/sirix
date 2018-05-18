@@ -47,7 +47,6 @@ import java.util.concurrent.TimeUnit;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -129,8 +128,7 @@ public class FileSystemWatcher implements AutoCloseable {
   private FileSystemWatcher(final Path pPath, final Database pDatabase) throws SirixException {
     mPath = checkNotNull(pPath);
     mDatabase = checkNotNull(pDatabase);
-    mResource =
-        mDatabase.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+    mResource = mDatabase.getResourceManager("shredded");
     mWtx = mResource.beginNodeWriteTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);

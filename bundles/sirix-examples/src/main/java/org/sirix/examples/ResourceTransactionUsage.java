@@ -10,7 +10,6 @@ import javax.xml.stream.XMLStreamException;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -37,9 +36,7 @@ public final class ResourceTransactionUsage {
     try (final Database database = Databases.openDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());
 
-      try (
-          final ResourceManager resource = database.getResourceManager(
-              new ResourceManagerConfiguration.Builder("resource").build());
+      try (final ResourceManager resource = database.getResourceManager("resource");
           final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
         wtx.moveTo(2);

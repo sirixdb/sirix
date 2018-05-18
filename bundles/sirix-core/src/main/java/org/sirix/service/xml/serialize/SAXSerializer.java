@@ -28,12 +28,10 @@ import java.nio.file.Paths;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.service.xml.serialize.AbstractSerializer;
 import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -74,14 +72,14 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Constructor.
    *
-   * @param session Sirix {@link ResourceManager}
+   * @param resMgr Sirix {@link ResourceManager}
    * @param handler SAX {@link ContentHandler}
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final ResourceManager session, final ContentHandler handler,
+  public SAXSerializer(final ResourceManager resMgr, final ContentHandler handler,
       final @Nonnegative int revision, final int... revisions) {
-    super(session, revision, revisions);
+    super(resMgr, revision, revisions);
     mContHandler = handler;
   }
 
@@ -121,7 +119,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitStartManualRootElement() {
+  protected void emitStartManualRootTag() {
     try {
       mContHandler.startElement("", "sirix", "sirix", new AttributesImpl());
     } catch (final SAXException e) {
@@ -130,7 +128,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndManualRootElement() {
+  protected void emitEndManualRootTag() {
     try {
       mContHandler.endElement("", "sirix", "sirix");
     } catch (final SAXException e) {
@@ -139,7 +137,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitStartManualElement(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
     final AttributesImpl atts = new AttributesImpl();
     atts.addAttribute("", "revision", "sirix", "", Integer.toString(rtx.getRevisionNumber()));
     try {
@@ -150,7 +148,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndManualElement(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
       mContHandler.endElement("", "sirix", "sirix");
     } catch (final SAXException e) {
@@ -237,12 +235,12 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a text event.
    *
-   * @param pRtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadTrx} implementation
    */
-  private void generateText(final XdmNodeReadTrx pRtx) {
+  private void generateText(final XdmNodeReadTrx rtx) {
     try {
       mContHandler.characters(
-          XMLToken.escapeContent(pRtx.getValue()).toCharArray(), 0, pRtx.getValue().length());
+          XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -260,11 +258,10 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
     Databases.createDatabase(config);
     final Database database = Databases.openDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    try (final ResourceManager session =
-        database.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build())) {
+    try (final ResourceManager resource = database.getResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer =
-          new SAXSerializer(session, defHandler, session.getMostRecentRevisionNumber());
+          new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();
     }
   }
