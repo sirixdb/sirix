@@ -222,7 +222,7 @@ try (final Database database = Databases.openDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      final ResourceManager manager = database.getResourceManager("resource");
+      final ResourceManager manager = database.getResourceManager("resource1");
       // Start the single read/write transaction.
       final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
     // Import an XML-document.
