@@ -2534,71 +2534,51 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx replaceNode(final String xml)
-      throws SirixException, IOException, XMLStreamException {
-    checkNotNull(xml);
+  public XdmNodeWriteTrx replaceNode(final XMLEventReader reader) {
+    checkNotNull(reader);
     acquireLock();
     try {
       checkAccessAndCommit();
-      final XMLEventReader reader = XMLShredder.createStringReader(checkNotNull(xml));
-      ImmutableNode insertedRootNode = null;
+
       if (getCurrentNode() instanceof StructNode) {
         final StructNode currentNode = mNodeReadTrx.getStructuralNode();
 
-        if (xml.startsWith("<")) {
-          while (reader.hasNext()) {
-            final XMLEvent event = reader.peek();
-
-            if (event.isStartDocument()) {
-              reader.nextEvent();
-              continue;
-            }
-
-            switch (event.getEventType()) {
-              case XMLStreamConstants.START_ELEMENT:
-              case XMLStreamConstants.COMMENT:
-              case XMLStreamConstants.PROCESSING_INSTRUCTION:
-                Insert pos = Insert.ASFIRSTCHILD;
-                if (currentNode.hasLeftSibling()) {
-                  moveToLeftSibling();
-                  pos = Insert.ASRIGHTSIBLING;
-                } else {
-                  moveToParent();
-                }
-
-                final XMLShredder shredder = new XMLShredder.Builder(this, reader, pos).build();
-                shredder.call();
-                if (reader.hasNext()) {
-                  reader.nextEvent(); // End document.
-                }
-
-                insertedRootNode = mNodeReadTrx.getCurrentNode();
-                moveTo(currentNode.getNodeKey());
-                remove();
-                moveTo(insertedRootNode.getNodeKey());
-                break;
-              default:
-                // Do nothing.
-            }
-          }
+        final Insert pos;
+        final long anchorNodeKey;
+        if (currentNode.hasLeftSibling()) {
+          anchorNodeKey = getLeftSiblingKey();
+          pos = Insert.ASRIGHTSIBLING;
         } else {
-          insertedRootNode = replaceWithTextNode(xml);
+          anchorNodeKey = getParentKey();
+          pos = Insert.ASFIRSTCHILD;
         }
 
-        if (insertedRootNode != null) {
-          moveTo(insertedRootNode.getNodeKey());
-        }
+        insertAndThenRemove(reader, pos, anchorNodeKey);
       } else {
         throw new IllegalArgumentException("Not supported for attributes / namespaces.");
       }
     } finally {
       unLock();
     }
+
     return this;
   }
 
+  private void insertAndThenRemove(final XMLEventReader reader, Insert pos, long anchorNodeKey) {
+    long formerNodeKey = getNodeKey();
+    insert(reader, pos, anchorNodeKey);
+    moveTo(formerNodeKey);
+    remove();
+  }
+
+  private void insert(final XMLEventReader reader, Insert pos, long anchorNodeKey) {
+    moveTo(anchorNodeKey);
+    final XMLShredder shredder = new XMLShredder.Builder(this, reader, pos).build();
+    shredder.call();
+  }
+
   @Override
-  public XdmNodeWriteTrx replaceNode(final XdmNodeReadTrx rtx) throws SirixException {
+  public XdmNodeWriteTrx replaceNode(final XdmNodeReadTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2609,6 +2589,11 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
         case PROCESSING_INSTRUCTION:
           checkCurrentNode();
 
+          /*
+           * #text1 <emptyElement/> #text2 | <emptyElement/> #text <emptyElement/>
+           *
+           * Replace 2nd node each time => with text node
+           */
           if (isText()) {
             removeAndThenInsert(rtx);
           } else {
@@ -2665,32 +2650,6 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
       moveTo(key);
     }
 
-    return mNodeReadTrx.getCurrentNode();
-  }
-
-  /**
-   * Replace current node with a {@link TextNode}.
-   *
-   * @param value text value
-   * @return inserted node
-   * @throws SirixException if anything fails
-   */
-  private ImmutableNode replaceWithTextNode(final String value) throws SirixException {
-    assert value != null;
-    final StructNode currentNode = mNodeReadTrx.getStructuralNode();
-    long key = currentNode.getNodeKey();
-    if (currentNode.hasLeftSibling()) {
-      moveToLeftSibling();
-      key = insertTextAsRightSibling(value).getNodeKey();
-    } else {
-      moveToParent();
-      key = insertTextAsFirstChild(value).getNodeKey();
-      moveTo(key);
-    }
-
-    moveTo(currentNode.getNodeKey());
-    remove();
-    moveTo(key);
     return mNodeReadTrx.getCurrentNode();
   }
 

@@ -16,6 +16,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -117,12 +118,12 @@ public final class ModificationVisitor extends AbstractVisitor {
           case 2:
             return delete();
           case 3:
-            mWtx.replaceNode("<foo/>");
+            mWtx.replaceNode(XMLShredder.createStringReader("<foo/>"));
             return VisitResultType.CONTINUE;
           default:
             break;
         }
-      } catch (final SirixException | IOException | XMLStreamException e) {
+      } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
         return VisitResultType.TERMINATE;
       }

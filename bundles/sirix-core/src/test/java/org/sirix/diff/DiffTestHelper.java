@@ -25,7 +25,7 @@ import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
-import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -65,28 +65,27 @@ public final class DiffTestHelper {
         RESOURCES.resolve("revXMLsAll4").resolve("2.xml"));
   }
 
-  static void setUpThird(final Holder holder)
-      throws SirixException, IOException, XMLStreamException {
-    new XMLShredder.Builder(holder.getXdmNodeWriteTrx(),
-        XMLShredder.createFileReader(
-            Paths.get(RESOURCES + File.separator + "revXMLsDelete1" + File.separator + "1.xml")),
-        Insert.ASFIRSTCHILD).commitAfterwards().build().call();
-    final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    wtx.moveToDocumentRoot();
-    wtx.moveToFirstChild();
-    wtx.moveToFirstChild();
-    wtx.remove();
-    wtx.moveToRightSibling();
-    wtx.remove();
-    wtx.moveToFirstChild();
-    wtx.remove();
-    wtx.moveToRightSibling();
-    wtx.remove();
-    wtx.commit();
+  static void setUpThird(final Holder holder) throws IOException {
+    try (final FileInputStream fis =
+        new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
+      new XMLShredder.Builder(holder.getXdmNodeWriteTrx(), XMLShredder.createFileReader(fis),
+          Insert.ASFIRSTCHILD).commitAfterwards().build().call();
+      final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.moveToFirstChild();
+      wtx.remove();
+      wtx.moveToRightSibling();
+      wtx.remove();
+      wtx.moveToFirstChild();
+      wtx.remove();
+      wtx.moveToRightSibling();
+      wtx.remove();
+      wtx.commit();
+    }
   }
 
-  static void setUpFourth(final Holder holder)
-      throws SirixException, IOException, XMLStreamException {
+  static void setUpFourth(final Holder holder) throws IOException, XMLStreamException {
     initializeData(
         holder, RESOURCES.resolve("revXMLsAll3").resolve("1.xml"),
         RESOURCES.resolve("revXMLsAll3").resolve("2.xml"));
@@ -137,14 +136,16 @@ public final class DiffTestHelper {
 
     int i = 0;
     for (final Path file : files) {
-      if (i == 0) {
-        final XMLShredder init = new XMLShredder.Builder(holder.getXdmNodeWriteTrx(),
-            XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();
-        init.call();
-      } else {
-        final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
-            XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
-        init.call();
+      try (final FileInputStream fis = new FileInputStream(file.toFile())) {
+        if (i == 0) {
+          final XMLShredder init = new XMLShredder.Builder(holder.getXdmNodeWriteTrx(),
+              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+          init.call();
+        } else {
+          final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
+              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
+          init.call();
+        }
       }
       i++;
     }

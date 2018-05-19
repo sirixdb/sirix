@@ -2,6 +2,7 @@ package org.sirix.diff.algorithm;
 
 import static java.util.stream.Collectors.toList;
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -236,9 +237,10 @@ public final class FMSETest extends XMLTestCase {
       if (file.getFileName().toString().endsWith(".xml")) {
         if (first) {
           first = false;
-          try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+          try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
+              final FileInputStream fis = new FileInputStream(file.toFile())) {
             final XMLShredder shredder = new XMLShredder.Builder(wtx,
-                XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();
+                XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
             shredder.call();
           }
         } else {

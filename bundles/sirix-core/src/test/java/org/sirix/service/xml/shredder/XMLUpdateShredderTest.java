@@ -22,6 +22,7 @@
 package org.sirix.service.xml.shredder;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -225,42 +226,44 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
     // Shredder files.
     for (final Path file : files) {
-      if (file.endsWith(".xml")) {
-        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-        if (first) {
-          final XMLShredder shredder = new XMLShredder.Builder(wtx,
-              XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();
-          shredder.call();
-          first = false;
-        } else {
-          @SuppressWarnings("deprecation")
-          final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx,
-              XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
-          shredder.call();
+      if (file.getFileName().toString().endsWith(".xml")) {
+        try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+            final FileInputStream fis = new FileInputStream(file.toFile())) {
+          if (first) {
+            final XMLShredder shredder = new XMLShredder.Builder(wtx,
+                XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+            shredder.call();
+            first = false;
+          } else {
+            @SuppressWarnings("deprecation")
+            final XMLUpdateShredder shredder =
+                new XMLUpdateShredder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD,
+                    file, ShredderCommit.COMMIT);
+            shredder.call();
+          }
+          assertEquals(i, wtx.getRevisionNumber());
+
+          i++;
+
+          final OutputStream out = new ByteArrayOutputStream();
+          final XMLSerializer serializer =
+              new XMLSerializerBuilder(manager, out).prettyPrint().build();
+          serializer.call();
+          final StringBuilder sBuilder = TestHelper.readFile(file, false);
+
+          final Diff diff = new Diff(sBuilder.toString(), out.toString());
+          final DetailedDiff detDiff = new DetailedDiff(diff);
+          @SuppressWarnings("unchecked")
+          final List<Difference> differences = detDiff.getAllDifferences();
+          for (final Difference difference : differences) {
+            System.out.println("***********************");
+            System.out.println(difference);
+            System.out.println("***********************");
+          }
+
+          assertTrue("pieces of XML are similar " + diff, diff.similar());
+          assertTrue("but are they identical? " + diff, diff.identical());
         }
-        assertEquals(i, wtx.getRevisionNumber());
-
-        i++;
-
-        final OutputStream out = new ByteArrayOutputStream();
-        final XMLSerializer serializer =
-            new XMLSerializerBuilder(manager, out).prettyPrint().build();
-        serializer.call();
-        final StringBuilder sBuilder = TestHelper.readFile(file, false);
-
-        final Diff diff = new Diff(sBuilder.toString(), out.toString());
-        final DetailedDiff detDiff = new DetailedDiff(diff);
-        @SuppressWarnings("unchecked")
-        final List<Difference> differences = detDiff.getAllDifferences();
-        for (final Difference difference : differences) {
-          System.out.println("***********************");
-          System.out.println(difference);
-          System.out.println("***********************");
-        }
-
-        assertTrue("pieces of XML are similar " + diff, diff.similar());
-        assertTrue("but are they identical? " + diff, diff.identical());
-        wtx.close();
       }
     }
   }
