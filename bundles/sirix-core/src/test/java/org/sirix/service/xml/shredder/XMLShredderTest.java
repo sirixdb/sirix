@@ -21,6 +21,7 @@
 
 package org.sirix.service.xml.shredder;
 
+import java.io.FileInputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
@@ -70,7 +71,6 @@ public class XMLShredderTest extends XMLTestCase {
 
   @Test
   public void testSTAXShredder() throws Exception {
-
     // Setup parsed session.
     XMLShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
@@ -111,140 +111,135 @@ public class XMLShredderTest extends XMLTestCase {
 
   @Test
   public void testShredIntoExisting() throws Exception {
-    final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML),
-        Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
-    shredder.call();
-    assertEquals(2, wtx.getRevisionNumber());
-    wtx.moveToDocumentRoot();
-    wtx.moveToFirstChild();
-    wtx.remove();
-    final XMLShredder shredder2 = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML),
-        Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
-    shredder2.call();
-    assertEquals(3, wtx.getRevisionNumber());
-    wtx.close();
-
-    // Setup expected session.
-    final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager expectedSession = database2.getResourceManager(TestHelper.RESOURCE);
-
-    final XdmNodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
-    DocumentCreator.create(expectedTrx);
-    expectedTrx.commit();
-    expectedTrx.moveToDocumentRoot();
-
-    // Verify.
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
-
-    final Iterator<Long> descendants = new DescendantAxis(rtx);
-    final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
-
-    while (expectedDescendants.hasNext()) {
-      expectedDescendants.next();
-      descendants.hasNext();
-      descendants.next();
-      assertEquals(expectedTrx.getName(), rtx.getName());
-      assertEquals(expectedTrx.getValue(), rtx.getValue());
+    try (final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
+        final FileInputStream fis1 = new FileInputStream(XML.toFile());
+        final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
+      final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis1),
+          Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
+      shredder.call();
+      assertEquals(2, wtx.getRevisionNumber());
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.remove();
+      final XMLShredder shredder2 = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis2),
+          Insert.ASFIRSTCHILD).includeComments(true).commitAfterwards().build();
+      shredder2.call();
+      assertEquals(3, wtx.getRevisionNumber());
     }
 
-    // expectedTrx.moveToDocumentRoot();
-    // final Iterator<Long> expectedDescendants2 = new
-    // DescendantAxis(expectedTrx);
-    // while (expectedDescendants2.hasNext()) {
-    // expectedDescendants2.next();
-    // descendants.hasNext();
-    // descendants.next();
-    // assertEquals(expectedTrx.getQNameOfCurrentNode(),
-    // rtx.getQNameOfCurrentNode());
-    // }
+    // Setup expected.
+    final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
 
-    expectedTrx.close();
-    expectedSession.close();
-    rtx.close();
+    try (final ResourceManager manager = database2.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx expectedTrx = manager.beginNodeWriteTrx()) {
+      DocumentCreator.create(expectedTrx);
+      expectedTrx.commit();
+      expectedTrx.moveToDocumentRoot();
+
+      // Verify.
+      try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+
+        final Iterator<Long> descendants = new DescendantAxis(rtx);
+        final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
+
+        while (expectedDescendants.hasNext()) {
+          expectedDescendants.next();
+          descendants.hasNext();
+          descendants.next();
+          assertEquals(expectedTrx.getName(), rtx.getName());
+          assertEquals(expectedTrx.getValue(), rtx.getValue());
+        }
+      }
+    }
   }
 
   @Test
   public void testAttributesNSPrefix() throws Exception {
-    // Setup expected session.
+    // Setup expected.
     final XdmNodeWriteTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
     DocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 
     // Setup parsed session.
     final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager2 = database2.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
-    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML2),
-        Insert.ASFIRSTCHILD).commitAfterwards().build();
-    shredder.call();
-    wtx.commit();
-    wtx.close();
 
-    // Verify.
-    final XdmNodeReadTrx rtx = manager2.beginNodeReadTrx();
-    rtx.moveToDocumentRoot();
-    final Iterator<Long> expectedAttributes = new DescendantAxis(expectedTrx2);
-    final Iterator<Long> attributes = new DescendantAxis(rtx);
+    try (final ResourceManager manager2 = database2.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
+        final FileInputStream fis = new FileInputStream(XML2.toFile())) {
+      final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis),
+          Insert.ASFIRSTCHILD).commitAfterwards().build();
+      shredder.call();
+      wtx.commit();
 
-    while (expectedAttributes.hasNext() && attributes.hasNext()) {
-      expectedAttributes.next();
-      attributes.next();
-      if (expectedTrx2.getKind() == Kind.ELEMENT || rtx.getKind() == Kind.ELEMENT) {
-        assertEquals(expectedTrx2.getNamespaceCount(), rtx.getNamespaceCount());
-        assertEquals(expectedTrx2.getAttributeCount(), rtx.getAttributeCount());
-        for (int i = 0; i < expectedTrx2.getAttributeCount(); i++) {
-          assertEquals(expectedTrx2.getName(), rtx.getName());
+      // Verify.
+      try (final XdmNodeReadTrx rtx = manager2.beginNodeReadTrx()) {
+        rtx.moveToDocumentRoot();
+        final Iterator<Long> expectedAttributes = new DescendantAxis(expectedTrx2);
+        final Iterator<Long> attributes = new DescendantAxis(rtx);
+
+        while (expectedAttributes.hasNext() && attributes.hasNext()) {
+          expectedAttributes.next();
+          attributes.next();
+          if (expectedTrx2.getKind() == Kind.ELEMENT || rtx.getKind() == Kind.ELEMENT) {
+            assertEquals(expectedTrx2.getNamespaceCount(), rtx.getNamespaceCount());
+            assertEquals(expectedTrx2.getAttributeCount(), rtx.getAttributeCount());
+            for (int i = 0; i < expectedTrx2.getAttributeCount(); i++) {
+              assertEquals(expectedTrx2.getName(), rtx.getName());
+            }
+          }
         }
+        attributes.hasNext();
+
+        assertEquals(expectedAttributes.hasNext(), attributes.hasNext());
+
+        expectedTrx2.close();
       }
     }
-    attributes.hasNext();
-
-    assertEquals(expectedAttributes.hasNext(), attributes.hasNext());
-
-    expectedTrx2.close();
-    rtx.close();
-    manager2.close();
   }
 
   @Test
   public void testShreddingLargeText() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH2.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(XML3),
-        Insert.ASFIRSTCHILD).commitAfterwards().build();
-    shredder.call();
-    wtx.close();
-
-    final XdmNodeReadTrx rtx = manager.beginNodeReadTrx();
-    assertTrue(rtx.moveToFirstChild().hasMoved());
-    assertTrue(rtx.moveToFirstChild().hasMoved());
-
-    final StringBuilder tnkBuilder = new StringBuilder();
-    do {
-      tnkBuilder.append(rtx.getValue());
-    } while (rtx.moveToRightSibling().hasMoved());
-
-    final String tnkString = tnkBuilder.toString();
-
-    rtx.close();
-    manager.close();
-
-    final XMLEventReader validater = XMLShredder.createFileReader(XML3);
-    final StringBuilder xmlBuilder = new StringBuilder();
-    while (validater.hasNext()) {
-      final XMLEvent event = validater.nextEvent();
-      switch (event.getEventType()) {
-        case XMLStreamConstants.CHARACTERS:
-          final String text = event.asCharacters().getData().trim();
-          if (text.length() > 0) {
-            xmlBuilder.append(text);
-          }
-          break;
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final FileInputStream fis1 = new FileInputStream(XML3.toFile());
+        final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
+      try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        final XMLShredder shredder = new XMLShredder.Builder(wtx,
+            XMLShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).commitAfterwards().build();
+        shredder.call();
       }
-    }
 
-    assertEquals(xmlBuilder.toString(), tnkString);
+      final StringBuilder tnkBuilder = new StringBuilder();
+
+      try (final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()) {
+        assertTrue(rtx.moveToFirstChild().hasMoved());
+        assertTrue(rtx.moveToFirstChild().hasMoved());
+
+
+        do {
+          tnkBuilder.append(rtx.getValue());
+        } while (rtx.moveToRightSibling().hasMoved());
+      }
+
+      final String tnkString = tnkBuilder.toString();
+
+      final XMLEventReader validater = XMLShredder.createFileReader(fis2);
+      final StringBuilder xmlBuilder = new StringBuilder();
+      while (validater.hasNext()) {
+        final XMLEvent event = validater.nextEvent();
+        switch (event.getEventType()) {
+          case XMLStreamConstants.CHARACTERS:
+            final String text = event.asCharacters().getData().trim();
+            if (text.length() > 0) {
+              xmlBuilder.append(text);
+            }
+            break;
+          default:
+            break;
+        }
+      }
+
+      assertEquals(xmlBuilder.toString(), tnkString);
+    }
   }
 }

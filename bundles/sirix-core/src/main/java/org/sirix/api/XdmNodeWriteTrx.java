@@ -131,7 +131,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixException if anything in sirix fails
    * @throws NullpointerException if {@code rtx} is {@code null}
    */
-  XdmNodeWriteTrx copySubtreeAsFirstChild(XdmNodeReadTrx rtx) throws SirixException;
+  XdmNodeWriteTrx copySubtreeAsFirstChild(XdmNodeReadTrx rtx);
 
   /**
    * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the
@@ -142,7 +142,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixException if anything in sirix fails
    * @throws NullpointerException if {@code pRtx} is {@code null}
    */
-  XdmNodeWriteTrx copySubtreeAsLeftSibling(XdmNodeReadTrx rtx) throws SirixException;
+  XdmNodeWriteTrx copySubtreeAsLeftSibling(XdmNodeReadTrx rtx);
 
   /**
    * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the
@@ -153,21 +153,20 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixException if anything in sirix fails
    * @throws NullpointerException if {@code pRtx} is {@code null}
    */
-  XdmNodeWriteTrx copySubtreeAsRightSibling(XdmNodeReadTrx rtx) throws SirixException;
+  XdmNodeWriteTrx copySubtreeAsRightSibling(XdmNodeReadTrx rtx);
 
   /**
    * Replace a node with another node or subtree, depending on whether the replaced node is an
    * {@code element}- or a {@code text-}node.
    *
-   * @param xml an XML representation
+   * @param reader an XML reader
    * @return the transaction instance
    * @throws IOException if an I/O error occured
    * @throws XMLStreamException if {@code pXML} is not well formed
    * @throws NullpointerException if {@code pXML} is {@code null}
    * @throws SirixException if anything in Sirix fails
    */
-  XdmNodeWriteTrx replaceNode(String xml)
-      throws SirixException, IOException, XMLStreamException;
+  XdmNodeWriteTrx replaceNode(XMLEventReader reader);
 
   /**
    * Replace a node with another node or subtree (the subtree rooted at the provided transaction),
@@ -177,7 +176,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @return the transaction instance
    * @throws SirixException if anything went wrong
    */
-  XdmNodeWriteTrx replaceNode(XdmNodeReadTrx rtx) throws SirixException;
+  XdmNodeWriteTrx replaceNode(XdmNodeReadTrx rtx);
 
   /**
    * Move a subtree rooted at {@code fromKey} to the first child of the current node.
@@ -190,7 +189,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code nodeToMove} does not exist, that is the node which is
    *         denoted by it's node key {@code fromKey}
    */
-  XdmNodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long fromKey) throws SirixException;
+  XdmNodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long fromKey);
 
   /**
    * Move a subtree rooted at {@code fromKey} to the right sibling of the current node. In case of
@@ -205,7 +204,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code nodeToMove} does not exist, that is the node which is
    *         denoted by it's node key {@code fromKey}
    */
-  XdmNodeWriteTrx moveSubtreeToRightSibling(long fromKey) throws SirixException;
+  XdmNodeWriteTrx moveSubtreeToRightSibling(long fromKey);
 
   /**
    * Move a subtree rooted at {@code fromKey} to the left sibling of the current node. In case of
@@ -220,7 +219,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code nodeToMove} does not exist, that is the node which is
    *         denoted by it's node key {@code fromKey}
    */
-  XdmNodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative long fromKey) throws SirixException;
+  XdmNodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative long fromKey);
 
   /**
    * Insert new comment node as left sibling of currently selected node. The cursor is moved to the
@@ -231,7 +230,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertCommentAsLeftSibling(String value) throws SirixException;
+  XdmNodeWriteTrx insertCommentAsLeftSibling(String value);
 
   /**
    * Insert new comment node as right sibling of currently selected node. The cursor is moved to the
@@ -242,7 +241,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertCommentAsRightSibling(String value) throws SirixException;
+  XdmNodeWriteTrx insertCommentAsRightSibling(String value);
 
   /**
    * Insert new comment node as first child of currently selected node. The cursor is moved to the
@@ -253,7 +252,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertCommentAsFirstChild(String value) throws SirixException;
+  XdmNodeWriteTrx insertCommentAsFirstChild(String value);
 
   /**
    * Insert new Processing Instruction node as left sibling of currently selected node. The cursor
@@ -265,8 +264,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertPIAsLeftSibling(String content, @Nonnull String target)
-      throws SirixException;
+  XdmNodeWriteTrx insertPIAsLeftSibling(String content, @Nonnull String target);
 
   /**
    * Insert new Processing Instruction node as right sibling of currently selected node. The cursor
@@ -278,8 +276,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertPIAsRightSibling(String content, @Nonnull String target)
-      throws SirixException;
+  XdmNodeWriteTrx insertPIAsRightSibling(String content, @Nonnull String target);
 
   /**
    * Insert new Processing Instruction node as first child of currently selected node. The cursor is
@@ -291,8 +288,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertPIAsFirstChild(String content, @Nonnull String target)
-      throws SirixException;
+  XdmNodeWriteTrx insertPIAsFirstChild(String content, @Nonnull String target);
 
   /**
    * Insert new element node as first child of currently selected node. The cursor is moved to the
@@ -303,7 +299,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertElementAsFirstChild(QNm name) throws SirixException;
+  XdmNodeWriteTrx insertElementAsFirstChild(QNm name);
 
   /**
    * Insert new element node as left sibling of currently selected node. The cursor is moved to the
@@ -314,7 +310,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertElementAsLeftSibling(QNm name) throws SirixException;
+  XdmNodeWriteTrx insertElementAsLeftSibling(QNm name);
 
   /**
    * Insert new element node as right sibling of currently selected node. The transaction is moved
@@ -325,7 +321,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertElementAsRightSibling(QNm name) throws SirixException;
+  XdmNodeWriteTrx insertElementAsRightSibling(QNm name);
 
   /**
    * Insert new text node as first child of currently selected node. The cursor is moved to the
@@ -337,7 +333,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertTextAsFirstChild(String value) throws SirixException;
+  XdmNodeWriteTrx insertTextAsFirstChild(String value);
 
   /**
    * Insert new text node as left sibling of currently selected node. The transaction is moved to
@@ -348,7 +344,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertTextAsLeftSibling(String value) throws SirixException;
+  XdmNodeWriteTrx insertTextAsLeftSibling(String value);
 
   /**
    * Insert new text node as right sibling of currently selected node. The transaction is moved to
@@ -359,7 +355,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code value} is {@code null}
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertTextAsRightSibling(String value) throws SirixException;
+  XdmNodeWriteTrx insertTextAsRightSibling(String value);
 
   /**
    * Insert attribute in currently selected node. The cursor is moved to the inserted node.
@@ -370,7 +366,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} or {@code value} is null
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertAttribute(QNm name, @Nonnull String value) throws SirixException;
+  XdmNodeWriteTrx insertAttribute(QNm name, @Nonnull String value);
 
   /**
    * Insert attribute in currently selected node. The cursor is moved depending on the value of
@@ -382,8 +378,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} or {@code value} is null
    * @return the transaction instance
    */
-  XdmNodeWriteTrx insertAttribute(QNm name, @Nonnull String value, @Nonnull Movement move)
-      throws SirixException;
+  XdmNodeWriteTrx insertAttribute(QNm name, @Nonnull String value, @Nonnull Movement move);
 
   /**
    * Insert namespace declaration in currently selected node. The cursor is moved to the inserted
@@ -394,7 +389,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws NullPointerException if {@code name} is null
    * @return the current transaction
    */
-  XdmNodeWriteTrx insertNamespace(QNm name) throws SirixException;
+  XdmNodeWriteTrx insertNamespace(QNm name);
 
   /**
    * Insert namespace declaration in currently selected node. The cursor is moved depending on the
@@ -405,7 +400,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixException if attribute couldn't be inserted
    * @throws NullPointerException if {@code name} or {@code move} is null
    */
-  XdmNodeWriteTrx insertNamespace(QNm name, @Nonnull Movement move) throws SirixException;
+  XdmNodeWriteTrx insertNamespace(QNm name, @Nonnull Movement move);
 
   /**
    * Insert a subtree as a first child.
@@ -420,7 +415,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *         document-node
    * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
    */
-  XdmNodeWriteTrx insertSubtreeAsFirstChild(XMLEventReader reader) throws SirixException;
+  XdmNodeWriteTrx insertSubtreeAsFirstChild(XMLEventReader reader);
 
   /**
    * Insert a subtree as a right sibling.
@@ -435,7 +430,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *         document-node
    * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
    */
-  XdmNodeWriteTrx insertSubtreeAsRightSibling(XMLEventReader reader) throws SirixException;
+  XdmNodeWriteTrx insertSubtreeAsRightSibling(XMLEventReader reader);
 
   /**
    * Insert a subtree as a left sibling.
@@ -450,7 +445,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *         document-node
    * @throws NullPointerException if {@code reader} or {@code insert} is {@code null}
    */
-  XdmNodeWriteTrx insertSubtreeAsLeftSibling(XMLEventReader reader) throws SirixException;
+  XdmNodeWriteTrx insertSubtreeAsLeftSibling(XMLEventReader reader);
 
   /**
    * Remove currently selected node. This does automatically remove descendants. If two adjacent
@@ -463,7 +458,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @return the current transaction
    * @throws SirixException if node couldn't be removed
    */
-  XdmNodeWriteTrx remove() throws SirixException;
+  XdmNodeWriteTrx remove();
 
   // --- Node Setters
   // -----------------------------------------------------------
@@ -476,7 +471,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixIOException if can't set Name in node
    * @throws NullPointerException if {@code pName} is {@code null}
    */
-  XdmNodeWriteTrx setName(QNm name) throws SirixException;
+  XdmNodeWriteTrx setName(QNm name);
 
   /**
    * Set value of node.
@@ -486,7 +481,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @throws SirixIOException if value couldn't be set
    * @throws NullPointerException if {@code value} is {@code null}
    */
-  XdmNodeWriteTrx setValue(String value) throws SirixException;
+  XdmNodeWriteTrx setValue(String value);
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no

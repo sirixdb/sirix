@@ -22,6 +22,7 @@ package org.sirix.diff.service;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -78,8 +79,9 @@ public final class FMSEImport {
     try (final Database db = Databases.openDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
       try (final ResourceManager resMgr = db.getResourceManager("shredded");
-          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
-        final XMLEventReader fileReader = XMLShredder.createFileReader(resNewRev);
+          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
+          final FileInputStream fis = new FileInputStream(resNewRev.toFile())) {
+        final XMLEventReader fileReader = XMLShredder.createFileReader(fis);
         final XMLShredder shredder =
             new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards()
                                                                          .build();

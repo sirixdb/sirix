@@ -22,6 +22,8 @@
 package org.sirix.service.xml.shredder;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
@@ -1163,24 +1165,21 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final long time = System.currentTimeMillis();
     final Path target = Paths.get(args[1]);
 
-    try {
-      final DatabaseConfiguration config = new DatabaseConfiguration(target);
-      Databases.createDatabase(config);
-      final Database db = Databases.openDatabase(target);
-      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      final ResourceManager resMgr = db.getResourceManager("shredded");
-      final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
-      final XMLEventReader reader = XMLShredder.createFileReader(Paths.get(args[0]));
+    final DatabaseConfiguration config = new DatabaseConfiguration(target);
+    Databases.createDatabase(config);
+    final Database db = Databases.openDatabase(target);
+    db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+    try (final ResourceManager resMgr = db.getResourceManager("shredded");
+        final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
+        final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
+      final XMLEventReader reader = XMLShredder.createFileReader(fis);
       final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, reader, Insert.ASFIRSTCHILD,
           new File(args[0]), ShredderCommit.COMMIT);
       shredder.call();
-      wtx.close();
-      resMgr.close();
-    } catch (final SirixException | XMLStreamException | IOException e) {
+    } catch (final SirixException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
     LOGWRAPPER.info(" done [" + (System.currentTimeMillis() - time) + "ms].");
   }
-
 }
