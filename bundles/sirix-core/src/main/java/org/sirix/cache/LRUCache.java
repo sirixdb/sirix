@@ -64,7 +64,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
     // Assertion instead of checkNotNull(...).
     assert secondCache != null;
     mSecondCache = secondCache;
-    mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
+    mMap = new LinkedHashMap<>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;
 
       @Override

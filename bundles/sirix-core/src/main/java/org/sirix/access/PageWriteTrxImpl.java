@@ -221,7 +221,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
       final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
 
-      final FileWriter fileWriter = new FileWriter(file,
+      final FileWriter fileWriter = new FileWriter(file, null,
           new ByteHandlePipeline(resourceManager.getResourceConfig().mByteHandler),
           SerializationType.TRANSACTION_INTENT_LOG);
 

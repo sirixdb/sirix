@@ -41,6 +41,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
+import org.sirix.cache.Cache;
 import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -320,7 +321,6 @@ final class PageReadTrxImpl implements PageReadTrx {
   @Override
   public void closeCaches() {
     assertNotClosed();
-    // TODO
   }
 
   /**
@@ -337,31 +337,41 @@ final class PageReadTrxImpl implements PageReadTrx {
         revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
         "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
         mResourceManager.getMostRecentRevisionNumber());
-
-    // The indirect page reference either fails horribly or returns a non null instance.
-    final PageReference reference = getPageReferenceForPage(
-        mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
-    try {
-      RevisionRootPage page = null;
-
-      if (mTrxIntentLog != null) {
-        // Try to get it from the transaction log if it's present.
-        final PageContainer cont = mTrxIntentLog.get(reference);
-        page = cont == null
-            ? null
-            : (RevisionRootPage) cont.getComplete();
+    if (mTrxIntentLog == null) {
+      final Cache<Integer, RevisionRootPage> cache =
+          mResourceBufferManager.getRevisionRootPageCache();
+      RevisionRootPage revisionRootPage = cache.get(revisionKey);
+      if (revisionRootPage == null) {
+        revisionRootPage = mPageReader.readRevisionRootPage(revisionKey, this);
+        cache.put(revisionKey, revisionRootPage);
       }
+      return revisionRootPage;
+    } else {
+      // The indirect page reference either fails horribly or returns a non null instance.
+      final PageReference reference = getPageReferenceForPage(
+          mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
+      try {
+        RevisionRootPage page = null;
 
-      if (page == null) {
-        assert reference.getKey() != Constants.NULL_ID_LONG
-            || reference.getLogKey() != Constants.NULL_ID_INT
-            || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
-        page = (RevisionRootPage) mPageCache.get(reference);
+        if (mTrxIntentLog != null) {
+          // Try to get it from the transaction log if it's present.
+          final PageContainer cont = mTrxIntentLog.get(reference);
+          page = cont == null
+              ? null
+              : (RevisionRootPage) cont.getComplete();
+        }
+
+        if (page == null) {
+          assert reference.getKey() != Constants.NULL_ID_LONG
+              || reference.getLogKey() != Constants.NULL_ID_INT
+              || reference.getPersistentLogKey() != Constants.NULL_ID_LONG;
+          page = (RevisionRootPage) mPageCache.get(reference);
+        }
+
+        return page;
+      } catch (final ExecutionException | UncheckedExecutionException e) {
+        throw new SirixIOException(e.getCause());
       }
-
-      return page;
-    } catch (final ExecutionException | UncheckedExecutionException e) {
-      throw new SirixIOException(e.getCause());
     }
   }
 

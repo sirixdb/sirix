@@ -25,6 +25,7 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 
@@ -63,4 +64,12 @@ public interface Reader extends AutoCloseable {
   @Override
   void close() throws SirixIOException;
 
+  /**
+   * Read the revision root page.
+   *
+   * @param revision the revision to read
+   * @param pageReadTrx the page reading transaction
+   * @return the revision root page
+   */
+  RevisionRootPage readRevisionRootPage(int revision, PageReadTrx pageReadTrx);
 }
