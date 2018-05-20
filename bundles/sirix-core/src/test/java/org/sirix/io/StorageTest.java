@@ -29,7 +29,6 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.berkeley.BerkeleyStorageFactory;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
@@ -127,8 +126,8 @@ public final class StorageTest {
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() throws SirixIOException {
-    Object[][] returnVal = {{Storage.class, new Storage[] {new FileStorage(mResourceConfig),
-        BerkeleyStorageFactory.createStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
+    Object[][] returnVal = {{Storage.class,
+        new Storage[] {new FileStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
     return returnVal;
   }
 

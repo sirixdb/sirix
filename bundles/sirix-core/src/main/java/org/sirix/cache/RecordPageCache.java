@@ -3,31 +3,26 @@ package org.sirix.cache;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.sirix.page.PageReference;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
-import com.google.common.collect.ImmutableMap;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 
 public final class RecordPageCache implements Cache<PageReference, PageContainer> {
 
-  private final com.google.common.cache.Cache<PageReference, PageContainer> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, PageContainer> mPageCache;
 
   public RecordPageCache() {
     final RemovalListener<PageReference, PageContainer> removalListener;
 
-    removalListener = new RemovalListener<PageReference, PageContainer>() {
-      @Override
-      public void onRemoval(final RemovalNotification<PageReference, PageContainer> removal) {
-        removal.getKey().setPage(null);
-      }
-    };
+    removalListener =
+        (PageReference key, PageContainer value, RemovalCause cause) -> key.setPage(null);
 
-    mPageCache = CacheBuilder.newBuilder()
-                             .maximumSize(1000)
-                             .expireAfterWrite(5000, TimeUnit.SECONDS)
-                             .expireAfterAccess(5000, TimeUnit.SECONDS)
-                             .removalListener(removalListener)
-                             .build();
+    mPageCache = Caffeine.newBuilder()
+                         .maximumSize(1000)
+                         .expireAfterWrite(5000, TimeUnit.SECONDS)
+                         .expireAfterAccess(5000, TimeUnit.SECONDS)
+                         .removalListener(removalListener)
+                         .build();
   }
 
   @Override
@@ -56,7 +51,7 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
   }
 
   @Override
-  public ImmutableMap<PageReference, PageContainer> getAll(Iterable<? extends PageReference> keys) {
+  public Map<PageReference, PageContainer> getAll(Iterable<? extends PageReference> keys) {
     return mPageCache.getAllPresent(keys);
   }
 

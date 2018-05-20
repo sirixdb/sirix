@@ -4,30 +4,24 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
-import com.google.common.collect.ImmutableMap;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
-  private final com.google.common.cache.Cache<PageReference, Page> mPageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> mPageCache;
 
   public PageCache() {
     RemovalListener<PageReference, Page> removalListener =
-        new RemovalListener<PageReference, Page>() {
-          @Override
-          public void onRemoval(final RemovalNotification<PageReference, Page> removal) {
-            removal.getKey().setPage(null);
-          }
-        };
+        (PageReference key, Page value, RemovalCause cause) -> key.setPage(null);
 
-    mPageCache = CacheBuilder.newBuilder()
-                             .maximumSize(1000)
-                             .expireAfterWrite(5000, TimeUnit.SECONDS)
-                             .expireAfterAccess(5000, TimeUnit.SECONDS)
-                             .removalListener(removalListener)
-                             .build();
+    mPageCache = Caffeine.newBuilder()
+                         .maximumSize(1000)
+                         .expireAfterWrite(5000, TimeUnit.SECONDS)
+                         .expireAfterAccess(5000, TimeUnit.SECONDS)
+                         .removalListener(removalListener)
+                         .build();
   }
 
   @Override
@@ -56,7 +50,7 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public ImmutableMap<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
+  public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
     return mPageCache.getAllPresent(keys);
   }
 
