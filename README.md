@@ -4,7 +4,7 @@
 
 [Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
-<h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
+<h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
