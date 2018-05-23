@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.trx.page;
 
 import java.util.Optional;
 import javax.annotation.Nonnegative;

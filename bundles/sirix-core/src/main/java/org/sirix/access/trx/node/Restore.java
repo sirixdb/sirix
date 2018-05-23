@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 /** Determines if a log must be replayed or not. */
 public enum Restore {

@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.VisitResult;

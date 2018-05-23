@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Reader;

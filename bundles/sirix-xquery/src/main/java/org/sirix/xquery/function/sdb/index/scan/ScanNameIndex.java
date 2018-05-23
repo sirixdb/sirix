@@ -18,7 +18,7 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.IndexController;
+import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;

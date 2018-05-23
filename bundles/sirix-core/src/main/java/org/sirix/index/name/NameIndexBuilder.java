@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.AbstractVisitor;
+import org.sirix.access.trx.node.AbstractVisitor;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

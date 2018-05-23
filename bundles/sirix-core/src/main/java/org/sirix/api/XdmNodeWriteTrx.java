@@ -27,7 +27,7 @@ import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.Movement;
+import org.sirix.access.trx.node.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;

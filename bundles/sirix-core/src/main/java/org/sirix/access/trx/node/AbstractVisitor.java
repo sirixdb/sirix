@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

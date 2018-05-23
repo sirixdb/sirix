@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -36,8 +36,12 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import org.sirix.access.DatabaseImpl;
+import org.sirix.access.ResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.page.PageReadTrxImpl;
+import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -79,7 +83,7 @@ public final class XdmResourceManager implements ResourceManager {
   private final Semaphore mReadSemaphore;
 
   /** Strong reference to uber page before the begin of a write transaction. */
-  private AtomicReference<UberPage> mLastCommittedUberPage;
+  private final AtomicReference<UberPage> mLastCommittedUberPage;
 
   /** Remember all running node transactions (both read and write). */
   private final ConcurrentMap<Long, XdmNodeReadTrx> mNodeReaderMap;
@@ -139,7 +143,7 @@ public final class XdmResourceManager implements ResourceManager {
    *        transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
+  public XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
       final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
       final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
@@ -167,7 +171,7 @@ public final class XdmResourceManager implements ResourceManager {
     mClosed = false;
   }
 
-  Lock getCommitLock() {
+  public Lock getCommitLock() {
     return mCommitLock;
   }
 
@@ -226,7 +230,7 @@ public final class XdmResourceManager implements ResourceManager {
    * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting
    * or not.
    */
-  Path commitFile() {
+  public Path commitFile() {
     return mResourceConfig.mPath.resolve(
         ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getFile()).resolve(".commit");
   }
@@ -340,7 +344,6 @@ public final class XdmResourceManager implements ResourceManager {
       }
 
       // Immediately release all ressources.
-      mLastCommittedUberPage = null;
       mNodeReaderMap.clear();
       mPageTrxMap.clear();
       mNodePageTrxMap.clear();
@@ -398,7 +401,7 @@ public final class XdmResourceManager implements ResourceManager {
    * @param transactionID page write transaction ID
    * @throws SirixIOException if an I/O error occurs
    */
-  void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
+  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
       throws SirixIOException {
     final PageReadTrx pageRtx = mNodePageTrxMap.remove(transactionID);
     if (pageRtx != null)
@@ -411,7 +414,7 @@ public final class XdmResourceManager implements ResourceManager {
    *
    * @param transactionID write transaction ID
    */
-  void closeWriteTransaction(final @Nonnegative long transactionID) {
+  public void closeWriteTransaction(final @Nonnegative long transactionID) {
     // Remove from internal map.
     removeFromPageMapping(transactionID);
 
@@ -424,7 +427,7 @@ public final class XdmResourceManager implements ResourceManager {
    *
    * @param transactionID read transaction ID
    */
-  void closeReadTransaction(final @Nonnegative long transactionID) {
+  public void closeReadTransaction(final @Nonnegative long transactionID) {
     // Remove from internal map.
     removeFromPageMapping(transactionID);
 
@@ -460,7 +463,7 @@ public final class XdmResourceManager implements ResourceManager {
    *
    * @param page the new {@link UberPage}
    */
-  protected void setLastCommittedUberPage(final UberPage page) {
+  public void setLastCommittedUberPage(final UberPage page) {
     mLastCommittedUberPage.set(checkNotNull(page));
   }
 

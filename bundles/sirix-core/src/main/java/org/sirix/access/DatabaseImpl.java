@@ -35,6 +35,7 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.TransactionManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;

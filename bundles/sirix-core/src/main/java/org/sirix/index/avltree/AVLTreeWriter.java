@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-import org.sirix.access.AbstractForwardingNodeCursor;
+import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
