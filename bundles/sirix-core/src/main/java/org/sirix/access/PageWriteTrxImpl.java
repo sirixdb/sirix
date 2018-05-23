@@ -107,130 +107,34 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   /** Determines if transaction is closed. */
   private boolean mIsClosed;
 
-  /** Determines if a path summary should be used or not. */
-  private final boolean mUsePathSummary;
-
   /** {@link IndexController} instance. */
   private final IndexController mIndexController;
+
+  private final TreeModifier mTreeModifier;
 
   /**
    * Constructor.
    *
-   * @param resourceManager {@link ISessionConfiguration} this page write trx is bound to
-   * @param uberPage root of revision
-   * @param writer writer where this transaction should write to
-   * @param trxId the transaction ID
-   * @param representRev revision represent
-   * @param lastStoredRev last stored revision
-   * @param bufferManager the page cache buffer
+   * @param writer the page writer
+   * @param log the transaction intent log
+   * @param revisionRootPage the revision root page
+   * @param pageRtx the page reading transaction used as a delegate
+   * @param indexController the index controller, which is used to update indexes
    */
-  PageWriteTrxImpl(final XdmResourceManager resourceManager, final UberPage uberPage,
-      final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
-      final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
-      final @Nonnull BufferManager bufferManager) {
-    mUsePathSummary = resourceManager.getResourceConfig().mPathSummary;
-    mIndexController = resourceManager.getWtxIndexController(representRev);
-
-    // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
-            String.valueOf(lastStoredRev) + ".xml");
-    if (Files.exists(indexes)) {
-      try (final InputStream in = new FileInputStream(indexes.toFile())) {
-        mIndexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
-      } catch (IOException | DocumentException | SirixException e) {
-        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
-      }
-    }
-
-    mLog = createTrxIntentLog(resourceManager);
-
-    // Create revision tree if needed.
-    if (uberPage.isBootstrap()) {
-      uberPage.createRevisionTree(mLog);
-    }
-
-    // Page read trx.
-    mPageRtx = new PageReadTrxImpl(trxId, resourceManager, uberPage, representRev, writer, mLog,
-        mIndexController, bufferManager);
-
-    mPageWriter = writer;
-
-    // Create new revision root page.
-    final RevisionRootPage lastCommitedRoot = mPageRtx.loadRevRoot(lastCommitedRev);
-    mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
-    mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
-
-    // First create revision tree if needed.
-    // final RevisionRootPage revisionRoot = mPageRtx.getActualRevisionRootPage();
-    mNewRoot.createNodeTree(mPageRtx, mLog);
-
-    if (mUsePathSummary) {
-      // Create path summary tree if needed.
-      final PathSummaryPage page = mPageRtx.getPathSummaryPage(mNewRoot);
-
-      page.createPathSummaryTree(mPageRtx, 0, mLog);
-
-      if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathSummaryPageReference())))
-        mLog.put(mNewRoot.getPathSummaryPageReference(), new PageContainer(page, page));
-    }
-
-    if (!uberPage.isBootstrap()) {
-      if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getNamePageReference()))) {
-        final Page namePage = mPageRtx.getNamePage(mNewRoot);
-        mLog.put(mNewRoot.getNamePageReference(), new PageContainer(namePage, namePage));
-      }
-
-      if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getCASPageReference()))) {
-        final Page casPage = mPageRtx.getCASPage(mNewRoot);
-        mLog.put(mNewRoot.getCASPageReference(), new PageContainer(casPage, casPage));
-      }
-
-      if (PageContainer.emptyInstance().equals(mLog.get(mNewRoot.getPathPageReference()))) {
-        final Page pathPage = mPageRtx.getPathPage(mNewRoot);
-        mLog.put(mNewRoot.getPathPageReference(), new PageContainer(pathPage, pathPage));
-      }
-
-      final Page indirectPage =
-          mPageRtx.dereferenceIndirectPageReference(mNewRoot.getIndirectPageReference());
-      mLog.put(mNewRoot.getIndirectPageReference(), new PageContainer(indirectPage, indirectPage));
-
-      final PageReference revisionRootPageReference = prepareLeafOfTree(
-          uberPage.getIndirectPageReference(), getUberPage().getRevisionNumber(), -1,
-          PageKind.UBERPAGE);
-
-      // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      mLog.put(revisionRootPageReference, new PageContainer(mNewRoot, mNewRoot));
-    }
+  PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer,
+      final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
+      final PageReadTrxImpl pageRtx, final IndexController indexController) {
+    mTreeModifier = checkNotNull(treeModifier);
+    mPageWriter = checkNotNull(writer);
+    mLog = checkNotNull(log);
+    mNewRoot = checkNotNull(revisionRootPage);
+    mPageRtx = checkNotNull(pageRtx);
+    mIndexController = checkNotNull(indexController);
   }
 
   @Override
   public TransactionIntentLog getLog() {
     return mLog;
-  }
-
-  private TransactionIntentLog createTrxIntentLog(final XdmResourceManager resourceManager) {
-    final Path logFile =
-        resourceManager.getResourceConfig().mPath.resolve("log").resolve("intent-log");
-
-    try {
-      if (Files.exists(logFile)) {
-        Files.delete(logFile);
-        Files.createFile(logFile);
-      }
-
-      final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
-
-      final FileWriter fileWriter = new FileWriter(file, null,
-          new ByteHandlePipeline(resourceManager.getResourceConfig().mByteHandler),
-          SerializationType.TRANSACTION_INTENT_LOG);
-
-      final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter, this);
-
-      return new TransactionIntentLog(persistentFileCache);
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
   }
 
   @Override
@@ -366,7 +270,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     if (reference == null)
       return;
 
-    final PageContainer container = mLog.get(reference);
+    final PageContainer container = mLog.get(reference, mPageRtx);
 
     Page page = null;
 
@@ -445,7 +349,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mLog.clear();
     mLog.close();
-    mLog = createTrxIntentLog(mPageRtx.mResourceManager);
+    mLog = mTreeModifier.createTrxIntentLog(mPageRtx.mResourceManager);
 
     // Delete commit file which denotes that a commit must write the log in the data file.
 
@@ -474,7 +378,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mLog.clear();
     mLog.close();
-    mLog = createTrxIntentLog(mPageRtx.mResourceManager);
+    mLog = mTreeModifier.createTrxIntentLog(mPageRtx.mResourceManager);
 
     final UberPage lastUberPage =
         (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
@@ -497,11 +401,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       closeCaches();
       mPageWriter.close();
       mIsClosed = true;
-
-      // final long trxId = mPageRtx.getTrxId();
-      //
-      // if (!mPageRtx.mResourceManager.getXdmNodeReadTrx(trxId).isPresent())
-      // mPageRtx.mResourceManager.closeWriteTransaction(trxId);
     }
   }
 
@@ -520,30 +419,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   /**
-   * Prepare indirect page, that is getting the referenced indirect page or a new page.
-   *
-   * @param reference {@link PageReference} to get the indirect page from or to create a new one
-   * @return {@link IndirectPage} reference
-   * @throws SirixIOException if an I/O error occurs
-   */
-  private IndirectPage prepareIndirectPage(final PageReference reference) {
-    final PageContainer cont = mLog.get(reference);
-    IndirectPage page = cont == null
-        ? null
-        : (IndirectPage) cont.getComplete();
-    if (page == null) {
-      if (reference.getKey() == Constants.NULL_ID_LONG) {
-        page = new IndirectPage();
-      } else {
-        final IndirectPage indirectPage = mPageRtx.dereferenceIndirectPageReference(reference);
-        page = new IndirectPage(indirectPage);
-      }
-      appendLogRecord(reference, new PageContainer(page, page));
-    }
-    return page;
-  }
-
-  /**
    * Prepare record page.
    *
    * @param recordPageKey the key of the record page
@@ -556,10 +431,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     assert recordPageKey >= 0;
     assert pageKind != null;
     // Get the reference to the unordered key/value page storing the records.
-    final PageReference reference = prepareLeafOfTree(
+    final PageReference reference = mTreeModifier.prepareLeafOfTree(
+        mPageRtx, mLog, getUberPage().getPageCountExp(pageKind),
         mPageRtx.getPageReference(mNewRoot, pageKind, index), recordPageKey, index, pageKind);
 
-    PageContainer pageContainer = mLog.get(reference);
+    PageContainer pageContainer = mLog.get(reference, mPageRtx);
 
     if (pageContainer.equals(PageContainer.emptyInstance())) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
@@ -588,69 +464,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     }
 
     return pageContainer;
-  }
-
-  /**
-   * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
-   *
-   * @param baseRevision base revision
-   * @param representRevision the revision to represent
-   * @return new {@link RevisionRootPage} instance
-   * @throws SirixIOException if an I/O error occurs
-   */
-  private RevisionRootPage preparePreviousRevisionRootPage(final @Nonnegative int baseRevision,
-      final @Nonnegative int representRevision) {
-    if (getUberPage().isBootstrap()) {
-      final RevisionRootPage revisionRootPage = mPageRtx.loadRevRoot(baseRevision);
-      // appendLogRecord(new PageContainer(revisionRootPage, revisionRootPage));
-      return revisionRootPage;
-    } else {
-      // Prepare revision root nodePageReference.
-      final RevisionRootPage revisionRootPage =
-          new RevisionRootPage(mPageRtx.loadRevRoot(baseRevision), representRevision + 1);
-
-      // Prepare indirect tree to hold reference to prepared revision root nodePageReference.
-      final PageReference revisionRootPageReference = prepareLeafOfTree(
-          getUberPage().getIndirectPageReference(), getUberPage().getRevisionNumber(), -1,
-          PageKind.UBERPAGE);
-
-      // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      appendLogRecord(
-          revisionRootPageReference, new PageContainer(revisionRootPage, revisionRootPage));
-
-      // Return prepared revision root nodePageReference.
-      return revisionRootPage;
-    }
-  }
-
-  /**
-   * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage}.
-   *
-   * @param startReference start reference
-   * @param key page key to lookup
-   * @param index the index number or {@code -1} if a regular record page should be prepared
-   * @return {@link PageReference} instance pointing to the right {@link UnorderedKeyValuePage} with
-   *         the {@code pKey}
-   * @throws SirixIOException if an I/O error occured
-   */
-  private PageReference prepareLeafOfTree(final PageReference startReference,
-      final @Nonnegative long key, final int index, final PageKind pageKind) {
-    // Initial state pointing to the indirect nodePageReference of level 0.
-    PageReference reference = startReference;
-    int offset = 0;
-    long levelKey = key;
-    final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(pageKind);
-
-    // Iterate through all levels.
-    for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
-      offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-      levelKey -= offset << inpLevelPageCountExp[level];
-      final IndirectPage page = prepareIndirectPage(reference);
-      reference = page.getReference(offset);
-    }
-
-    // Return reference to leaf of indirect tree.
-    return reference;
   }
 
   /**
@@ -693,7 +506,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   @Override
   public PageContainer getLogRecord(final PageReference reference) {
     checkNotNull(reference);
-    return mLog.get(reference);
+    return mLog.get(reference, mPageRtx);
   }
 
   @Override

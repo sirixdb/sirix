@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.sirix.api.PageReadTrx;
 import org.sirix.page.PageReference;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -14,7 +15,7 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 
-public final class TransactionIntentLog implements Cache<PageReference, PageContainer> {
+public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Capacity of the cache. Number of stored pages.
    */
@@ -84,8 +85,7 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
    * @return the value associated to this key, or {@code null} if no value with this key exists in
    *         the cache
    */
-  @Override
-  public PageContainer get(final PageReference key) {
+  public PageContainer get(final PageReference key, final PageReadTrx pageRtx) {
     PageContainer value = mMap.get(key);
     if (value == null) {
       if (key.getLogKey() != Constants.NULL_ID_INT) {
@@ -93,7 +93,7 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
         if (persistentKey != null)
           key.setPersistentLogKey(persistentKey);
       }
-      value = mSecondCache.get(key);
+      value = mSecondCache.get(key, pageRtx);
       if (value != null && !PageContainer.emptyInstance().equals(value)) {
         key.setPersistentLogKey(Constants.NULL_ID_LONG);
         put(key, value);
@@ -110,7 +110,6 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
    * @param key the key with which the specified value is to be associated
    * @param value a value to be associated with the specified key
    */
-  @Override
   public void put(final PageReference key, final PageContainer value) {
     key.setKey(Constants.NULL_ID_LONG);
     key.setLogKey(mLogKey++);
@@ -120,11 +119,9 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
   /**
    * Clears the cache.
    */
-  @Override
   public void clear() {
     mLogKey = 0;
     mMap.clear();
-    mSecondCache.clear();
   }
 
   /**
@@ -153,28 +150,6 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
                       .toString();
   }
 
-  @Override
-  public ImmutableMap<PageReference, PageContainer> getAll(
-      final Iterable<? extends PageReference> keys) {
-    final ImmutableMap.Builder<PageReference, PageContainer> builder = new ImmutableMap.Builder<>();
-    for (final PageReference key : keys) {
-      if (mMap.get(key) != null) {
-        builder.put(key, mMap.get(key));
-      }
-    }
-    return builder.build();
-  }
-
-  @Override
-  public void putAll(final Map<? extends PageReference, ? extends PageContainer> map) {
-    mMap.putAll(checkNotNull(map));
-  }
-
-  @Override
-  public void toSecondCache() {
-    mSecondCache.putAll(mMap);
-  }
-
   /**
    * Get a view of the underlying map.
    *
@@ -184,13 +159,12 @@ public final class TransactionIntentLog implements Cache<PageReference, PageCont
     return Collections.unmodifiableMap(mMap);
   }
 
-  @Override
-  public void remove(final PageReference key) {
-    mMap.remove(key);
-    if (mSecondCache.get(key) != null) {
-      mSecondCache.remove(key);
-    }
-  }
+  // public void remove(final PageReference key) {
+  // mMap.remove(key);
+  // if (mSecondCache.get(key) != null) {
+  // mSecondCache.remove(key);
+  // }
+  // }
 
   @Override
   public void close() {
