@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -29,6 +29,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;

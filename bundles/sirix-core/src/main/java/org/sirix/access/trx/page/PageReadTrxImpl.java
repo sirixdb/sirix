@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -38,6 +38,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
@@ -86,7 +89,7 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
  * access to this transaction.
  * </p>
  */
-final class PageReadTrxImpl implements PageReadTrx {
+public final class PageReadTrxImpl implements PageReadTrx {
   /** Page reader exclusively assigned to this transaction. */
   private final Reader mPageReader;
 
@@ -139,7 +142,7 @@ final class PageReadTrxImpl implements PageReadTrx {
    * @param unorderedKeyValuePageWriteLog optional key/value page cache
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  PageReadTrxImpl(final long trxId, final XdmResourceManager resourceManager,
+  public PageReadTrxImpl(final long trxId, final XdmResourceManager resourceManager,
       final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
       final @Nullable TransactionIntentLog trxIntentLog,
       final @Nullable IndexController indexController, final @Nonnull BufferManager bufferManager)

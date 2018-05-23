@@ -18,7 +18,7 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.XdmNodeReadTrx;

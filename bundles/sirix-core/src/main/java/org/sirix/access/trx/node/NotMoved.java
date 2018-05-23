@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import java.util.NoSuchElementException;
 import javax.annotation.Nullable;

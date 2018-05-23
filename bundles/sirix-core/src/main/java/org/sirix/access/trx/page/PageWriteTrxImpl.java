@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -39,6 +39,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.BufferManager;

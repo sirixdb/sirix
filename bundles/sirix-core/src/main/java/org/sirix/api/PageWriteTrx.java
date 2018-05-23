@@ -2,7 +2,7 @@ package org.sirix.api;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.Restore;
+import org.sirix.access.trx.node.Restore;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;

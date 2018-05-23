@@ -1,7 +1,8 @@
-package org.sirix.access;
+package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;

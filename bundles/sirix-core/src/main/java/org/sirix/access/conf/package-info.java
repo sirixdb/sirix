@@ -29,13 +29,13 @@
  * was created). This configuration is only needed within the creation of a
  * {@link org.sirix.access.DatabaseImpl} and serialized.</li>
  * <li>The {@link org.sirix.access.conf.ResourceConfiguration} defines the persisted settings within
- * a {@link org.sirix.access.XdmResourceManager} (e.g. versioning-kind of the resource,
+ * a {@link org.sirix.access.trx.node.XdmResourceManager} (e.g. versioning-kind of the resource,
  * hashing-kind, ...). This configuration is only needed within the creation of a resource and
  * serialized.</li>
  * <li>The {@link org.sirix.access.conf.ResourceManagerConfiguration} defines the runtime settings
- * within a {@link org.sirix.access.XdmResourceManager} (e.g. numbers of transactions, ...). This
+ * within a {@link org.sirix.access.trx.node.XdmResourceManager} (e.g. numbers of transactions, ...). This
  * configuration is needed within each instantiation of a
- * {@link org.sirix.access.XdmResourceManager}.</li>
+ * {@link org.sirix.access.trx.node.XdmResourceManager}.</li>
  * </ul>
  * </p>
  * <p>

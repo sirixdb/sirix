@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
@@ -36,8 +36,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.IndexController.ChangeType;
-import org.sirix.access.XdmResourceManager.Abort;
+import org.sirix.access.trx.node.IndexController.ChangeType;
+import org.sirix.access.trx.node.XdmResourceManager.Abort;
 import org.sirix.api.Axis;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;

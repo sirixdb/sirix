@@ -1,6 +1,5 @@
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -13,8 +12,13 @@ import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import com.google.common.collect.ImmutableMap;
 
+/**
+ * The transaction intent log, used for logging everything a write transaction changes.
+ *
+ * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
+ *
+ */
 public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Capacity of the cache. Number of stored pages.
@@ -53,7 +57,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     mLogKey = 0;
     mSecondCache = secondCache;
     mMapToPersistentLogKey = HashBiMap.create();
-    mMap = new LinkedHashMap<PageReference, PageContainer>(CACHE_CAPACITY) {
+    mMap = new LinkedHashMap<>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;
 
       @Override
@@ -159,17 +163,9 @@ public final class TransactionIntentLog implements AutoCloseable {
     return Collections.unmodifiableMap(mMap);
   }
 
-  // public void remove(final PageReference key) {
-  // mMap.remove(key);
-  // if (mSecondCache.get(key) != null) {
-  // mSecondCache.remove(key);
-  // }
-  // }
-
   @Override
   public void close() {
     mMap.clear();
     mSecondCache.close();
   }
-
 }

@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.trx.node;
 
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;

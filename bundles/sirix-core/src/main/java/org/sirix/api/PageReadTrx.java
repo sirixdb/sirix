@@ -3,7 +3,7 @@ package org.sirix.api;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.CommitCredentials;
+import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;

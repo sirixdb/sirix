@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.util.Random;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.AbstractVisitor;
+import org.sirix.access.trx.node.AbstractVisitor;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

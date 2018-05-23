@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Set;
 import javax.annotation.Nonnegative;
-import org.sirix.access.HashKind;
+import org.sirix.access.trx.node.HashKind;
 import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixException;
 
