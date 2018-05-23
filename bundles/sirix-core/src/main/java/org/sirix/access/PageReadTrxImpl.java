@@ -198,7 +198,7 @@ final class PageReadTrxImpl implements PageReadTrx {
         if (page == null) {
           if (mTrxIntentLog != null) {
             // Try to get it from the transaction log if it's present.
-            final PageContainer cont = mTrxIntentLog.get(reference);
+            final PageContainer cont = mTrxIntentLog.get(reference, pageReadTrx);
             page = cont == null
                 ? null
                 : cont.getComplete();
@@ -355,7 +355,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
         if (mTrxIntentLog != null) {
           // Try to get it from the transaction log if it's present.
-          final PageContainer cont = mTrxIntentLog.get(reference);
+          final PageContainer cont = mTrxIntentLog.get(reference, this);
           page = cont == null
               ? null
               : (RevisionRootPage) cont.getComplete();
@@ -593,7 +593,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
       if (mTrxIntentLog != null) {
         // Try to get it from the transaction log if it's present.
-        final PageContainer cont = mTrxIntentLog.get(reference);
+        final PageContainer cont = mTrxIntentLog.get(reference, this);
         page = cont == null
             ? null
             : (IndirectPage) cont.getComplete();

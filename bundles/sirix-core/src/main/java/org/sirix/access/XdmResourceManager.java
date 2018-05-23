@@ -308,11 +308,12 @@ public final class XdmResourceManager implements ResourceManager {
     final Writer writer = mFac.createWriter();
     final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
-    return new PageWriteTrxImpl(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
-        ? new UberPage()
-        : new UberPage(lastCommitedUberPage, representRevision > 0
-            ? writer.readUberPageReference().getKey()
-            : -1),
+    return new PageWriteTrxFactory().createPageWriteTrx(
+        this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+            ? new UberPage()
+            : new UberPage(lastCommitedUberPage, representRevision > 0
+                ? writer.readUberPageReference().getKey()
+                : -1),
         writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
   }
 
