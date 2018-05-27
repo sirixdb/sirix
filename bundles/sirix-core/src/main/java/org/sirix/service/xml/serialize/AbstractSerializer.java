@@ -121,17 +121,13 @@ public abstract class AbstractSerializer implements Callable<Void> {
     final int length = (nrOfRevisions == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
-    if (length > 1) {
-      emitStartManualRootTag();
-    }
+
     for (int i = 1; i <= length; i++) {
       try (final XdmNodeReadTrx rtx = mResMgr.beginNodeReadTrx(
           (nrOfRevisions == 1 && mRevisions[0] < 0)
               ? i
               : mRevisions[i - 1])) {
-        if (length > 1) {
-          emitRevisionStartTag(rtx);
-        }
+        emitRevisionStartTag(rtx);
 
         rtx.moveTo(mNodeKey);
 
@@ -149,19 +145,19 @@ public abstract class AbstractSerializer implements Callable<Void> {
           if (closeElements) {
             while (!mStack.isEmpty() && mStack.peek() != rtx.getLeftSiblingKey()) {
               rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
+              emitEndTag(rtx);
               rtx.moveTo(key);
             }
             if (!mStack.isEmpty()) {
               rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
+              emitEndTag(rtx);
             }
             rtx.moveTo(key);
             closeElements = false;
           }
 
           // Emit node.
-          emitStartElement(rtx);
+          emitNode(rtx);
 
           // Push end element to stack if we are a start element with
           // children.
@@ -179,23 +175,21 @@ public abstract class AbstractSerializer implements Callable<Void> {
         // Finally emit all pending end elements.
         while (!mStack.isEmpty() && mStack.peek() != Constants.NULL_ID_LONG) {
           rtx.moveTo(mStack.pop());
-          emitEndElement(rtx);
+          emitEndTag(rtx);
         }
 
-        if (length > 1) {
-          emitRevisionEndTag(rtx);
-        }
+        emitRevisionEndTag(rtx);
       }
     }
-    if (length > 1) {
-      emitEndManualRootTag();
-    }
+
     emitEndDocument();
 
     return null;
   }
 
-  /** Emit start document. */
+  /**
+   * Emit start document.
+   */
   protected abstract void emitStartDocument();
 
   /**
@@ -203,20 +197,14 @@ public abstract class AbstractSerializer implements Callable<Void> {
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartElement(XdmNodeReadTrx rtx);
+  protected abstract void emitNode(XdmNodeReadTrx rtx);
 
   /**
    * Emit end tag.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndElement(XdmNodeReadTrx rtx);
-
-  /** Emit a start tag, which encapsulates several revisions. */
-  protected abstract void emitStartManualRootTag();
-
-  /** Emit an end tag, which encapsulates several revisions. */
-  protected abstract void emitEndManualRootTag();
+  protected abstract void emitEndTag(XdmNodeReadTrx rtx);
 
   /**
    * Emit a start tag, which specifies a revision.

@@ -106,14 +106,14 @@ public final class DocumentCreator {
   /** String representation of ID. */
   public static final String ID =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" "
-          + "sid=\"1\" i=\"j\">oops1<b sid=\"5\">foo<c sid=\"7\"/></b>oops2<b sid=\"9\" p:x=\"y\">"
-          + "<c sid=\"11\"/>bar</b>oops3</p:a>";
+          + "id=\"1\" i=\"j\">oops1<b id=\"5\">foo<c id=\"7\"/></b>oops2<b id=\"9\" p:x=\"y\">"
+          + "<c id=\"11\"/>bar</b>oops3</p:a>";
 
   /** String representation of rest. */
   public static final String REST = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       + "<rest:sequence xmlns:rest=\"REST\"><rest:item>"
-      + "<p:a xmlns:p=\"ns\" rest:sid=\"1\" i=\"j\">oops1<b rest:sid=\"5\">foo<c rest:sid=\"7\"/></b>oops2<b rest:sid=\"9\" p:x=\"y\">"
-      + "<c rest:sid=\"11\"/>bar</b>oops3</p:a></rest:item></rest:sequence>";
+      + "<p:a xmlns:p=\"ns\" rest:id=\"1\" i=\"j\">oops1<b rest:id=\"5\">foo<c rest:id=\"7\"/></b>oops2<b rest:id=\"9\" p:x=\"y\">"
+      + "<c rest:id=\"11\"/>bar</b>oops3</p:a></rest:item></rest:sequence>";
 
   /** String representation of test document. */
   public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -133,9 +133,9 @@ public final class DocumentCreator {
   /** String representation of versioned test document. */
   public static final String VERSIONEDXML =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<sirix><sirix revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
-          + "<sirix revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
-          + "<sirix revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix></sirix>";
+          + "<sdb:sirix xmlns:sdb=\"https://sirix.io\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+          + "<sdb:sirix-item sdb:revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+          + "<sdb:sirix-item sdb:revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item></sdb:sirix>";
 
   /** String representation of test document without attributes. */
   public static final String XMLWITHOUTATTRIBUTES =

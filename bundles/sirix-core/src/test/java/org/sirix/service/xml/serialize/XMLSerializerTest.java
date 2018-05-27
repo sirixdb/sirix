@@ -33,6 +33,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.settings.Constants;
 import org.sirix.utils.DocumentCreator;
 
 public class XMLSerializerTest {
@@ -61,7 +62,7 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.XML, out.toString());
+    assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 
@@ -79,8 +80,8 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.REST, out.toString());
-    assertEquals(DocumentCreator.REST, out.toString());
+    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
 
     manager.close();
   }
@@ -99,7 +100,7 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.ID, out.toString());
+    assertEquals(DocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 
@@ -117,7 +118,7 @@ public class XMLSerializerTest {
     XMLSerializer serializerall =
         new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     out.reset();
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
@@ -153,7 +154,7 @@ public class XMLSerializerTest {
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 }

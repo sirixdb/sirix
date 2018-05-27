@@ -122,7 +122,7 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   @Override
-  protected void emitStartElement(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadTrx rtx) {
     try {
       switch (rtx.getKind()) {
         case DOCUMENT:
@@ -228,7 +228,7 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   @Override
-  protected void emitEndElement(final XdmNodeReadTrx rtx) {
+  protected void emitEndTag(final XdmNodeReadTrx rtx) {
     try {
       indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
@@ -260,19 +260,23 @@ public final class XMLSerializer extends AbstractSerializer {
           mOut.write(CharsForSerializing.NEWLINE.getBytes());
         }
       }
-      if (mSerializeRest) {
-        write("<rest:sequence xmlns:rest=\"REST\">");
+
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        if (mSerializeRest) {
+          write("<rest:sequence xmlns:rest=\"REST\">");
+        } else {
+          write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
+        }
+
         if (mIndent) {
           mOut.write(CharsForSerializing.NEWLINE.getBytes());
           mStack.push(Constants.NULL_ID_LONG);
         }
         indent();
-        write("<rest:item>");
-        if (mIndent) {
-          if (mRevisions.length > 1)
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
-          mStack.push(Constants.NULL_ID_LONG);
-        }
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -282,55 +286,24 @@ public final class XMLSerializer extends AbstractSerializer {
   @Override
   protected void emitEndDocument() {
     try {
-      if (mSerializeRest) {
-        if (mIndent) {
-          mStack.pop();
-        }
-        indent();
-        write("</rest:item>");
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
 
-        if (mIndent) {
-          mOut.write(CharsForSerializing.NEWLINE.getBytes());
-        }
-
+      if (mSerializeRest || length > 1) {
         if (mIndent) {
           mStack.pop();
         }
         indent();
 
-        write("</rest:sequence>");
+        if (mSerializeRest) {
+          write("</rest:sequence>");
+        } else {
+          write("</sdb:sirix>");
+        }
       }
+
       mOut.flush();
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
-
-  @Override
-  protected void emitStartManualRootTag() {
-    try {
-      indent();
-      write("<sirix>");
-      if (mIndent) {
-        mStack.push(Constants.NULL_ID_LONG);
-        mOut.write(CharsForSerializing.NEWLINE.getBytes());
-      }
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
-
-  @Override
-  protected void emitEndManualRootTag() {
-    try {
-      if (mIndent) {
-        mStack.pop();
-      }
-      indent();
-      write("</sirix>");
-      if (mIndent) {
-        mOut.write(CharsForSerializing.NEWLINE.getBytes());
-      }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -339,12 +312,34 @@ public final class XMLSerializer extends AbstractSerializer {
   @Override
   protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
-      indent();
-      write("<sirix revision=\"");
-      write(Integer.toString(rtx.getRevisionNumber()));
-      write("\">");
-      if (rtx.hasFirstChild())
-        mStack.push(Constants.NULL_ID_LONG);
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        indent();
+        if (mSerializeRest) {
+          write("<rest:item");
+        } else {
+          write("<sdb:sirix-item");
+        }
+
+        if (length > 1) {
+          if (mSerializeRest) {
+            write(" rest:revision=\"");
+          } else {
+            write(" sdb:revision=\"");
+          }
+          write(Integer.toString(rtx.getRevisionNumber()));
+          write("\">");
+          if (rtx.hasFirstChild())
+            mStack.push(Constants.NULL_ID_LONG);
+        } else if (mSerializeRest) {
+          write(">");
+          if (rtx.hasFirstChild())
+            mStack.push(Constants.NULL_ID_LONG);
+        }
+      }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -353,10 +348,20 @@ public final class XMLSerializer extends AbstractSerializer {
   @Override
   protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
-      if (rtx.hasFirstChild())
-        mStack.pop();
-      indent();
-      write("</sirix>");
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        if (rtx.hasFirstChild())
+          mStack.pop();
+        indent();
+        if (mSerializeRest) {
+          write("</rest:item>");
+        } else {
+          write("</sdb:sirix-item>");
+        }
+      }
 
       if (mIndent) {
         mOut.write(CharsForSerializing.NEWLINE.getBytes());

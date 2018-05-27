@@ -92,9 +92,12 @@ public final class PageWriteTrxFactory {
       }
     }
 
-    final TreeModifier treeModifier = new TreeModifier();
+    final TreeModifierImpl treeModifier = new TreeModifierImpl();
 
-    final TransactionIntentLog log = treeModifier.createTrxIntentLog(resourceManager);
+    final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
+
+    final TransactionIntentLog log =
+        logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
 
     // Create revision tree if needed.
     if (uberPage.isBootstrap()) {
