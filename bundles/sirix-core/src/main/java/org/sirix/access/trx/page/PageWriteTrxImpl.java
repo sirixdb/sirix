@@ -23,13 +23,9 @@ package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -37,22 +33,16 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
-import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.file.FileWriter;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -60,14 +50,12 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
-import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -350,9 +338,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       throw new SirixIOException("Index definitions couldn't be serialized!", e);
     }
 
-    mLog.clear();
-    mLog.close();
-    mLog = mTreeModifier.createTrxIntentLog(mPageRtx.mResourceManager);
+    mLog.truncate();
 
     // Delete commit file which denotes that a commit must write the log in the data file.
 
@@ -379,9 +365,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   public UberPage rollback() {
     mPageRtx.assertNotClosed();
 
-    mLog.clear();
-    mLog.close();
-    mLog = mTreeModifier.createTrxIntentLog(mPageRtx.mResourceManager);
+    mLog.truncate();
 
     final UberPage lastUberPage =
         (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);

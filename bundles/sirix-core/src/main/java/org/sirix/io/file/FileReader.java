@@ -135,7 +135,7 @@ public final class FileReader implements Reader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final PageReadTrx pageReadTrx) {
     try {
-      mRevisionsOffsetFile.seek(revision * 8); // revision * 8
+      mRevisionsOffsetFile.seek(revision * 8);
       mDataFile.seek(mRevisionsOffsetFile.readLong());
 
       final int dataLength = mDataFile.readInt();

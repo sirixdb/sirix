@@ -59,8 +59,8 @@ public enum CharsForSerializing {
   /** " rest:"". */
   REST_PREFIX(SPACE.getBytes(), new byte[] {114, 101, 115, 116, 58}),
 
-  /** "sid". */
-  ID(new byte[] {115, 105, 100}),
+  /** "id". */
+  ID(new byte[] {105, 100}),
 
   /** " xmlns=\"". */
   XMLNS(SPACE.getBytes(), new byte[] {120, 109, 108, 110, 115}, EQUAL.getBytes(), QUOTE.getBytes()),

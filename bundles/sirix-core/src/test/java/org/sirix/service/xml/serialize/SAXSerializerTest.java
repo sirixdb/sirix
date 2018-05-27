@@ -62,43 +62,43 @@ public class SAXSerializerTest extends XMLTestCase {
   @Test
   public void testSAXSerializer() throws SirixException, SAXException, IOException {
 
-    final StringBuilder strBuilder = new StringBuilder();
+    final StringBuilder sbuf = new StringBuilder();
     final ContentHandler contHandler = new XMLFilterImpl() {
 
       @Override
       public void startDocument() {
-        strBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+        sbuf.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
       }
 
       @Override
       public void startElement(final String uri, final String localName, final String qName,
           final Attributes atts) throws SAXException {
-        strBuilder.append("<" + qName);
+        sbuf.append("<" + qName);
 
         for (int i = 0; i < atts.getLength(); i++) {
-          strBuilder.append(" " + atts.getQName(i));
-          strBuilder.append("=\"" + atts.getValue(i) + "\"");
+          sbuf.append(" " + atts.getQName(i));
+          sbuf.append("=\"" + atts.getValue(i) + "\"");
         }
 
-        strBuilder.append(">");
+        sbuf.append(">");
       }
 
       // @Override
-      // public void startPrefixMapping(final String prefix, final String
-      // uri) throws SAXException {
+      // public void startPrefixMapping(final String prefix, final String uri) throws SAXException {
       // strBuilder.append(" " + prefix + "=\"" + uri + "\"");
       // };
 
       @Override
-      public void endElement(final String uri, final String localName, final String qName) throws SAXException {
-        strBuilder.append("</" + qName + ">");
+      public void endElement(final String uri, final String localName, final String qName)
+          throws SAXException {
+        sbuf.append("</" + qName + ">");
       }
 
       @Override
       public void characters(final char[] ch, final int start, final int length)
           throws SAXException {
         for (int i = start; i < start + length; i++) {
-          strBuilder.append(ch[i]);
+          sbuf.append(ch[i]);
         }
       }
     };
@@ -106,6 +106,6 @@ public class SAXSerializerTest extends XMLTestCase {
     final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
         holder.getResourceManager().getMostRecentRevisionNumber());
     serializer.call();
-    assertXMLEqual(DocumentCreator.XML, strBuilder.toString());
+    assertXMLEqual(DocumentCreator.XML, sbuf.toString());
   }
 }

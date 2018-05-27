@@ -194,4 +194,16 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   protected Reader delegate() {
     return mReader;
   }
+
+  @Override
+  public Writer truncate() {
+    try {
+      mDataFile.setLength(0);
+      mRevisionsOffsetFile.setLength(0);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+
+    return this;
+  }
 }

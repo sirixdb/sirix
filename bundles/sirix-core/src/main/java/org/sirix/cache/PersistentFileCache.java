@@ -36,7 +36,7 @@ public final class PersistentFileCache implements AutoCloseable {
     return new PageContainer(completePage, modifiedPage);
   }
 
-  public void put(PageReference reference, PageContainer container) {
+  public PersistentFileCache put(PageReference reference, PageContainer container) {
     reference.setPage(container.getModified());
     mWriter.write(reference);
 
@@ -49,6 +49,13 @@ public final class PersistentFileCache implements AutoCloseable {
       reference.setPersistentLogKey(offset);
       reference.setLength(length);
     }
+
+    return this;
+  }
+
+  public PersistentFileCache truncate() {
+    mWriter.truncate();
+    return this;
   }
 
   @Override

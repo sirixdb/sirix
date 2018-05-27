@@ -50,6 +50,7 @@ import org.xml.sax.SAXNotSupportedException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.AttributesImpl;
 import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.Attributes;
 
 /**
  * <h1>SaxSerializer</h1>
@@ -84,7 +85,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitStartElement(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadTrx rtx) {
     switch (rtx.getKind()) {
       case DOCUMENT:
         break;
@@ -107,7 +108,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndElement(final XdmNodeReadTrx rtx) {
+  protected void emitEndTag(final XdmNodeReadTrx rtx) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -119,40 +120,35 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitStartManualRootTag() {
-    try {
-      mContHandler.startElement("", "sirix", "sirix", new AttributesImpl());
-    } catch (final SAXException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
-  }
-
-  @Override
-  protected void emitEndManualRootTag() {
-    try {
-      mContHandler.endElement("", "sirix", "sirix");
-    } catch (final SAXException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
-  }
-
-  @Override
   protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
-    final AttributesImpl atts = new AttributesImpl();
-    atts.addAttribute("", "revision", "sirix", "", Integer.toString(rtx.getRevisionNumber()));
-    try {
-      mContHandler.startElement("", "sirix", "sirix", atts);
-    } catch (final SAXException e) {
-      LOGGER.error(e.getMessage(), e);
+    final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+        ? (int) mResMgr.getMostRecentRevisionNumber()
+        : mRevisions.length;
+
+    if (length > 1) {
+      final AttributesImpl atts = new AttributesImpl();
+      atts.addAttribute(
+          "sdb", "revision", "sdb:revision", "", Integer.toString(rtx.getRevisionNumber()));
+      try {
+        mContHandler.startElement("https://sirix.io", "sirix-item", "sdb:sirix-item", atts);
+      } catch (final SAXException e) {
+        LOGGER.error(e.getMessage(), e);
+      }
     }
   }
 
   @Override
   protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
-    try {
-      mContHandler.endElement("", "sirix", "sirix");
-    } catch (final SAXException e) {
-      LOGGER.error(e.getMessage(), e);
+    final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+        ? (int) mResMgr.getMostRecentRevisionNumber()
+        : mRevisions.length;
+
+    if (length > 1) {
+      try {
+        mContHandler.endElement("https://sirix.io", "sirix-item", "sdb:sirix-item");
+      } catch (final SAXException e) {
+        LOGGER.error(e.getMessage(), e);
+      }
     }
   }
 
@@ -270,6 +266,20 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   protected void emitStartDocument() {
     try {
       mContHandler.startDocument();
+
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (length > 1) {
+        final String ns = "https://sirix.io";
+
+        final AttributesImpl atts = new AttributesImpl();
+
+        atts.addAttribute(ns, "xmlns", "xmlns:sdb", "", ns);
+
+        mContHandler.startElement("sdb", "sirix", "sdb:sirix", atts);
+      }
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -278,6 +288,14 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   @Override
   protected void emitEndDocument() {
     try {
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (length > 1) {
+        mContHandler.endElement("sdb", "sirix", "sdb:sirix");
+      }
+
       mContHandler.endDocument();
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);

@@ -97,6 +97,13 @@ public final class RAMStorage implements Storage {
   public class RAMAccess implements Writer {
 
     @Override
+    public Writer truncate() {
+      mUberPageKey.clear();
+      mResourceFileStorage.clear();
+      return this;
+    }
+
+    @Override
     public Page read(PageReference reference, @Nullable PageReadTrx pageReadTrx) {
       return mResourceFileStorage.get(reference.getKey());
     }

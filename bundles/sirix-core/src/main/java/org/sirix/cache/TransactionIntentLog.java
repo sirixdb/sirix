@@ -163,6 +163,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     return Collections.unmodifiableMap(mMap);
   }
 
+  /**
+   * Truncate the log.
+   * 
+   * @return this log instance
+   */
+  public TransactionIntentLog truncate() {
+    mSecondCache.close();
+    mMapToPersistentLogKey.clear();
+    mMap.clear();
+    return this;
+  }
+
   @Override
   public void close() {
     mMap.clear();
