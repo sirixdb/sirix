@@ -129,7 +129,7 @@ public final class IndexController {
     final Indexes indexes = new Indexes();
 
     final java.nio.file.Path indexesFile = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
             String.valueOf(revision) + ".xml");
 
     try {

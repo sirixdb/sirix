@@ -54,7 +54,7 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
   public TransactionIntentLog createTrxIntentLog(final ResourceConfiguration resourceConfig) {
     final Path logFile =
         resourceConfig.getResource()
-                      .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getFile())
+                      .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
                       .resolve("intent-log");
 
     try {

@@ -232,7 +232,7 @@ public final class XdmResourceManager implements ResourceManager {
    */
   public Path commitFile() {
     return mResourceConfig.mPath.resolve(
-        ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getFile()).resolve(".commit");
+        ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit");
   }
 
   @Override

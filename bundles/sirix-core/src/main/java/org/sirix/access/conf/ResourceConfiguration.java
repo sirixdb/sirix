@@ -80,7 +80,7 @@ public final class ResourceConfiguration {
     INDEXES(Paths.get("indexes"), true);
 
     /** Location of the file. */
-    private final Path mFile;
+    private final Path mPath;
 
     /** Is the location a folder or no? */
     private final boolean mIsFolder;
@@ -88,27 +88,27 @@ public final class ResourceConfiguration {
     /**
      * Constructor.
      *
-     * @param file the file
-     * @param isFolder determines if the file denotes a filer or not
+     * @param path the path
+     * @param isFolder determines if the path denotes a filer or not
      */
-    private ResourcePaths(final Path file, final boolean isFolder) {
-      mFile = file;
+    private ResourcePaths(final Path path, final boolean isFolder) {
+      mPath = path;
       mIsFolder = isFolder;
     }
 
     /**
-     * Getting the file for the kind.
+     * Getting the path.
      *
-     * @return the file to the kind
+     * @return the path
      */
-    public Path getFile() {
-      return mFile;
+    public Path getPath() {
+      return mPath;
     }
 
     /**
      * Check if file is denoted as folder or not.
      *
-     * @return boolean if file is folder
+     * @return {@code true} if file is a folder, {@code false} otherwise
      */
     public boolean isFolder() {
       return mIsFolder;
@@ -125,12 +125,12 @@ public final class ResourceConfiguration {
     public static int compareStructure(final Path file) {
       int existing = 0;
       for (final ResourcePaths paths : values()) {
-        final Path currentFile = file.resolve(paths.getFile());
+        final Path currentFile = file.resolve(paths.getPath());
         if (Files.exists(currentFile)) {
           existing++;
         }
       }
-      return existing - values().length + 1;
+      return existing - values().length;
     }
   }
 
@@ -289,7 +289,7 @@ public final class ResourceConfiguration {
    * @return configuration file
    */
   public Path getConfigFile() {
-    return mPath.resolve(ResourcePaths.CONFIG_BINARY.getFile());
+    return mPath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
   }
 
   /**
@@ -356,7 +356,7 @@ public final class ResourceConfiguration {
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
     try {
-      final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getFile());
+      final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
       final FileReader fileReader = new FileReader(configFile.toFile());
       final JsonReader jsonReader = new JsonReader(fileReader);
       jsonReader.beginObject();

@@ -161,7 +161,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
     if (indexController == null) {
       // Deserialize index definitions.
       final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
-          ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+          ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
               String.valueOf(revision) + ".xml");
       if (Files.exists(indexes)) {
         try (final InputStream in = new FileInputStream(indexes.toFile())) {

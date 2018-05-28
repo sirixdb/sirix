@@ -82,7 +82,7 @@ public final class PageWriteTrxFactory {
 
     // Deserialize index definitions.
     final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile()).resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
             String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
