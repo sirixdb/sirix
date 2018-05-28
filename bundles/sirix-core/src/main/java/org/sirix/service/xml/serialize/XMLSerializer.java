@@ -126,9 +126,6 @@ public final class XMLSerializer extends AbstractSerializer {
     try {
       switch (rtx.getKind()) {
         case DOCUMENT:
-          if (mIndent) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
-          }
           break;
         case ELEMENT:
           // Emit start element.
@@ -276,7 +273,6 @@ public final class XMLSerializer extends AbstractSerializer {
           mOut.write(CharsForSerializing.NEWLINE.getBytes());
           mStack.push(Constants.NULL_ID_LONG);
         }
-        indent();
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -332,12 +328,15 @@ public final class XMLSerializer extends AbstractSerializer {
           }
           write(Integer.toString(rtx.getRevisionNumber()));
           write("\">");
-          if (rtx.hasFirstChild())
-            mStack.push(Constants.NULL_ID_LONG);
         } else if (mSerializeRest) {
           write(">");
-          if (rtx.hasFirstChild())
-            mStack.push(Constants.NULL_ID_LONG);
+        }
+
+        if (rtx.hasFirstChild())
+          mStack.push(Constants.NULL_ID_LONG);
+
+        if (mIndent) {
+          mOut.write(CharsForSerializing.NEWLINE.getBytes());
         }
       }
     } catch (final IOException e) {
@@ -353,7 +352,7 @@ public final class XMLSerializer extends AbstractSerializer {
           : mRevisions.length;
 
       if (mSerializeRest || length > 1) {
-        if (rtx.hasFirstChild())
+        if (rtx.moveToDocumentRoot().get().hasFirstChild())
           mStack.pop();
         indent();
         if (mSerializeRest) {

@@ -116,7 +116,7 @@ public final class FileStorage implements Storage {
    * @return the path for this data file
    */
   private Path getDataFilePath() {
-    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve(FILENAME);
+    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
   }
 
   /**
@@ -125,7 +125,7 @@ public final class FileStorage implements Storage {
    * @return the concrete storage for this database
    */
   private Path getRevisionFilePath() {
-    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile())
+    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                 .resolve(REVISIONS_FILENAME);
   }
 

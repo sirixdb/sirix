@@ -54,10 +54,10 @@ public final class StorageTest {
     Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
     Files.createDirectories(
         TestHelper.PATHS.PATH1.getFile()
-                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()));
+                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
     Files.createFile(
         TestHelper.PATHS.PATH1.getFile()
-                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getFile())
+                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                               .resolve("data.sirix"));
     mResourceConfig = new ResourceConfiguration.Builder("shredded",
         new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();

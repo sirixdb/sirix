@@ -129,7 +129,7 @@ public final class DatabaseImpl implements Database {
         // Creation of the folder structure.
         try {
           for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
-            final Path toCreate = path.resolve(resourcePath.getFile());
+            final Path toCreate = path.resolve(resourcePath.getPath());
 
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
@@ -183,18 +183,20 @@ public final class DatabaseImpl implements Database {
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             name);
-    // Check that database must be closed beforehand.
-    if (!Databases.hasOpenResourceManagers(resourceFile)) {
-      // If file is existing and folder is a Sirix-dataplace, delete it.
-      if (Files.exists(resourceFile)
-          && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
-        // Instantiate the database for deletion.
-        SirixFiles.recursiveRemove(resourceFile);
+    // Check that no running resource managers / sessions are opened.
+    if (Databases.hasOpenResourceManagers(resourceFile)) {
+      throw new IllegalStateException("Opened resource managers found, must be closed first.");
+    }
 
-        // mReadSemaphores.remove(resourceFile);
-        // mWriteSemaphores.remove(resourceFile);
-        mBufferManagers.remove(resourceFile);
-      }
+    // If file is existing and folder is a Sirix-dataplace, delete it.
+    if (Files.exists(resourceFile)
+        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+      // Instantiate the database for deletion.
+      SirixFiles.recursiveRemove(resourceFile);
+
+      // mReadSemaphores.remove(resourceFile);
+      // mWriteSemaphores.remove(resourceFile);
+      mBufferManagers.remove(resourceFile);
     }
 
     return this;

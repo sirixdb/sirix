@@ -321,7 +321,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     uberPageReference.setPage(null);
 
     final Path indexes = mPageRtx.mResourceConfig.mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getFile())
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                                                        .resolve(String.valueOf(revision) + ".xml");
 
     if (!Files.exists(indexes)) {

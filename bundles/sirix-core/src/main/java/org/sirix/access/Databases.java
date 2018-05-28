@@ -122,7 +122,7 @@ public final class Databases {
   public static synchronized void removeDatabase(final Path dbFile) throws SirixIOException {
     // check that database must be closed beforehand
     if (!DATABASE_SESSIONS.containsKey(dbFile)) {
-      // if file is existing and folder is a tt-dataplace, delete it
+      // if file is existing and folder is a sirix-database, delete it
       if (Files.exists(dbFile)) {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
         // 0) {
@@ -239,9 +239,9 @@ public final class Databases {
     final Set<ResourceManager> resourceManagers = RESOURCE_MANAGERS.get(file);
 
     if (resourceManagers == null || resourceManagers.isEmpty()) {
-      return true;
+      return false;
     }
 
-    return false;
+    return true;
   }
 }
