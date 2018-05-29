@@ -251,7 +251,7 @@ try (final Database database = Databases.openDatabase(file)) {
 
     // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
-    new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
+    new XMLSerializer.XMLSerializerBuilder(manager, out).prettyPrint().build().call();
 
     System.out.println(out);
   }
