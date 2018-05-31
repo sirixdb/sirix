@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.access.AbstractVisitor;
+import org.sirix.access.trx.node.AbstractVisitor;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

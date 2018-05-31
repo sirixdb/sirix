@@ -28,8 +28,8 @@ import java.io.IOException;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.TestHelper;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
@@ -106,14 +106,14 @@ public final class DocumentCreator {
   /** String representation of ID. */
   public static final String ID =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" "
-          + "ttid=\"1\" i=\"j\">oops1<b ttid=\"5\">foo<c ttid=\"7\"/></b>oops2<b ttid=\"9\" p:x=\"y\">"
-          + "<c ttid=\"11\"/>bar</b>oops3</p:a>";
+          + "id=\"1\" i=\"j\">oops1<b id=\"5\">foo<c id=\"7\"/></b>oops2<b id=\"9\" p:x=\"y\">"
+          + "<c id=\"11\"/>bar</b>oops3</p:a>";
 
   /** String representation of rest. */
   public static final String REST = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       + "<rest:sequence xmlns:rest=\"REST\"><rest:item>"
-      + "<p:a xmlns:p=\"ns\" rest:ttid=\"1\" i=\"j\">oops1<b rest:ttid=\"5\">foo<c rest:ttid=\"7\"/></b>oops2<b rest:ttid=\"9\" p:x=\"y\">"
-      + "<c rest:ttid=\"11\"/>bar</b>oops3</p:a>" + "</rest:item></rest:sequence>";
+      + "<p:a xmlns:p=\"ns\" rest:id=\"1\" i=\"j\">oops1<b rest:id=\"5\">foo<c rest:id=\"7\"/></b>oops2<b rest:id=\"9\" p:x=\"y\">"
+      + "<c rest:id=\"11\"/>bar</b>oops3</p:a></rest:item></rest:sequence>";
 
   /** String representation of test document. */
   public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -133,9 +133,9 @@ public final class DocumentCreator {
   /** String representation of versioned test document. */
   public static final String VERSIONEDXML =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<sirix><sirix revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
-          + "<sirix revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
-          + "<sirix revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix></sirix>";
+          + "<sdb:sirix xmlns:sdb=\"https://sirix.io\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+          + "<sdb:sirix-item sdb:revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+          + "<sdb:sirix-item sdb:revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item></sdb:sirix>";
 
   /** String representation of test document without attributes. */
   public static final String XMLWITHOUTATTRIBUTES =
@@ -352,53 +352,51 @@ public final class DocumentCreator {
   public static void createRevisioned(final Database database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmNodeWriteTrx firstWtx = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-                                                  .beginNodeWriteTrx()) {
-      final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
-          XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
-      shredder.call();
-    }
+    try (final ResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE)) {
+      try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
+        final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
+            XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
+        shredder.call();
+      }
 
-    try (final XdmNodeWriteTrx secondWtx = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build())
-                                                   .beginNodeWriteTrx()) {
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.setValue("A Contrived Test Document");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToRightSibling();
-      final long key = secondWtx.getNodeKey();
-      secondWtx.insertAttribute(new QNm("role"), "bold");
-      secondWtx.moveTo(key);
-      secondWtx.moveToRightSibling();
-      secondWtx.setValue("changed in it.");
-      secondWtx.moveToParent();
-      secondWtx.insertElementAsRightSibling(new QNm("para"));
-      secondWtx.insertTextAsFirstChild("This is a new para 2b.");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToFirstChild();
-      secondWtx.setValue("This is a different para 4.");
-      secondWtx.moveToParent();
-      secondWtx.insertElementAsRightSibling(new QNm("para"));
-      secondWtx.insertTextAsFirstChild("This is a new para 4b.");
-      secondWtx.moveToParent();
-      secondWtx.moveToRightSibling();
-      secondWtx.moveToRightSibling();
-      secondWtx.remove();
-      secondWtx.remove();
-      secondWtx.commit();
-      secondWtx.moveToDocumentRoot();
-      secondWtx.moveToFirstChild();
-      secondWtx.moveToFirstChild();
-      secondWtx.remove();
-      secondWtx.commit();
+      try (final XdmNodeWriteTrx secondWtx = resMgr.beginNodeWriteTrx()) {
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.setValue("A Contrived Test Document");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToRightSibling();
+        final long key = secondWtx.getNodeKey();
+        secondWtx.insertAttribute(new QNm("role"), "bold");
+        secondWtx.moveTo(key);
+        secondWtx.moveToRightSibling();
+        secondWtx.setValue("changed in it.");
+        secondWtx.moveToParent();
+        secondWtx.insertElementAsRightSibling(new QNm("para"));
+        secondWtx.insertTextAsFirstChild("This is a new para 2b.");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToFirstChild();
+        secondWtx.setValue("This is a different para 4.");
+        secondWtx.moveToParent();
+        secondWtx.insertElementAsRightSibling(new QNm("para"));
+        secondWtx.insertTextAsFirstChild("This is a new para 4b.");
+        secondWtx.moveToParent();
+        secondWtx.moveToRightSibling();
+        secondWtx.moveToRightSibling();
+        secondWtx.remove();
+        secondWtx.remove();
+        secondWtx.commit();
+        secondWtx.moveToDocumentRoot();
+        secondWtx.moveToFirstChild();
+        secondWtx.moveToFirstChild();
+        secondWtx.remove();
+        secondWtx.commit();
+      }
     }
   }
 }

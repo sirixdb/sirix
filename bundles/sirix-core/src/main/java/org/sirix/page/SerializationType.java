@@ -147,7 +147,6 @@ public enum SerializationType {
     }
 
     return ret;
-
   }
 
   /**

@@ -4,7 +4,7 @@
 
 [Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
-<h1 align="center">Sirix - Beyond Versioning of Persistent Trees</h1>
+<h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
@@ -222,10 +222,9 @@ try (final Database database = Databases.openDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      final ResourceManager resource = database.getResourceManager(
-          new ResourceManagerConfiguration.Builder("resource").build());
+      final ResourceManager manager = database.getResourceManager("resource1");
       // Start the single read/write transaction.
-      final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+      final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
     // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
     
@@ -252,7 +251,7 @@ try (final Database database = Databases.openDatabase(file)) {
 
     // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
-    new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
+    new XMLSerializer.XMLSerializerBuilder(manager, out).prettyPrint().build().call();
 
     System.out.println(out);
   }
@@ -266,7 +265,7 @@ There are N reading transactions as well as one write-transaction permitted on a
 A read-only transaction can be opened through:
 
 ```java
-final XdmNodeReadTrx rtx = resource.beginNodeReadTrx()
+final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()
 ```
 
 The codè above starts a transaction on the most recent revision.
@@ -274,14 +273,14 @@ The codè above starts a transaction on the most recent revision.
 The following code starts a transaction at revision 1.
 
 ```java
-final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(1)
+final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(1)
 ```
 
 The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
 final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-final XdmNodeReadTrx rtx = resource.beginNodeReadTrx(time.toInstant())
+final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(time.toInstant())
 ```
 
 There are also several ways to start the single write-transaction:

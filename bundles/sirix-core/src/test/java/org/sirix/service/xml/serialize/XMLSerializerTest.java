@@ -28,12 +28,12 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.settings.Constants;
 import org.sirix.utils.DocumentCreator;
 
 public class XMLSerializerTest {
@@ -51,8 +51,7 @@ public class XMLSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.commit();
@@ -63,15 +62,14 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.XML, out.toString());
+    assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 
   @Test
   public void testRestSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.commit();
@@ -82,7 +80,8 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.REST, out.toString());
+    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
 
     manager.close();
   }
@@ -90,8 +89,7 @@ public class XMLSerializerTest {
   @Test
   public void testIDSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.commit();
@@ -102,15 +100,14 @@ public class XMLSerializerTest {
     final XMLSerializer serializer =
         new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
     serializer.call();
-    assertEquals(DocumentCreator.ID, out.toString());
+    assertEquals(DocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -121,7 +118,7 @@ public class XMLSerializerTest {
     XMLSerializer serializerall =
         new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     out.reset();
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
@@ -137,8 +134,7 @@ public class XMLSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
@@ -158,7 +154,7 @@ public class XMLSerializerTest {
 
     serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
     serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
+    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     manager.close();
   }
 }

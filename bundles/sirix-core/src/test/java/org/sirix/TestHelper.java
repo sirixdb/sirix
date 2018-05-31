@@ -35,10 +35,9 @@ import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.Databases;
-import org.sirix.access.XdmResourceManager;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
+import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -143,8 +142,8 @@ public final class TestHelper {
   @Ignore
   public static final void deleteEverything() throws SirixException {
     closeEverything();
-    Databases.truncateDatabase(PATHS.PATH1.config);
-    Databases.truncateDatabase(PATHS.PATH2.config);
+    Databases.removeDatabase(PATHS.PATH1.getFile());
+    Databases.removeDatabase(PATHS.PATH2.getFile());
   }
 
   /**
@@ -271,9 +270,7 @@ public final class TestHelper {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (
-        final ResourceManager manager =
-            database.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+    try (final ResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.create(wtx);
       wtx.commit();
@@ -289,9 +286,7 @@ public final class TestHelper {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (
-        final ResourceManager manager =
-            database.getResourceManager(new ResourceManagerConfiguration.Builder(RESOURCE).build());
+    try (final ResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.createCommentPI(wtx);
       wtx.commit();

@@ -30,7 +30,6 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -68,8 +67,7 @@ public final class XPathWriteTransactionTest {
     database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getResourceManager(
-        new ResourceManagerConfiguration.Builder(TestHelper.RESOURCE).build());
+    manager = database.getResourceManager(TestHelper.RESOURCE);
     wtx = manager.beginNodeWriteTrx();
   }
 

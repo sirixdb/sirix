@@ -6,7 +6,7 @@ import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
-import org.sirix.access.AbstractVisitor;
+import org.sirix.access.trx.node.AbstractVisitor;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

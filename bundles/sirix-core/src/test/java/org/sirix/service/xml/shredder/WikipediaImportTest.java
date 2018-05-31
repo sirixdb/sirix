@@ -68,7 +68,7 @@ public class WikipediaImportTest {
 
   @Test
   public void testWikipediaImport() throws Exception {
-    Databases.truncateDatabase(new DatabaseConfiguration(PATHS.PATH2.getFile()));
+    Databases.removeDatabase(PATHS.PATH2.getFile());
 
     // Create necessary element nodes.
     final String NSP_URI = "";

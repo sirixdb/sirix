@@ -1,16 +1,15 @@
 package org.sirix.examples;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.xml.stream.XMLStreamException;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -30,18 +29,17 @@ public final class ResourceTransactionUsage {
     final Path file = LOCATION.resolve("db");
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (Files.exists(file)) {
-      Databases.truncateDatabase(config);
+      Databases.removeDatabase(file);
     }
     Databases.createDatabase(config);
 
     try (final Database database = Databases.openDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());
 
-      try (
-          final ResourceManager resource = database.getResourceManager(
-              new ResourceManagerConfiguration.Builder("resource").build());
-          final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
-        wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
+      try (final ResourceManager resource = database.getResourceManager("resource");
+          final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
+          final FileInputStream fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
+        wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(fis));
         wtx.moveTo(2);
         wtx.moveSubtreeToFirstChild(4).commit();
 
@@ -50,7 +48,7 @@ public final class ResourceTransactionUsage {
 
         System.out.println(out);
       }
-    } catch (final SirixException | IOException | XMLStreamException e) {
+    } catch (final SirixException | IOException e) {
       // LOG or do anything, the database is closed properly.
     }
   }

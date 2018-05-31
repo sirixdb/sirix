@@ -24,6 +24,7 @@ package org.sirix.service.xml.shredder;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
@@ -47,13 +48,13 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.ElementNode;
+import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -319,16 +320,15 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     final long time = System.nanoTime();
     final Path target = Paths.get(args[1]);
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
-    Databases.truncateDatabase(config);
+    Databases.removeDatabase(target);
     Databases.createDatabase(config);
 
     try (final Database db = Databases.openDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      try (
-          final ResourceManager resMgr =
-              db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
-          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx()) {
-        final XMLEventReader reader = createFileReader(Paths.get(args[0]));
+      try (final ResourceManager resMgr = db.getResourceManager("shredded");
+          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
+          final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
+        final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3
             ? Boolean.parseBoolean(args[2])
             : false;
@@ -345,39 +345,47 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
   }
 
   /**
-   * Create a new StAX reader on a file.
+   * Create a new {@link XMLEventReader} instance on a file.
    *
-   * @param xmlFile the XML file to parse
+   * @param fis the file input stream
    * @return an {@link XMLEventReader}
-   * @throws IOException if I/O operation fails
-   * @throws XMLStreamException if any parsing error occurs
+   * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createFileReader(final Path xmlFile)
-      throws IOException, XMLStreamException {
-    checkNotNull(xmlFile);
+  public static synchronized XMLEventReader createFileReader(final FileInputStream fis) {
+    checkNotNull(fis);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
+    setProperties(factory);
+    try {
+      return factory.createXMLEventReader(fis);
+    } catch (XMLStreamException e) {
+      throw new SirixException(e.getMessage(), e);
+    }
+  }
+
+  private static void setProperties(final XMLInputFactory factory) {
     factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+    factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
     factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-    final InputStream in = new FileInputStream(xmlFile.toFile());
-    return factory.createXMLEventReader(in);
   }
 
   /**
-   * Create a new StAX reader on a string.
+   * Create a new {@link XMLEventReader} instance on a string.
    *
    * @param xmlString the XML file as a string to parse
    * @return an {@link XMLEventReader}
-   * @throws IOException if I/O operation fails
-   * @throws XMLStreamException if any parsing error occurs
+   * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createStringReader(final String xmlString)
-      throws IOException, XMLStreamException {
+  public static synchronized XMLEventReader createStringReader(final String xmlString) {
     checkNotNull(xmlString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
-    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-    factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-    final InputStream in = new ByteArrayInputStream(xmlString.getBytes());
-    return factory.createXMLEventReader(in);
+    setProperties(factory);
+    try {
+      final InputStream in =
+          new ByteArrayInputStream(xmlString.getBytes(Constants.DEFAULT_ENCODING));
+      return factory.createXMLEventReader(in);
+    } catch (XMLStreamException e) {
+      throw new SirixException(e.getMessage(), e);
+    }
   }
 
   /**

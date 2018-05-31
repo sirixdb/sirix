@@ -42,8 +42,11 @@ import org.sirix.page.SerializationType;
  */
 public final class FileStorage implements Storage {
 
-  /** File name. */
+  /** Data file name. */
   private static final String FILENAME = "sirix.data";
+
+  /** Revisions file name. */
+  private static final String REVISIONS_FILENAME = "sirix.revisions";
 
   /** Instance to storage. */
   private final Path mFile;
@@ -66,9 +69,11 @@ public final class FileStorage implements Storage {
   @Override
   public Reader createReader() throws SirixIOException {
     try {
-      final Path concreteStorage = createDirectoriesAndFile();
+      final Path dataFilePath = createDirectoriesAndFile();
+      final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      return new FileReader(new RandomAccessFile(concreteStorage.toFile(), "r"),
+      return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
+          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
           new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -76,21 +81,24 @@ public final class FileStorage implements Storage {
   }
 
   private Path createDirectoriesAndFile() throws IOException {
-    final Path concreteStorage = getConcreteStorage();
+    final Path concreteStorage = getDataFilePath();
 
     if (!Files.exists(concreteStorage)) {
       Files.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
     }
+
     return concreteStorage;
   }
 
   @Override
   public Writer createWriter() throws SirixIOException {
     try {
-      final Path concreteStorage = createDirectoriesAndFile();
+      final Path dataFilePath = createDirectoriesAndFile();
+      final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      return new FileWriter(new RandomAccessFile(concreteStorage.toFile(), "rw"),
+      return new FileWriter(new RandomAccessFile(dataFilePath.toFile(), "rw"),
+          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
           new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -103,17 +111,27 @@ public final class FileStorage implements Storage {
   }
 
   /**
+   * Getting path for data file.
+   *
+   * @return the path for this data file
+   */
+  private Path getDataFilePath() {
+    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+  }
+
+  /**
    * Getting concrete storage for this file.
    *
    * @return the concrete storage for this database
    */
-  private Path getConcreteStorage() {
-    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getFile()).resolve(FILENAME);
+  private Path getRevisionFilePath() {
+    return mFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                .resolve(REVISIONS_FILENAME);
   }
 
   @Override
   public boolean exists() throws SirixIOException {
-    final Path storage = getConcreteStorage();
+    final Path storage = getDataFilePath();
     try {
       return Files.exists(storage) && Files.size(storage) > 0;
     } catch (final IOException e) {

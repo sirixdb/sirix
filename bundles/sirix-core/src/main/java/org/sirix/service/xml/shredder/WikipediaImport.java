@@ -21,8 +21,8 @@
 
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -48,7 +48,6 @@ import javax.xml.stream.events.XMLEvent;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -142,8 +141,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createDatabase(config);
     mDatabase = Databases.openDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    mResourceManager =
-        mDatabase.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+    mResourceManager = mDatabase.getResourceManager("shredded");
     mWtx = mResourceManager.beginNodeWriteTrx();
   }
 
@@ -276,12 +274,11 @@ public final class WikipediaImport implements Import<StartElement> {
   private void updateShredder() throws SirixException, IOException, XMLStreamException {
     final Path path = Files.createTempDirectory("sdbtmp");
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
-    Databases.truncateDatabase(dbConf);
+    Databases.removeDatabase(path);
     Databases.createDatabase(dbConf);
     final Database db = Databases.openDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
-    final ResourceManager resourceManager =
-        db.getResourceManager(new ResourceManagerConfiguration.Builder("wiki").build());
+    final ResourceManager resourceManager = db.getResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
       mPageEvents.addFirst(
@@ -305,7 +302,7 @@ public final class WikipediaImport implements Import<StartElement> {
     rtx.close();
     resourceManager.close();
     db.close();
-    Databases.truncateDatabase(dbConf);
+    Databases.removeDatabase(path);
   }
 
   /**
@@ -564,7 +561,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
     final Path xml = Paths.get(args[0]);
     final Path resource = Paths.get(args[1]);
-    Databases.truncateDatabase(new DatabaseConfiguration(resource));
+    Databases.removeDatabase(resource);
 
     // Create necessary element nodes.
     final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";

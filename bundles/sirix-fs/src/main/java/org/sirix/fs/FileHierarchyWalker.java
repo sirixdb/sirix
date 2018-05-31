@@ -9,7 +9,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -42,9 +41,7 @@ public class FileHierarchyWalker {
       throws SirixException, IOException {
     checkNotNull(visitor);
     checkNotNull(path);
-    try (
-        final ResourceManager resource = checkNotNull(database).getResourceManager(
-            new ResourceManagerConfiguration.Builder("shredded").build());
+    try (final ResourceManager resource = checkNotNull(database).getResourceManager("shredded");
         final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {
