@@ -11,7 +11,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.IndexController;
+import org.sirix.access.trx.node.IndexController;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;

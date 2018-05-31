@@ -27,12 +27,13 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
+import org.sirix.settings.Constants;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -120,17 +121,13 @@ public abstract class AbstractSerializer implements Callable<Void> {
     final int length = (nrOfRevisions == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
-    if (length > 1) {
-      emitStartManualRootElement();
-    }
+
     for (int i = 1; i <= length; i++) {
       try (final XdmNodeReadTrx rtx = mResMgr.beginNodeReadTrx(
           (nrOfRevisions == 1 && mRevisions[0] < 0)
               ? i
               : mRevisions[i - 1])) {
-        if (length > 1) {
-          emitStartManualElement(i);
-        }
+        emitRevisionStartTag(rtx);
 
         rtx.moveTo(mNodeKey);
 
@@ -148,19 +145,19 @@ public abstract class AbstractSerializer implements Callable<Void> {
           if (closeElements) {
             while (!mStack.isEmpty() && mStack.peek() != rtx.getLeftSiblingKey()) {
               rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
+              emitEndTag(rtx);
               rtx.moveTo(key);
             }
             if (!mStack.isEmpty()) {
               rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
+              emitEndTag(rtx);
             }
             rtx.moveTo(key);
             closeElements = false;
           }
 
           // Emit node.
-          emitStartElement(rtx);
+          emitNode(rtx);
 
           // Push end element to stack if we are a start element with
           // children.
@@ -173,29 +170,26 @@ public abstract class AbstractSerializer implements Callable<Void> {
           if (!rtx.hasFirstChild() && !rtx.hasRightSibling()) {
             closeElements = true;
           }
-
         }
 
         // Finally emit all pending end elements.
-        while (!mStack.isEmpty()) {
+        while (!mStack.isEmpty() && mStack.peek() != Constants.NULL_ID_LONG) {
           rtx.moveTo(mStack.pop());
-          emitEndElement(rtx);
+          emitEndTag(rtx);
         }
 
-        if (length > 1) {
-          emitEndManualElement(i);
-        }
+        emitRevisionEndTag(rtx);
       }
     }
-    if (length > 1) {
-      emitEndManualRootElement();
-    }
+
     emitEndDocument();
 
     return null;
   }
 
-  /** Emit start document. */
+  /**
+   * Emit start document.
+   */
   protected abstract void emitStartDocument();
 
   /**
@@ -203,34 +197,28 @@ public abstract class AbstractSerializer implements Callable<Void> {
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartElement(final XdmNodeReadTrx rtx);
+  protected abstract void emitNode(XdmNodeReadTrx rtx);
 
   /**
    * Emit end tag.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndElement(final XdmNodeReadTrx rtx);
-
-  /** Emit a start tag, which encapsulates several revisions. */
-  protected abstract void emitStartManualRootElement();
-
-  /** Emit an end tag, which encapsulates several revisions. */
-  protected abstract void emitEndManualRootElement();
+  protected abstract void emitEndTag(XdmNodeReadTrx rtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    *
-   * @param revision the revision to serialize
+   * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitStartManualElement(final @Nonnegative long revision);
+  protected abstract void emitRevisionStartTag(XdmNodeReadTrx rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
-   * @param revision the revision to serialize
+   * @param rtx Sirix {@link XdmNodeReadTrx}
    */
-  protected abstract void emitEndManualElement(final @Nonnegative long revision);
+  protected abstract void emitRevisionEndTag(XdmNodeReadTrx rtx);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

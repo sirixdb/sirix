@@ -15,7 +15,6 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -96,8 +95,7 @@ public final class Import extends AbstractFunction {
         }
 
         try (final Database databaseNew = Databases.openDatabase(newRevTarget);
-            final ResourceManager resourceNew = databaseNew.getResourceManager(
-                new ResourceManagerConfiguration.Builder("shredded").build());
+            final ResourceManager resourceNew = databaseNew.getResourceManager("shredded");
             final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);

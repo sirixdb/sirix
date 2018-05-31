@@ -38,11 +38,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -122,13 +122,10 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   @Override
-  protected void emitStartElement(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadTrx rtx) {
     try {
       switch (rtx.getKind()) {
         case DOCUMENT:
-          if (mIndent) {
-            mOut.write(CharsForSerializing.NEWLINE.getBytes());
-          }
           break;
         case ELEMENT:
           // Emit start element.
@@ -228,7 +225,7 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   @Override
-  protected void emitEndElement(final XdmNodeReadTrx rtx) {
+  protected void emitEndTag(final XdmNodeReadTrx rtx) {
     try {
       indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
@@ -256,9 +253,26 @@ public final class XMLSerializer extends AbstractSerializer {
     try {
       if (mSerializeXMLDeclaration) {
         write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+        if (mIndent) {
+          mOut.write(CharsForSerializing.NEWLINE.getBytes());
+        }
       }
-      if (mSerializeRest) {
-        write("<rest:sequence xmlns:rest=\"REST\"><rest:item>");
+
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        if (mSerializeRest) {
+          write("<rest:sequence xmlns:rest=\"REST\">");
+        } else {
+          write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
+        }
+
+        if (mIndent) {
+          mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          mStack.push(Constants.NULL_ID_LONG);
+        }
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -268,9 +282,23 @@ public final class XMLSerializer extends AbstractSerializer {
   @Override
   protected void emitEndDocument() {
     try {
-      if (mSerializeRest) {
-        write("</rest:item></rest:sequence>");
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        if (mIndent) {
+          mStack.pop();
+        }
+        indent();
+
+        if (mSerializeRest) {
+          write("</rest:sequence>");
+        } else {
+          write("</sdb:sirix>");
+        }
       }
+
       mOut.flush();
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -278,38 +306,65 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitStartManualRootElement() {
+  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
-      write("<sirix>");
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
+
+      if (mSerializeRest || length > 1) {
+        indent();
+        if (mSerializeRest) {
+          write("<rest:item");
+        } else {
+          write("<sdb:sirix-item");
+        }
+
+        if (length > 1) {
+          if (mSerializeRest) {
+            write(" rest:revision=\"");
+          } else {
+            write(" sdb:revision=\"");
+          }
+          write(Integer.toString(rtx.getRevisionNumber()));
+          write("\">");
+        } else if (mSerializeRest) {
+          write(">");
+        }
+
+        if (rtx.hasFirstChild())
+          mStack.push(Constants.NULL_ID_LONG);
+
+        if (mIndent) {
+          mOut.write(CharsForSerializing.NEWLINE.getBytes());
+        }
+      }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
 
   @Override
-  protected void emitEndManualRootElement() {
+  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
     try {
-      write("</sirix>");
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+      final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
+          ? (int) mResMgr.getMostRecentRevisionNumber()
+          : mRevisions.length;
 
-  @Override
-  protected void emitStartManualElement(final @Nonnegative long version) {
-    try {
-      write("<sirix revision=\"");
-      write(Long.toString(version));
-      write("\">");
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+      if (mSerializeRest || length > 1) {
+        if (rtx.moveToDocumentRoot().get().hasFirstChild())
+          mStack.pop();
+        indent();
+        if (mSerializeRest) {
+          write("</rest:item>");
+        } else {
+          write("</sdb:sirix-item>");
+        }
+      }
 
-  @Override
-  protected void emitEndManualElement(final @Nonnegative long version) {
-    try {
-      write("</sirix>");
+      if (mIndent) {
+        mOut.write(CharsForSerializing.NEWLINE.getBytes());
+      }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -331,12 +386,12 @@ public final class XMLSerializer extends AbstractSerializer {
   /**
    * Write characters of string.
    *
-   * @param pString String to write
+   * @param value value to write
    * @throws IOException if can't write to string
    * @throws UnsupportedEncodingException if unsupport encoding
    */
-  protected void write(final String pString) throws UnsupportedEncodingException, IOException {
-    mOut.write(pString.getBytes(Constants.DEFAULT_ENCODING));
+  protected void write(final String value) throws UnsupportedEncodingException, IOException {
+    mOut.write(value.getBytes(Constants.DEFAULT_ENCODING));
   }
 
   /**
@@ -379,8 +434,7 @@ public final class XMLSerializer extends AbstractSerializer {
     Databases.createDatabase(config);
     try (final Database db = Databases.openDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      final ResourceManager resMgr =
-          db.getResourceManager(new ResourceManagerConfiguration.Builder("shredded").build());
+      final ResourceManager resMgr = db.getResourceManager("shredded");
 
       try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XMLSerializer serializer =
@@ -577,7 +631,15 @@ public final class XMLSerializer extends AbstractSerializer {
      * @return XMLSerializerBuilder reference
      */
     public XMLSerializerBuilder versions(final int[] versions) {
-      mVersions = checkNotNull(versions);
+      checkNotNull(versions);
+
+      mVersion = versions[0];
+
+      mVersions = new int[versions.length - 1];
+      for (int i = 0; i < versions.length - 1; i++) {
+        mVersions[i] = versions[i + 1];
+      }
+
       return this;
     }
 

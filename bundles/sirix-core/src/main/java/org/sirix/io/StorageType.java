@@ -23,7 +23,6 @@ package org.sirix.io;
 import java.io.RandomAccessFile;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.berkeley.BerkeleyStorageFactory;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
 
@@ -48,14 +47,6 @@ public enum StorageType {
     @Override
     public Storage getInstance(final ResourceConfiguration resourceConf) {
       return new FileStorage(resourceConf);
-    }
-  },
-
-  /** BerkeleyDB backend. */
-  BERKELEY_DB {
-    @Override
-    public Storage getInstance(final ResourceConfiguration resourceConf) {
-      return BerkeleyStorageFactory.createStorage(resourceConf);
     }
   };
 

@@ -35,7 +35,7 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceManagerConfiguration;
+import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
@@ -129,7 +129,7 @@ public final class DatabaseImpl implements Database {
         // Creation of the folder structure.
         try {
           for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
-            final Path toCreate = path.resolve(resourcePath.getFile());
+            final Path toCreate = path.resolve(resourcePath.getPath());
 
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
@@ -157,9 +157,8 @@ public final class DatabaseImpl implements Database {
 
       try {
         try (
-            final ResourceManager resourceTrxManager = this.getResourceManager(
-                new ResourceManagerConfiguration.Builder(
-                    resConfig.getResource().getFileName().toString()).build());
+            final ResourceManager resourceTrxManager =
+                this.getResourceManager(resConfig.getResource().getFileName().toString());
             final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
           wtx.commit();
         }
@@ -178,24 +177,26 @@ public final class DatabaseImpl implements Database {
   }
 
   @Override
-  public synchronized Database truncateResource(final String name) {
+  public synchronized Database removeResource(final String name) {
     assertNotClosed();
 
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
             name);
-    // Check that database must be closed beforehand.
-    if (!Databases.hasOpenResourceManagers(resourceFile)) {
-      // If file is existing and folder is a Sirix-dataplace, delete it.
-      if (Files.exists(resourceFile)
-          && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
-        // Instantiate the database for deletion.
-        SirixFiles.recursiveRemove(resourceFile);
+    // Check that no running resource managers / sessions are opened.
+    if (Databases.hasOpenResourceManagers(resourceFile)) {
+      throw new IllegalStateException("Opened resource managers found, must be closed first.");
+    }
 
-        // mReadSemaphores.remove(resourceFile);
-        // mWriteSemaphores.remove(resourceFile);
-        mBufferManagers.remove(resourceFile);
-      }
+    // If file is existing and folder is a Sirix-dataplace, delete it.
+    if (Files.exists(resourceFile)
+        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+      // Instantiate the database for deletion.
+      SirixFiles.recursiveRemove(resourceFile);
+
+      // mReadSemaphores.remove(resourceFile);
+      // mWriteSemaphores.remove(resourceFile);
+      mBufferManagers.remove(resourceFile);
     }
 
     return this;
@@ -231,13 +232,13 @@ public final class DatabaseImpl implements Database {
   // //////////////////////////////////////////////////////////
 
   @Override
-  public synchronized ResourceManager getResourceManager(
-      final ResourceManagerConfiguration resourceManagerConfig) throws SirixException {
+  public synchronized ResourceManager getResourceManager(final String resource)
+      throws SirixException {
     assertNotClosed();
 
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resourceManagerConfig.getResource());
+            resource);
 
     if (!Files.exists(resourceFile)) {
       throw new SirixUsageException(
@@ -261,8 +262,7 @@ public final class DatabaseImpl implements Database {
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
     final ResourceManager resourceManager = mResourceStore.openResource(
-        this, resourceConfig, resourceManagerConfig, mBufferManagers.get(resourceFile),
-        resourceFile);
+        this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
 
     return resourceManager;
   }

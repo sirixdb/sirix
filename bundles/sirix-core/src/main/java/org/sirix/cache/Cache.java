@@ -23,7 +23,6 @@ package org.sirix.cache;
 
 import java.util.Map;
 import javax.annotation.Nonnull;
-import com.google.common.collect.ImmutableMap;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
@@ -74,9 +73,9 @@ public interface Cache<K, V> {
    * Get all entries corresponding to the keys.
    *
    * @param keys {@link Iterable} of keys
-   * @return {@link ImmutableMap} instance with corresponding values
+   * @return {@link Map} instance with corresponding values
    */
-  ImmutableMap<K, V> getAll(Iterable<? extends K> keys);
+  Map<K, V> getAll(Iterable<? extends K> keys);
 
   /**
    * Remove key from storage.

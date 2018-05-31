@@ -1,7 +1,7 @@
 package org.sirix.api;
 
-import org.sirix.access.Move;
-import org.sirix.access.Moved;
+import org.sirix.access.trx.node.Move;
+import org.sirix.access.trx.node.Moved;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;

@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.CommitCredentials;
+import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.TransactionIntentLog;

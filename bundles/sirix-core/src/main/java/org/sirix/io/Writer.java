@@ -56,4 +56,9 @@ public interface Writer extends Reader {
    * @return this writer instance
    */
   Writer truncateTo(int revision);
+
+  /**
+   * Truncate, that is remove all file content.
+   */
+  Writer truncate();
 }

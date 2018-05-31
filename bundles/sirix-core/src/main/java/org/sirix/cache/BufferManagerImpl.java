@@ -1,6 +1,7 @@
 package org.sirix.cache;
 
 import org.sirix.page.PageReference;
+import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
 
 public final class BufferManagerImpl implements BufferManager {
@@ -8,9 +9,12 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RecordPageCache mRecordPageCache;
 
+  private final RevisionRootPageCache mRevisionRootPageCache;
+
   public BufferManagerImpl() {
     mPageCache = new PageCache();
     mRecordPageCache = new RecordPageCache();
+    mRevisionRootPageCache = new RevisionRootPageCache();
   }
 
   @Override
@@ -21,5 +25,10 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<PageReference, PageContainer> getRecordPageCache() {
     return mRecordPageCache;
+  }
+
+  @Override
+  public Cache<Integer, RevisionRootPage> getRevisionRootPageCache() {
+    return mRevisionRootPageCache;
   }
 }

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -20,28 +20,28 @@
  */
 
 /**
- * <h1>Configuration ofsirix</h1>
+ * <h1>Configuration of Sirix</h1>
  * <p>
- * All configuration of sirix takes place of the classes in this package.
+ * All configuration of Sirix takes place within the classes in this package.
  * <ul>
  * <li>The {@link org.sirix.access.conf.DatabaseConfiguration} defines the settings within a
- * {@link org.sirix.access.DatabaseImpl} (e.g. path to the database and the version where the data
- * was created). This configuration is only needed within the creation of a
- * {@link org.sirix.access.DatabaseImpl} and serialized.</li>
+ * {@link org.sirix.access.Database} (e.g. path to the database and the version where the data was
+ * created). This configuration is only needed within the creation of a
+ * {@link org.sirix.access.Database} and serialized.</li>
  * <li>The {@link org.sirix.access.conf.ResourceConfiguration} defines the persisted settings within
- * a {@link org.sirix.access.XdmResourceManager} (e.g. versioning-kind of the resource,
+ * a {@link org.sirix.access.trx.node.ResourceManager} (e.g. versioning-kind of the resource,
  * hashing-kind, ...). This configuration is only needed within the creation of a resource and
  * serialized.</li>
  * <li>The {@link org.sirix.access.conf.ResourceManagerConfiguration} defines the runtime settings
- * within a {@link org.sirix.access.XdmResourceManager} (e.g. numbers of transactions, ...). This
- * configuration is needed within each instantiation of a
- * {@link org.sirix.access.XdmResourceManager}.</li>
+ * within a {@link org.sirix.access.trx.node.ResourceManager} (e.g. numbers of transactions, ...).
+ * This configuration is needed within each instantiation of a
+ * {@link org.sirix.access.trx.node.ResourceManager}.</li>
  * </ul>
  * </p>
  * <p>
  * All configurations are set within the {@link org.sirix.access.DatabaseImpl} only.
  * </p>
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  */
 package org.sirix.access.conf;
