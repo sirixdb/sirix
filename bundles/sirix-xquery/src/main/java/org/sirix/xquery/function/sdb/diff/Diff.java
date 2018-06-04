@@ -31,10 +31,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -53,6 +55,7 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.DiffTuple;
+import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -136,6 +139,13 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
 
+      final Set<Long> nodeKeysOfInserts = mDiffs.stream()
+                                                .filter(
+                                                    tuple -> tuple.getDiff() == DiffType.INSERTED
+                                                        || tuple.getDiff() == DiffType.REPLACEDNEW)
+                                                .map(DiffTuple::getNewNodeKey)
+                                                .collect(Collectors.toSet());
+
       mBuf.append("let $doc := ");
       createDocString(args, rev1);
       mBuf.append(System.getProperty("line.separator"));
@@ -154,6 +164,10 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
           switch (diffType) {
             case INSERTED:
+              if (newRtx.getKind() == Kind.ATTRIBUTE
+                  && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+                continue;
+
               mBuf.append("  insert nodes ");
               mBuf.append(printSubtreeNode(newRtx));
 
