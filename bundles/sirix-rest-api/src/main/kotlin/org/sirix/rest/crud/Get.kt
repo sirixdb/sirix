@@ -15,7 +15,6 @@ import org.sirix.xquery.node.DBNode
 import org.sirix.xquery.node.DBStore
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
-import java.io.PrintWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -50,23 +49,23 @@ class Get(private val location: Path) : Handler<RoutingContext> {
 
                     dbCollection.use {
                         val revisionNumber = getRevisionNumber(rev, revTimestamp, manager)
-                        val trx = manager.beginNodeReadTrx(revisionNumber.get(0))
+                        val trx = manager.beginNodeReadTrx(revisionNumber[0])
 
                         trx.use {
                             nodeId?.let { trx.moveTo(nodeId.toLong()) }
                             val dbNode = DBNode(trx, dbCollection)
 
-                            xquery(dbName, resName, query, dbNode, ctx)
+                            xquery(query, dbNode, ctx)
                         }
                     }
                 } else {
-                    val revisions: Array<Int> = if (revRange != null) {
-                        parseIntRevisions(revRange, ctx)
-                    } else if (revRangeByTimestamp != null) {
-                        val tspRevisions = parseTimestampRevisions(revRangeByTimestamp, ctx)
-                        getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
-                    } else {
-                        getRevisionNumber(rev, revTimestamp, manager)
+                    val revisions: Array<Int> = when {
+                        revRange != null -> parseIntRevisions(revRange, ctx)
+                        revRangeByTimestamp != null -> {
+                            val tspRevisions = parseTimestampRevisions(revRangeByTimestamp, ctx)
+                            getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
+                        }
+                        else -> getRevisionNumber(rev, revTimestamp, manager)
                     }
 
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
@@ -89,13 +88,13 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         }
     }
 
-    private fun xquery(dbName: String, resName: String, query: String, node: DBNode?, ctx: RoutingContext) {
+    private fun xquery(query: String, node: DBNode, ctx: RoutingContext) {
         // Initialize query context and store.
         val dbStore = DBStore.newBuilder().build()
 
         dbStore.use {
             val queryCtx = SirixQueryContext(dbStore)
-            node?.let { queryCtx.contextItem = node }
+            queryCtx.contextItem = node
 
             // Use XQuery to load sample document into store.
             val out = ByteArrayOutputStream()
@@ -128,7 +127,7 @@ class Get(private val location: Path) : Handler<RoutingContext> {
     }
 
     private fun getRevisionNumber(manager: ResourceManager, revision: String): Int {
-        val revisionDateTime = LocalDateTime.parse(revision as java.lang.String)
+        val revisionDateTime = LocalDateTime.parse(revision)
         val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
         return manager.getRevisionNumber(zdt.toInstant())
     }
@@ -177,8 +176,8 @@ class Get(private val location: Path) : Handler<RoutingContext> {
     private fun parseTimestampRevisions(revisions: String, ctx: RoutingContext): Pair<LocalDateTime, LocalDateTime> {
         val (firstRevision: String, lastRevision: String) = split(revisions, ctx, '|')
 
-        var firstRevisionDateTime = LocalDateTime.parse(firstRevision as java.lang.String)
-        var lastRevisionDateTime = LocalDateTime.parse(lastRevision as java.lang.String)
+        val firstRevisionDateTime = LocalDateTime.parse(firstRevision)
+        val lastRevisionDateTime = LocalDateTime.parse(lastRevision)
 
         return Pair(firstRevisionDateTime, lastRevisionDateTime)
     }
