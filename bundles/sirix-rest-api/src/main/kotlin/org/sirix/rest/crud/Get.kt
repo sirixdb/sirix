@@ -8,6 +8,7 @@ import org.sirix.api.ResourceManager
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.xquery.DBSerializer
+import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.node.DBCollection
 import org.sirix.xquery.node.DBNode
@@ -44,28 +45,14 @@ class Get(private val location: Path) : Handler<RoutingContext> {
             val manager = database.getResourceManager(resName)
 
             manager.use {
-                val revisions: Array<Int> = if (revRange != null) {
-                    parseIntRevisions(revRange, ctx)
-                } else if (revRangeByTimestamp != null) {
-                    val tspRevisions = parseTimestampRevisions(revRangeByTimestamp, ctx)
-                    getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
-                } else if (rev != null) {
-                    arrayOf(rev.toInt())
-                } else if (revTimestamp != null) {
-                    var revision = getRevisionNumber(manager, revTimestamp)
-                    if (revision == 0)
-                        arrayOf(++revision)
-                    else
-                        arrayOf(revision)
-                } else {
-                    arrayOf(manager.mostRecentRevisionNumber)
-                }
-
                 if (query != null) {
-                    DBCollection(dbName, database).use {
-                        val dbCollection = it
-                        manager.beginNodeReadTrx().use {
-                            val trx = it
+                    val dbCollection = DBCollection(dbName, database)
+
+                    dbCollection.use {
+                        val revisionNumber = getRevisionNumber(rev, revTimestamp, manager)
+                        val trx = manager.beginNodeReadTrx(revisionNumber.get(0))
+
+                        trx.use {
                             nodeId?.let { trx.moveTo(nodeId.toLong()) }
                             val dbNode = DBNode(trx, dbCollection)
 
@@ -73,23 +60,49 @@ class Get(private val location: Path) : Handler<RoutingContext> {
                         }
                     }
                 } else {
+                    val revisions: Array<Int> = if (revRange != null) {
+                        parseIntRevisions(revRange, ctx)
+                    } else if (revRangeByTimestamp != null) {
+                        val tspRevisions = parseTimestampRevisions(revRangeByTimestamp, ctx)
+                        getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
+                    } else {
+                        getRevisionNumber(rev, revTimestamp, manager)
+                    }
+
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                 }
             }
         }
     }
 
+    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceManager): Array<Int> {
+        return if (rev != null) {
+            arrayOf(rev.toInt())
+        } else if (revTimestamp != null) {
+            var revision = getRevisionNumber(manager, revTimestamp)
+            if (revision == 0)
+                arrayOf(++revision)
+            else
+                arrayOf(revision)
+        } else {
+            arrayOf(manager.mostRecentRevisionNumber)
+        }
+    }
+
     private fun xquery(dbName: String, resName: String, query: String, node: DBNode?, ctx: RoutingContext) {
         // Initialize query context and store.
-        DBStore.newBuilder().build().use {
-            val queryCtx = SirixQueryContext(it)
+        val dbStore = DBStore.newBuilder().build()
+
+        dbStore.use {
+            val queryCtx = SirixQueryContext(dbStore)
             node?.let { queryCtx.contextItem = node }
 
             // Use XQuery to load sample document into store.
-            ByteArrayOutputStream().use {
-                val out = it
+            val out = ByteArrayOutputStream()
+
+            out.use {
                 PrintStream(out).use {
-                    XQuery(query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
+                    XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
                 }
 
                 val body = String(out.toByteArray(), StandardCharsets.UTF_8)

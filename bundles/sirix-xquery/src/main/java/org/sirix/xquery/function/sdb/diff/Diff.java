@@ -125,9 +125,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       mPool.submit(
           () -> DiffFactory.invokeFullDiff(
               new DiffFactory.Builder(resMrg, rev2, rev1,
-                  resMrg.getResourceConfig().mHashKind != HashKind.NONE
-                      ? DiffOptimized.HASHED
-                      : DiffOptimized.NO,
+                  resMrg.getResourceConfig().mHashKind == HashKind.NONE
+                      ? DiffOptimized.NO
+                      : DiffOptimized.HASHED,
                   ImmutableSet.of(this)).skipSubtrees(true)));
 
       try {
@@ -214,6 +214,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     }
 
     mBuf.append(")");
+    mBuf.append(System.getProperty("line.separator"));
 
     return new Str(mBuf.toString());
   }
