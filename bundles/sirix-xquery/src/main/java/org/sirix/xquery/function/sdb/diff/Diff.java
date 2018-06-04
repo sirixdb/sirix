@@ -124,6 +124,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
     final DBNode doc = col.getDocument(expResName);
 
+    mDiffs.clear();
+    mBuf.setLength(0);
+
     try (final ResourceManager resMrg = doc.getTrx().getResourceManager()) {
       mPool.submit(
           () -> DiffFactory.invokeFullDiff(
