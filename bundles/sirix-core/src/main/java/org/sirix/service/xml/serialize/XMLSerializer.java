@@ -89,6 +89,9 @@ public final class XMLSerializer extends AbstractSerializer {
   /** Serialize rest header and closer and rest:id. */
   private final boolean mSerializeRest;
 
+  /** Serialize a rest-sequence element for the start-document. */
+  private final boolean mSerializeRestSequence;
+
   /** Serialize id. */
   private final boolean mSerializeId;
 
@@ -112,6 +115,7 @@ public final class XMLSerializer extends AbstractSerializer {
     mIndent = builder.mIndent;
     mSerializeXMLDeclaration = builder.mDeclaration;
     mSerializeRest = builder.mREST;
+    mSerializeRestSequence = builder.mRESTSequence;
     mSerializeId = builder.mID;
     mIndentSpaces = builder.mIndentSpaces;
   }
@@ -262,8 +266,8 @@ public final class XMLSerializer extends AbstractSerializer {
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRest || length > 1) {
-        if (mSerializeRest) {
+      if (mSerializeRestSequence || length > 1) {
+        if (mSerializeRestSequence) {
           write("<rest:sequence xmlns:rest=\"REST\">");
         } else {
           write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
@@ -286,13 +290,13 @@ public final class XMLSerializer extends AbstractSerializer {
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRest || length > 1) {
+      if (mSerializeRestSequence || length > 1) {
         if (mIndent) {
           mStack.pop();
         }
         indent();
 
-        if (mSerializeRest) {
+        if (mSerializeRestSequence) {
           write("</rest:sequence>");
         } else {
           write("</sdb:sirix>");
@@ -477,6 +481,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * XMLSerializerBuilder to setup the XMLSerializer.
    */
   public static final class XMLSerializerBuilder {
+    public boolean mRESTSequence;
+
     /**
      * Intermediate boolean for indendation, not necessary.
      */
@@ -577,7 +583,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * Specify the start node key.
      *
      * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
-     * @return XMLSerializerBuilder reference
+     * @return this XMLSerializerBuilder reference
      */
     public XMLSerializerBuilder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
@@ -587,7 +593,7 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Pretty prints the output.
      *
-     * @return XMLSerializerBuilder reference
+     * @return this {@link XMLSerializerBuilder} instance
      */
     public XMLSerializerBuilder prettyPrint() {
       mIndent = true;
@@ -597,7 +603,7 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit RESTful output.
      *
-     * @return XMLSerializerBuilder reference
+     * @return this {@link XMLSerializerBuilder} instance
      */
     public XMLSerializerBuilder emitRESTful() {
       mREST = true;
@@ -605,9 +611,19 @@ public final class XMLSerializer extends AbstractSerializer {
     }
 
     /**
+     * Emit a rest-sequence start-tag/end-tag in startDocument()/endDocument() method.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder emitRESTSequence() {
+      mRESTSequence = true;
+      return this;
+    }
+
+    /**
      * Emit an XML declaration.
      *
-     * @return {@link XMLSerializerBuilder} reference
+     * @return this {@link XMLSerializerBuilder} instance
      */
     public XMLSerializerBuilder emitXMLDeclaration() {
       mDeclaration = true;
@@ -617,7 +633,7 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit the unique nodeKeys / IDs of nodes.
      *
-     * @return XMLSerializerBuilder reference
+     * @return this {@link XMLSerializerBuilder} instance
      */
     public XMLSerializerBuilder emitIDs() {
       mID = true;
@@ -627,17 +643,17 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * The versions to serialize.
      *
-     * @param versions versions to serialize
-     * @return XMLSerializerBuilder reference
+     * @param revisions the versions to serialize
+     * @return this {@link XMLSerializerBuilder} instance
      */
-    public XMLSerializerBuilder versions(final int[] versions) {
-      checkNotNull(versions);
+    public XMLSerializerBuilder revisions(final int[] revisions) {
+      checkNotNull(revisions);
 
-      mVersion = versions[0];
+      mVersion = revisions[0];
 
-      mVersions = new int[versions.length - 1];
-      for (int i = 0; i < versions.length - 1; i++) {
-        mVersions[i] = versions[i + 1];
+      mVersions = new int[revisions.length - 1];
+      for (int i = 0; i < revisions.length - 1; i++) {
+        mVersions[i] = revisions[i + 1];
       }
 
       return this;
