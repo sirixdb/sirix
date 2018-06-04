@@ -89,7 +89,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private final ExecutorService mPool;
 
-  private final CountDownLatch mLatch;
+  private CountDownLatch mLatch;
 
   /**
    * Constructor.
@@ -103,7 +103,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf = new StringBuilder();
     mDiffs = new ArrayList<>();
     mPool = Executors.newSingleThreadExecutor();
-    mLatch = new CountDownLatch(1);
   }
 
   @Override
@@ -126,6 +125,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
     mDiffs.clear();
     mBuf.setLength(0);
+    mLatch = new CountDownLatch(1);
 
     try (final ResourceManager resMrg = doc.getTrx().getResourceManager()) {
       mPool.submit(
