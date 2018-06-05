@@ -163,7 +163,7 @@ class Get(private val location: Path) : Handler<RoutingContext> {
     }
 
     private fun split(revisions: String, ctx: RoutingContext, separator: Char): Pair<String, String> {
-        if (revisions.indexOf("-") == -1) {
+        if (revisions.indexOf(separator) == -1) {
             ctx.fail(IllegalArgumentException("revision-range must specify a hyphen to disambiguate start- and end-revision"))
         }
 
