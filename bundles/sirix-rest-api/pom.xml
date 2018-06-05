@@ -11,13 +11,12 @@
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
-	<groupId>sirix</groupId>
 	<artifactId>sirix-rest-api</artifactId>
-	<version>0.8.9-SNAPSHOT</version>
 	<packaging>jar</packaging>
-
 	<name>sirix-rest-api</name>
-
+	<version>0.8.9-SNAPSHOT</version>
+	<description>RESTful-API for Sirix.</description>
+	
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<kotlin.version>1.2.41</kotlin.version>
@@ -122,6 +121,11 @@
 
 	<repositories>
 		<repository>
+			<id>javamaven2</id>
+			<name>Repository for Maven2</name>
+			<url>http://download.java.net/maven/2</url>
+		</repository>
+		<repository>
 			<id>sonatype-nexus-snapshots</id>
 			<name>Sonatype Nexus Snapshots</name>
 			<url>https://oss.sonatype.org/content/repositories/snapshots</url>
@@ -133,6 +137,5 @@
 			</snapshots>
 		</repository>
 	</repositories>
-
 
 </project>
