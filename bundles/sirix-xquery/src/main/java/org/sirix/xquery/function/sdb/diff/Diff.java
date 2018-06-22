@@ -31,10 +31,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -53,6 +57,7 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.DiffTuple;
+import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -86,7 +91,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private final ExecutorService mPool;
 
-  private final CountDownLatch mLatch;
+  private CountDownLatch mLatch;
 
   /**
    * Constructor.
@@ -100,7 +105,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf = new StringBuilder();
     mDiffs = new ArrayList<>();
     mPool = Executors.newSingleThreadExecutor();
-    mLatch = new CountDownLatch(1);
   }
 
   @Override
@@ -121,13 +125,17 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
     final DBNode doc = col.getDocument(expResName);
 
+    mDiffs.clear();
+    mBuf.setLength(0);
+    mLatch = new CountDownLatch(1);
+
     try (final ResourceManager resMrg = doc.getTrx().getResourceManager()) {
       mPool.submit(
           () -> DiffFactory.invokeFullDiff(
               new DiffFactory.Builder(resMrg, rev2, rev1,
-                  resMrg.getResourceConfig().mHashKind != HashKind.NONE
-                      ? DiffOptimized.HASHED
-                      : DiffOptimized.NO,
+                  resMrg.getResourceConfig().mHashKind == HashKind.NONE
+                      ? DiffOptimized.NO
+                      : DiffOptimized.HASHED,
                   ImmutableSet.of(this)).skipSubtrees(true)));
 
       try {
@@ -135,6 +143,13 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       } catch (InterruptedException e) {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
+
+      final Set<Long> nodeKeysOfInserts = mDiffs.stream()
+                                                .filter(
+                                                    tuple -> tuple.getDiff() == DiffType.INSERTED
+                                                        || tuple.getDiff() == DiffType.REPLACEDNEW)
+                                                .map(DiffTuple::getNewNodeKey)
+                                                .collect(Collectors.toSet());
 
       mBuf.append("let $doc := ");
       createDocString(args, rev1);
@@ -152,8 +167,14 @@ public final class Diff extends AbstractFunction implements DiffObserver {
           newRtx.moveTo(diffTuple.getNewNodeKey());
           oldRtx.moveTo(diffTuple.getOldNodeKey());
 
+          final Optional<DiffTuple> anotherTupleToEmit;
+
           switch (diffType) {
             case INSERTED:
+              if (newRtx.getKind() == Kind.ATTRIBUTE
+                  && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+                continue;
+
               mBuf.append("  insert nodes ");
               mBuf.append(printSubtreeNode(newRtx));
 
@@ -167,8 +188,13 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(", ");
               mBuf.append(oldRtx.getNodeKey());
               mBuf.append(")");
-              if (i != length - 1)
+
+              anotherTupleToEmit =
+                  determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
+
+              if (anotherTupleToEmit.isPresent())
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               break;
             case DELETED:
@@ -181,13 +207,22 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(System.getProperty("line.separator"));
               break;
             case REPLACEDNEW:
+              if (newRtx.getKind() == Kind.ATTRIBUTE
+                  && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+                continue;
+
               mBuf.append("  replace node sdb:select-node($doc");
               mBuf.append(", ");
               mBuf.append(diffTuple.getOldNodeKey());
               mBuf.append(") with ");
-              mBuf.append(printNode(newRtx));
-              if (i != length - 1)
+              mBuf.append(printSubtreeNode(newRtx));
+
+              anotherTupleToEmit =
+                  determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
+
+              if (anotherTupleToEmit.isPresent())
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               break;
             case UPDATED:
@@ -214,8 +249,33 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     }
 
     mBuf.append(")");
+    mBuf.append(System.getProperty("line.separator"));
 
     return new Str(mBuf.toString());
+  }
+
+  private Optional<DiffTuple> determineIfAnotherTupleToEmitExists(int i,
+      final Set<Long> nodeKeysOfInserts, final XdmNodeReadTrx newRtx) {
+    final Predicate<DiffTuple> filter = diffTuplePredicate(nodeKeysOfInserts, newRtx);
+
+    final Optional<DiffTuple> anotherTupleToEmit =
+        mDiffs.subList(i, mDiffs.size()).stream().filter(filter).findFirst();
+    return anotherTupleToEmit;
+  }
+
+  private Predicate<DiffTuple> diffTuplePredicate(final Set<Long> nodeKeysOfInserts,
+      final XdmNodeReadTrx newRtx) {
+    final Predicate<DiffTuple> filter = tuple -> {
+      if ((tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
+          && newRtx.moveTo(tuple.getNewNodeKey()).hasMoved() && newRtx.getKind() == Kind.ATTRIBUTE
+          && nodeKeysOfInserts.contains(newRtx.getParentKey())) {
+        return false;
+      } else {
+        return true;
+      }
+    };
+
+    return filter;
   }
 
   private void createDocString(final Sequence[] args, final int rev1) {
