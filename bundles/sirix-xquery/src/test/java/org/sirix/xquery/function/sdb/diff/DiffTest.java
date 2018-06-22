@@ -111,6 +111,8 @@ public final class DiffTest extends TestCase {
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
+
+        out.reset();
       }
     }
   }

@@ -51,80 +51,82 @@ public class XMLSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
-    wtx.commit();
-    wtx.close();
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      DocumentCreator.create(wtx);
+      wtx.commit();
 
-    // Generate from this session.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final XMLSerializer serializer =
-        new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
-    serializer.call();
-    assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
-    manager.close();
+      // Generate from this session.
+      final XMLSerializer serializer =
+          new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
+      serializer.call();
+      assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
   }
 
   @Test
   public void testRestSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
-    wtx.commit();
-    wtx.close();
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      DocumentCreator.create(wtx);
+      wtx.commit();
+      wtx.close();
 
-    // Generate from this session.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final XMLSerializer serializer =
-        XMLSerializer.newBuilder(manager, out).emitRESTful().emitIDs().emitXMLDeclaration().build();
-    serializer.call();
-    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
-    assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
-
-    manager.close();
+      // Generate from this session.
+      final XMLSerializer serializer = XMLSerializer.newBuilder(manager, out)
+                                                    .emitRESTful()
+                                                    .emitRESTSequence()
+                                                    .emitIDs()
+                                                    .emitXMLDeclaration()
+                                                    .build();
+      serializer.call();
+      assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(DocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
   }
 
   @Test
   public void testIDSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
-    wtx.commit();
-    wtx.close();
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      DocumentCreator.create(wtx);
+      wtx.commit();
+      wtx.close();
 
-    // Generate from this session.
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final XMLSerializer serializer =
-        new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
-    serializer.call();
-    assertEquals(DocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
-    manager.close();
+      // Generate from this session.
+      final XMLSerializer serializer =
+          new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
+      serializer.call();
+      assertEquals(DocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
   }
 
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-    // generate serialize all from this session
-    DocumentCreator.createVersioned(wtx);
-    wtx.close();
+      // generate serialize all from this session
+      DocumentCreator.createVersioned(wtx);
 
-    XMLSerializer serializerall =
-        new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
-    serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
-    out.reset();
+      XMLSerializer serializerall =
+          new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
+      serializerall.call();
+      assertEquals(
+          DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      out.reset();
 
-    serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
-    serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
-    manager.close();
+      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+      serializerall.call();
+      assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
+    }
   }
 
   /**
@@ -134,27 +136,27 @@ public class XMLSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
-    // generate serialize all from this session
-    DocumentCreator.createVersioned(wtx);
-    wtx.commit();
-    wtx.close();
+      // generate serialize all from this session
+      DocumentCreator.createVersioned(wtx);
+      wtx.commit();
 
-    XMLSerializer serializerall = new XMLSerializerBuilder(manager, 5l, out,
-        new XMLSerializerProperties()).emitXMLDeclaration().build();
-    serializerall.call();
-    final String result =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
+      XMLSerializer serializerall = new XMLSerializerBuilder(manager, 5l, out,
+          new XMLSerializerProperties()).emitXMLDeclaration().build();
+      serializerall.call();
+      final String result =
+          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
 
-    assertEquals(result, out.toString());
-    out.reset();
+      assertEquals(result, out.toString());
+      out.reset();
 
-    serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
-    serializerall.call();
-    assertEquals(DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
-    manager.close();
+      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+      serializerall.call();
+      assertEquals(
+          DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
   }
 }

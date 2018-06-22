@@ -276,6 +276,7 @@ public final class DocumentCreator {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertElementAsFirstChild(new QNm("a"));
+      wtx.insertAttribute(new QNm("att"), "attval").moveToParent();
       wtx.insertTextAsFirstChild("OOPS4!");
       wtx.commit();
     }
