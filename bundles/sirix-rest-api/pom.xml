@@ -22,6 +22,7 @@
 		<kotlin.version>1.2.41</kotlin.version>
 		<sirix.version>0.8.9-SNAPSHOT</sirix.version>
 		<junit.version>4.12</junit.version>
+        <verticle.name>org.sirix.rest.Main</verticle.name>
 	</properties>
 
 	<dependencies>
@@ -112,6 +113,35 @@
 								<sourceDir>${project.basedir}/src/test/kotlin</sourceDir>
 								<sourceDir>${project.basedir}/src/test/java</sourceDir>
 							</sourceDirs>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>2.3</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+						<configuration>
+							<transformers>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+									<manifestEntries>
+										<Main-Class>io.vertx.core.Launcher</Main-Class>
+										<Main-Verticle>${verticle.name}</Main-Verticle>
+									</manifestEntries>
+								</transformer>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+									<resource>META-INF/services/io.vertx.core.spi.VerticleFactory</resource>
+								</transformer>
+							</transformers>
+							<artifactSet>
+							</artifactSet>
+							<outputFile>${project.build.directory}/${project.artifactId}-${project.version}-fat.jar</outputFile>
 						</configuration>
 					</execution>
 				</executions>
