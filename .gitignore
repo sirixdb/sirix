@@ -5,6 +5,10 @@
 *.swp
 *.out
 
+# IntelliJ files
+*.idea
+*.iml
+
 # Eclipse files 
 *.settings
 *.project
@@ -22,3 +26,5 @@ target
 
 # Sirix project
 sirix-performance
+bundles/sirix-rest-api/.idea/vcs.xml
+bundles/sirix-rest-api/.idea/compiler.xml

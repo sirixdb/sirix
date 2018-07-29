@@ -22,18 +22,25 @@ import java.time.ZoneId
 
 class Get(private val location: Path) : Handler<RoutingContext> {
     override fun handle(ctx: RoutingContext) {
-        val dbName = ctx.pathParam("database")
-        val resName = ctx.pathParam("resource")
+        val dbName: String? = ctx.pathParam("database")
+        val resName: String? = ctx.pathParam("resource")
 
-        val rev: String? = ctx.queryParam("revision").getOrNull(0)
-        val revTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
-        val revRange: String? = ctx.queryParam("revision-range").getOrNull(0)
-        val revRangeByTimestamp: String? = ctx.queryParam("revision-timestamp-range").getOrNull(0)
+        val revision: String? = ctx.queryParam("revision").getOrNull(0)
+        val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
+        val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
+        val endRevision: String? = ctx.queryParam("end-revision").getOrNull(0)
+        val startRevisionTimestamp: String? = ctx.queryParam("start-revision-timestamp").getOrNull(0)
+        val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
         val query: String? = ctx.queryParam("query").getOrNull(0)
 
-        checkPreconditions(rev, revTimestamp, revRange, revRangeByTimestamp, ctx, dbName, resName)
+        if (dbName == null && resName == null) {
+            if (query == null)
+                ctx.fail(IllegalArgumentException("Query must be given if database name and resource name are not given."))
+            else
+                xquery(query, null, ctx)
+        }
 
         if (ctx.failed())
             return
@@ -48,7 +55,7 @@ class Get(private val location: Path) : Handler<RoutingContext> {
                     val dbCollection = DBCollection(dbName, database)
 
                     dbCollection.use {
-                        val revisionNumber = getRevisionNumber(rev, revTimestamp, manager)
+                        val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
                         val trx = manager.beginNodeReadTrx(revisionNumber[0])
 
                         trx.use {
@@ -60,12 +67,12 @@ class Get(private val location: Path) : Handler<RoutingContext> {
                     }
                 } else {
                     val revisions: Array<Int> = when {
-                        revRange != null -> parseIntRevisions(revRange, ctx)
-                        revRangeByTimestamp != null -> {
-                            val tspRevisions = parseTimestampRevisions(revRangeByTimestamp, ctx)
+                        startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision, ctx)
+                        startRevisionTimestamp != null && endRevisionTimestamp != null -> {
+                            val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp, ctx)
                             getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
                         }
-                        else -> getRevisionNumber(rev, revTimestamp, manager)
+                        else -> getRevisionNumber(revision, revisionTimestamp, manager)
                     }
 
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
@@ -88,13 +95,13 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         }
     }
 
-    private fun xquery(query: String, node: DBNode, ctx: RoutingContext) {
+    private fun xquery(query: String, node: DBNode?, ctx: RoutingContext) {
         // Initialize query context and store.
         val dbStore = DBStore.newBuilder().build()
 
         dbStore.use {
             val queryCtx = SirixQueryContext(dbStore)
-            queryCtx.contextItem = node
+            node.let { queryCtx.contextItem = node }
 
             // Use XQuery to load sample document into store.
             val out = ByteArrayOutputStream()
@@ -113,17 +120,6 @@ class Get(private val location: Path) : Handler<RoutingContext> {
                         .end()
             }
         }
-    }
-
-    private fun checkPreconditions(rev: String?, revTsp: String?, revRange: String?, revRangeByTsp: String?, ctx: RoutingContext, dbName: String?, resName: String?) {
-        if (rev != null && (revTsp != null || revRange != null || revRangeByTsp != null)
-                || revTsp != null && (rev != null || revRange != null || revRangeByTsp != null)
-                || revRange != null && (rev != null || revTsp != null || revRangeByTsp != null)
-                || revRangeByTsp != null && (rev != null || revRange != null || revTsp != null))
-            ctx.fail(IllegalArgumentException("Either revision, revision-tsp, revision-range param or revision-tsp-range param must be specified but not more than one."))
-
-        if (dbName == null || resName == null)
-            ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
     }
 
     private fun getRevisionNumber(manager: ResourceManager, revision: String): Int {
@@ -156,28 +152,13 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         Serialize().serializeXml(serializer, out, ctx)
     }
 
-    private fun parseIntRevisions(revisions: String, ctx: RoutingContext): Array<Int> {
-        val (firstRevision: String, lastRevision: String) = split(revisions, ctx, '-')
-
-        return (firstRevision.toInt()..lastRevision.toInt()).toSet().toTypedArray()
+    private fun parseIntRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Array<Int> {
+        return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun split(revisions: String, ctx: RoutingContext, separator: Char): Pair<String, String> {
-        if (revisions.indexOf(separator) == -1) {
-            ctx.fail(IllegalArgumentException("revision-range must specify a hyphen to disambiguate start- and end-revision"))
-        }
-
-        val firstRevision = revisions.substring(0, revisions.indexOf(separator))
-        val lastRevision = revisions.substring(revisions.indexOf(separator) + 1)
-
-        return Pair(firstRevision, lastRevision)
-    }
-
-    private fun parseTimestampRevisions(revisions: String, ctx: RoutingContext): Pair<LocalDateTime, LocalDateTime> {
-        val (firstRevision: String, lastRevision: String) = split(revisions, ctx, '|')
-
-        val firstRevisionDateTime = LocalDateTime.parse(firstRevision)
-        val lastRevisionDateTime = LocalDateTime.parse(lastRevision)
+    private fun parseTimestampRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Pair<LocalDateTime, LocalDateTime> {
+        val firstRevisionDateTime = LocalDateTime.parse(startRevision)
+        val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 
         return Pair(firstRevisionDateTime, lastRevisionDateTime)
     }
