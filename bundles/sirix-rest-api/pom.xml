@@ -22,7 +22,7 @@
 		<kotlin.version>1.2.41</kotlin.version>
 		<sirix.version>0.8.9-SNAPSHOT</sirix.version>
 		<junit.version>4.12</junit.version>
-        <verticle.name>org.sirix.rest.Main</verticle.name>
+        <verticle.name>org.sirix.rest.MainKt</verticle.name>
 	</properties>
 
 	<dependencies>
