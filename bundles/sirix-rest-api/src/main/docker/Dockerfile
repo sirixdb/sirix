@@ -8,10 +8,12 @@
 
 FROM java:9-jre
 
-ENV VERTICLE_FILE sirix-rest-api-0.8.9-SNAPSHOT-fat.jar
+ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 
 # Set the location of the verticles
-ENV VERTICLE_HOME /usr/verticles
+ENV VERTICLE_HOME /opt/sirix
+
+VOLUME /opt/sirix
 
 EXPOSE 8443
 
@@ -21,4 +23,4 @@ COPY target/$VERTICLE_FILE $VERTICLE_HOME/
 # Launch the verticle
 WORKDIR $VERTICLE_HOME
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -jar $VERTICLE_FILE"]
+CMD ["exec java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE"]
