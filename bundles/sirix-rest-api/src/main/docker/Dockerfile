@@ -13,7 +13,7 @@ ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
 
-VOLUME /opt/sirix
+VOLUME $VERTICLE_HOME
 
 EXPOSE 8443
 
