@@ -1,10 +1,15 @@
 package org.sirix.rest.crud
 
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Handler
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.impl.HttpStatusException
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
+import org.sirix.api.Database
 import org.sirix.api.ResourceManager
+import org.sirix.api.XdmNodeReadTrx
+import org.sirix.exception.SirixUsageException
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.xquery.DBSerializer
@@ -37,18 +42,27 @@ class Get(private val location: Path) : Handler<RoutingContext> {
 
         if (dbName == null && resName == null) {
             if (query == null)
-                ctx.fail(IllegalArgumentException("Query must be given if database name and resource name are not given."))
+                IllegalArgumentException("Query must be given if database name and resource name are not given.")
             else
                 xquery(query, null, ctx)
         }
 
-        if (ctx.failed())
+        val database: Database
+        try {
+            database = Databases.openDatabase(location.resolve(dbName))
+        } catch (e: SirixUsageException) {
+            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
-
-        val database = Databases.openDatabase(location.resolve(dbName))
+        }
 
         database.use {
-            val manager = database.getResourceManager(resName)
+            val manager: ResourceManager
+            try {
+                manager = database.getResourceManager(resName)
+            } catch (e: SirixUsageException) {
+                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                return
+            }
 
             manager.use {
                 if (query != null) {
@@ -56,7 +70,14 @@ class Get(private val location: Path) : Handler<RoutingContext> {
 
                     dbCollection.use {
                         val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
-                        val trx = manager.beginNodeReadTrx(revisionNumber[0])
+
+                        val trx: XdmNodeReadTrx
+                        try {
+                            trx = manager.beginNodeReadTrx(revisionNumber[0])
+                        } catch (e: SirixUsageException) {
+                            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                            return
+                        }
 
                         trx.use {
                             nodeId?.let { trx.moveTo(nodeId.toLong()) }
@@ -67,9 +88,9 @@ class Get(private val location: Path) : Handler<RoutingContext> {
                     }
                 } else {
                     val revisions: Array<Int> = when {
-                        startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision, ctx)
+                        startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
                         startRevisionTimestamp != null && endRevisionTimestamp != null -> {
-                            val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp, ctx)
+                            val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp)
                             getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
                         }
                         else -> getRevisionNumber(revision, revisionTimestamp, manager)
@@ -152,11 +173,11 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         Serialize().serializeXml(serializer, out, ctx)
     }
 
-    private fun parseIntRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Array<Int> {
+    private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(startRevision: String, endRevision: String): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

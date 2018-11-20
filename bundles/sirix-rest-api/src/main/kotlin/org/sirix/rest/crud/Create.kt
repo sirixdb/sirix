@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 
+// For instance: curl -k -X POST -d "<xml/>" -u admin https://localhost:8443/database/resource1
 class Create(private val location: Path) : Handler<RoutingContext> {
     override fun handle(ctx: RoutingContext) {
         val database = ctx.pathParam("database")
