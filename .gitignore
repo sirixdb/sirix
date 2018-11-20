@@ -8,6 +8,12 @@
 # IntelliJ files
 *.idea
 *.iml
+_windows/.*
+codestyles/.*
+code.style.schemes.xml
+debugger.renderers.xml
+debugger.xml
+filetypes.xml
 
 # Eclipse files 
 *.settings
