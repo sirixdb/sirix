@@ -19,9 +19,11 @@
 	
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<kotlin.version>1.3.10</kotlin.version>
+        <kotlin.version>1.3.10</kotlin.version>
+        <kotlin.coroutines.version>1.0.1</kotlin.coroutines.version>
 		<sirix.version>0.8.9-SNAPSHOT</sirix.version>
 		<junit.version>4.12</junit.version>
+        <vertx.version>3.6.0-SNAPSHOT</vertx.version>
         <verticle.name>org.sirix.rest.SirixVerticle</verticle.name>
 	</properties>
 
@@ -37,6 +39,11 @@
 			<version>${kotlin.version}</version>
 			<scope>test</scope>
 		</dependency>
+        <dependency>
+            <groupId>org.jetbrains.kotlinx</groupId>
+            <artifactId>kotlinx-coroutines-core</artifactId>
+            <version>${kotlin.coroutines.version}</version>
+        </dependency>
 		<dependency>
 			<groupId>junit</groupId>
 			<artifactId>junit</artifactId>
@@ -46,22 +53,27 @@
 		<dependency>
 			<groupId>io.vertx</groupId>
 			<artifactId>vertx-core</artifactId>
-			<version>3.6.0.CR1</version>
+            <version>${vertx.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.vertx</groupId>
 			<artifactId>vertx-web</artifactId>
-			<version>3.6.0.CR1</version>
+            <version>${vertx.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.vertx</groupId>
 			<artifactId>vertx-lang-kotlin</artifactId>
-			<version>3.5.1</version>
+            <version>${vertx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-lang-kotlin-coroutines</artifactId>
+            <version>${vertx.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.vertx</groupId>
 			<artifactId>vertx-auth-shiro</artifactId>
-			<version>3.5.1</version>
+            <version>${vertx.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.jetbrains.kotlin</groupId>

@@ -1,9 +1,16 @@
 package org.sirix.rest
 
 import io.vertx.core.Vertx
+import io.vertx.kotlin.core.deployVerticleAwait
 
-fun main(args: Array<String>) {
+suspend fun main() {
     val vertx = Vertx.vertx()
-    vertx.deployVerticle(SirixVerticle::class.java.name)
+    try {
+        vertx.deployVerticleAwait("org.sirix.rest.SirixVerticle")
+        println("Application started.")
+    } catch (exception: Throwable) {
+        println("Could not start application.")
+        exception.printStackTrace()
+    }
 }
 
