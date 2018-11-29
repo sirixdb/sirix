@@ -61,7 +61,7 @@ class Create(private val location: Path) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             val out = ByteArrayOutputStream()
             val serializerBuilder = XMLSerializer.XMLSerializerBuilder(manager, out)
-            val serializer = serializerBuilder.emitIDs().emitRESTful().prettyPrint().build()
+            val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
             Serialize().serializeXml(serializer, out, routingCtx)
 

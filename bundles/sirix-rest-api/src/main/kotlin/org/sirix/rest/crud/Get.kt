@@ -44,7 +44,7 @@ class Get(private val location: Path) {
         val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-        val query: String? = ctx.queryParam("queryResource").getOrNull(0)
+        val query: String? = ctx.queryParam("query").getOrNull(0)
 
         if (dbName == null && resName == null) {
             if (query == null)
@@ -108,7 +108,11 @@ class Get(private val location: Path) {
                     trx = manager.beginNodeReadTrx(revisionNumber[0])
 
                     trx.use {
-                        nodeId?.let { trx.moveTo(nodeId.toLong()) }
+                        if (nodeId == null)
+                            trx.moveToFirstChild()
+                        else
+                            trx.moveTo(nodeId.toLong())
+
                         val dbNode = DBNode(trx, dbCollection)
 
                         xquery(query, dbNode, ctx, vertxContext)
@@ -141,6 +145,7 @@ class Get(private val location: Path) {
 
             dbStore.use {
                 val queryCtx = SirixQueryContext(dbStore)
+
                 node.let { queryCtx.contextItem = node }
 
                 val out = ByteArrayOutputStream()

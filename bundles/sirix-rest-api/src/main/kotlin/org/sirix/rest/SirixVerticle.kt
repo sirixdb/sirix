@@ -64,12 +64,12 @@ class SirixVerticle : CoroutineVerticle() {
         route().handler(UserSessionHandler.create(authProvider))
         route().handler(BasicAuthHandler.create(authProvider))
 
-        // Create.
-        post("/:database").coroutineHandler { Create(location).handle(it) }
-        post("/:database/:resource").coroutineHandler { Create(location).handle(it) }
+           // Create.
+        put("/:database").coroutineHandler { Create(location).handle(it) }
+        put("/:database/:resource").coroutineHandler { Create(location).handle(it) }
 
         // Update.
-        put("/:database/:resource").coroutineHandler { Update(location).handle(it) }
+        post("/:database/:resource").coroutineHandler { Update(location).handle(it) }
 
         // Get.
         get("/:database/:resource").coroutineHandler { Get(location).handle(it) }
