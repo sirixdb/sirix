@@ -18,7 +18,7 @@ class Delete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
-        val nodeId: String? = if (ctx.queryParam("nodeId").isEmpty()) null else ctx.queryParam("nodeId")[0]
+        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null)
             ctx.fail(IllegalArgumentException("Database name not given."))
