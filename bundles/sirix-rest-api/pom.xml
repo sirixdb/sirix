@@ -23,7 +23,7 @@
         <kotlin.coroutines.version>1.0.1</kotlin.coroutines.version>
 		<sirix.version>0.8.9-SNAPSHOT</sirix.version>
 		<junit.version>4.12</junit.version>
-        <vertx.version>3.6.0-SNAPSHOT</vertx.version>
+        <vertx.version>3.6.0</vertx.version>
         <verticle.name>org.sirix.rest.SirixVerticle</verticle.name>
 	</properties>
 
