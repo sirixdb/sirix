@@ -45,8 +45,6 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
       if (mRtx.moveTo(mNodeKey).hasMoved()) {
         return mRtx;
       } else {
-        mRevision++;
-
         while (mRevision <= mSession.getMostRecentRevisionNumber()) {
           mRtx = mSession.beginNodeReadTrx(mRevision++);
           if (mRtx.moveTo(mNodeKey).hasMoved())
