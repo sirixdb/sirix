@@ -49,6 +49,26 @@ public class XMLSerializerTest {
   }
 
   @Test
+  public void testXMLSerializerWithInitialIndent() throws Exception {
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      DocumentCreator.create(wtx);
+      wtx.commit();
+
+      // Generate from this session.
+      final XMLSerializer serializer =
+          new XMLSerializerBuilder(manager, out).prettyPrint().withInitialIndent().build();
+      serializer.call();
+
+      System.out.println(out.toString(Constants.DEFAULT_ENCODING.toString()));
+
+      // assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
+  }
+
+  @Test
   public void testXMLSerializer() throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);

@@ -40,22 +40,13 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 
   @Override
   protected XdmNodeReadTrx computeNext() {
-    if (mRevision <= mSession.getMostRecentRevisionNumber()) {
+    while (mRevision <= mSession.getMostRecentRevisionNumber()) {
       mRtx = mSession.beginNodeReadTrx(mRevision++);
-      if (mRtx.moveTo(mNodeKey).hasMoved()) {
+      if (mRtx.moveTo(mNodeKey).hasMoved())
         return mRtx;
-      } else {
-        while (mRevision <= mSession.getMostRecentRevisionNumber()) {
-          mRtx = mSession.beginNodeReadTrx(mRevision++);
-          if (mRtx.moveTo(mNodeKey).hasMoved())
-            return mRtx;
-        }
-
-        return endOfData();
-      }
-    } else {
-      return endOfData();
     }
+
+    return endOfData();
   }
 
   @Override

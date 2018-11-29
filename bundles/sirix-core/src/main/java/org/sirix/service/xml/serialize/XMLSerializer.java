@@ -98,6 +98,9 @@ public final class XMLSerializer extends AbstractSerializer {
   /** Number of spaces to indent. */
   private final int mIndentSpaces;
 
+  /** Determines if serializing with initial indentation. */
+  private final boolean mWithInitialIndent;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -109,7 +112,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param revsions further revisions to serialize
    */
   private XMLSerializer(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final XMLSerializerBuilder builder, final @Nonnegative int revision, final int... revsions) {
+      final XMLSerializerBuilder builder, final boolean initialIndent,
+      final @Nonnegative int revision, final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
@@ -118,6 +122,7 @@ public final class XMLSerializer extends AbstractSerializer {
     mSerializeRestSequence = builder.mRESTSequence;
     mSerializeId = builder.mID;
     mIndentSpaces = builder.mIndentSpaces;
+    mWithInitialIndent = builder.mInitialIndent;
   }
 
   /**
@@ -381,7 +386,10 @@ public final class XMLSerializer extends AbstractSerializer {
    */
   private void indent() throws IOException {
     if (mIndent) {
-      for (int i = 0; i < mStack.size() * mIndentSpaces; i++) {
+      final int indentSpaces = mWithInitialIndent
+          ? (mStack.size() + 1) * mIndentSpaces
+          : mStack.size() * mIndentSpaces;
+      for (int i = 0; i < indentSpaces; i++) {
         mOut.write(" ".getBytes(Constants.DEFAULT_ENCODING));
       }
     }
@@ -523,6 +531,8 @@ public final class XMLSerializer extends AbstractSerializer {
     /** Node key of subtree to shredder. */
     private long mNodeKey;
 
+    private boolean mInitialIndent;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -587,6 +597,11 @@ public final class XMLSerializer extends AbstractSerializer {
      */
     public XMLSerializerBuilder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
+      return this;
+    }
+
+    public XMLSerializerBuilder withInitialIndent() {
+      mInitialIndent = true;
       return this;
     }
 
@@ -665,7 +680,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @return a new {@link Serializer} instance
      */
     public XMLSerializer build() {
-      return new XMLSerializer(mResourceMgr, mNodeKey, this, mVersion, mVersions);
+      return new XMLSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
     }
   }
 }

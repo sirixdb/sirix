@@ -92,7 +92,7 @@ public final class DBSerializer implements Serializer {
             if (mEmitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (mPrettyPrint)
-              serializerBuilder = serializerBuilder.prettyPrint();
+              serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
             final XMLSerializer serializer =
                 serializerBuilder.startNodeKey(node.getNodeKey()).build();
             serializer.call();
