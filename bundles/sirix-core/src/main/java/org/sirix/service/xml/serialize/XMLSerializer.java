@@ -101,6 +101,8 @@ public final class XMLSerializer extends AbstractSerializer {
   /** Determines if serializing with initial indentation. */
   private final boolean mWithInitialIndent;
 
+  private boolean mEmitXQueryResultSequence;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -123,6 +125,7 @@ public final class XMLSerializer extends AbstractSerializer {
     mSerializeId = builder.mID;
     mIndentSpaces = builder.mIndentSpaces;
     mWithInitialIndent = builder.mInitialIndent;
+    mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
   }
 
   /**
@@ -179,7 +182,7 @@ public final class XMLSerializer extends AbstractSerializer {
             writeQName(rtx);
             mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
             mOut.write(
-                XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
+                XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
             mOut.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
@@ -273,7 +276,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
       if (mSerializeRestSequence || length > 1) {
         if (mSerializeRestSequence) {
-          write("<rest:sequence xmlns:rest=\"REST\">");
+          write("<rest:sequence xmlns:rest=\"https://sirix.io\">");
         } else {
           write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
         }
@@ -329,7 +332,7 @@ public final class XMLSerializer extends AbstractSerializer {
           write("<sdb:sirix-item");
         }
 
-        if (length > 1) {
+        if (length > 1 || mEmitXQueryResultSequence) {
           if (mSerializeRest) {
             write(" rest:revision=\"");
           } else {
@@ -533,6 +536,8 @@ public final class XMLSerializer extends AbstractSerializer {
 
     private boolean mInitialIndent;
 
+    private boolean mEmitXQueryResultSequence;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -600,8 +605,23 @@ public final class XMLSerializer extends AbstractSerializer {
       return this;
     }
 
+    /**
+     * Sets an initial indentation.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
     public XMLSerializerBuilder withInitialIndent() {
       mInitialIndent = true;
+      return this;
+    }
+
+    /**
+     * Sets if the serialization is used for XQuery result sets.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder isXQueryResultSequence() {
+      mEmitXQueryResultSequence = true;
       return this;
     }
 
