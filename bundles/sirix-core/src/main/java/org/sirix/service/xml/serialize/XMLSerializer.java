@@ -104,7 +104,9 @@ public final class XMLSerializer extends AbstractSerializer {
   /** Determines if serializing with initial indentation. */
   private final boolean mWithInitialIndent;
 
-  private boolean mEmitXQueryResultSequence;
+  private final boolean mEmitXQueryResultSequence;
+
+  private final boolean mSerializeTimestamp;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -129,6 +131,7 @@ public final class XMLSerializer extends AbstractSerializer {
     mIndentSpaces = builder.mIndentSpaces;
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
+    mSerializeTimestamp = builder.mSerializeTimestamp;
   }
 
   /**
@@ -343,15 +346,18 @@ public final class XMLSerializer extends AbstractSerializer {
           }
           write(Integer.toString(rtx.getRevisionNumber()));
 
-          if (mSerializeRest) {
-            write(" rest:revisionTimestamp=\"");
-          } else {
-            write(" sdb:revisionTimestamp=\"");
+          if (mSerializeTimestamp) {
+            if (mSerializeRest) {
+              write(" rest:revisionTimestamp=\"");
+            } else {
+              write(" sdb:revisionTimestamp=\"");
+            }
+
+            write(
+                DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
+                    Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
           }
 
-          write(
-              DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
-                  Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
           write("\">");
         } else if (mSerializeRest) {
           write(">");
@@ -551,6 +557,8 @@ public final class XMLSerializer extends AbstractSerializer {
 
     private boolean mEmitXQueryResultSequence;
 
+    private boolean mSerializeTimestamp;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -635,6 +643,16 @@ public final class XMLSerializer extends AbstractSerializer {
      */
     public XMLSerializerBuilder isXQueryResultSequence() {
       mEmitXQueryResultSequence = true;
+      return this;
+    }
+
+    /**
+     * Sets if the serialization of timestamps of the revision(s) is used or not.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
+      mSerializeTimestamp = serializeTimestamp;
       return this;
     }
 
