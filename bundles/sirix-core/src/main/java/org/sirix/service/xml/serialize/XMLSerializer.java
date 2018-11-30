@@ -279,9 +279,9 @@ public final class XMLSerializer extends AbstractSerializer {
 
       if (mSerializeRestSequence || length > 1) {
         if (mSerializeRestSequence) {
-          write("<rest:sequence xmlns:rest=\"https://sirix.io\">");
+          write("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
-          write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
+          write("<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\">");
         }
 
         if (mIndent) {
@@ -342,7 +342,6 @@ public final class XMLSerializer extends AbstractSerializer {
             write(" sdb:revision=\"");
           }
           write(Integer.toString(rtx.getRevisionNumber()));
-          write("\">");
 
           if (mSerializeRest) {
             write(" rest:revisionTimestamp=\"");

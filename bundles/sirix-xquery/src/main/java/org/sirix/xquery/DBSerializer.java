@@ -64,9 +64,9 @@ public final class DBSerializer implements Serializer {
     if (sequence != null) {
       if (mEmitRESTful) {
         if (mPrettyPrint) {
-          mOut.println("<rest:sequence xmlns:rest=\"https://sirix.io\">");
+          mOut.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
-          mOut.print("<rest:sequence xmlns:rest=\"https://sirix.io\">");
+          mOut.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         }
       }
 
