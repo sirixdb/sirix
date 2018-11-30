@@ -36,6 +36,9 @@ import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -98,6 +101,13 @@ public final class XMLSerializer extends AbstractSerializer {
   /** Number of spaces to indent. */
   private final int mIndentSpaces;
 
+  /** Determines if serializing with initial indentation. */
+  private final boolean mWithInitialIndent;
+
+  private final boolean mEmitXQueryResultSequence;
+
+  private final boolean mSerializeTimestamp;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -109,7 +119,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param revsions further revisions to serialize
    */
   private XMLSerializer(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final XMLSerializerBuilder builder, final @Nonnegative int revision, final int... revsions) {
+      final XMLSerializerBuilder builder, final boolean initialIndent,
+      final @Nonnegative int revision, final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
@@ -118,6 +129,9 @@ public final class XMLSerializer extends AbstractSerializer {
     mSerializeRestSequence = builder.mRESTSequence;
     mSerializeId = builder.mID;
     mIndentSpaces = builder.mIndentSpaces;
+    mWithInitialIndent = builder.mInitialIndent;
+    mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
+    mSerializeTimestamp = builder.mSerializeTimestamp;
   }
 
   /**
@@ -174,7 +188,7 @@ public final class XMLSerializer extends AbstractSerializer {
             writeQName(rtx);
             mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
             mOut.write(
-                XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
+                XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
             mOut.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
@@ -268,9 +282,9 @@ public final class XMLSerializer extends AbstractSerializer {
 
       if (mSerializeRestSequence || length > 1) {
         if (mSerializeRestSequence) {
-          write("<rest:sequence xmlns:rest=\"REST\">");
+          write("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
-          write("<sdb:sirix xmlns:sdb=\"https://sirix.io\">");
+          write("<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\">");
         }
 
         if (mIndent) {
@@ -324,13 +338,26 @@ public final class XMLSerializer extends AbstractSerializer {
           write("<sdb:sirix-item");
         }
 
-        if (length > 1) {
+        if (length > 1 || mEmitXQueryResultSequence) {
           if (mSerializeRest) {
             write(" rest:revision=\"");
           } else {
             write(" sdb:revision=\"");
           }
           write(Integer.toString(rtx.getRevisionNumber()));
+
+          if (mSerializeTimestamp) {
+            if (mSerializeRest) {
+              write(" rest:revisionTimestamp=\"");
+            } else {
+              write(" sdb:revisionTimestamp=\"");
+            }
+
+            write(
+                DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
+                    Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
+          }
+
           write("\">");
         } else if (mSerializeRest) {
           write(">");
@@ -381,7 +408,10 @@ public final class XMLSerializer extends AbstractSerializer {
    */
   private void indent() throws IOException {
     if (mIndent) {
-      for (int i = 0; i < mStack.size() * mIndentSpaces; i++) {
+      final int indentSpaces = mWithInitialIndent
+          ? (mStack.size() + 1) * mIndentSpaces
+          : mStack.size() * mIndentSpaces;
+      for (int i = 0; i < indentSpaces; i++) {
         mOut.write(" ".getBytes(Constants.DEFAULT_ENCODING));
       }
     }
@@ -523,6 +553,12 @@ public final class XMLSerializer extends AbstractSerializer {
     /** Node key of subtree to shredder. */
     private long mNodeKey;
 
+    private boolean mInitialIndent;
+
+    private boolean mEmitXQueryResultSequence;
+
+    private boolean mSerializeTimestamp;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -587,6 +623,36 @@ public final class XMLSerializer extends AbstractSerializer {
      */
     public XMLSerializerBuilder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
+      return this;
+    }
+
+    /**
+     * Sets an initial indentation.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder withInitialIndent() {
+      mInitialIndent = true;
+      return this;
+    }
+
+    /**
+     * Sets if the serialization is used for XQuery result sets.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder isXQueryResultSequence() {
+      mEmitXQueryResultSequence = true;
+      return this;
+    }
+
+    /**
+     * Sets if the serialization of timestamps of the revision(s) is used or not.
+     *
+     * @return this {@link XMLSerializerBuilder} instance
+     */
+    public XMLSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
+      mSerializeTimestamp = serializeTimestamp;
       return this;
     }
 
@@ -665,7 +731,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @return a new {@link Serializer} instance
      */
     public XMLSerializer build() {
-      return new XMLSerializer(mResourceMgr, mNodeKey, this, mVersion, mVersions);
+      return new XMLSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
     }
   }
 }

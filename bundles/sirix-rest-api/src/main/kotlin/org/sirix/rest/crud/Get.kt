@@ -1,10 +1,20 @@
 package org.sirix.rest.crud
 
+import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.Context
+import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.impl.HttpStatusException
+import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
+import org.sirix.api.Database
 import org.sirix.api.ResourceManager
+import org.sirix.api.XdmNodeReadTrx
+import org.sirix.exception.SirixUsageException
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.xquery.DBSerializer
@@ -20,8 +30,9 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-class Get(private val location: Path) : Handler<RoutingContext> {
-    override fun handle(ctx: RoutingContext) {
+class Get(private val location: Path) {
+    suspend fun handle(ctx: RoutingContext) {
+        val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
@@ -37,45 +48,77 @@ class Get(private val location: Path) : Handler<RoutingContext> {
 
         if (dbName == null && resName == null) {
             if (query == null)
-                ctx.fail(IllegalArgumentException("Query must be given if database name and resource name are not given."))
+                IllegalArgumentException("Query must be given if database name and resource name are not given.")
             else
-                xquery(query, null, ctx)
+                xquery(query, null, ctx, vertxContext)
         }
 
-        if (ctx.failed())
-            return
+        get(dbName, ctx, resName, query, revision, revisionTimestamp, nodeId, vertxContext, startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp)
+    }
 
-        val database = Databases.openDatabase(location.resolve(dbName))
+    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?, revision: String?, revisionTimestamp: String?, nodeId: String?, vertxContext: Context, startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?) {
+        val database: Database
+        try {
+            database = Databases.openDatabase(location.resolve(dbName))
+        } catch (e: SirixUsageException) {
+            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+            return
+        }
 
         database.use {
-            val manager = database.getResourceManager(resName)
+            val manager: ResourceManager
+            try {
+                manager = database.getResourceManager(resName)
+            } catch (e: SirixUsageException) {
+                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                return
+            }
 
             manager.use {
                 if (query != null) {
-                    val dbCollection = DBCollection(dbName, database)
-
-                    dbCollection.use {
-                        val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
-                        val trx = manager.beginNodeReadTrx(revisionNumber[0])
-
-                        trx.use {
-                            nodeId?.let { trx.moveTo(nodeId.toLong()) }
-                            val dbNode = DBNode(trx, dbCollection)
-
-                            xquery(query, dbNode, ctx)
-                        }
-                    }
+                    queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query, vertxContext)
                 } else {
-                    val revisions: Array<Int> = when {
-                        startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision, ctx)
-                        startRevisionTimestamp != null && endRevisionTimestamp != null -> {
-                            val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp, ctx)
-                            getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
-                        }
-                        else -> getRevisionNumber(revision, revisionTimestamp, manager)
-                    }
-
+                    val revisions: Array<Int> = getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp, manager, revision, revisionTimestamp)
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                }
+            }
+        }
+    }
+
+    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?, manager: ResourceManager, revision: String?, revisionTimestamp: String?): Array<Int> {
+        return when {
+            startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
+            startRevisionTimestamp != null && endRevisionTimestamp != null -> {
+                val tspRevisions = parseTimestampRevisions(startRevisionTimestamp, endRevisionTimestamp)
+                getRevisionNumbers(manager, tspRevisions).toList().toTypedArray()
+            }
+            else -> getRevisionNumber(revision, revisionTimestamp, manager)
+        }
+    }
+
+    private suspend fun queryResource(dbName: String?, database: Database, revision: String?, revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext, nodeId: String?, query: String, vertxContext: Context) {
+        withContext(vertxContext.dispatcher()) {
+            val dbCollection = DBCollection(dbName, database)
+
+            dbCollection.use {
+                val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
+
+                val trx: XdmNodeReadTrx
+                try {
+                    trx = manager.beginNodeReadTrx(revisionNumber[0])
+
+                    trx.use {
+                        if (nodeId == null)
+                            trx.moveToFirstChild()
+                        else
+                            trx.moveTo(nodeId.toLong())
+
+                        val dbNode = DBNode(trx, dbCollection)
+
+                        xquery(query, dbNode, ctx, vertxContext)
+                    }
+                } catch (e: SirixUsageException) {
+                    ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
                 }
             }
         }
@@ -95,31 +138,35 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         }
     }
 
-    private fun xquery(query: String, node: DBNode?, ctx: RoutingContext) {
-        // Initialize query context and store.
-        val dbStore = DBStore.newBuilder().build()
+    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context) {
+        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+            // Initialize queryResource context and store.
+            val dbStore = DBStore.newBuilder().build()
 
-        dbStore.use {
-            val queryCtx = SirixQueryContext(dbStore)
-            node.let { queryCtx.contextItem = node }
+            dbStore.use {
+                val queryCtx = SirixQueryContext(dbStore)
 
-            // Use XQuery to load sample document into store.
-            val out = ByteArrayOutputStream()
+                node.let { queryCtx.contextItem = node }
 
-            out.use {
-                PrintStream(out).use {
-                    XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
+                val out = ByteArrayOutputStream()
+
+                out.use {
+                    PrintStream(out).use {
+                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
+                    }
+
+                    val body = String(out.toByteArray(), StandardCharsets.UTF_8)
+
+                    routingContext.response().setStatusCode(200)
+                            .putHeader("Content-Type", "application/xml")
+                            .putHeader("Content-Length", body.length.toString())
+                            .write(body)
+                            .end()
                 }
-
-                val body = String(out.toByteArray(), StandardCharsets.UTF_8)
-
-                ctx.response().setStatusCode(200)
-                        .putHeader("Content-Type", "application/xml")
-                        .putHeader("Content-Length", body.length.toString())
-                        .write(body)
-                        .end()
             }
-        }
+
+            it.complete(null)
+        })
     }
 
     private fun getRevisionNumber(manager: ResourceManager, revision: String): Int {
@@ -152,11 +199,11 @@ class Get(private val location: Path) : Handler<RoutingContext> {
         Serialize().serializeXml(serializer, out, ctx)
     }
 
-    private fun parseIntRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Array<Int> {
+    private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String, endRevision: String, ctx: RoutingContext): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(startRevision: String, endRevision: String): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

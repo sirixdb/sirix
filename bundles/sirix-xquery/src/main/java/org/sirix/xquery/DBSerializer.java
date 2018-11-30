@@ -64,9 +64,9 @@ public final class DBSerializer implements Serializer {
     if (sequence != null) {
       if (mEmitRESTful) {
         if (mPrettyPrint) {
-          mOut.println("<rest:sequence xmlns:rest=\"REST\">");
+          mOut.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
-          mOut.print("<rest:sequence xmlns:rest=\"REST\">");
+          mOut.print("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         }
       }
 
@@ -88,11 +88,11 @@ public final class DBSerializer implements Serializer {
 
             XMLSerializer.XMLSerializerBuilder serializerBuilder =
                 new XMLSerializer.XMLSerializerBuilder(node.getTrx().getResourceManager(), pos,
-                    node.getTrx().getRevisionNumber());
+                    node.getTrx().getRevisionNumber()).isXQueryResultSequence();
             if (mEmitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (mPrettyPrint)
-              serializerBuilder = serializerBuilder.prettyPrint();
+              serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
             final XMLSerializer serializer =
                 serializerBuilder.startNodeKey(node.getNodeKey()).build();
             serializer.call();

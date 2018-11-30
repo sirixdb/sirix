@@ -10,9 +10,9 @@ import org.sirix.axis.IncludeSelf;
  * Retrieve a node by node key in all earlier revisions. In each revision a {@link XdmNodeReadTrx}
  * is opened which is moved to the node with the given node key if it exists. Otherwise the iterator
  * has no more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class PastAxis extends AbstractTemporalAxis {
 
@@ -30,7 +30,7 @@ public final class PastAxis extends AbstractTemporalAxis {
 
   /**
    * Constructor.
-   * 
+   *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   public PastAxis(final XdmNodeReadTrx rtx) {
@@ -40,25 +40,27 @@ public final class PastAxis extends AbstractTemporalAxis {
 
   /**
    * Constructor.
-   * 
+   *
    * @param includeSelf determines if current revision must be included or not
    */
   public PastAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
     mSession = checkNotNull(rtx.getResourceManager());
     mRevision = 0;
     mNodeKey = rtx.getNodeKey();
-    mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx.getRevisionNumber()
+    mRevision = checkNotNull(includeSelf) == IncludeSelf.YES
+        ? rtx.getRevisionNumber()
         : rtx.getRevisionNumber() - 1;
   }
 
   @Override
   protected XdmNodeReadTrx computeNext() {
-    if (mRevision > 0) {
+    while (mRevision > 0) {
       mRtx = mSession.beginNodeReadTrx(mRevision--);
-      return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
-    } else {
-      return endOfData();
+      if (mRtx.moveTo(mNodeKey).hasMoved())
+        return mRtx;
     }
+
+    return endOfData();
   }
 
   @Override
