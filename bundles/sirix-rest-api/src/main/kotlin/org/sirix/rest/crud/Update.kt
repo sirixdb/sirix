@@ -81,8 +81,6 @@ class Update(private val location: Path) {
                         InsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
                     else
                         wtx.replaceNode(xmlReader)
-
-                    wtx.commit()
                 }
 
                 val out = ByteArrayOutputStream()

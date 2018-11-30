@@ -137,13 +137,17 @@ public class XMLSerializerTest {
       DocumentCreator.createVersioned(wtx);
 
       XMLSerializer serializerall =
-          new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().build();
+          new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration()
+                                                    .serializeTimestamp(false)
+                                                    .build();
       serializerall.call();
       assertEquals(
           DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
       out.reset();
 
-      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration()
+                                                                     .serializeTimestamp(false)
+                                                                     .build();
       serializerall.call();
       assertEquals(DocumentCreator.VERSIONEDXML, out.toString());
     }
@@ -173,7 +177,9 @@ public class XMLSerializerTest {
       assertEquals(result, out.toString());
       out.reset();
 
-      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().build();
+      serializerall = new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration()
+                                                                     .serializeTimestamp(false)
+                                                                     .build();
       serializerall.call();
       assertEquals(
           DocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
