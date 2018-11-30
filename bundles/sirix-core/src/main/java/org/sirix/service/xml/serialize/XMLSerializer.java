@@ -36,6 +36,9 @@ import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -339,6 +342,17 @@ public final class XMLSerializer extends AbstractSerializer {
             write(" sdb:revision=\"");
           }
           write(Integer.toString(rtx.getRevisionNumber()));
+          write("\">");
+
+          if (mSerializeRest) {
+            write(" rest:revisionTimestamp=\"");
+          } else {
+            write(" sdb:revisionTimestamp=\"");
+          }
+
+          write(
+              DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
+                  Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
           write("\">");
         } else if (mSerializeRest) {
           write(">");
