@@ -9,9 +9,9 @@ import org.sirix.axis.AbstractTemporalAxis;
  * Retrieve a node by node key in all revisions. In each revision a {@link XdmNodeReadTrx} is opened
  * which is moved to the node with the given node key if it exists. Otherwise the iterator has no
  * more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class AllTimeAxis extends AbstractTemporalAxis {
 
@@ -29,7 +29,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 
   /**
    * Constructor.
-   * 
+   *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
   public AllTimeAxis(final XdmNodeReadTrx rtx) {
@@ -40,12 +40,13 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 
   @Override
   protected XdmNodeReadTrx computeNext() {
-    if (mRevision <= mSession.getMostRecentRevisionNumber()) {
+    while (mRevision <= mSession.getMostRecentRevisionNumber()) {
       mRtx = mSession.beginNodeReadTrx(mRevision++);
-      return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
-    } else {
-      return endOfData();
+      if (mRtx.moveTo(mNodeKey).hasMoved())
+        return mRtx;
     }
+
+    return endOfData();
   }
 
   @Override

@@ -111,7 +111,7 @@ public final class DocumentCreator {
 
   /** String representation of rest. */
   public static final String REST = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-      + "<rest:sequence xmlns:rest=\"REST\"><rest:item>"
+      + "<rest:sequence xmlns:rest=\"https://sirix.io/rest\"><rest:item>"
       + "<p:a xmlns:p=\"ns\" rest:id=\"1\" i=\"j\">oops1<b rest:id=\"5\">foo<c rest:id=\"7\"/></b>oops2<b rest:id=\"9\" p:x=\"y\">"
       + "<c rest:id=\"11\"/>bar</b>oops3</p:a></rest:item></rest:sequence>";
 
@@ -133,7 +133,7 @@ public final class DocumentCreator {
   /** String representation of versioned test document. */
   public static final String VERSIONEDXML =
       "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<sdb:sirix xmlns:sdb=\"https://sirix.io\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+          + "<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
           + "<sdb:sirix-item sdb:revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
           + "<sdb:sirix-item sdb:revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item></sdb:sirix>";
 
