@@ -8,6 +8,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
@@ -35,6 +36,15 @@ class Get(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
+
+        val isAuthorized =
+                if (dbName != null)
+                    ctx.user().isAuthorizedAwait("${dbName.toLowerCase()}:view")
+                else
+                    ctx.user().isAuthorizedAwait("view")
+
+        if (!isAuthorized)
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
 
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
