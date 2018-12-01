@@ -2,6 +2,7 @@
   <component name="FileTypeManager" version="17">
     <extensionMap>
       <mapping ext="klib" type="ARCHIVE" />
+      <mapping ext="conf" type="JSON" />
     </extensionMap>
   </component>
 </application>
