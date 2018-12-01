@@ -1,11 +1,13 @@
 package org.sirix.rest.crud
 
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
@@ -16,6 +18,11 @@ import java.nio.file.Path
 
 class Delete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
+        val isAuthorized = ctx.user().isAuthorizedAwait("realm:create")
+
+        if (!isAuthorized)
+            ctx.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end()
+
         val dbName = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
