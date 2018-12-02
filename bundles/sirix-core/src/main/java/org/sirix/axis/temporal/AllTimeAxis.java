@@ -27,8 +27,13 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
   /** Sirix {@link XdmNodeReadTrx}. */
   private XdmNodeReadTrx mRtx;
 
+  /** Determines if node has been found before and now has been deleted. */
+  private boolean mHasMoved;
+
   /**
-   * Constructor.
+   * Determines private boolean mHasMoved;
+   *
+   * /** Constructor.
    *
    * @param rtx Sirix {@link XdmNodeReadTrx}
    */
@@ -42,8 +47,13 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
   protected XdmNodeReadTrx computeNext() {
     while (mRevision <= mSession.getMostRecentRevisionNumber()) {
       mRtx = mSession.beginNodeReadTrx(mRevision++);
-      if (mRtx.moveTo(mNodeKey).hasMoved())
+
+      if (mRtx.moveTo(mNodeKey).hasMoved()) {
+        mHasMoved = true;
         return mRtx;
+      } else if (mHasMoved) {
+        return endOfData();
+      }
     }
 
     return endOfData();

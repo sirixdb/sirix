@@ -1,9 +1,11 @@
 package org.sirix.rest.crud
 
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx
 import org.sirix.rest.Serialize
@@ -39,10 +41,13 @@ private enum class InsertionMode {
     }
 }
 
-
-
 class Update(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
+        val isAuthorized = ctx.user().isAuthorizedAwait("realm:modify")
+
+        if (!isAuthorized)
+            ctx.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end()
+
         val dbName = ctx.pathParam("database")
         val resName = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)

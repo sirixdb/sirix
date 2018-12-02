@@ -2,9 +2,9 @@ package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpServerResponse
-import io.vertx.core.net.SelfSignedCertificate
-import io.vertx.ext.auth.shiro.ShiroAuth
-import io.vertx.ext.auth.shiro.ShiroAuthRealmType
+import io.vertx.core.net.PemKeyCertOptions
+import io.vertx.ext.auth.oauth2.OAuth2ClientOptions
+import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -13,11 +13,9 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.ext.web.sstore.LocalSessionStore
 import io.vertx.kotlin.core.http.HttpServerOptions
 import io.vertx.kotlin.core.http.listenAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.shiro.ShiroAuthOptions
+import io.vertx.kotlin.ext.auth.oauth2.providers.OpenIDConnectAuth
 import kotlinx.coroutines.launch
 import org.sirix.rest.crud.Create
 import org.sirix.rest.crud.Delete
@@ -25,9 +23,7 @@ import org.sirix.rest.crud.Get
 import org.sirix.rest.crud.Update
 import java.nio.file.Paths
 
-
 class SirixVerticle : CoroutineVerticle() {
-
     /** User home directory. */
     private val userHome = System.getProperty("user.home")
 
@@ -37,47 +33,49 @@ class SirixVerticle : CoroutineVerticle() {
     override suspend fun start() {
         val router = createRouter()
 
-        // Generate the certificate for https
-        val cert = SelfSignedCertificate.create()
-
         // Start an HTTP/2 server
         val server = vertx.createHttpServer(HttpServerOptions()
                 .setSsl(true)
                 .setUseAlpn(true)
-                .setKeyCertOptions(cert.keyCertOptions()))
+                .setPemKeyCertOptions(PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString()).setCertPath(location.resolve("cert.pem").toString())))
 
         server.requestHandler { router.handle(it) }
-                .listenAwait(config.getInteger("https.port", 8443))
+                .listenAwait(config.getInteger("https.port", 9443))
     }
 
-    private fun createRouter() = Router.router(vertx).apply {
+    private suspend fun createRouter() = Router.router(vertx).apply {
         route().handler(CookieHandler.create())
         route().handler(BodyHandler.create())
         route().handler(SessionHandler.create(LocalSessionStore.create(vertx)))
 
-        val config = json {
-            obj("properties_path" to "classpath:test-auth.properties")
-        }
+        val oauth2 = OpenIDConnectAuth.discoverAwait(
+                vertx,
+                OAuth2ClientOptions()
+                        .setFlow(OAuth2FlowType.AUTH_CODE)
+                        .setSite("http://localhost:8080/auth/realms/master")
+                        .setClientID("sirix").setClientSecret("c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
 
-        val authProvider = ShiroAuth.create(vertx, ShiroAuthOptions().setType(ShiroAuthRealmType.PROPERTIES).setConfig(config))
+        //val oauth2 = KeycloakAuth.create(vertx, OAuth2FlowType.AUTH_CODE, keycloakJson)
+        val oauth2Handler = OAuth2AuthHandler.create(oauth2)
 
-        route().handler(UserSessionHandler.create(authProvider))
-        route().handler(BasicAuthHandler.create(authProvider))
+        oauth2Handler.setupCallback(get("/callback"))
 
-           // Create.
-        put("/:database").coroutineHandler { Create(location).handle(it) }
-        put("/:database/:resource").coroutineHandler { Create(location).handle(it) }
+        route().handler(UserSessionHandler.create(oauth2))
+
+        // Create.
+        put("/:database").handler(oauth2Handler).coroutineHandler { Create(location).handle(it) }
+        put("/:database/:resource").handler(oauth2Handler).coroutineHandler { Create(location).handle(it) }
 
         // Update.
-        post("/:database/:resource").coroutineHandler { Update(location).handle(it) }
+        post("/:database/:resource").handler(oauth2Handler).coroutineHandler { Update(location).handle(it) }
 
         // Get.
-        get("/:database/:resource").coroutineHandler { Get(location).handle(it) }
-        get("/:database").coroutineHandler { Get(location).handle(it) }
+        get("/:database/:resource").handler(oauth2Handler).coroutineHandler { Get(location).handle(it) }
+        get("/:database").handler(oauth2Handler).coroutineHandler { Get(location).handle(it) }
 
         // Delete.
-        delete("/:database/:resource").coroutineHandler { Delete(location).handle(it) }
-        delete("/:database").coroutineHandler { Delete(location).handle(it) }
+        delete("/:database/:resource").handler(oauth2Handler).coroutineHandler { Delete(location).handle(it) }
+        delete("/:database").handler(oauth2Handler).coroutineHandler { Delete(location).handle(it) }
 
         // Exception with status code
         route().handler { ctx ->
@@ -94,7 +92,7 @@ class SirixVerticle : CoroutineVerticle() {
                 else
                     response(failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(), failure.message)
             } else {
-                response(failureRoutingContext.response(), statusCode, failure.message)
+                response(failureRoutingContext.response(), statusCode, failure?.message)
             }
         }
     }
