@@ -7,6 +7,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreator;
@@ -31,7 +32,9 @@ public final class PastAxisTest {
   @Before
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
-    DocumentCreator.createVersioned(Holder.generateWtx().getXdmNodeWriteTrx());
+    try (final XdmNodeWriteTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+      DocumentCreator.createVersioned(wtx);
+    }
     holder = Holder.generateRtx();
   }
 
@@ -71,4 +74,30 @@ public final class PastAxisTest {
     }.test();
   }
 
+  @Test
+  public void testPastAxisWithRemovedNode() throws SirixException {
+    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      // Revision 4.
+      wtx.commit();
+
+      // Revision 5.
+      wtx.commit();
+    }
+
+    try (final XdmNodeReadTrx thirdReader = holder.getResourceManager().beginNodeReadTrx(3);
+        final XdmNodeReadTrx fourthReader = holder.getResourceManager().beginNodeReadTrx(4);
+        final XdmNodeReadTrx fifthReader = holder.getResourceManager().beginNodeReadTrx(5)) {
+      thirdReader.moveTo(16);
+      fourthReader.moveTo(16);
+      fifthReader.moveTo(16);
+
+      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+          ImmutableList.of(fifthReader, fourthReader, thirdReader), null) {
+        @Override
+        protected Iterator<XdmNodeReadTrx> newTargetIterator() {
+          return new PastAxis(fifthReader, IncludeSelf.YES);
+        }
+      }.test();
+    }
+  }
 }
