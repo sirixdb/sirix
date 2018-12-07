@@ -1,6 +1,6 @@
 language: java
 jdk:
-  - oraclejdk9
+  - openjdk9
 branches:
   only:
     - master
@@ -9,6 +9,5 @@ notifications:
     on_failure: always
     recipients:
       - lichtenberger.johannes@gmail.com
-gemfile: Gemfile
 after-success:
   mvn jacoco:report coveralls:jacoco
