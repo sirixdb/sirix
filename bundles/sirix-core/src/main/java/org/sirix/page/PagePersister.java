@@ -34,7 +34,7 @@ import org.sirix.page.interfaces.Page;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class PagePersistenter {
+public final class PagePersister {
 
   /**
    * Deserialize page.
@@ -44,7 +44,7 @@ public final class PagePersistenter {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public static @Nonnull Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+  public @Nonnull Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
       final SerializationType type) throws IOException {
     return PageKind.getKind(source.readByte()).deserializePage(source, pageReadTrx, type);
   }
@@ -56,8 +56,8 @@ public final class PagePersistenter {
    * @param page the {@link Page} to serialize
    * @throws IOException if an exception during serialization of a page occurs
    */
-  public static void serializePage(final DataOutput sink, final Page page,
-      final SerializationType type) throws IOException {
+  public void serializePage(final DataOutput sink, final Page page, final SerializationType type)
+      throws IOException {
     PageKind.getKind(page.getClass()).serializePage(sink, page, type);
   }
 }

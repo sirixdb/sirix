@@ -79,9 +79,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   /** Key of record page. This is the base key of all contained nodes. */
   private final long mRecordPageKey;
 
-  /**
-   * Records (must be a {@link LinkedHashMap} to provide consistent iteration order).
-   */
+  /** Records (must be a {@link LinkedHashMap} to provide consistent iteration order). */
   private final LinkedHashMap<Long, Record> mRecords;
 
   /** Slots which have to be serialized. */

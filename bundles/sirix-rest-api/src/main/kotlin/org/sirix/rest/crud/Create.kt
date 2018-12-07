@@ -26,20 +26,28 @@ import java.nio.file.Path
 // For instance: curl -k -X POST -d "<xml/>" -u admin https://localhost:8443/database/resource1
 class Create(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
-        val isAuthorized = ctx.user().isAuthorizedAwait("realm:create")
+        val databaseName = ctx.pathParam("database")
 
-        if (!isAuthorized)
-            ctx.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end()
+        val isAuthorized =
+                if (databaseName != null)
+                    ctx.user().isAuthorizedAwait("realm:${databaseName.toLowerCase()}-create")
+                else
+                    ctx.user().isAuthorizedAwait("realm:create")
 
-        val database = ctx.pathParam("database")
+        if (!isAuthorized) {
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return
+        }
+
         val resource = ctx.pathParam("resource")
         val resToStore = ctx.bodyAsString
 
-        if (database == null || resToStore == null || resToStore.isBlank()) {
+        if (databaseName == null || resToStore == null || resToStore.isBlank()) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
+            return
         }
 
-        shredder(database, resource, resToStore, ctx)
+        shredder(databaseName, resource, resToStore, ctx)
     }
 
     private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String, ctx: RoutingContext) {

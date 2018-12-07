@@ -32,6 +32,7 @@ import org.sirix.io.Storage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
 /**
@@ -74,7 +75,7 @@ public final class FileStorage implements Storage {
 
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
+          new ByteHandlePipeline(mByteHandler), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -99,7 +100,7 @@ public final class FileStorage implements Storage {
 
       return new FileWriter(new RandomAccessFile(dataFilePath.toFile(), "rw"),
           new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw"),
-          new ByteHandlePipeline(mByteHandler), SerializationType.DATA);
+          new ByteHandlePipeline(mByteHandler), SerializationType.DATA, new PagePersister());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

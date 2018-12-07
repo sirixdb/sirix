@@ -11,6 +11,7 @@ import org.sirix.xquery.compiler.optimizer.SirixOptimizer;
 import org.sirix.xquery.compiler.translator.SirixTranslator;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.BasicDBStore;
 
 /**
  * Compile chain.
@@ -26,13 +27,13 @@ public final class SirixCompileChain extends CompileChain {
     SDBFun.register();
   }
 
-  /** The Sirix {@link DBStore}. */
+  /** The Sirix {@link BasicDBStore}. */
   private final DBStore mStore;
 
   /**
    * Constructor.
    * 
-   * @param store the Sirix {@link DBStore}
+   * @param store the Sirix {@link BasicDBStore}
    */
   public SirixCompileChain(final DBStore store) {
     mStore = store;

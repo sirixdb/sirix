@@ -95,9 +95,10 @@ public final class NodePageTest {
 
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     final DataOutputStream dataOut = new DataOutputStream(out);
-    PagePersistenter.serializePage(dataOut, page1, SerializationType.DATA);
+    final PagePersister pagePersister = new PagePersister();
+    pagePersister.serializePage(dataOut, page1, SerializationType.DATA);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter.deserializePage(
+    final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) pagePersister.deserializePage(
         new DataInputStream(in), mPageReadTrx, SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) page2.getValue(0l);

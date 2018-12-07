@@ -88,7 +88,8 @@ public final class DBSerializer implements Serializer {
 
             XMLSerializer.XMLSerializerBuilder serializerBuilder =
                 new XMLSerializer.XMLSerializerBuilder(node.getTrx().getResourceManager(), pos,
-                    node.getTrx().getRevisionNumber()).isXQueryResultSequence();
+                    node.getTrx().getRevisionNumber()).serializeTimestamp(true)
+                                                      .isXQueryResultSequence();
             if (mEmitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (mPrettyPrint)

@@ -18,17 +18,26 @@ import java.nio.file.Path
 
 class Delete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
-        val isAuthorized = ctx.user().isAuthorizedAwait("realm:create")
-
-        if (!isAuthorized)
-            ctx.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end()
-
         val dbName = ctx.pathParam("database")
+
+        val isAuthorized =
+                if (dbName != null)
+                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-delete")
+                else
+                    ctx.user().isAuthorizedAwait("realm:delete")
+
+        if (!isAuthorized) {
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return
+        }
+
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        if (dbName == null)
+        if (dbName == null) {
             ctx.fail(IllegalArgumentException("Database name not given."))
+            return
+        }
 
         delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
     }

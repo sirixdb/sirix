@@ -45,7 +45,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.BasicDBStore;
 import junit.framework.TestCase;
 
 /**
@@ -77,7 +77,7 @@ public final class DiffTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final DBStore store = DBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();

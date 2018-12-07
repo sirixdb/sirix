@@ -58,7 +58,7 @@ import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
-import org.sirix.page.PagePersistenter;
+import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
@@ -465,7 +465,8 @@ public final class PageReadTrxImpl implements PageReadTrx {
     final Versioning revisioning = mResourceConfig.mRevisionKind;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    final PageContainer recordPageContainer = new PageContainer(completePage, clone(completePage));
+    final PageContainer recordPageContainer =
+        PageContainer.getInstance(completePage, clone(completePage));
 
     if (mTrxIntentLog == null)
       mResourceBufferManager.getRecordPageCache()
@@ -478,9 +479,10 @@ public final class PageReadTrxImpl implements PageReadTrx {
   <E extends Page> E clone(final E toClone) throws SirixIOException {
     try {
       final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-      PagePersistenter.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
+      final PagePersister pagePersister = new PagePersister();
+      pagePersister.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
       final ByteArrayDataInput input = ByteStreams.newDataInput(output.toByteArray());
-      return (E) PagePersistenter.deserializePage(
+      return (E) pagePersister.deserializePage(
           input, this, SerializationType.TRANSACTION_INTENT_LOG);
     } catch (final IOException e) {
       throw new SirixIOException(e);

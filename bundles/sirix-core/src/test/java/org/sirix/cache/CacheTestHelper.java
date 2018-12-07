@@ -65,7 +65,7 @@ public class CacheTestHelper {
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;
-      cache.put((long) i, new PageContainer(page, page));
+      cache.put((long) i, PageContainer.getInstance(page, page));
     }
   }
 

@@ -48,24 +48,15 @@ import com.google.common.base.Objects;
  *
  */
 public final class PageContainer {
-  /**
-   * {@link UnorderedKeyValuePage} reference, which references the complete key/value page.
-   */
+
+  /** {@link UnorderedKeyValuePage} reference, which references the complete key/value page. */
   private final Page mComplete;
 
-  /**
-   * {@link UnorderedKeyValuePage} reference, which references the modified key/value page.
-   */
+  /** {@link UnorderedKeyValuePage} reference, which references the modified key/value page. */
   private final Page mModified;
 
   /** Empty instance. */
-  private static final PageContainer EMPTY_INSTANCE = new PageContainer();
-
-  /** Private constructor for empty instance. */
-  private PageContainer() {
-    mComplete = null;
-    mModified = null;
-  }
+  private static final PageContainer EMPTY_INSTANCE = new PageContainer(null, null);
 
   /**
    * Get the empty instance (parameterized).
@@ -77,15 +68,25 @@ public final class PageContainer {
   }
 
   /**
-   * Constructor with both, complete and modifying page.
+   * Get a new instance.
    *
    * @param complete to be used as a base for this container
    * @param modifying to be used as a base for this container
    */
-  public PageContainer(final Page complete, final Page modifying) {
+  public static final PageContainer getInstance(final Page complete, final Page modifying) {
     // Assertions as it's not part of the public API.
     assert complete != null;
     assert modifying != null;
+    return new PageContainer(complete, modifying);
+  }
+
+  /**
+   * Private constructor with both, complete and modifying page.
+   *
+   * @param complete to be used as a base for this container
+   * @param modifying to be used as a base for this container
+   */
+  private PageContainer(final Page complete, final Page modifying) {
     mComplete = complete;
     mModified = modifying;
   }
@@ -108,23 +109,6 @@ public final class PageContainer {
     return mModified;
   }
 
-  // /**
-  // * Serializing the container to the cache.
-  // *
-  // * @param out for serialization
-  // */
-  // public void serialize(final TupleOutput out) {
-  // final ByteArrayOutputStream sink = new ByteArrayOutputStream();
-  // final DataOutputStream dataOut = new DataOutputStream(sink);
-  // try {
-  // PagePersistenter.serializePage(dataOut, mComplete);
-  // PagePersistenter.serializePage(dataOut, mModified);
-  // } catch (final IOException e) {
-  // LOGGER.error(e.getMessage(), e);
-  // }
-  // out.write(sink.toByteArray());
-  // }
-
   @Override
   public int hashCode() {
     return Objects.hashCode(mComplete, mModified);
@@ -132,11 +116,11 @@ public final class PageContainer {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof PageContainer) {
-      final PageContainer other = (PageContainer) obj;
-      return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
-    }
-    return false;
+    if (!(obj instanceof PageContainer))
+      return false;
+
+    final PageContainer other = (PageContainer) obj;
+    return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
   }
 
   @Override

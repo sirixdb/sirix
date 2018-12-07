@@ -1933,7 +1933,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   /**
    * Get the DeweyID associated with this node (if any).
    *
-   * @return an optional DeweyID (might be absent, depending on the {@link DBStore} configuration)
+   * @return an optional DeweyID (might be absent, depending on the {@link BasicDBStore} configuration)
    */
   public Optional<SirixDeweyID> getDeweyID() {
     return mRtx.getDeweyID();

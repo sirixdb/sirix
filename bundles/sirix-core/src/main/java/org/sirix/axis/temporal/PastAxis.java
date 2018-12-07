@@ -28,9 +28,6 @@ public final class PastAxis extends AbstractTemporalAxis {
   /** Sirix {@link XdmNodeReadTrx}. */
   private XdmNodeReadTrx mRtx;
 
-  /** Determines if node has been found before and now has been deleted. */
-  private boolean mHasMoved;
-
   /**
    * Constructor.
    *
@@ -57,18 +54,14 @@ public final class PastAxis extends AbstractTemporalAxis {
 
   @Override
   protected XdmNodeReadTrx computeNext() {
-    while (mRevision > 0) {
+    if (mRevision > 0) {
       mRtx = mSession.beginNodeReadTrx(mRevision--);
-
-      if (mRtx.moveTo(mNodeKey).hasMoved()) {
-        mHasMoved = true;
-        return mRtx;
-      } else if (mHasMoved) {
-        return endOfData();
-      }
+      return mRtx.moveTo(mNodeKey).hasMoved()
+          ? mRtx
+          : endOfData();
+    } else {
+      return endOfData();
     }
-
-    return endOfData();
   }
 
   @Override

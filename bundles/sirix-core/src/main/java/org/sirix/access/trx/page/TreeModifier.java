@@ -28,7 +28,6 @@
 package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;

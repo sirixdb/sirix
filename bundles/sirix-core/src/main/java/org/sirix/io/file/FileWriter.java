@@ -33,7 +33,7 @@ import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersistenter;
+import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.SerializationType;
@@ -59,22 +59,28 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private final RandomAccessFile mRevisionsOffsetFile;
 
+  private final PagePersister mPagePersister;
+
   /**
    * Constructor.
    *
    * @param dataFile the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
    * @param handler the byte handler
-   * @throws SirixIOException if an I/O error occurs
+   * @param serializationType the serialization type (for the transaction log or the data file)
+   * @param pagePersister transforms in-memory pages into byte-arrays and back
    */
   public FileWriter(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
-      final ByteHandler handler, final SerializationType type) throws SirixIOException {
+      final ByteHandler handler, final SerializationType serializationType,
+      final PagePersister pagePersister) {
     mDataFile = checkNotNull(dataFile);
-    mType = checkNotNull(type);
+    mType = checkNotNull(serializationType);
     mRevisionsOffsetFile = mType == SerializationType.DATA
         ? checkNotNull(revisionsOffsetFile)
         : null;
-    mReader = new FileReader(dataFile, revisionsOffsetFile, handler, type);
+    mPagePersister = checkNotNull(pagePersister);
+    mReader =
+        new FileReader(dataFile, revisionsOffsetFile, handler, serializationType, pagePersister);
   }
 
   @Override
@@ -110,14 +116,16 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       // Serialize page.
       final Page page = pageReference.getPage();
       assert page != null;
-      final ByteArrayOutputStream output = new ByteArrayOutputStream();
-      final DataOutputStream dataOutput =
-          new DataOutputStream(mReader.mByteHandler.serialize(output));
-      PagePersistenter.serializePage(dataOutput, page, mType);
-      output.close();
-      dataOutput.close();
 
-      final byte[] serializedPage = output.toByteArray();
+      final byte[] serializedPage;
+
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream();
+          final DataOutputStream dataOutput =
+              new DataOutputStream(mReader.mByteHandler.serialize(output))) {
+        mPagePersister.serializePage(dataOutput, page, mType);
+        dataOutput.flush();
+        serializedPage = output.toByteArray();
+      }
 
       final byte[] writtenPage = new byte[serializedPage.length + FileReader.OTHER_BEACON];
       final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
@@ -126,8 +134,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       buffer.position(0);
       buffer.get(writtenPage, 0, writtenPage.length);
 
-      // Getting actual offset and appending to the end of the current
-      // file.
+      // Getting actual offset and appending to the end of the current file.
       final long fileSize = mDataFile.length();
       final long offset = fileSize == 0
           ? FileReader.FIRST_BEACON
@@ -148,6 +155,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       }
 
       pageReference.setLength(writtenPage.length);
+      pageReference.setHash(mReader.mHashFunction.hashBytes(writtenPage).asBytes());
 
       if (mType == SerializationType.DATA && page instanceof RevisionRootPage) {
         mRevisionsOffsetFile.seek(mRevisionsOffsetFile.length());

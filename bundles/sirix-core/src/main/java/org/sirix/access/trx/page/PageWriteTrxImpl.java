@@ -429,7 +429,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
         final UnorderedKeyValuePage completePage =
             new UnorderedKeyValuePage(recordPageKey, pageKind, Constants.NULL_ID_LONG, mPageRtx);
         final UnorderedKeyValuePage modifyPage = mPageRtx.clone(completePage);
-        pageContainer = new PageContainer(completePage, modifyPage);
+        pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
       }

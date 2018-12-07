@@ -127,21 +127,21 @@ public final class DatabaseImpl implements Database {
 
       if (returnVal) {
         // Creation of the folder structure.
-        try {
-          for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
-            final Path toCreate = path.resolve(resourcePath.getPath());
+        for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
+          final Path toCreate = path.resolve(resourcePath.getPath());
 
+          try {
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
             } else {
               Files.createFile(toCreate);
             }
-
-            if (!returnVal)
-              break;
+          } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            returnVal = false;
           }
-        } catch (UnsupportedOperationException | IOException | SecurityException e) {
-          returnVal = false;
+
+          if (!returnVal)
+            break;
         }
       }
     }
@@ -155,13 +155,11 @@ public final class DatabaseImpl implements Database {
       mDBConfig.setMaximumResourceID(mResourceID.get());
       mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
 
-      try {
-        try (
-            final ResourceManager resourceTrxManager =
-                this.getResourceManager(resConfig.getResource().getFileName().toString());
-            final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
-          wtx.commit();
-        }
+      try (
+          final ResourceManager resourceTrxManager =
+              this.getResourceManager(resConfig.getResource().getFileName().toString());
+          final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        wtx.commit();
       } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
         returnVal = false;
