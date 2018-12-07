@@ -81,11 +81,16 @@ public class ByteHandlerTest {
   @DataProvider(name = "instantiateByteHandler")
   public Object[][] instantiateByteHandler() throws SirixIOException {
     Object[][] returnVal = {{ByteHandler.class, new ByteHandler[] {
-        new Encryptor(Paths.get("resourceName")), new DeflateCompressor(), new SnappyCompressor(),
-        new ByteHandlePipeline(new Encryptor(Paths.get("resourceName")), new DeflateCompressor()),
-        new ByteHandlePipeline(new DeflateCompressor(), new Encryptor(Paths.get("resourceName"))),
-        new ByteHandlePipeline(new Encryptor(Paths.get("resourceName")), new SnappyCompressor()),
-        new ByteHandlePipeline(new SnappyCompressor(), new Encryptor(Paths.get("resourceName")))}}};
+        new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
+        new DeflateCompressor(), new SnappyCompressor(),
+        new ByteHandlePipeline(new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
+            new DeflateCompressor()),
+        new ByteHandlePipeline(new DeflateCompressor(),
+            new Encryptor(Paths.get("src", "test", "resources", "resourceName"))),
+        new ByteHandlePipeline(new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
+            new SnappyCompressor()),
+        new ByteHandlePipeline(new SnappyCompressor(),
+            new Encryptor(Paths.get("src", "test", "resources", "resourceName")))}}};
     return returnVal;
   }
 
