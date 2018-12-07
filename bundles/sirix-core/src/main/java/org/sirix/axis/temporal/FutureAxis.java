@@ -1,8 +1,8 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
 
@@ -27,9 +27,6 @@ public final class FutureAxis extends AbstractTemporalAxis {
 
   /** Sirix {@link XdmNodeReadTrx}. */
   private XdmNodeReadTrx mRtx;
-
-  /** Determines if node has been found before and now has been deleted. */
-  private boolean mHasMoved;
 
   /**
    * Constructor.
@@ -57,18 +54,15 @@ public final class FutureAxis extends AbstractTemporalAxis {
 
   @Override
   protected XdmNodeReadTrx computeNext() {
-    while (mRevision <= mSession.getMostRecentRevisionNumber()) {
+    // != a little bit faster?
+    if (mRevision <= mSession.getMostRecentRevisionNumber()) {
       mRtx = mSession.beginNodeReadTrx(mRevision++);
-
-      if (mRtx.moveTo(mNodeKey).hasMoved()) {
-        mHasMoved = true;
-        return mRtx;
-      } else if (mHasMoved) {
-        return endOfData();
-      }
+      return mRtx.moveTo(mNodeKey).hasMoved()
+          ? mRtx
+          : endOfData();
+    } else {
+      return endOfData();
     }
-
-    return endOfData();
   }
 
   @Override

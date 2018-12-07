@@ -14,11 +14,11 @@ import org.junit.After;
 public class NodeAxisTest extends AxisTest {
   @Override
   protected Store createStore() throws Exception {
-    return DBStore.newBuilder().build();
+    return BasicDBStore.newBuilder().build();
   }
 
   @After
   public void tearDown() throws DocumentException {
-    ((DBStore) store).close();
+    ((BasicDBStore) store).close();
   }
 }

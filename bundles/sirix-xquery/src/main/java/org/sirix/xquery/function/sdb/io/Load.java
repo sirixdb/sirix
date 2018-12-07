@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
-import java.util.Optional;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -31,7 +30,7 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.BasicDBStore;
 
 /**
  * <p>
@@ -100,7 +99,7 @@ public final class Load extends AbstractFunction {
               ? false
               : true);
 
-      final DBStore store = (DBStore) ctx.getStore();
+      final BasicDBStore store = (BasicDBStore) ctx.getStore();
       DBCollection coll;
       if (createNew) {
         coll = create(store, collName, resName, resources);
@@ -140,13 +139,12 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static DBCollection create(final DBStore store, final String collName,
+  private static DBCollection create(final BasicDBStore store, final String collName,
       final String resName, final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
       return store.create(
-          collName, Optional.of(resName),
-          new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+          collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
     } else {
       return store.create(collName, new ParserStream(resources));
     }

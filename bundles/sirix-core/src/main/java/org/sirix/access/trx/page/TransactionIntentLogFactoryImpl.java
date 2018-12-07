@@ -37,6 +37,7 @@ import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.file.FileWriter;
+import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
 
 /**
@@ -67,7 +68,7 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
 
       final FileWriter fileWriter =
           new FileWriter(file, null, new ByteHandlePipeline(resourceConfig.mByteHandler),
-              SerializationType.TRANSACTION_INTENT_LOG);
+              SerializationType.TRANSACTION_INTENT_LOG, new PagePersister());
 
       final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);
 

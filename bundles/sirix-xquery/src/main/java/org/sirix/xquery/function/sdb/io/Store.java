@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
-import java.util.Optional;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -103,7 +102,7 @@ public final class Store extends AbstractFunction {
         create(store, collName, resName, nodes);
       } else {
         try {
-          final DBCollection coll = (DBCollection) store.lookup(collName);
+          final DBCollection coll = store.lookup(collName);
           add(store, coll, resName, nodes);
         } catch (final DocumentException e) {
           // collection does not exist
@@ -117,8 +116,8 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final org.brackit.xquery.xdm.Store store, final DBCollection coll,
-      final String resName, final Sequence nodes) throws DocumentException, IOException {
+  private static void add(final DBStore store, final DBCollection coll, final String resName,
+      final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
       coll.add(resName, new StoreParser(n));
@@ -138,7 +137,7 @@ public final class Store extends AbstractFunction {
       final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
-      store.create(collName, Optional.of(resName), new StoreParser(n));
+      store.create(collName, resName, new StoreParser(n));
     } else {
       store.create(collName, new ParserStream(nodes));
     }
@@ -201,7 +200,8 @@ public final class Store extends AbstractFunction {
     }
 
     @Override
-    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content)
+        throws DocumentException {
       handler.processingInstruction(target, content);
     }
 

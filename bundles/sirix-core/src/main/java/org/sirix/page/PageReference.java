@@ -54,6 +54,8 @@ public final class PageReference {
   /** Length in bytes. */
   private int mLength;
 
+  private byte[] mHashInBytes;
+
   /**
    * Default constructor setting up an uninitialized page reference.
    */
@@ -70,6 +72,15 @@ public final class PageReference {
     mKey = reference.mKey;
     mPersistentLogKey = reference.mPersistentLogKey;
     mLength = reference.mLength;
+  }
+
+  /**
+   * Set in-memory instance of deserialized page.
+   *
+   * @param page deserialized page
+   */
+  public void setPage(final @Nullable Page page) {
+    mPage = page;
   }
 
   /**
@@ -100,15 +111,6 @@ public final class PageReference {
    */
   public int getLength() {
     return mLength;
-  }
-
-  /**
-   * Set in-memory instance of deserialized page.
-   *
-   * @param page deserialized page
-   */
-  public void setPage(final @Nullable Page page) {
-    mPage = page;
   }
 
   /**
@@ -191,5 +193,13 @@ public final class PageReference {
           && otherPageRef.mPersistentLogKey == mPersistentLogKey;
     }
     return false;
+  }
+
+  public void setHash(byte[] hashInBytes) {
+    mHashInBytes = hashInBytes;
+  }
+
+  public byte[] getHash() {
+    return mHashInBytes;
   }
 }

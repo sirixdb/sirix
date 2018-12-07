@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashKind;
 import org.sirix.access.trx.node.XdmResourceManager;
@@ -39,12 +40,13 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.io.bytepipe.DeflateCompressor;
+import org.sirix.io.bytepipe.ByteHandlerKind;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.NodePersistenterImpl;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.settings.Versioning;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
@@ -77,7 +79,10 @@ public final class ResourceConfiguration {
     CONFIG_BINARY(Paths.get("ressetting.obj"), false),
 
     /** File to store index definitions. */
-    INDEXES(Paths.get("indexes"), true);
+    INDEXES(Paths.get("indexes"), true),
+
+    /** Folder to store the encryption key. */
+    ENCRYPTION_KEY(Paths.get("encryptionKey"), true);
 
     /** Location of the file. */
     private final Path mPath;
@@ -248,20 +253,19 @@ public final class ResourceConfiguration {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mStorage, mRevisionKind, mHashKind, mPath, mDBConfig);
+    return Objects.hash(mStorage, mRevisionKind, mHashKind, mPath, mDBConfig);
   }
 
   @Override
   public final boolean equals(final Object obj) {
-    if (obj instanceof ResourceConfiguration) {
-      final ResourceConfiguration other = (ResourceConfiguration) obj;
-      return Objects.equal(mStorage, other.mStorage)
-          && Objects.equal(mRevisionKind, other.mRevisionKind)
-          && Objects.equal(mHashKind, other.mHashKind) && Objects.equal(mPath, other.mPath)
-          && Objects.equal(mDBConfig, other.mDBConfig);
-    } else {
+    if (!(obj instanceof ResourceConfiguration))
       return false;
-    }
+
+    final ResourceConfiguration other = (ResourceConfiguration) obj;
+    return Objects.equals(mStorage, other.mStorage)
+        && Objects.equals(mRevisionKind, other.mRevisionKind)
+        && Objects.equals(mHashKind, other.mHashKind) && Objects.equals(mPath, other.mPath)
+        && Objects.equals(mDBConfig, other.mDBConfig);
   }
 
   @Override
@@ -321,7 +325,7 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[3]);
       jsonWriter.beginArray();
       for (final ByteHandler handler : byteHandler.getComponents()) {
-        jsonWriter.value(handler.getClass().getName());
+        ByteHandlerKind.getKind(handler.getClass()).serialize(handler, jsonWriter);
       }
       jsonWriter.endArray();
       // Storage type.
@@ -377,9 +381,12 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[3]);
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
-        final Class<?> handlerClazz = Class.forName(jsonReader.nextString());
-        final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
-        handlerList.add((ByteHandler) handlerCons.newInstance());
+        jsonReader.beginObject();
+        @SuppressWarnings("unchecked")
+        final Class<ByteHandler> clazzName =
+            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
+        jsonReader.endObject();
       }
       jsonReader.endArray();
       final ByteHandlePipeline pipeline =
@@ -468,9 +475,7 @@ public final class ResourceConfiguration {
     /** Resource for this session. */
     private final DatabaseConfiguration mDBConfig;
 
-    /**
-     * Determines if text-compression should be used or not (default is true).
-     */
+    /** Determines if text-compression should be used or not (default is true). */
     private boolean mCompression;
 
     /** Byte handler pipeline. */
@@ -493,7 +498,12 @@ public final class ResourceConfiguration {
       mResource = checkNotNull(resource);
       mDBConfig = checkNotNull(config);
       mPathSummary = true;
-      mByteHandler = new ByteHandlePipeline(new DeflateCompressor());
+
+      final Path path =
+          mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
+              mResource);
+
+      mByteHandler = new ByteHandlePipeline(new SnappyCompressor()); // , new Encryptor(path));
     }
 
     /**

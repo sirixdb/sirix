@@ -1,9 +1,8 @@
 /**
- * 
+ *
  */
 package org.sirix.io.bytepipe;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -11,10 +10,10 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Pipeline to handle Bytes before stored in the backends.
- * 
+ * Pipeline to handle bytes before stored in the backend.
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public final class ByteHandlePipeline implements ByteHandler {
 
@@ -23,7 +22,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 
   /**
    * Copy constructor.
-   * 
+   *
    * @param pipeline pipeline to copy
    */
   public ByteHandlePipeline(final ByteHandlePipeline pipeline) {
@@ -34,9 +33,9 @@ public final class ByteHandlePipeline implements ByteHandler {
   }
 
   /**
-   * 
+   *
    * Constructor.
-   * 
+   *
    * @param parts to be stored, Order is important!
    */
   public ByteHandlePipeline(final ByteHandler... parts) {
@@ -47,7 +46,7 @@ public final class ByteHandlePipeline implements ByteHandler {
   }
 
   @Override
-  public OutputStream serialize(final OutputStream toSerialize) throws IOException {
+  public OutputStream serialize(final OutputStream toSerialize) {
     OutputStream pipeData = toSerialize;
     for (final ByteHandler part : mParts) {
       pipeData = part.serialize(pipeData);
@@ -56,7 +55,7 @@ public final class ByteHandlePipeline implements ByteHandler {
   }
 
   @Override
-  public InputStream deserialize(final InputStream toDeserialize) throws IOException {
+  public InputStream deserialize(final InputStream toDeserialize) {
     InputStream pipeData = toDeserialize;
     for (final ByteHandler part : mParts) {
       pipeData = part.deserialize(pipeData);
@@ -66,7 +65,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 
   /**
    * Get byte handler components.
-   * 
+   *
    * @return all components
    */
   public List<ByteHandler> getComponents() {
@@ -77,5 +76,4 @@ public final class ByteHandlePipeline implements ByteHandler {
   public ByteHandler getInstance() {
     return new ByteHandlePipeline();
   }
-
 }
