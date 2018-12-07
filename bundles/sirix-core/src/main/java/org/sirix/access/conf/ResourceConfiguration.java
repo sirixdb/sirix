@@ -503,7 +503,7 @@ public final class ResourceConfiguration {
           mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
               mResource);
 
-      mByteHandler = new ByteHandlePipeline(new SnappyCompressor(), new Encryptor(path));
+      mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// , new Encryptor(path));
     }
 
     /**
