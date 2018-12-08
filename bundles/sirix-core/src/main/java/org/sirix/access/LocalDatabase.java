@@ -186,7 +186,8 @@ public final class LocalDatabase implements Database {
   private void createAndStoreKeysetIfNeeded(final ResourceConfiguration resConfig,
       final Path createdPath) {
     final Path encryptionKeyPath = createdPath.resolve("encryptionKey.json");
-    if (resConfig.byteHandlePipeline.getComponents().contains(new Encryptor(encryptionKeyPath))) {
+    if (resConfig.byteHandlePipeline.getComponents()
+                                    .contains(new Encryptor(createdPath.getParent()))) {
       try {
         Files.createFile(encryptionKeyPath);
         final KeysetHandle handle =
