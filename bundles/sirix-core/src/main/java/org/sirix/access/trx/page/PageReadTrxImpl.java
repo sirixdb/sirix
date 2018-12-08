@@ -70,7 +70,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import org.sirix.settings.Versioning;
+import org.sirix.settings.VersioningType;
 import com.google.common.base.MoreObjects;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -160,7 +160,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
 
     if (indexController == null) {
       // Deserialize index definitions.
-      final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+      final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
           ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
               String.valueOf(revision) + ".xml");
       if (Files.exists(indexes)) {
@@ -461,8 +461,8 @@ public final class PageReadTrxImpl implements PageReadTrx {
       return PageContainer.emptyInstance();
     }
 
-    final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
-    final Versioning revisioning = mResourceConfig.mRevisionKind;
+    final int mileStoneRevision = mResourceConfig.numberOfRevisionsToRestore;
+    final VersioningType revisioning = mResourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
     final PageContainer recordPageContainer =
@@ -511,9 +511,9 @@ public final class PageReadTrxImpl implements PageReadTrx {
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = mResourceManager.getResourceConfig();
-    final int revsToRestore = config.mRevisionsToRestore;
+    final int revsToRestore = config.numberOfRevisionsToRestore;
     final int[] revisionsToRead =
-        config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
+        config.revisioningType.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
     final List<T> pages = new ArrayList<>(revisionsToRead.length);
     boolean first = true;
     for (int i = 0; i < revisionsToRead.length; i++) {

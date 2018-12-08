@@ -51,7 +51,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.RecordPersistenter;
+import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -95,7 +95,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   private final PageKind mPageKind;
 
   /** Persistenter. */
-  private final RecordPersistenter mPersistenter;
+  private final RecordPersister mRecordPersister;
 
   /** Reference key to the previous page if any. */
   private long mPreviousPageRefKey;
@@ -125,11 +125,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     mPageReadTrx = pageReadTrx;
     mPageKind = pageKind;
     mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
-    mPersistenter = mResourceConfig.mPersistenter;
+    mRecordPersister = mResourceConfig.recordPersister;
     mPreviousPageRefKey = previousPageRefKey;
 
-    if (mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored
-        && mPersistenter instanceof NodePersistenter) {
+    if (mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
+        && mRecordPersister instanceof NodePersistenter) {
       mDeweyIDs = new LinkedHashMap<>();
     } else {
       mDeweyIDs = Collections.emptyMap();
@@ -146,13 +146,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       throws IOException {
     mRecordPageKey = getVarLong(in);
     mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
-    mPersistenter = mResourceConfig.mPersistenter;
+    mRecordPersister = mResourceConfig.recordPersister;
     mPageReadTrx = pageReadTrx;
     mSlots = new LinkedHashMap<>();
 
-    if (mResourceConfig.mDeweyIDsStored && mPersistenter instanceof NodePersistenter) {
+    if (mResourceConfig.areDeweyIDsStored && mRecordPersister instanceof NodePersistenter) {
       mDeweyIDs = new LinkedHashMap<>();
-      final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
+      final NodePersistenter persistenter = (NodePersistenter) mRecordPersister;
       final int deweyIDSize = in.readInt();
 
       mRecords = new LinkedHashMap<>(deweyIDSize);
@@ -166,7 +166,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           final int dataSize = in.readInt();
           final byte[] data = new byte[dataSize];
           in.readFully(data);
-          final Record record = mPersistenter.deserialize(
+          final Record record = mRecordPersister.deserialize(
               new DataInputStream(new ByteArrayInputStream(data)), key, id, mPageReadTrx);
           mRecords.put(key, record);
         }
@@ -182,7 +182,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
-      final Record record = mPersistenter.deserialize(
+      final Record record = mRecordPersister.deserialize(
           new DataInputStream(new ByteArrayInputStream(data)), key, Optional.empty(), mPageReadTrx);
       mRecords.put(key, record);
     }
@@ -227,7 +227,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       }
       final InputStream in = new ByteArrayInputStream(data);
       try {
-        record = mPersistenter.deserialize(new DataInputStream(in), key, Optional.empty(), null);
+        record = mRecordPersister.deserialize(new DataInputStream(in), key, Optional.empty(), null);
       } catch (final IOException e) {
         return null;
       }
@@ -251,8 +251,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     // Write page key.
     putVarLong(out, mRecordPageKey);
     // Write dewey IDs.
-    if (mResourceConfig.mDeweyIDsStored && mPersistenter instanceof NodePersistenter) {
-      final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
+    if (mResourceConfig.areDeweyIDsStored && mRecordPersister instanceof NodePersistenter) {
+      final NodePersistenter persistenter = (NodePersistenter) mRecordPersister;
       out.writeInt(mDeweyIDs.size());
       final List<SirixDeweyID> ids = new ArrayList<>(mDeweyIDs.keySet());
       ids.sort(
@@ -369,7 +369,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   // Add references to OverflowPages.
   private void addReferences() throws IOException {
     final boolean storeDeweyIDs =
-        mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
+        mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
 
     final List<Entry<Long, Record>> entries = sort();
     final Iterator<Entry<Long, Record>> it = entries.iterator();
@@ -382,14 +382,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
         // Overflow page.
         final ByteArrayOutputStream output = new ByteArrayOutputStream();
         final DataOutput out = new DataOutputStream(output);
-        mPersistenter.serialize(out, record, mPageReadTrx);
+        mRecordPersister.serialize(out, record, mPageReadTrx);
         final byte[] data = output.toByteArray();
         if (data.length > PageConstants.MAX_RECORD_SIZE) {
           final PageReference reference = new PageReference();
           reference.setPage(new OverflowPage(data));
           mReferences.put(recordID, reference);
         } else {
-          if (storeDeweyIDs && mPersistenter instanceof NodePersistenter && record instanceof Node
+          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter && record instanceof Node
               && ((Node) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
             mDeweyIDs.put(((Node) record).getDeweyID().get(), record.getNodeKey());
           mSlots.put(recordID, data);
@@ -404,8 +404,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     // Sort entries which have deweyIDs according to their byte-length.
     final List<Map.Entry<Long, Record>> entries = new ArrayList<>(mRecords.entrySet());
     final boolean storeDeweyIDs =
-        mPageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored;
-    if (storeDeweyIDs && mPersistenter instanceof NodePersistenter) {
+        mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter) {
       entries.sort((a, b) -> {
         if (a.getValue() instanceof Node && b.getValue() instanceof Node) {
           final Optional<SirixDeweyID> first = ((Node) a.getValue()).getDeweyID();

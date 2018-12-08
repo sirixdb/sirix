@@ -67,7 +67,7 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
       final RandomAccessFile file = new RandomAccessFile(logFile.toFile(), "rw");
 
       final FileWriter fileWriter =
-          new FileWriter(file, null, new ByteHandlePipeline(resourceConfig.mByteHandler),
+          new FileWriter(file, null, new ByteHandlePipeline(resourceConfig.byteHandlePipeline),
               SerializationType.TRANSACTION_INTENT_LOG, new PagePersister());
 
       final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);

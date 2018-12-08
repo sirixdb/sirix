@@ -19,7 +19,7 @@ public interface Record {
    * 
    * @return kind of node
    */
-  RecordPersistenter getKind();
+  RecordPersister getKind();
 
   /**
    * Get the revision this node has been inserted.

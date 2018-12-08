@@ -17,7 +17,7 @@ import java.util.List;
  */
 public final class ByteHandlePipeline implements ByteHandler {
 
-  /** Pipeline hold over here. */
+  /** Pipeline for all byte handlers. */
   private final List<ByteHandler> mParts;
 
   /**
@@ -40,8 +40,11 @@ public final class ByteHandlePipeline implements ByteHandler {
    */
   public ByteHandlePipeline(final ByteHandler... parts) {
     mParts = new ArrayList<>();
-    for (final ByteHandler part : parts) {
-      mParts.add(part);
+
+    if (parts != null) {
+      for (final ByteHandler part : parts) {
+        mParts.add(part);
+      }
     }
   }
 

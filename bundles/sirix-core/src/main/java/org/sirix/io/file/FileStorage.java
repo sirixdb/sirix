@@ -63,8 +63,8 @@ public final class FileStorage implements Storage {
    */
   public FileStorage(final ResourceConfiguration resourceConfig) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    mFile = resourceConfig.mPath;
-    mByteHandler = resourceConfig.mByteHandler;
+    mFile = resourceConfig.resourcePath;
+    mByteHandler = resourceConfig.byteHandlePipeline;
   }
 
   @Override

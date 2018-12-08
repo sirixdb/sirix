@@ -8,7 +8,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 
-public interface NodePersistenter extends RecordPersistenter {
+public interface NodePersistenter extends RecordPersister {
   Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
       Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
       throws IOException;

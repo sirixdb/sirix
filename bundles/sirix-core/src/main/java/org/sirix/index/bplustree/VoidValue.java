@@ -1,7 +1,7 @@
 package org.sirix.index.bplustree;
 
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.RecordPersistenter;
+import org.sirix.node.interfaces.RecordPersister;
 
 /**
  * Represents a void value, that is no value at all (for inner node pages in the BPlusTree).
@@ -16,7 +16,7 @@ public class VoidValue implements Record {
   }
 
   @Override
-  public RecordPersistenter getKind() {
+  public RecordPersister getKind() {
     return null;
   }
 

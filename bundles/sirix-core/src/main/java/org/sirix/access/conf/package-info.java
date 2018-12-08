@@ -39,7 +39,7 @@
  * </ul>
  * </p>
  * <p>
- * All configurations are set within the {@link org.sirix.access.DatabaseImpl} only.
+ * All configurations are set within the {@link org.sirix.access.LocalDatabase} only.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz

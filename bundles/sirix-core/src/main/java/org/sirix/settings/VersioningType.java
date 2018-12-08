@@ -40,7 +40,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public enum Versioning {
+public enum VersioningType {
 
   /**
    * FullDump, just dumping the complete older revision.

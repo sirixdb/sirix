@@ -31,7 +31,7 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
@@ -50,37 +50,37 @@ public class HashTest {
 
   @Test
   public void testPostorderInsertRemove() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testPostorderDeep() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
     testDeepTree(wtx);
   }
 
   @Test
   public void testPostorderSetter() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
     testSetter(wtx);
   }
 
   @Test
   public void testRollingInsertRemove() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testRollingDeep() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
     testDeepTree(wtx);
   }
 
   @Test
   public void testRollingSetter() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashKind.ROLLING);
+    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
     testSetter(wtx);
   }
 
@@ -218,7 +218,7 @@ public class HashTest {
     assertFalse(hashRoot4 == hashLeaf3);
   }
 
-  private XdmNodeWriteTrx createWtx(final HashKind kind) throws SirixException {
+  private XdmNodeWriteTrx createWtx(final HashType kind) throws SirixException {
     final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());

@@ -34,18 +34,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.ByteHandlerKind;
-import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.NodePersistenterImpl;
-import org.sirix.node.interfaces.RecordPersistenter;
-import org.sirix.settings.Versioning;
+import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.settings.VersioningType;
 import com.google.common.base.MoreObjects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -141,60 +140,58 @@ public final class ResourceConfiguration {
 
   // FIXED STANDARD FIELDS
   /** Standard storage. */
-  public static final StorageType STORAGE = StorageType.FILE;
+  private static final StorageType STORAGE = StorageType.FILE;
 
   /** Standard versioning approach. */
-  public static final Versioning VERSIONING = Versioning.SLIDING_SNAPSHOT;
+  private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
   /** Type of hashing. */
-  public static final HashKind HASHKIND = HashKind.ROLLING;
+  private static final HashType HASHKIND = HashType.ROLLING;
 
   /** Versions to restore. */
-  public static final int VERSIONSTORESTORE = 3;
+  private static final int VERSIONSTORESTORE = 3;
 
   /** Persistenter for records. */
-  public static final RecordPersistenter PERSISTENTER = new NodePersistenterImpl();
+  private static final RecordPersister PERSISTENTER = new NodePersistenterImpl();
 
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
   /** Type of Storage (File, BerkeleyDB). */
-  public final StorageType mStorage;
+  public final StorageType storageType;
 
   /** Kind of revisioning (Full, Incremental, Differential). */
-  public final Versioning mRevisionKind;
+  public final VersioningType revisioningType;
 
   /** Kind of integrity hash (rolling, postorder). */
-  public final HashKind mHashKind;
+  public final HashType hashType;
 
   /** Number of revisions to restore a complete set of data. */
-  public final int mRevisionsToRestore;
+  public final int numberOfRevisionsToRestore;
 
   /** Byte handler pipeline. */
-  public final ByteHandlePipeline mByteHandler;
+  public final ByteHandlePipeline byteHandlePipeline;
 
   /** Path for the resource to be associated. */
-  public final Path mPath;
+  public final Path resourcePath;
 
   /** DatabaseConfiguration for this {@link ResourceConfiguration}. */
-  public final DatabaseConfiguration mDBConfig;
+  public final DatabaseConfiguration databaseConfig;
 
   /** Determines if text-compression should be used or not (default is true). */
-  public final boolean mCompression;
+  public final boolean useTextCompression;
 
-  /**
-   * Determines if a path summary should be build and kept up to date or not.
-   */
-  public final boolean mPathSummary;
+  /** Determines if a path summary should be build and kept up to date or not. */
+  public final boolean pathSummary;
 
   /** Persistents records / commonly nodes. */
-  public final RecordPersistenter mPersistenter;
+  public final RecordPersister recordPersister;
 
   /** Unique ID. */
-  private long mID;
+  private long id;
 
-  /** Determines if dewey IDs should be stored or not. */
-  public final boolean mDeweyIDsStored;
+  /** Determines if dewey IDs are generated and stored or not. */
+  public final boolean areDeweyIDsStored;
 
   // END MEMBERS FOR FIXED FIELDS
 
@@ -216,18 +213,19 @@ public final class ResourceConfiguration {
    * @param builder {@link Builder} reference
    */
   private ResourceConfiguration(final ResourceConfiguration.Builder builder) {
-    mStorage = builder.mType;
-    mByteHandler = builder.mByteHandler;
-    mRevisionKind = builder.mRevisionKind;
-    mHashKind = builder.mHashKind;
-    mRevisionsToRestore = builder.mRevisionsToRestore;
-    mDBConfig = builder.mDBConfig;
-    mCompression = builder.mCompression;
-    mPathSummary = builder.mPathSummary;
-    mDeweyIDsStored = builder.mUseDeweyIDs;
-    mPath = mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-        builder.mResource);
-    mPersistenter = builder.mPersistenter;
+    storageType = builder.mType;
+    byteHandlePipeline = builder.mByteHandler;
+    revisioningType = builder.mRevisionKind;
+    hashType = builder.mHashKind;
+    numberOfRevisionsToRestore = builder.mRevisionsToRestore;
+    databaseConfig = builder.mDBConfig;
+    useTextCompression = builder.mCompression;
+    pathSummary = builder.mPathSummary;
+    areDeweyIDsStored = builder.mUseDeweyIDs;
+    resourcePath = databaseConfig.getFile()
+                                 .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                 .resolve(builder.mResource);
+    recordPersister = builder.mPersistenter;
   }
 
   /**
@@ -237,8 +235,8 @@ public final class ResourceConfiguration {
    * @return this instance
    */
   public ResourceConfiguration setID(final @Nonnegative long id) {
-    checkArgument(id >= 0, "pID must be >= 0!");
-    mID = id;
+    checkArgument(id >= 0, "The ID must be >= 0!");
+    this.id = id;
     return this;
   }
 
@@ -248,12 +246,12 @@ public final class ResourceConfiguration {
    * @return the unique resource ID
    */
   public long getID() {
-    return mID;
+    return id;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(mStorage, mRevisionKind, mHashKind, mPath, mDBConfig);
+    return Objects.hash(storageType, revisioningType, hashType, resourcePath, databaseConfig);
   }
 
   @Override
@@ -262,19 +260,20 @@ public final class ResourceConfiguration {
       return false;
 
     final ResourceConfiguration other = (ResourceConfiguration) obj;
-    return Objects.equals(mStorage, other.mStorage)
-        && Objects.equals(mRevisionKind, other.mRevisionKind)
-        && Objects.equals(mHashKind, other.mHashKind) && Objects.equals(mPath, other.mPath)
-        && Objects.equals(mDBConfig, other.mDBConfig);
+    return Objects.equals(storageType, other.storageType)
+        && Objects.equals(revisioningType, other.revisioningType)
+        && Objects.equals(hashType, other.hashType)
+        && Objects.equals(resourcePath, other.resourcePath)
+        && Objects.equals(databaseConfig, other.databaseConfig);
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("Resource", mPath)
-                      .add("Type", mStorage)
-                      .add("Revision", mRevisionKind)
-                      .add("HashKind", mHashKind)
+                      .add("Resource", resourcePath)
+                      .add("Type", storageType)
+                      .add("Revision", revisioningType)
+                      .add("HashKind", hashType)
                       .toString();
   }
 
@@ -284,7 +283,7 @@ public final class ResourceConfiguration {
    * @return resource
    */
   public Path getResource() {
-    return mPath;
+    return resourcePath;
   }
 
   /**
@@ -293,7 +292,7 @@ public final class ResourceConfiguration {
    * @return configuration file
    */
   public Path getConfigFile() {
-    return mPath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
+    return resourcePath.resolve(ResourcePaths.CONFIG_BINARY.getPath());
   }
 
   /**
@@ -317,11 +316,11 @@ public final class ResourceConfiguration {
       // Versioning.
       jsonWriter.name(JSONNAMES[0]);
       jsonWriter.beginObject();
-      jsonWriter.name(JSONNAMES[1]).value(config.mRevisionKind.name());
-      jsonWriter.name(JSONNAMES[2]).value(config.mRevisionsToRestore);
+      jsonWriter.name(JSONNAMES[1]).value(config.revisioningType.name());
+      jsonWriter.name(JSONNAMES[2]).value(config.numberOfRevisionsToRestore);
       jsonWriter.endObject();
       // ByteHandlers.
-      final ByteHandlePipeline byteHandler = config.mByteHandler;
+      final ByteHandlePipeline byteHandler = config.byteHandlePipeline;
       jsonWriter.name(JSONNAMES[3]);
       jsonWriter.beginArray();
       for (final ByteHandler handler : byteHandler.getComponents()) {
@@ -329,26 +328,26 @@ public final class ResourceConfiguration {
       }
       jsonWriter.endArray();
       // Storage type.
-      jsonWriter.name(JSONNAMES[4]).value(config.mStorage.name());
+      jsonWriter.name(JSONNAMES[4]).value(config.storageType.name());
       // Hashing type.
-      jsonWriter.name(JSONNAMES[5]).value(config.mHashKind.name());
+      jsonWriter.name(JSONNAMES[5]).value(config.hashType.name());
       // Text compression.
-      jsonWriter.name(JSONNAMES[6]).value(config.mCompression);
+      jsonWriter.name(JSONNAMES[6]).value(config.useTextCompression);
       // Path summary.
-      jsonWriter.name(JSONNAMES[7]).value(config.mPathSummary);
+      jsonWriter.name(JSONNAMES[7]).value(config.pathSummary);
       // ID.
-      jsonWriter.name(JSONNAMES[8]).value(config.mID);
+      jsonWriter.name(JSONNAMES[8]).value(config.id);
       // Dewey IDs stored or not.
-      jsonWriter.name(JSONNAMES[9]).value(config.mDeweyIDsStored);
+      jsonWriter.name(JSONNAMES[9]).value(config.areDeweyIDsStored);
       // Persistenter.
-      jsonWriter.name(JSONNAMES[10]).value(config.mPersistenter.getClass().getName());
+      jsonWriter.name(JSONNAMES[10]).value(config.recordPersister.getClass().getName());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
 
     // Database config.
-    DatabaseConfiguration.serialize(config.mDBConfig);
+    DatabaseConfiguration.serialize(config.databaseConfig);
   }
 
   /**
@@ -370,7 +369,7 @@ public final class ResourceConfiguration {
       jsonReader.beginObject();
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[1]);
-      final Versioning revisioning = Versioning.valueOf(jsonReader.nextString());
+      final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[2]);
       final int revisionToRestore = jsonReader.nextInt();
@@ -398,7 +397,7 @@ public final class ResourceConfiguration {
       // Hashing type.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[5]);
-      final HashKind hashing = HashKind.valueOf(jsonReader.nextString());
+      final HashType hashing = HashType.valueOf(jsonReader.nextString());
       // Text compression.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[6]);
@@ -418,7 +417,7 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[10]);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
-      final RecordPersistenter persistenter = (RecordPersistenter) persistenterConstr.newInstance();
+      final RecordPersister persistenter = (RecordPersister) persistenterConstr.newInstance();
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -458,16 +457,16 @@ public final class ResourceConfiguration {
     private StorageType mType = STORAGE;
 
     /** Kind of revisioning (Incremental, Differential). */
-    private Versioning mRevisionKind = VERSIONING;
+    private VersioningType mRevisionKind = VERSIONING;
 
     /** Kind of integrity hash (rolling, postorder). */
-    private HashKind mHashKind = HASHKIND;
+    private HashType mHashKind = HASHKIND;
 
     /** Number of revisions to restore a complete set of data. */
     private int mRevisionsToRestore = VERSIONSTORESTORE;
 
     /** Record/Node persistenter. */
-    private RecordPersistenter mPersistenter = PERSISTENTER;
+    private RecordPersister mPersistenter = PERSISTENTER;
 
     /** Resource for this session. */
     private final String mResource;
@@ -503,7 +502,7 @@ public final class ResourceConfiguration {
           mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
               mResource);
 
-      mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// , new Encryptor(path));
+      mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
     }
 
     /**
@@ -517,7 +516,7 @@ public final class ResourceConfiguration {
       return this;
     }
 
-    public Builder persistenter(final RecordPersistenter persistenter) {
+    public Builder persistenter(final RecordPersister persistenter) {
       mPersistenter = checkNotNull(persistenter);
       return this;
     }
@@ -528,7 +527,7 @@ public final class ResourceConfiguration {
      * @param versioning versioning algorithm to use
      * @return reference to the builder object
      */
-    public Builder versioningApproach(final Versioning versioning) {
+    public Builder versioningApproach(final VersioningType versioning) {
       mRevisionKind = checkNotNull(versioning);
       return this;
     }
@@ -539,7 +538,7 @@ public final class ResourceConfiguration {
      * @param hashKind hash kind to use
      * @return reference to the builder object
      */
-    public Builder hashKind(final HashKind hashKind) {
+    public Builder hashKind(final HashType hashKind) {
       mHashKind = checkNotNull(hashKind);
       return this;
     }
