@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import org.sirix.TestHelper;
@@ -21,7 +22,7 @@ import com.google.common.io.ByteStreams;
  * @author Sebastian Graf, University of Konstanz
  *
  */
-public class ByteHandlerTest {
+public final class ByteHandlerTest {
 
   /**
    * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
@@ -80,17 +81,15 @@ public class ByteHandlerTest {
    */
   @DataProvider(name = "instantiateByteHandler")
   public Object[][] instantiateByteHandler() throws SirixIOException {
-    Object[][] returnVal = {{ByteHandler.class, new ByteHandler[] {
-        new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
-        new DeflateCompressor(), new SnappyCompressor(),
-        new ByteHandlePipeline(new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
-            new DeflateCompressor()),
-        new ByteHandlePipeline(new DeflateCompressor(),
-            new Encryptor(Paths.get("src", "test", "resources", "resourceName"))),
-        new ByteHandlePipeline(new Encryptor(Paths.get("src", "test", "resources", "resourceName")),
-            new SnappyCompressor()),
-        new ByteHandlePipeline(new SnappyCompressor(),
-            new Encryptor(Paths.get("src", "test", "resources", "resourceName")))}}};
+    final Path encryptionKeyPath = Paths.get("src", "test", "resources", "resourceName");
+
+    Object[][] returnVal = {{ByteHandler.class,
+        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
+            new SnappyCompressor(),
+            new ByteHandlePipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
+            new ByteHandlePipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
+            new ByteHandlePipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),
+            new ByteHandlePipeline(new SnappyCompressor(), new Encryptor(encryptionKeyPath))}}};
     return returnVal;
   }
 

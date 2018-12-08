@@ -188,11 +188,10 @@ public final class LocalDatabase implements Database {
     final Path encryptionKeyPath = createdPath.resolve("encryptionKey.json");
     if (resConfig.byteHandlePipeline.getComponents().contains(new Encryptor(encryptionKeyPath))) {
       try {
-        final Path keyPath = encryptionKeyPath;
-        Files.createFile(keyPath);
+        Files.createFile(encryptionKeyPath);
         final KeysetHandle handle =
             KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES128_CTR_HMAC_SHA256_4KB);
-        CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(keyPath));
+        CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(encryptionKeyPath));
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
       }
@@ -236,7 +235,7 @@ public final class LocalDatabase implements Database {
   @Override
   public synchronized String getResourceName(final @Nonnegative long id) {
     assertNotClosed();
-    checkArgument(id >= 0, "pID must be >= 0!");
+    checkArgument(id >= 0, "The ID must be >= 0!");
     return mResources.get(id);
   }
 
