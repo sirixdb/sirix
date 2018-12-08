@@ -81,7 +81,7 @@ public final class ResourceConfiguration {
     INDEXES(Paths.get("indexes"), true),
 
     /** Folder to store the encryption key. */
-    ENCRYPTION_KEY(Paths.get("encryptionKey"), true);
+    ENCRYPTION_KEY(Paths.get("encryption"), true);
 
     /** Location of the file. */
     private final Path mPath;
