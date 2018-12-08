@@ -191,7 +191,7 @@ public final class LocalDatabase implements Database {
       try {
         Files.createFile(encryptionKeyPath);
         final KeysetHandle handle =
-            KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES128_CTR_HMAC_SHA256_4KB);
+            KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
         CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(encryptionKeyPath));
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
