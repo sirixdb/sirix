@@ -154,7 +154,7 @@ public final class Databases {
     if (config == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final Database database = new DatabaseImpl(config);
+    final Database database = new LocalDatabase(config);
     putDatabase(file, database);
     return database;
   }

@@ -97,8 +97,8 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadTrx pageReadTrx)
-      throws SirixIOException {
+  public Page read(final @Nonnull PageReference reference,
+      final @Nullable PageReadTrx pageReadTrx) {
     try {
       // Read page from file.
       switch (mType) {
@@ -129,7 +129,7 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public PageReference readUberPageReference() throws SirixIOException {
+  public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.

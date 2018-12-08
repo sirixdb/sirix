@@ -48,7 +48,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.diff.DiffDepth;
@@ -133,7 +133,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       mPool.submit(
           () -> DiffFactory.invokeFullDiff(
               new DiffFactory.Builder(resMrg, rev2, rev1,
-                  resMrg.getResourceConfig().mHashKind == HashKind.NONE
+                  resMrg.getResourceConfig().hashType == HashType.NONE
                       ? DiffOptimized.NO
                       : DiffOptimized.HASHED,
                   ImmutableSet.of(this)).skipSubtrees(true)));

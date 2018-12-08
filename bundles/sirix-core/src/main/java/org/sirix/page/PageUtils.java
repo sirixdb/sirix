@@ -54,7 +54,7 @@ public final class PageUtils {
 
     // Create a {@link DocumentRootNode}.
     final Optional<SirixDeweyID> id =
-        pageReadTrx.getResourceManager().getResourceConfig().mDeweyIDsStored
+        pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
             ? Optional.of(SirixDeweyID.newRootID())
             : Optional.empty();
     final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),

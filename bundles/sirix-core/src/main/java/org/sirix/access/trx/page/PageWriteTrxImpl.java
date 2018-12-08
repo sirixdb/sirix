@@ -62,7 +62,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import org.sirix.settings.Versioning;
+import org.sirix.settings.VersioningType;
 import org.sirix.utils.NamePageHash;
 
 /**
@@ -320,7 +320,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     mPageWriter.writeUberPageReference(uberPageReference);
     uberPageReference.setPage(null);
 
-    final Path indexes = mPageRtx.mResourceConfig.mPath.resolve(
+    final Path indexes = mPageRtx.mResourceConfig.resourcePath.resolve(
         ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                                                        .resolve(String.valueOf(revision) + ".xml");
 
@@ -461,8 +461,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
-    final Versioning revisioning = mPageRtx.mResourceManager.getResourceConfig().mRevisionKind;
-    final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().mRevisionsToRestore;
+    final VersioningType revisioning = mPageRtx.mResourceManager.getResourceConfig().revisioningType;
+    final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(
         revs, mileStoneRevision, mPageRtx, reference);
   }

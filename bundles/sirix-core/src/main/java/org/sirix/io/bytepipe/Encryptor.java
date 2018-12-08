@@ -10,12 +10,10 @@ import java.util.Objects;
 import org.sirix.access.conf.ResourceConfiguration;
 import com.google.crypto.tink.CleartextKeysetHandle;
 import com.google.crypto.tink.JsonKeysetReader;
-import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.StreamingAead;
 import com.google.crypto.tink.config.TinkConfig;
 import com.google.crypto.tink.streamingaead.StreamingAeadFactory;
-import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 
 /**
  * Decorator for encrypting any content.
@@ -35,6 +33,8 @@ public final class Encryptor implements ByteHandler {
 
   private static final byte[] mAssociatedData = {};
 
+  private StreamingAead mStreamingAead;
+
   private KeysetHandle mKeySetHandle;
 
   private final Path mResourcePath;
@@ -53,9 +53,7 @@ public final class Encryptor implements ByteHandler {
   @Override
   public OutputStream serialize(final OutputStream toSerialize) {
     try {
-      initKeysetHandle();
-
-      final StreamingAead aead = StreamingAeadFactory.getPrimitive(mKeySetHandle);
+      final StreamingAead aead = getStreamingAead();
 
       return aead.newEncryptingStream(toSerialize, mAssociatedData);
     } catch (final GeneralSecurityException | IOException e) {
@@ -63,20 +61,24 @@ public final class Encryptor implements ByteHandler {
     }
   }
 
-  private void initKeysetHandle() {
-    if (mKeySetHandle == null) {
+  private StreamingAead getStreamingAead() throws GeneralSecurityException {
+    if (mStreamingAead == null)
+      mStreamingAead = StreamingAeadFactory.getPrimitive(getKeysetHandle());
+    return mStreamingAead;
+  }
+
+  private KeysetHandle getKeysetHandle() {
+    if (mKeySetHandle == null)
       mKeySetHandle = getKeysetHandle(
           mResourcePath.resolve(ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY.getPath())
                        .resolve("encryptionKey.json"));
-    }
+    return mKeySetHandle;
   }
 
   @Override
   public InputStream deserialize(final InputStream toDeserialize) {
     try {
-      initKeysetHandle();
-
-      final StreamingAead aead = StreamingAeadFactory.getPrimitive(mKeySetHandle);
+      final StreamingAead aead = getStreamingAead();
 
       return aead.newDecryptingStream(toDeserialize, mAssociatedData);
     } catch (final GeneralSecurityException | IOException e) {
@@ -90,6 +92,20 @@ public final class Encryptor implements ByteHandler {
 
   private static ByteHandler createInstance(Path resourcePath) {
     return new Encryptor(resourcePath);
+  }
+
+  @Override
+  public int hashCode() {
+    return mResourcePath.hashCode();
+  }
+
+  @Override
+  public boolean equals(final Object other) {
+    if (!(other instanceof Encryptor))
+      return false;
+
+    final Encryptor otherEncryptor = (Encryptor) other;
+    return mResourcePath.equals(otherEncryptor.mResourcePath);
   }
 
   @Override
@@ -108,11 +124,7 @@ public final class Encryptor implements ByteHandler {
         return CleartextKeysetHandle.read(JsonKeysetReader.withPath(keyPath));
       }
 
-      Files.createFile(keyPath);
-      final KeysetHandle handle =
-          KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
-      CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(keyPath));
-      return handle;
+      throw new IllegalStateException("No file for encryption key found.");
     } catch (final GeneralSecurityException | IOException e) {
       throw new IllegalStateException(e);
     }

@@ -77,11 +77,11 @@ public final class PageWriteTrxFactory {
       final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager) {
-    final boolean usePathSummary = resourceManager.getResourceConfig().mPathSummary;
+    final boolean usePathSummary = resourceManager.getResourceConfig().pathSummary;
     final IndexController indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+    final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
         ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
             String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {

@@ -22,7 +22,6 @@ package org.sirix.cache;
 
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.page.PageKind;
@@ -43,6 +42,8 @@ public class CacheTestHelper {
   /** Unordered record pages. */
   protected static UnorderedKeyValuePage[][] PAGES;
 
+  private static final int VERSIONSTORESTORE = 3;
+
   /**
    * Setup the cache.
    *
@@ -51,15 +52,13 @@ public class CacheTestHelper {
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
     PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadTrx();
-    PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY
-        + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
+    PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final UnorderedKeyValuePage page =
           new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, PAGE_READ_TRX);
-      final UnorderedKeyValuePage[] revs =
-          new UnorderedKeyValuePage[ResourceConfiguration.VERSIONSTORESTORE];
+      final UnorderedKeyValuePage[] revs = new UnorderedKeyValuePage[VERSIONSTORESTORE];
 
-      for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
+      for (int j = 0; j < VERSIONSTORESTORE; j++) {
         PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.RECORDPAGE, Constants.NULL_ID_LONG,
             PAGE_READ_TRX);
         revs[j] = PAGES[i][j + 1];

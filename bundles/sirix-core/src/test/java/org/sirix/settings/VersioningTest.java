@@ -31,7 +31,7 @@ import org.sirix.TestHelper;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
@@ -60,8 +60,8 @@ public class VersioningTest {
   public void testIncremental() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.INCREMENTAL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test();
@@ -71,8 +71,8 @@ public class VersioningTest {
   public void testIncremental1() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.INCREMENTAL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test1();
@@ -82,8 +82,8 @@ public class VersioningTest {
   public void testIncremental2() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.INCREMENTAL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.INCREMENTAL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test2();
@@ -93,8 +93,8 @@ public class VersioningTest {
   public void testDifferential() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.DIFFERENTIAL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.DIFFERENTIAL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test();
@@ -104,8 +104,8 @@ public class VersioningTest {
   public void testDifferential1() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.DIFFERENTIAL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.DIFFERENTIAL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test1();
@@ -115,8 +115,8 @@ public class VersioningTest {
   public void testFull() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.FULL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test();
@@ -126,8 +126,8 @@ public class VersioningTest {
   public void testFull1() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.FULL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test1();
@@ -137,8 +137,8 @@ public class VersioningTest {
   public void testFull2() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.FULL)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.FULL)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test1();
@@ -148,8 +148,8 @@ public class VersioningTest {
   public void testSlidingSnapshot() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test();
@@ -159,8 +159,8 @@ public class VersioningTest {
   public void testSlidingSnapshot1() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test1();
@@ -170,8 +170,8 @@ public class VersioningTest {
   public void testSlidingSnapshot2() throws SirixException {
     mDatabase.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            mDatabase.getDatabaseConfig()).versioningApproach(Versioning.SLIDING_SNAPSHOT)
-                                          .hashKind(HashKind.NONE)
+            mDatabase.getDatabaseConfig()).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                          .hashKind(HashType.NONE)
                                           .revisionsToRestore(3)
                                           .build());
     test2();
