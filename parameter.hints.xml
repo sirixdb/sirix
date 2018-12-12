@@ -1,0 +1,5 @@
+<application>
+  <component name="ParameterNameHintsSettings">
+    <option id="SHOW_LOCAL_VARIABLE_HINT" value="true" />
+  </component>
+</application>
