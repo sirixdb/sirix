@@ -124,7 +124,7 @@ public final class Encryptor implements ByteHandler {
         return CleartextKeysetHandle.read(JsonKeysetReader.withPath(keyPath));
       }
 
-      throw new IllegalStateException("No file for encryption key found.");
+      throw new AssertionError("No file for encryption key found.");
     } catch (final GeneralSecurityException | IOException e) {
       throw new IllegalStateException(e);
     }
