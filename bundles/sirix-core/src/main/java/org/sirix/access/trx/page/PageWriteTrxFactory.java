@@ -77,11 +77,11 @@ public final class PageWriteTrxFactory {
       final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager) {
-    final boolean usePathSummary = resourceManager.getResourceConfig().mPathSummary;
+    final boolean usePathSummary = resourceManager.getResourceConfig().pathSummary;
     final IndexController indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+    final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
         ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
             String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
@@ -125,40 +125,48 @@ public final class PageWriteTrxFactory {
 
       if (PageContainer.emptyInstance()
                        .equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx)))
-        log.put(newRevisionRootPage.getPathSummaryPageReference(), new PageContainer(page, page));
+        log.put(
+            newRevisionRootPage.getPathSummaryPageReference(),
+            PageContainer.getInstance(page, page));
     }
 
     if (!uberPage.isBootstrap()) {
       if (PageContainer.emptyInstance()
                        .equals(log.get(newRevisionRootPage.getNamePageReference(), pageRtx))) {
         final Page namePage = pageRtx.getNamePage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getNamePageReference(), new PageContainer(namePage, namePage));
+        log.put(
+            newRevisionRootPage.getNamePageReference(),
+            PageContainer.getInstance(namePage, namePage));
       }
 
       if (PageContainer.emptyInstance()
                        .equals(log.get(newRevisionRootPage.getCASPageReference(), pageRtx))) {
         final Page casPage = pageRtx.getCASPage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getCASPageReference(), new PageContainer(casPage, casPage));
+        log.put(
+            newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
       }
 
       if (PageContainer.emptyInstance()
                        .equals(log.get(newRevisionRootPage.getPathPageReference(), pageRtx))) {
         final Page pathPage = pageRtx.getPathPage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getPathPageReference(), new PageContainer(pathPage, pathPage));
+        log.put(
+            newRevisionRootPage.getPathPageReference(),
+            PageContainer.getInstance(pathPage, pathPage));
       }
 
       final Page indirectPage =
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectPageReference());
       log.put(
           newRevisionRootPage.getIndirectPageReference(),
-          new PageContainer(indirectPage, indirectPage));
+          PageContainer.getInstance(indirectPage, indirectPage));
 
       final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(
           pageRtx, log, uberPage.getPageCountExp(PageKind.UBERPAGE),
           uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE);
 
       log.put(
-          revisionRootPageReference, new PageContainer(newRevisionRootPage, newRevisionRootPage));
+          revisionRootPageReference,
+          PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
     return new PageWriteTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx,

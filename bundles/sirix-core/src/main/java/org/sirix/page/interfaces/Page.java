@@ -45,7 +45,6 @@ public interface Page {
    *
    * @param out {@link DataOutput} to serialize to
    * @param type serialization type (currently transaction intent log or normal commit)
-   * @throws IOException if serialization fails
    */
   void serialize(DataOutput out, SerializationType type) throws IOException;
 

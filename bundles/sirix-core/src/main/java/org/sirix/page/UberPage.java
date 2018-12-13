@@ -55,7 +55,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * {@code true} if this uber page is the uber page of a fresh sirix file, {@code false} otherwise.
    */
-  private boolean mBootstrap;
+  private boolean mIsBootstrap;
 
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
@@ -78,7 +78,7 @@ public final class UberPage extends AbstractForwardingPage {
     mDelegate = new PageDelegate(1);
     mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
     mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
-    mBootstrap = true;
+    mIsBootstrap = true;
     mPreviousUberPageKey = -1;
     mRootPage = null;
   }
@@ -97,7 +97,7 @@ public final class UberPage extends AbstractForwardingPage {
     mRevision = mRevisionCount == 0
         ? 0
         : mRevisionCount - 1;
-    mBootstrap = false;
+    mIsBootstrap = false;
     mRootPage = null;
   }
 
@@ -114,12 +114,12 @@ public final class UberPage extends AbstractForwardingPage {
     if (committedUberPage.isBootstrap()) {
       mRevision = committedUberPage.mRevision;
       mRevisionCount = committedUberPage.mRevisionCount;
-      mBootstrap = committedUberPage.mBootstrap;
+      mIsBootstrap = committedUberPage.mIsBootstrap;
       mRootPage = committedUberPage.mRootPage;
     } else {
       mRevision = committedUberPage.mRevision + 1;
       mRevisionCount = committedUberPage.mRevisionCount + 1;
-      mBootstrap = false;
+      mIsBootstrap = false;
       mRootPage = null;
     }
   }
@@ -161,18 +161,18 @@ public final class UberPage extends AbstractForwardingPage {
    * @return {@code true} if this uber page is the first one of sirix, {@code false} otherwise
    */
   public boolean isBootstrap() {
-    return mBootstrap;
+    return mIsBootstrap;
   }
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
     mDelegate.serialize(checkNotNull(out), checkNotNull(type));
     out.writeInt(mRevisionCount);
-    out.writeBoolean(!mBootstrap);
-    if (!mBootstrap) {
+    out.writeBoolean(!mIsBootstrap);
+    if (!mIsBootstrap) {
       out.writeLong(mPreviousUberPageKey);
     }
-    mBootstrap = false;
+    mIsBootstrap = false;
   }
 
   @Override
@@ -181,7 +181,7 @@ public final class UberPage extends AbstractForwardingPage {
                       .add("forwarding page", super.toString())
                       .add("revisionCount", mRevisionCount)
                       .add("indirectPage", getReference(INDIRECT_REFERENCE_OFFSET))
-                      .add("isBootstrap", mBootstrap)
+                      .add("isBootstrap", mIsBootstrap)
                       .toString();
   }
 
@@ -204,27 +204,27 @@ public final class UberPage extends AbstractForwardingPage {
     // Remaining levels.
     for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
       page = new IndirectPage();
-      log.put(reference, new PageContainer(page, page));
+      log.put(reference, PageContainer.getInstance(page, page));
       reference = page.getReference(0);
     }
 
     mRootPage = new RevisionRootPage();
 
     final Page namePage = mRootPage.getNamePageReference().getPage();
-    log.put(mRootPage.getNamePageReference(), new PageContainer(namePage, namePage));
+    log.put(mRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
 
     final Page casPage = mRootPage.getCASPageReference().getPage();
-    log.put(mRootPage.getCASPageReference(), new PageContainer(casPage, casPage));
+    log.put(mRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
 
     final Page pathPage = mRootPage.getPathPageReference().getPage();
-    log.put(mRootPage.getPathPageReference(), new PageContainer(pathPage, pathPage));
+    log.put(mRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
 
     final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
     log.put(
         mRootPage.getPathSummaryPageReference(),
-        new PageContainer(pathSummaryPage, pathSummaryPage));
+        PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
 
-    log.put(reference, new PageContainer(mRootPage, mRootPage));
+    log.put(reference, PageContainer.getInstance(mRootPage, mRootPage));
   }
 
   /**

@@ -40,7 +40,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public enum Versioning {
+public enum VersioningType {
 
   /**
    * FullDump, just dumping the complete older revision.
@@ -73,7 +73,7 @@ public enum Versioning {
         returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
       }
 
-      return new PageContainer(returnVal.get(0), returnVal.get(1));
+      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
     }
 
     @Override
@@ -98,7 +98,9 @@ public enum Versioning {
           recordPageKey, firstPage.getPageKind(), firstPage.getPreviousReferenceKey(), pageReadTrx);
 
       final T latest = pages.get(0);
-      T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
+      T fullDump = pages.size() == 1
+          ? pages.get(0)
+          : pages.get(1);
 
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
@@ -149,7 +151,9 @@ public enum Versioning {
               recordPageKey, firstPage.getPageKind(), reference.getKey(), pageReadTrx));
 
       final T latest = firstPage;
-      T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
+      T fullDump = pages.size() == 1
+          ? firstPage
+          : pages.get(1);
       final boolean isFullDump = revision % revToRestore == 0;
 
       // Iterate through all nodes of the latest revision.
@@ -200,7 +204,7 @@ public enum Versioning {
         }
       }
 
-      return new PageContainer(returnVal.get(0), returnVal.get(1));
+      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
     }
 
     @Override
@@ -324,7 +328,7 @@ public enum Versioning {
         }
       }
 
-      return new PageContainer(returnVal.get(0), returnVal.get(1));
+      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
     }
 
     @Override
@@ -469,7 +473,7 @@ public enum Versioning {
         }
       }
 
-      return new PageContainer(returnVal.get(0), returnVal.get(1));
+      return PageContainer.getInstance(returnVal.get(0), returnVal.get(1));
     }
 
     @Override

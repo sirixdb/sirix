@@ -33,7 +33,7 @@ public final class PersistentFileCache implements AutoCloseable {
       completePage = modifiedPage;
     }
 
-    return new PageContainer(completePage, modifiedPage);
+    return PageContainer.getInstance(completePage, modifiedPage);
   }
 
   public PersistentFileCache put(PageReference reference, PageContainer container) {

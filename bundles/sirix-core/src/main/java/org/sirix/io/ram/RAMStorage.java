@@ -58,7 +58,7 @@ public final class RAMStorage implements Storage {
   public RAMStorage(final ResourceConfiguration resourceConfig) {
     mDataStorage = new ConcurrentHashMap<>();
     mRevisionRootsStorage = new ConcurrentHashMap<>();
-    mHandler = resourceConfig.mByteHandler;
+    mHandler = resourceConfig.byteHandlePipeline;
     final String resource = resourceConfig.getResource().getFileName().toString();
     mExists = mDataStorage.containsKey(resource);
     mDataStorage.putIfAbsent(resource, new ConcurrentHashMap<>());

@@ -15,6 +15,7 @@ import io.vertx.kotlin.core.http.HttpServerOptions
 import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.kotlin.ext.auth.oauth2.providers.OpenIDConnectAuth
 import kotlinx.coroutines.launch
 import org.sirix.rest.crud.Create
@@ -23,7 +24,7 @@ import org.sirix.rest.crud.Get
 import org.sirix.rest.crud.Update
 import java.nio.file.Paths
 
-class SirixVerticle : CoroutineVerticle() {
+class SirixVerticle: CoroutineVerticle() {
     /** User home directory. */
     private val userHome = System.getProperty("user.home")
 
@@ -48,19 +49,19 @@ class SirixVerticle : CoroutineVerticle() {
         route().handler(BodyHandler.create())
         route().handler(SessionHandler.create(LocalSessionStore.create(vertx)))
 
-        val oauth2 = OpenIDConnectAuth.discoverAwait(
+        val oauth2 = KeycloakAuth.discoverAwait(
                 vertx,
                 OAuth2ClientOptions()
                         .setFlow(OAuth2FlowType.AUTH_CODE)
                         .setSite("http://localhost:8080/auth/realms/master")
                         .setClientID("sirix").setClientSecret("c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
 
+        route().handler(UserSessionHandler.create(oauth2))
+
         //val oauth2 = KeycloakAuth.create(vertx, OAuth2FlowType.AUTH_CODE, keycloakJson)
         val oauth2Handler = OAuth2AuthHandler.create(oauth2)
 
         oauth2Handler.setupCallback(get("/callback"))
-
-        route().handler(UserSessionHandler.create(oauth2))
 
         // Create.
         put("/:database").handler(oauth2Handler).coroutineHandler { Create(location).handle(it) }

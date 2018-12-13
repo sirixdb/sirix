@@ -21,6 +21,7 @@
 
 package org.sirix.api;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +59,13 @@ public interface ResourceManager extends AutoCloseable {
    * @return {@link Database} this session is bound to
    */
   Database getDatabase();
+
+  /**
+   * Get the resource path.
+   *
+   * @return the resource path
+   */
+  Path getResourcePath();
 
   /**
    * Get the single node writer if available, wrapped in an {@link Optional}.

@@ -43,18 +43,27 @@ private enum class InsertionMode {
 
 class Update(private val location: Path) {
     suspend fun handle(ctx: RoutingContext) {
-        val isAuthorized = ctx.user().isAuthorizedAwait("realm:modify")
-
-        if (!isAuthorized)
-            ctx.response().setStatusCode(HttpResponseStatus.UNAUTHORIZED.code()).end()
-
         val dbName = ctx.pathParam("database")
+
+        val isAuthorized =
+                if (dbName != null)
+                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-modify")
+                else
+                    ctx.user().isAuthorizedAwait("realm:modify")
+
+        if (!isAuthorized) {
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return
+        }
+
         val resName = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
-        if (dbName == null || resName == null)
+        if (dbName == null || resName == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name not given."))
+            return
+        }
 
         val body = ctx.bodyAsString
 

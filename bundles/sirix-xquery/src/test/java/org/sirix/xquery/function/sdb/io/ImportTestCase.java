@@ -49,7 +49,7 @@ import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.BasicDBStore;
 import org.xml.sax.SAXException;
 import junit.framework.TestCase;
 

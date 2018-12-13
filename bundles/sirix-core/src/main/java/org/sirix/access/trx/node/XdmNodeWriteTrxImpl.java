@@ -123,7 +123,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   private long mModificationCount;
 
   /** Hash kind of Structure. */
-  private final HashKind mHashKind;
+  private final HashType mHashKind;
 
   /** Scheduled executor service. */
   private final ScheduledExecutorService mPool =
@@ -193,7 +193,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     mNodeReadTrx =
         new XdmNodeReadTrxImpl(resourceManager, transactionID, pageWriteTrx, documentNode);
     mIndexController = resourceManager.getWtxIndexController(pageWriteTrx.getRevisionNumber());
-    mBuildPathSummary = resourceManager.getResourceConfig().mPathSummary;
+    mBuildPathSummary = resourceManager.getResourceConfig().pathSummary;
 
     // Only auto commit by node modifications if it is more then 0.
     mMaxNodeCount = maxNodeCount;
@@ -212,15 +212,15 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
       mPool.scheduleAtFixedRate(() -> commit(), maxTime, maxTime, timeUnit);
     }
 
-    mHashKind = resourceManager.getResourceConfig().mHashKind;
+    mHashKind = resourceManager.getResourceConfig().hashType;
 
     // Synchronize commit and other public methods if needed.
     mLock = maxTime > 0
         ? Optional.of(new Semaphore(1))
         : Optional.empty();
 
-    mDeweyIDsStored = mNodeReadTrx.mResourceManager.getResourceConfig().mDeweyIDsStored;
-    mCompression = mNodeReadTrx.mResourceManager.getResourceConfig().mCompression;
+    mDeweyIDsStored = mNodeReadTrx.mResourceManager.getResourceConfig().areDeweyIDsStored;
+    mCompression = mNodeReadTrx.mResourceManager.getResourceConfig().useTextCompression;
 
     // // Redo last transaction if the system crashed.
     // if (!pPageWriteTrx.isCreated()) {
@@ -1345,7 +1345,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
         }
 
         // Get the path node key.
-        final long pathNodeKey = mNodeReadTrx.mResourceManager.getResourceConfig().mPathSummary
+        final long pathNodeKey = mNodeReadTrx.mResourceManager.getResourceConfig().pathSummary
             ? mPathSummaryWriter.getPathNodeKey(name, Kind.ATTRIBUTE)
             : 0;
         final byte[] attValue = getBytes(value);

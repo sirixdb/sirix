@@ -1,7 +1,6 @@
 package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
@@ -11,19 +10,17 @@ import org.sirix.access.trx.node.InsertPos;
 import org.sirix.access.trx.node.XdmNodeReadTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeFactory;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.NonStructuralWrapperAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.PathKindFilter;
-import org.sirix.axis.filter.PathLevelFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.ElementNode;
@@ -562,12 +559,6 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
     currNode.setReferenceCount(1);
   }
 
-  private void moveToParentPathNode() {
-    final long nodeKey = mNodeRtx.getNodeKey();
-    mPathSummaryReader.moveTo(mNodeRtx.moveToParent().get().getPathNodeKey());
-    mNodeRtx.moveTo(nodeKey);
-  }
-
   private void increaseReferenceCount() {
     // Set new reference count.
     final PathNode currNode = (PathNode) mPageWriteTrx.prepareEntryForModification(
@@ -653,37 +644,6 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
     mPathSummaryReader.removeQNameMapping(
         mPathSummaryReader.getPathNode(), mPathSummaryReader.getName());
     mPageWriteTrx.removeEntry(mPathSummaryReader.getNodeKey(), PageKind.PATHSUMMARYPAGE, 0);
-  }
-
-  /**
-   * Reset the path node key of a node.
-   *
-   * @param newPathNodeKey path node key of new path node
-   * @param oldLevel old level of node
-   * @throws SirixIOException if an I/O error occurs
-   */
-  private void resetPath(final @Nonnegative long newPathNodeKey, final @Nonnegative int startLevel,
-      final @Nonnegative int oldLevel) throws SirixIOException {
-    // Search for new path entry.
-    mPathSummaryReader.moveTo(newPathNodeKey);
-
-    final Axis filterAxis = new FilterAxis(
-        new LevelOrderAxis.Builder(mPathSummaryReader).filterLevel(oldLevel - startLevel)
-                                                      .includeSelf()
-                                                      .build(),
-        new NameFilter(mPathSummaryReader, Utils.buildName(mNodeRtx.getName())),
-        new PathKindFilter(mPathSummaryReader, mNodeRtx.getKind()));
-    if (filterAxis.hasNext()) {
-      filterAxis.next();
-
-      // Set new path node.
-      final NameNode node = (NameNode) mPageWriteTrx.prepareEntryForModification(
-          mNodeRtx.getNodeKey(), PageKind.RECORDPAGE, -1);
-      // System.out.println(mPathSummaryReader.getName());
-      node.setPathNodeKey(mPathSummaryReader.getNodeKey());
-    } else {
-      throw new IllegalStateException();
-    }
   }
 
   private void deleteOrDecrement() throws SirixIOException, SirixException {

@@ -98,6 +98,14 @@ public enum SerializationType {
 
         for (final PageReference pageReference : pageReferences) {
           out.writeLong(pageReference.getKey());
+
+          if (pageReference.getHash() == null) {
+            out.writeInt(-1);
+          } else {
+            final byte[] hash = pageReference.getHash();
+            out.writeInt(hash.length);
+            out.write(pageReference.getHash());
+          }
         }
       } catch (final IOException e) {
         throw new SirixIOException(e);
@@ -110,15 +118,22 @@ public enum SerializationType {
 
       try {
         final BitSet bitmap = deserializeBitSet(in, referenceCount);
-
         final int length = bitmap.cardinality();
-
         final GapList<PageReference> references = new GapList<>(length);
 
         for (int offset = 0; offset < length; offset++) {
           final long key = in.readLong();
           final PageReference reference = new PageReference();
           reference.setKey(key);
+
+          final int hashLength = in.readInt();
+          if (hashLength != -1) {
+            final byte[] hash = new byte[hashLength];
+            in.readFully(hash);
+
+            reference.setHash(hash);
+          }
+
           references.add(offset, reference);
         }
 

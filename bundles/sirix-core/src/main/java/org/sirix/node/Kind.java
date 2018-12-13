@@ -978,7 +978,7 @@ public enum Kind implements NodePersistenter {
   public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
       Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
       throws IOException {
-    if (resourceConfig.mDeweyIDsStored) {
+    if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID.isPresent()) {
         final byte[] previousDeweyIDBytes = previousDeweyID.get().toBytes();
         final int cutOffSize = source.readByte();
@@ -1006,7 +1006,7 @@ public enum Kind implements NodePersistenter {
   @Override
   public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
       Optional<SirixDeweyID> nextDeweyID, ResourceConfiguration resourceConfig) throws IOException {
-    if (resourceConfig.mDeweyIDsStored) {
+    if (resourceConfig.areDeweyIDsStored) {
       if (nextDeweyID.isPresent()) {
         final byte[] deweyIDBytes = deweyID.toBytes();
         final byte[] nextDeweyIDBytes = nextDeweyID.get().toBytes();

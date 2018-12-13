@@ -25,7 +25,7 @@ import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.BasicDBStore;
 
 /**
  * <p>
@@ -64,7 +64,7 @@ public final class Import extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final DBStore store = (DBStore) ctx.getStore();
+    final BasicDBStore store = (BasicDBStore) ctx.getStore();
     final DBCollection coll = store.lookup(((Str) args[0]).stringValue());
 
     if (coll == null) {

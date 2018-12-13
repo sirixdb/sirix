@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Set;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixException;
 
@@ -164,7 +164,7 @@ public final class DiffFactory {
     transient DiffAlgorithm mDiffKind;
 
     /** Kind of hash. */
-    transient HashKind mHashKind = HashKind.ROLLING;
+    transient HashType mHashKind = HashType.ROLLING;
 
     /** Set if the GUI is used. */
     transient boolean mIsGUI = true;
@@ -267,10 +267,10 @@ public final class DiffFactory {
     /**
      * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
      *
-     * @param kind {@link HashKind} instance
+     * @param kind {@link HashType} instance
      * @return this builder
      */
-    public Builder hashKind(final HashKind kind) {
+    public Builder hashKind(final HashType kind) {
       mHashKind = checkNotNull(kind);
       return this;
     }

@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
-import org.sirix.access.trx.node.HashKind;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
@@ -66,9 +66,9 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Kind of hash method.
    *
-   * @see HashKind
+   * @see HashType
    */
-  private HashKind mHashKind;
+  private HashType mHashKind;
 
   /**
    * Kind of difference.
@@ -183,7 +183,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     }
 
     // Check first node.
-    if (mHashKind == HashKind.NONE || mDiffKind == DiffOptimized.NO) {
+    if (mHashKind == HashType.NONE || mDiffKind == DiffOptimized.NO) {
       mDiff = diff(mNewRtx, mOldRtx, mDepth);
     } else {
       mDiff = optimizedDiff(mNewRtx, mOldRtx, mDepth);
@@ -201,7 +201,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
         }
 
         if (mNewRtx.getKind() != Kind.DOCUMENT || mOldRtx.getKind() != Kind.DOCUMENT) {
-          if (mHashKind == HashKind.NONE || mDiffKind == DiffOptimized.NO) {
+          if (mHashKind == HashType.NONE || mDiffKind == DiffOptimized.NO) {
             mDiff = diff(mNewRtx, mOldRtx, mDepth);
           } else {
             mDiff = optimizedDiff(mNewRtx, mOldRtx, mDepth);

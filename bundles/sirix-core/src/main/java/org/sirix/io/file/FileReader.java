@@ -32,12 +32,14 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersistenter;
+import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 
 /**
  * File Reader. Used for {@link PageReadTrx} to provide read only access on a RandomAccessFile.
@@ -55,17 +57,23 @@ public final class FileReader implements Reader {
   /** Beacon of the other references. */
   final static int OTHER_BEACON = 4;
 
-  /** Data file. */
-  private final RandomAccessFile mDataFile;
-
   /** Inflater to decompress. */
   final ByteHandler mByteHandler;
+
+  /** The hash function used to hash pages/page fragments. */
+  final HashFunction mHashFunction;
+
+  /** Data file. */
+  private final RandomAccessFile mDataFile;
 
   /** Revisions offset file. */
   private final RandomAccessFile mRevisionsOffsetFile;
 
   /** The type of data to serialize. */
   private final SerializationType mType;
+
+  /** Used to serialize/deserialze pages. */
+  private final PagePersister mPagePersiter;
 
   /**
    * Constructor.
@@ -76,18 +84,21 @@ public final class FileReader implements Reader {
    * @throws SirixIOException if something bad happens
    */
   public FileReader(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
-      final ByteHandler handler, final SerializationType type) {
+      final ByteHandler handler, final SerializationType type,
+      final PagePersister pagePersistenter) {
+    mHashFunction = Hashing.sha256();
     mDataFile = checkNotNull(dataFile);
     mRevisionsOffsetFile = type == SerializationType.DATA
         ? checkNotNull(revisionsOffsetFile)
         : null;
     mByteHandler = checkNotNull(handler);
     mType = checkNotNull(type);
+    mPagePersiter = checkNotNull(pagePersistenter);
   }
 
   @Override
-  public Page read(final @Nonnull PageReference reference, final @Nullable PageReadTrx pageReadTrx)
-      throws SirixIOException {
+  public Page read(final @Nonnull PageReference reference,
+      final @Nullable PageReadTrx pageReadTrx) {
     try {
       // Read page from file.
       switch (mType) {
@@ -111,19 +122,20 @@ public final class FileReader implements Reader {
           new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return PagePersistenter.deserializePage(input, pageReadTrx, mType);
+      return mPagePersiter.deserializePage(input, pageReadTrx, mType);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @Override
-  public PageReference readUberPageReference() throws SirixIOException {
+  public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.
       mDataFile.seek(0);
       uberPageReference.setKey(mDataFile.readLong());
+
       final UberPage page = (UberPage) read(uberPageReference, null);
       uberPageReference.setPage(page);
       return uberPageReference;
@@ -147,7 +159,7 @@ public final class FileReader implements Reader {
           new DataInputStream(mByteHandler.deserialize(new ByteArrayInputStream(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return (RevisionRootPage) PagePersistenter.deserializePage(input, pageReadTrx, mType);
+      return (RevisionRootPage) mPagePersiter.deserializePage(input, pageReadTrx, mType);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

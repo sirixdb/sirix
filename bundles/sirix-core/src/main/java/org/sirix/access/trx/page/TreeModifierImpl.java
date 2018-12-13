@@ -27,28 +27,15 @@
  */
 package org.sirix.access.trx.page;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import javax.annotation.Nonnegative;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.XdmResourceManager;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.PageContainer;
-import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.file.FileWriter;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
 import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
 
 /**
@@ -80,7 +67,8 @@ public final class TreeModifierImpl implements TreeModifier {
           uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE);
 
       // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      log.put(revisionRootPageReference, new PageContainer(revisionRootPage, revisionRootPage));
+      log.put(
+          revisionRootPageReference, PageContainer.getInstance(revisionRootPage, revisionRootPage));
 
       // Return prepared revision root nodePageReference.
       return revisionRootPage;
@@ -122,7 +110,7 @@ public final class TreeModifierImpl implements TreeModifier {
         final IndirectPage indirectPage = pageRtx.dereferenceIndirectPageReference(reference);
         page = new IndirectPage(indirectPage);
       }
-      log.put(reference, new PageContainer(page, page));
+      log.put(reference, PageContainer.getInstance(page, page));
     }
     return page;
   }

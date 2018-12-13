@@ -1,315 +1,64 @@
+/**
+ * Copyright (c) 2018, Sirix
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixRuntimeException;
-import org.sirix.io.StorageType;
-import org.sirix.service.xml.shredder.Insert;
 
 /**
- * Database storage.
+ * Database store.
  *
- * @author Johannes Lichtenberger
- *
+ * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public final class DBStore implements Store, AutoCloseable {
-
-  /** User home directory. */
-  private static final String USER_HOME = System.getProperty("user.home");
-
-  /** Storage for databases: Sirix data in home directory. */
-  private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
-
-  /** {@link Set} of databases. */
-  private final Set<Database> mDatabases;
-
-  /** Mapping sirix databases to collections. */
-  private final ConcurrentMap<Database, DBCollection> mCollections;
-
-  /** {@link StorageType} instance. */
-  private final StorageType mStorageType;
-
-  /** The location to store created collections/databases. */
-  private final Path mLocation;
-
-  private boolean mBuildPathSummary;
-
-  /** Get a new builder instance. */
-  public static Builder newBuilder() {
-    return new Builder();
-  }
-
-  /**
-   * Builder setting up the store.
-   */
-  public static class Builder {
-    /** Storage type. */
-    private StorageType mStorageType = StorageType.FILE;
-
-    /** The location to store created collections/databases. */
-    private Path mLocation = LOCATION;
-
-    /** Determines if for resources a path summary should be build. */
-    private boolean mBuildPathSummary = true;
-
-    /**
-     * Set the storage type (default: file backend).
-     *
-     * @param storageType storage type
-     * @return this builder instance
-     */
-    public Builder storageType(final StorageType storageType) {
-      mStorageType = checkNotNull(storageType);
-      return this;
-    }
-
-    /**
-     * Set if path summaries should be build for resources.
-     *
-     * @param buildPathSummary {@code true} if path summaries should be build, {@code false}
-     *        otherwise
-     * @return this builder instance
-     */
-    public Builder buildPathSummary(final boolean buildPathSummary) {
-      mBuildPathSummary = buildPathSummary;
-      return this;
-    }
-
-    /**
-     * Set the location where to store the created databases/collections.
-     *
-     * @param location the location
-     * @return this builder instance
-     */
-    public Builder location(final Path location) {
-      mLocation = checkNotNull(location);
-      return this;
-    }
-
-    /**
-     * Create a new {@link DBStore} instance
-     *
-     * @return new {@link DBStore} instance
-     */
-    public DBStore build() {
-      return new DBStore(this);
-    }
-  }
-
-  /**
-   * Private constructor.
-   *
-   * @param builder builder instance
-   */
-  private DBStore(final Builder builder) {
-    mDatabases = Collections.synchronizedSet(new HashSet<>());
-    mCollections = new ConcurrentHashMap<>();
-    mStorageType = builder.mStorageType;
-    mLocation = builder.mLocation;
-    mBuildPathSummary = builder.mBuildPathSummary;
-  }
-
-  /** Get the location of the generated collections/databases. */
-  public Path getLocation() {
-    return mLocation;
-  }
+public interface DBStore extends Store, AutoCloseable {
+  @Override
+  DBCollection lookup(String name) throws DocumentException;
 
   @Override
-  public DBCollection lookup(final String name) throws DocumentException {
-    final Path dbPath = mLocation.resolve(name);
-    if (Databases.existsDatabase(dbPath)) {
-      try {
-        final Database database = Databases.openDatabase(dbPath);
-        final Optional<Database> storedCollection =
-            mDatabases.stream().findFirst().filter((final Database db) -> db.equals(database));
-        if (storedCollection.isPresent()) {
-          return mCollections.get(storedCollection.get());
-        }
-        mDatabases.add(database);
-        final DBCollection collection = new DBCollection(name, database);
-        mCollections.put(database, collection);
-        return collection;
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e.getCause());
-      }
-    }
-    return null;
-  }
+  DBCollection create(String name) throws DocumentException;
 
   @Override
-  public DBCollection create(final String name) throws DocumentException {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
-    try {
-      if (Databases.createDatabase(dbConf)) {
-        throw new DocumentException("Document with name %s exists!", name);
-      }
+  DBCollection create(String collName, SubtreeParser parser) throws DocumentException;
 
-      final Database database = Databases.openDatabase(dbConf.getFile());
-      mDatabases.add(database);
-
-      final DBCollection collection = new DBCollection(name, database);
-      mCollections.put(database, collection);
-      return collection;
-    } catch (final SirixRuntimeException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
+  DBCollection create(String collName, String optionalResourceName, SubtreeParser parser)
+      throws DocumentException;
 
   @Override
-  public DBCollection create(final String collName, final SubtreeParser parser)
-      throws DocumentException {
-    return create(collName, Optional.<String>empty(), parser);
-  }
-
-  public DBCollection create(final String collName, final Optional<String> optResName,
-      final SubtreeParser parser) throws DocumentException {
-    final Path dbPath = mLocation.resolve(collName);
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      Databases.removeDatabase(dbPath);
-      Databases.createDatabase(dbConf);
-      final Database database = Databases.openDatabase(dbPath);
-      mDatabases.add(database);
-      final String resName = optResName.isPresent()
-          ? optResName.get()
-          : new StringBuilder(3).append("resource")
-                                .append(database.listResources().size() + 1)
-                                .toString();
-      database.createResource(
-          ResourceConfiguration.newBuilder(resName, dbConf)
-                               .useDeweyIDs(true)
-                               .useTextCompression(true)
-                               .buildPathSummary(mBuildPathSummary)
-                               .storageType(mStorageType)
-                               .build());
-      final DBCollection collection = new DBCollection(collName, database);
-      mCollections.put(database, collection);
-
-      try (final ResourceManager manager = database.getResourceManager(resName);
-          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-        parser.parse(
-            new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
-
-        wtx.commit();
-      }
-      return collection;
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
+  DBCollection create(String collName, Stream<SubtreeParser> parsers) throws DocumentException;
 
   @Override
-  public DBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers)
-      throws DocumentException {
-    if (parsers != null) {
-      final Path dbPath = mLocation.resolve(collName);
-      final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-      try {
-        Databases.removeDatabase(dbPath);
-        Databases.createDatabase(dbConf);
-        final Database database = Databases.openDatabase(dbConf.getFile());
-        mDatabases.add(database);
-        final ExecutorService pool =
-            Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        int i = database.listResources().size() + 1;
-        try {
-          SubtreeParser parser = null;
-          while ((parser = parsers.next()) != null) {
-            final SubtreeParser nextParser = parser;
-            final String resourceName =
-                new StringBuilder("resource").append(String.valueOf(i)).toString();
-            pool.submit(() -> {
-              database.createResource(
-                  ResourceConfiguration.newBuilder(resourceName, dbConf)
-                                       .storageType(mStorageType)
-                                       .useDeweyIDs(true)
-                                       .useTextCompression(true)
-                                       .buildPathSummary(true)
-                                       .build());
-              try (final ResourceManager manager = database.getResourceManager(resourceName);
-                  final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-                final DBCollection collection = new DBCollection(collName, database);
-                mCollections.put(database, collection);
-                nextParser.parse(
-                    new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-                        Collections.emptyList()));
-                wtx.commit();
-              }
-              return null;
-            });
-            i++;
-          }
-        } finally {
-          parsers.close();
-        }
-        pool.shutdown();
-        pool.awaitTermination(5, TimeUnit.SECONDS);
-        return new DBCollection(collName, database);
-      } catch (final SirixRuntimeException | InterruptedException e) {
-        throw new DocumentException(e.getCause());
-      }
-    }
-    return null;
-  }
+  void drop(String name) throws DocumentException;
 
   @Override
-  public void drop(final String name) throws DocumentException {
-    final Path dbPath = mLocation.resolve(name);
-    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (Databases.existsDatabase(dbPath)) {
-      try {
-        Databases.removeDatabase(dbPath);
-        final Database database = Databases.openDatabase(dbConfig.getFile());
-        mDatabases.remove(database);
-        mCollections.remove(database);
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e);
-      }
-    }
-    throw new DocumentException("No collection with the specified name found!");
-  }
+  void makeDir(String path) throws DocumentException;
 
   @Override
-  public void makeDir(final String path) throws DocumentException {
-    try {
-      Files.createDirectory(java.nio.file.Paths.get(path));
-    } catch (final IOException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
-
-  @Override
-  public void close() throws DocumentException {
-    try {
-      for (final Database database : mDatabases) {
-        database.close();
-      }
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
+  void close() throws DocumentException;
 }

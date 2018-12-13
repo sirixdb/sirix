@@ -345,6 +345,7 @@ public final class XMLSerializer extends AbstractSerializer {
             write(" sdb:revision=\"");
           }
           write(Integer.toString(rtx.getRevisionNumber()));
+          write("\"");
 
           if (mSerializeTimestamp) {
             if (mSerializeRest) {
@@ -356,9 +357,10 @@ public final class XMLSerializer extends AbstractSerializer {
             write(
                 DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
                     Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
+            write("\"");
           }
 
-          write("\">");
+          write(">");
         } else if (mSerializeRest) {
           write(">");
         }

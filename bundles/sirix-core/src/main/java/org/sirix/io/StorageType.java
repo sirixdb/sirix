@@ -69,6 +69,6 @@ public enum StorageType {
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static final Storage getStorage(final ResourceConfiguration resourceConf) {
-    return resourceConf.mStorage.getInstance(resourceConf);
+    return resourceConf.storageType.getInstance(resourceConf);
   }
 }

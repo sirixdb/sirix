@@ -58,7 +58,7 @@ import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
-import org.sirix.page.PagePersistenter;
+import org.sirix.page.PagePersister;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
@@ -70,7 +70,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import org.sirix.settings.Versioning;
+import org.sirix.settings.VersioningType;
 import com.google.common.base.MoreObjects;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -160,7 +160,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
 
     if (indexController == null) {
       // Deserialize index definitions.
-      final Path indexes = resourceManager.getResourceConfig().mPath.resolve(
+      final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
           ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
               String.valueOf(revision) + ".xml");
       if (Files.exists(indexes)) {
@@ -461,11 +461,12 @@ public final class PageReadTrxImpl implements PageReadTrx {
       return PageContainer.emptyInstance();
     }
 
-    final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
-    final Versioning revisioning = mResourceConfig.mRevisionKind;
+    final int mileStoneRevision = mResourceConfig.numberOfRevisionsToRestore;
+    final VersioningType revisioning = mResourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    final PageContainer recordPageContainer = new PageContainer(completePage, clone(completePage));
+    final PageContainer recordPageContainer =
+        PageContainer.getInstance(completePage, clone(completePage));
 
     if (mTrxIntentLog == null)
       mResourceBufferManager.getRecordPageCache()
@@ -478,9 +479,10 @@ public final class PageReadTrxImpl implements PageReadTrx {
   <E extends Page> E clone(final E toClone) throws SirixIOException {
     try {
       final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-      PagePersistenter.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
+      final PagePersister pagePersister = new PagePersister();
+      pagePersister.serializePage(output, toClone, SerializationType.TRANSACTION_INTENT_LOG);
       final ByteArrayDataInput input = ByteStreams.newDataInput(output.toByteArray());
-      return (E) PagePersistenter.deserializePage(
+      return (E) pagePersister.deserializePage(
           input, this, SerializationType.TRANSACTION_INTENT_LOG);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -509,9 +511,9 @@ public final class PageReadTrxImpl implements PageReadTrx {
       final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = mResourceManager.getResourceConfig();
-    final int revsToRestore = config.mRevisionsToRestore;
+    final int revsToRestore = config.numberOfRevisionsToRestore;
     final int[] revisionsToRead =
-        config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
+        config.revisioningType.getRevisionRoots(mRootPage.getRevision(), revsToRestore);
     final List<T> pages = new ArrayList<>(revisionsToRead.length);
     boolean first = true;
     for (int i = 0; i < revisionsToRead.length; i++) {
