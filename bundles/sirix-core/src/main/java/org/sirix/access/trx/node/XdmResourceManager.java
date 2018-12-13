@@ -36,7 +36,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.LocalDatabase;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -74,7 +74,7 @@ import com.google.common.base.MoreObjects;
 public final class XdmResourceManager implements ResourceManager {
 
   /** Database for centralized closure of related Sessions. */
-  private final DatabaseImpl mDatabase;
+  private final LocalDatabase mDatabase;
 
   /** Write semaphore to assure only one exclusive write transaction exists. */
   private final Semaphore mWriteSemaphore;
@@ -136,17 +136,18 @@ public final class XdmResourceManager implements ResourceManager {
   /**
    * Package private constructor.
    *
-   * @param database {@link DatabaseImpl} for centralized operations on related sessions
+   * @param database {@link LocalDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource
    *        transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  public XdmResourceManager(final DatabaseImpl database, final @Nonnull ResourceStore resourceStore,
-      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
-      final @Nonnull Semaphore readSemaphore, final @Nonnull Semaphore writeSemaphore) {
+  public XdmResourceManager(final LocalDatabase database,
+      final @Nonnull ResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
+      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage,
+      final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
+      final @Nonnull Semaphore writeSemaphore) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
     mResourceConfig = checkNotNull(resourceConf);
@@ -169,6 +170,11 @@ public final class XdmResourceManager implements ResourceManager {
     mLastCommittedUberPage = new AtomicReference<>(uberPage);
 
     mClosed = false;
+  }
+
+  @Override
+  public Path getResourcePath() {
+    return mResourceConfig.resourcePath;
   }
 
   public Lock getCommitLock() {
@@ -231,7 +237,7 @@ public final class XdmResourceManager implements ResourceManager {
    * or not.
    */
   public Path commitFile() {
-    return mResourceConfig.mPath.resolve(
+    return mResourceConfig.resourcePath.resolve(
         ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit");
   }
 

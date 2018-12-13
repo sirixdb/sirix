@@ -3,7 +3,7 @@ package org.sirix.access.trx.node;
 /**
  * How is the Hash for this storage computed?
  */
-public enum HashKind {
+public enum HashType {
   /** Rolling hash, only nodes on ancestor axis are touched. */
   ROLLING,
   /**

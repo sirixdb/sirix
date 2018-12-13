@@ -64,21 +64,21 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
           // Create path index tree if needed.
           final PathPage pathPage = pageWriteTrx.getPathPage(revisionRootPage);
           reference = revisionRootPage.getPathPageReference();
-          pageWriteTrx.appendLogRecord(reference, new PageContainer(pathPage, pathPage));
+          pageWriteTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
           pathPage.createPathIndexTree(pageWriteTrx, index, pageWriteTrx.getLog());
           break;
         case CAS:
           // Create CAS index tree if needed.
           final CASPage casPage = pageWriteTrx.getCASPage(revisionRootPage);
           reference = revisionRootPage.getCASPageReference();
-          pageWriteTrx.appendLogRecord(reference, new PageContainer(casPage, casPage));
+          pageWriteTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
           casPage.createCASIndexTree(pageWriteTrx, index, pageWriteTrx.getLog());
           break;
         case NAME:
           // Create name index tree if needed.
           final NamePage namePage = pageWriteTrx.getNamePage(revisionRootPage);
           reference = revisionRootPage.getNamePageReference();
-          pageWriteTrx.appendLogRecord(reference, new PageContainer(namePage, namePage));
+          pageWriteTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
           namePage.createNameIndexTree(pageWriteTrx, index, pageWriteTrx.getLog());
           break;
         default:

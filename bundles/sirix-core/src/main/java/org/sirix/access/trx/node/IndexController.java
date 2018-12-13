@@ -128,9 +128,10 @@ public final class IndexController {
       final int revision) throws SirixIOException {
     final Indexes indexes = new Indexes();
 
-    final java.nio.file.Path indexesFile = resourceManager.getResourceConfig().mPath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
-            String.valueOf(revision) + ".xml");
+    final java.nio.file.Path indexesFile =
+        resourceManager.getResourcePath()
+                       .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                       .resolve(String.valueOf(revision) + ".xml");
 
     try {
       if (Files.exists(indexesFile) && Files.size(indexesFile) > 0) {

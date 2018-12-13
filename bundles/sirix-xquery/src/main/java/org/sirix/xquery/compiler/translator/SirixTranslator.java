@@ -624,7 +624,7 @@ public final class SirixTranslator extends TopDownTranslator {
         throws QueryException {
       final DBNode dbNode = (DBNode) node;
       final XdmNodeReadTrx rtx = dbNode.getTrx();
-      if (rtx.getResourceManager().getResourceConfig().mPathSummary
+      if (rtx.getResourceManager().getResourceConfig().pathSummary
           && test.getNodeKind() == Kind.ELEMENT && test.getQName() != null
           && rtx.getChildCount() > CHILD_THRESHOLD) {
         try {
@@ -697,7 +697,7 @@ public final class SirixTranslator extends TopDownTranslator {
         throws QueryException {
       final DBNode dbNode = (DBNode) node;
       final XdmNodeReadTrx rtx = dbNode.getTrx();
-      if (rtx.getResourceManager().getResourceConfig().mPathSummary
+      if (rtx.getResourceManager().getResourceConfig().pathSummary
           && test.getNodeKind() == Kind.ELEMENT && test.getQName() != null) {
         try {
           final long pcr = dbNode.getPCR();

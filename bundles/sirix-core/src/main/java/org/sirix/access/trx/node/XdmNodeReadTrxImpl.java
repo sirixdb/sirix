@@ -106,10 +106,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
    * @param trxId ID of the reader
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
-   * @throws SirixIOException if an I/O error occurs
    */
   XdmNodeReadTrxImpl(final XdmResourceManager resourceManager, final @Nonnegative long trxId,
-      final PageReadTrx pageReadTransaction, final Node documentNode) throws SirixIOException {
+      final PageReadTrx pageReadTransaction, final Node documentNode) {
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
     mId = trxId;
@@ -954,7 +953,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   @Override
   public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
     assertNotClosed();
-    if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
+    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
@@ -970,7 +969,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
 
   @Override
   public Optional<SirixDeweyID> getRightSiblingDeweyID() {
-    if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
+    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
@@ -986,7 +985,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
 
   @Override
   public Optional<SirixDeweyID> getParentDeweyID() {
-    if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
+    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final long nodeKey = mCurrentNode.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
       if (mCurrentNode.hasParent()) {
@@ -1001,7 +1000,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
 
   @Override
   public Optional<SirixDeweyID> getFirstChildDeweyID() {
-    if (mResourceManager.getResourceConfig().mDeweyIDsStored) {
+    if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();

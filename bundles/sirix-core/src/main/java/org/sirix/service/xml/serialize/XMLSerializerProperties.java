@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,13 +33,13 @@ import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XMLSerializerProperties</h1>
- * 
+ *
  * <p>
  * XMLSerializer properties.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class XMLSerializerProperties {
 
@@ -48,9 +48,6 @@ public final class XMLSerializerProperties {
       new LogWrapper(LoggerFactory.getLogger(XMLSerializerProperties.class));
 
   // ============== Class constants. =================
-
-  /** YES maps to true. */
-  private static final boolean YES = true;
 
   /** NO maps to false. */
   private static final boolean NO = false;
@@ -98,11 +95,11 @@ public final class XMLSerializerProperties {
 
   /**
    * <h2>Read properties</h2>
-   * 
+   *
    * <p>
    * Read properties file into a concurrent map. Format of properties file:
    * </p>
-   * 
+   *
    * <ul>
    * <li>xmldecl=yes (possible values: yes/no)</li>
    * <li>indent=no (possible values: yes/no)</li>
@@ -110,13 +107,13 @@ public final class XMLSerializerProperties {
    * <li>serialize-rest=no (possible values: yes/no)</li>
    * <li>serialize-id=no (possible values: yes/no)</li>
    * </ul>
-   * 
+   *
    * <p>
    * Note that currently all properties have to be set. If specific key/value pairs are specified
    * more than once the last values are preserved, so the default values are overridden by user
    * specified values.
    * </p>
-   * 
+   *
    * @param filePath path to properties file
    * @return ConcurrentMap which holds property key/values.
    */
@@ -194,7 +191,7 @@ public final class XMLSerializerProperties {
 
   /**
    * Get properties map.
-   * 
+   *
    * @return ConcurrentMap with key/value property pairs.
    */
   public ConcurrentMap<String, Object> getProps() {

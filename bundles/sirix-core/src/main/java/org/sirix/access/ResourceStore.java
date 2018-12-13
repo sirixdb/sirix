@@ -45,7 +45,7 @@ public final class ResourceStore implements AutoCloseable {
    * @return A resource manager.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
-  public ResourceManager openResource(final @Nonnull DatabaseImpl database,
+  public ResourceManager openResource(final @Nonnull LocalDatabase database,
       final @Nonnull ResourceConfiguration resourceConfig,
       final @Nonnull BufferManager bufferManager, final @Nonnull Path resourceFile) {
     checkNotNull(database);

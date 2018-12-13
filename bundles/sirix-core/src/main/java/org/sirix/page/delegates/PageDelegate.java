@@ -152,7 +152,7 @@ public final class PageDelegate implements Page {
 
   private int index(final int offset) {
     final BitSet offsetBitmap = new BitSet(mBitmap.size());
-    
+
     offsetBitmap.set(offset);
 
     // Flip 0 to offset.
@@ -209,7 +209,7 @@ public final class PageDelegate implements Page {
 
     for (int i = 0; i < bitmap.length(); i++) {
       s.append(
-          bitmap.get(i) == true
+          bitmap.get(i)
               ? 1
               : 0);
     }

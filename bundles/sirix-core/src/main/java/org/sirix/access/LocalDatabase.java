@@ -26,6 +26,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -46,6 +47,7 @@ import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,10 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Maps;
+import com.google.crypto.tink.CleartextKeysetHandle;
+import com.google.crypto.tink.JsonKeysetWriter;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 
 /**
  * This class represents one concrete database for enabling several {@link ResourceManager}
@@ -62,11 +68,11 @@ import com.google.common.collect.Maps;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class DatabaseImpl implements Database {
+public final class LocalDatabase implements Database {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(DatabaseImpl.class));
+      new LogWrapper(LoggerFactory.getLogger(LocalDatabase.class));
 
   /** Unique ID of a resource. */
   private final AtomicLong mResourceID = new AtomicLong();
@@ -95,7 +101,7 @@ public final class DatabaseImpl implements Database {
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
    * @throws SirixException if something weird happens
    */
-  DatabaseImpl(final DatabaseConfiguration dbConfig) {
+  LocalDatabase(final DatabaseConfiguration dbConfig) {
     mDBConfig = checkNotNull(dbConfig);
     mResources = Maps.synchronizedBiMap(HashBiMap.create());
     mBufferManagers = new ConcurrentHashMap<>();
@@ -114,7 +120,7 @@ public final class DatabaseImpl implements Database {
     boolean returnVal = true;
     final Path path =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resConfig.mPath);
+            resConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -127,21 +133,24 @@ public final class DatabaseImpl implements Database {
 
       if (returnVal) {
         // Creation of the folder structure.
-        try {
-          for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
-            final Path toCreate = path.resolve(resourcePath.getPath());
+        for (final ResourceConfiguration.ResourcePaths resourcePath : ResourceConfiguration.ResourcePaths.values()) {
+          final Path toCreate = path.resolve(resourcePath.getPath());
 
+          try {
             if (resourcePath.isFolder()) {
               Files.createDirectory(toCreate);
+
+              if (resourcePath == ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY)
+                createAndStoreKeysetIfNeeded(resConfig, toCreate);
             } else {
               Files.createFile(toCreate);
             }
-
-            if (!returnVal)
-              break;
+          } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            returnVal = false;
           }
-        } catch (UnsupportedOperationException | IOException | SecurityException e) {
-          returnVal = false;
+
+          if (!returnVal)
+            break;
         }
       }
     }
@@ -155,13 +164,11 @@ public final class DatabaseImpl implements Database {
       mDBConfig.setMaximumResourceID(mResourceID.get());
       mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
 
-      try {
-        try (
-            final ResourceManager resourceTrxManager =
-                this.getResourceManager(resConfig.getResource().getFileName().toString());
-            final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
-          wtx.commit();
-        }
+      try (
+          final ResourceManager resourceTrxManager =
+              this.getResourceManager(resConfig.getResource().getFileName().toString());
+          final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        wtx.commit();
       } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
         returnVal = false;
@@ -170,10 +177,26 @@ public final class DatabaseImpl implements Database {
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
-      SirixFiles.recursiveRemove(resConfig.mPath);
+      SirixFiles.recursiveRemove(resConfig.resourcePath);
     }
 
     return returnVal;
+  }
+
+  private void createAndStoreKeysetIfNeeded(final ResourceConfiguration resConfig,
+      final Path createdPath) {
+    final Path encryptionKeyPath = createdPath.resolve("encryptionKey.json");
+    if (resConfig.byteHandlePipeline.getComponents()
+                                    .contains(new Encryptor(createdPath.getParent()))) {
+      try {
+        Files.createFile(encryptionKeyPath);
+        final KeysetHandle handle =
+            KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
+        CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(encryptionKeyPath));
+      } catch (final GeneralSecurityException | IOException e) {
+        throw new IllegalStateException(e);
+      }
+    }
   }
 
   @Override
@@ -213,7 +236,7 @@ public final class DatabaseImpl implements Database {
   @Override
   public synchronized String getResourceName(final @Nonnegative long id) {
     assertNotClosed();
-    checkArgument(id >= 0, "pID must be >= 0!");
+    checkArgument(id >= 0, "The ID must be >= 0!");
     return mResources.get(id);
   }
 
@@ -252,7 +275,7 @@ public final class DatabaseImpl implements Database {
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourceFile);
 
     // Resource of must be associated to this database.
-    assert resourceConfig.mPath.getParent().getParent().equals(mDBConfig.getFile());
+    assert resourceConfig.resourcePath.getParent().getParent().equals(mDBConfig.getFile());
 
     // Keep track of the resource-ID.
     mResources.forcePut(

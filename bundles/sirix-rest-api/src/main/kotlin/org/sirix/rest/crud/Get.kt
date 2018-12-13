@@ -17,13 +17,12 @@ import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeReadTrx
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.Serialize
+import org.sirix.rest.SessionDBStore
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.node.DBCollection
-import org.sirix.xquery.node.DBNode
-import org.sirix.xquery.node.DBStore
+import org.sirix.xquery.node.*
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
@@ -39,12 +38,14 @@ class Get(private val location: Path) {
 
         val isAuthorized =
                 if (dbName != null)
-                    ctx.user().isAuthorizedAwait("${dbName.toLowerCase()}:view")
+                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-view")
                 else
-                    ctx.user().isAuthorizedAwait("view")
+                    ctx.user().isAuthorizedAwait("realm:view")
 
-        if (!isAuthorized)
+        if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return
+        }
 
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
@@ -108,6 +109,7 @@ class Get(private val location: Path) {
 
     private suspend fun queryResource(dbName: String?, database: Database, revision: String?, revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext, nodeId: String?, query: String, vertxContext: Context) {
         withContext(vertxContext.dispatcher()) {
+
             val dbCollection = DBCollection(dbName, database)
 
             dbCollection.use {
@@ -151,7 +153,7 @@ class Get(private val location: Path) {
     private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             // Initialize queryResource context and store.
-            val dbStore = DBStore.newBuilder().build()
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), routingContext.user())
 
             dbStore.use {
                 val queryCtx = SirixQueryContext(dbStore)
