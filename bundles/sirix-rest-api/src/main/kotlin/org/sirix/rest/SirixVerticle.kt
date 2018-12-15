@@ -50,15 +50,14 @@ class SirixVerticle: CoroutineVerticle() {
         route().handler(SessionHandler.create(LocalSessionStore.create(vertx)))
 
         val oauth2 = KeycloakAuth.discoverAwait(
-                vertx,
-                OAuth2ClientOptions()
-                        .setFlow(OAuth2FlowType.AUTH_CODE)
-                        .setSite("http://localhost:8080/auth/realms/master")
-                        .setClientID("sirix").setClientSecret("c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
+            vertx,
+            OAuth2ClientOptions()
+                    .setSite("http://localhost:8080/auth/realms/master")
+                    .setClientID("sirix")
+                    .setClientSecret("c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
 
         route().handler(UserSessionHandler.create(oauth2))
 
-        //val oauth2 = KeycloakAuth.create(vertx, OAuth2FlowType.AUTH_CODE, keycloakJson)
         val oauth2Handler = OAuth2AuthHandler.create(oauth2)
 
         oauth2Handler.setupCallback(get("/callback"))
