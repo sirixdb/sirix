@@ -1,1 +1,7 @@
-<code_scheme name="Default" version="173" />
+<code_scheme name="Default" version="173">
+  <option name="LINE_SEPARATOR" value="&#10;" />
+  <option name="WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN" value="true" />
+  <codeStyleSettings language="kotlin">
+    <option name="ALIGN_MULTILINE_EXTENDS_LIST" value="true" />
+  </codeStyleSettings>
+</code_scheme>
