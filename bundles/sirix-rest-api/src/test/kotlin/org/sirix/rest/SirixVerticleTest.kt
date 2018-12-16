@@ -168,9 +168,9 @@ class SirixVerticleTest {
 
                                 if (200 == response.statusCode()) {
                                     testContext.verify {
-                                        assertEquals(expectString.replace("\n", System.getProperty
-                                        ("line.separator")),
-                                                response.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                                        assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                                response.bodyAsString().replace("\r\n", System.getProperty("line" +
+                                                        ".separator")))
 
                                         testContext.completeNow()
                                     }
