@@ -133,9 +133,9 @@ class SirixVerticleTest {
         val async = context.async()
         context.verify {
             GlobalScope.launch(vertx.dispatcher()) {
-                val asyncPut = context.async()
-                executePut(context, asyncPut)
-                asyncPut.awaitSuccess(5000)
+                //            val asyncPut = context.async()
+                //            executePut(context, asyncPut)
+                //            asyncPut.awaitSuccess(5000)
 
                 val expectString = """
                 <rest:sequence xmlns:rest="https://sirix.io/rest">
