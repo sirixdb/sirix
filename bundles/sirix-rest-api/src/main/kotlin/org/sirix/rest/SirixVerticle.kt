@@ -4,7 +4,6 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2ClientOptions
-import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -16,7 +15,6 @@ import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
-import io.vertx.kotlin.ext.auth.oauth2.providers.OpenIDConnectAuth
 import kotlinx.coroutines.launch
 import org.sirix.rest.crud.Create
 import org.sirix.rest.crud.Delete
@@ -52,6 +50,7 @@ class SirixVerticle: CoroutineVerticle() {
         val oauth2 = KeycloakAuth.discoverAwait(
             vertx,
             OAuth2ClientOptions()
+                    //.setPubSecKeys(listOf(PubSecKeyOptions().setPublicKey("MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq94aUofW9yTCvdSZ4GiKm73OZpj5YFUTYokkyqNIzUCHQ6jQehurNmVK92Td/uD+97KdqFrGHyw/0u/QULwzFLQ91tqRioYMYAzx+2Ey2sC40yIBvUCwc+5mDXo2g7RXdT2dNTMOWdY2gXheu/Hg6XVdpu/MnU9CLVEiCtWlq9t1VFczFW2rwmX5P2FpZZWilWPVLrXqBRlClZnDrnOvBkjfqu0R8S/JWEOxlC8SjRzXM6/kag+YQ8lNhJiUp4d48c4ZPsdK9fCn3hqZFWgaWHWwQDdO+X4xMv6SL936goRxy8y9EVlVk3tUvRMKi4GDzjhTjhUje8Nuda1p5+uZKwIDAQAB")))
                     .setSite("http://localhost:8080/auth/realms/master")
                     .setClientID("sirix")
                     .setClientSecret("c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
