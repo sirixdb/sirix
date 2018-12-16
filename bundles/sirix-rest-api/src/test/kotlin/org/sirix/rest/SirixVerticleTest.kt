@@ -6,62 +6,57 @@ import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
-import io.vertx.ext.unit.Async
-import io.vertx.ext.unit.TestContext
-import io.vertx.ext.unit.junit.VertxUnitRunner
 import io.vertx.ext.web.client.HttpResponse
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.ext.web.client.WebClientSession
+import io.vertx.junit5.Timeout
+import io.vertx.junit5.VertxExtension
+import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.web.client.sendAwait
 import io.vertx.kotlin.ext.web.client.sendBufferAwait
 import io.vertx.kotlin.ext.web.client.sendFormAwait
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.jsoup.Jsoup
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
-import org.junit.runner.RunWith
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
+import java.util.concurrent.TimeUnit
 
-@RunWith(VertxUnitRunner::class)
+@ExtendWith(VertxExtension::class)
+@DisplayName("Integration test")
 class SirixVerticleTest {
-    private lateinit var vertx: Vertx
-    private lateinit var client: WebClient
-    private lateinit var sessionClient: WebClientSession
-
     private val server = "https://localhost:9443"
     private val serverPath = "/database/resource1"
 
-    @Before
-    fun setup(context: TestContext) {
-        vertx = Vertx.vertx()
+    private lateinit var client: WebClient
+    private lateinit var sessionClient: WebClientSession
+
+    @BeforeEach
+    @DisplayName("Deploy a verticle")
+    fun setup(vertx: Vertx, testContext: VertxTestContext) {
         val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443))
-        vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, context.asyncAssertSuccess())
+        vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
         sessionClient = WebClientSession.create(client)
     }
 
-    @After
-    fun tearDown(context: TestContext) {
-        vertx.close(context.asyncAssertSuccess())
-    }
-
     @Test
-    fun testPut(context: TestContext) {
-        val async = context.async()
-        context.verify {
-            GlobalScope.launch(vertx.dispatcher()) {
-                executePut(context, async)
-            }
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test HTTP-PUT method")
+    fun testPut(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine { executePut(testContext) }
         }
-
-        async.awaitSuccess(5000)
     }
 
-    private suspend fun SirixVerticleTest.executePut(context: TestContext, async: Async) {
+    private suspend fun executePut(testContext: VertxTestContext) {
         val expectString = """
                     <rest:sequence xmlns:rest="https://sirix.io/rest">
                       <rest:item>
@@ -99,10 +94,11 @@ class SirixVerticleTest {
                         response = sessionClient.putAbs("$server$location").sendBufferAwait(resource)
 
                         if (200 == response.statusCode()) {
-                            context.assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
-                                    response.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
-
-                            async.complete()
+                            testContext.verify {
+                                assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                        response.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                                testContext.completeNow()
+                            }
                         }
                     }
                 }
@@ -128,11 +124,12 @@ class SirixVerticleTest {
         return response1
     }
 
-    @Test()
-    fun testGet(context: TestContext) {
-        val async = context.async()
-        context.verify {
-            GlobalScope.launch(vertx.dispatcher()) {
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test HTTP-GET method")
+    fun testGet(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
                 //            val asyncPut = context.async()
                 //            executePut(context, asyncPut)
                 //            asyncPut.awaitSuccess(5000)
@@ -172,10 +169,13 @@ class SirixVerticleTest {
                                 response = sessionClient.getAbs("$server$location").sendAwait()
 
                                 if (200 == response.statusCode()) {
-                                    context.assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
-                                            response.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                                    testContext.verify {
+                                        assertEquals(expectString.replace("\n", System.getProperty
+                                        ("line.separator")),
+                                                response.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
 
-                                    async.complete()
+                                        testContext.completeNow()
+                                    }
                                 }
                             }
                         }
@@ -183,7 +183,16 @@ class SirixVerticleTest {
                 }
             }
         }
+    }
 
-        async.awaitSuccess(20000)
+    suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
+        launch(coroutineContext) {
+            try {
+                block()
+            } catch (t: Throwable) {
+                failNow(t)
+            }
+        }
+        this
     }
 }
