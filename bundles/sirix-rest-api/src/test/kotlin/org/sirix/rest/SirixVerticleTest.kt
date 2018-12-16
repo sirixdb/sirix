@@ -126,13 +126,11 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Test HTTP-GET method")
+    @DisplayName("Test HTTP-PUT and then HTTP-GET")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
-                //            val asyncPut = context.async()
-                //            executePut(context, asyncPut)
-                //            asyncPut.awaitSuccess(5000)
+                executePut(testContext)
 
                 val expectString = """
                 <rest:sequence xmlns:rest="https://sirix.io/rest">
