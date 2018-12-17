@@ -3,8 +3,14 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
 import io.vertx.core.Handler
+import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.json.json
+import io.vertx.kotlin.core.json.obj
+import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx
@@ -41,15 +47,17 @@ private enum class InsertionMode {
     }
 }
 
-class Update(private val location: Path) {
+class Update(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
+        val user = authenticateUser(ctx)
+
         val isAuthorized =
                 if (dbName != null)
-                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-modify")
+                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-modify")
                 else
-                    ctx.user().isAuthorizedAwait("realm:modify")
+                    user.isAuthorizedAwait("realm:modify")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -68,6 +76,17 @@ class Update(private val location: Path) {
         val body = ctx.bodyAsString
 
         update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
+    }
+
+    private suspend fun authenticateUser(ctx: RoutingContext): User {
+        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
+
+        val tokenToAuthenticate = json {
+            obj("access_token" to token.substring(7),
+                    "token_type" to "Bearer")
+        }
+
+        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?, resFileToStore: String, ctx: RoutingContext) {

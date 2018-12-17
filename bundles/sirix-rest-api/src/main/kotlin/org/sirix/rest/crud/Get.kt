@@ -4,10 +4,16 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
+import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.json.json
+import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
@@ -22,7 +28,9 @@ import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.node.*
+import org.sirix.xquery.node.BasicDBStore
+import org.sirix.xquery.node.DBCollection
+import org.sirix.xquery.node.DBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
@@ -30,17 +38,19 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-class Get(private val location: Path) {
+class Get(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
+        val user = authenticateUser(ctx)
+
         val isAuthorized =
                 if (dbName != null)
-                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-view")
+                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-view")
                 else
-                    ctx.user().isAuthorizedAwait("realm:view")
+                    user.isAuthorizedAwait("realm:view")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -65,6 +75,17 @@ class Get(private val location: Path) {
         }
 
         get(dbName, ctx, resName, query, revision, revisionTimestamp, nodeId, vertxContext, startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp)
+    }
+
+    private suspend fun authenticateUser(ctx: RoutingContext): User {
+        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
+
+        val tokenToAuthenticate = json {
+            obj("access_token" to token.substring(7),
+                    "token_type" to "Bearer")
+        }
+
+        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?, revision: String?, revisionTimestamp: String?, nodeId: String?, vertxContext: Context, startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?) {
