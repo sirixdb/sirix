@@ -15,7 +15,7 @@
 	<packaging>jar</packaging>
 	<name>sirix-rest-api</name>
 	<version>0.8.9-SNAPSHOT</version>
-	<description>RESTful-API for Sirix.</description>
+	<description>Non-blocking RESTful-API for Sirix.</description>
 	
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
