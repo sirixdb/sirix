@@ -2,6 +2,7 @@ package org.sirix.rest
 
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Vertx
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.client.WebClient
@@ -13,6 +14,7 @@ import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.web.client.sendAwait
+import io.vertx.kotlin.ext.web.client.sendBufferAwait
 import io.vertx.kotlin.ext.web.client.sendJsonAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
@@ -44,7 +46,7 @@ class SirixVerticleTest {
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Test Login via POST-Request and send a subsequent GET-Request")
-    fun login(vertx: Vertx, testContext: VertxTestContext) {
+    fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 val expectString = """
@@ -56,7 +58,14 @@ class SirixVerticleTest {
                         </xml>
                       </rest:item>
                     </rest:sequence>
-                    """.trimIndent()
+                """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
 
                 val credentials = json {
                     obj("username" to "admin",
@@ -69,7 +78,17 @@ class SirixVerticleTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    val httpResponse = client.getAbs("$server/$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    httpResponse = client.getAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
@@ -85,7 +104,218 @@ class SirixVerticleTest {
         }
     }
 
-    suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test Login via POST-Request and send a subsequent PUT-Request")
+    fun testPut(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test Login via POST-Request and send a subsequent POST-Request")
+    fun testPost(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    val expectUpdatedString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3">
+                            <xml rest:id="4">
+                              foo
+                              <bar rest:id="6"/>
+                            </xml>
+                          </bar>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                    val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
+
+                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test Login via POST-Request and send a subsequent DELETE-Request")
+    fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    val expectUpdatedString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                    val url = "$server$serverPath?nodeId=3"
+
+                    httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
         launch(coroutineContext) {
             try {
                 block()

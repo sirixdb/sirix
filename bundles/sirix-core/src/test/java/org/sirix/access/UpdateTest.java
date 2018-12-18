@@ -68,6 +68,13 @@ public class UpdateTest {
   }
 
   @Test
+  public void testInsertSubtree() {
+    // try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    // wtx.insertSubtreeAsFirstChild();
+    // }
+  }
+
+  @Test
   public void testDelete() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       DocumentCreator.create(wtx);

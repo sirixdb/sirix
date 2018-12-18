@@ -793,8 +793,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
         checkAccessAndCommit();
         mBulkInsert = true;
         long nodeKey = getCurrentNode().getNodeKey();
-        final XMLShredder shredder =
-            new XMLShredder.Builder(this, reader, insert).commitAfterwards().build();
+        final XMLShredder shredder = new XMLShredder.Builder(this, reader, insert).build();
         shredder.call();
         moveTo(nodeKey);
         switch (insert) {
@@ -819,6 +818,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
           addParentHash(startNode);
         }
         moveTo(nodeKey);
+        commit();
         mBulkInsert = false;
       }
     } finally {
@@ -2763,17 +2763,17 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   public XdmNodeWriteTrx commit(final String commitMessage) {
     mNodeReadTrx.assertNotClosed();
 
-    // Execute pre-commit hooks.
-    for (final PreCommitHook hook : mPreCommitHooks) {
-      hook.preCommit(this);
-    }
-
-    // Reset modification counter.
-    mModificationCount = 0L;
-
     // Optionally lock while commiting and assigning new instances.
     acquireLock();
     try {
+      // Execute pre-commit hooks.
+      for (final PreCommitHook hook : mPreCommitHooks) {
+        hook.preCommit(this);
+      }
+
+      // Reset modification counter.
+      mModificationCount = 0L;
+
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = getPageTransaction();
       final UberPage uberPage = commitMessage == null
           ? pageWtx.commit()

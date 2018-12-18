@@ -278,11 +278,6 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>com.sleepycat</groupId>
-			<artifactId>je</artifactId>
-			<version>5.0.103</version>
-		</dependency>
-		<dependency>
 			<groupId>org.aspectj</groupId>
 			<artifactId>aspectjrt</artifactId>
 			<version>1.8.10</version>
@@ -386,5 +381,5 @@
 		<module>bundles/sirix-rest-api</module>
 		<module>bundles/sirix-examples</module>
 	</modules>
-	<url>https://github.com/sirixdb/sirix</url>
+	<url>http://sirix.io</url>
 </project>
