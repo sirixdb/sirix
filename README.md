@@ -39,8 +39,9 @@ We not only support all XPath axis (as well as a few more like as for instance a
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
 -   [Visualizations](#visualizations)
+-   [RESTful-API](#restful-api)
 -   [XDM/DOM like API](#dom-api) 💪
--   [Simple XQuery Examples ](#simple-xquery-examples)
+-   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
     -   [Join us on Slack](#join-us-on-slack)
@@ -98,7 +99,7 @@ Brackit binding:
 </dependency>
 ```
 
-Asynchronous, RESTful API with Vert.x, Kotlin and for authentication via OAuth2/OpenID Connect Keycloak:
+Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
 ```xml
 <dependency>
   <groupId>com.github.sirixdb.sirix</groupId>
@@ -133,8 +134,141 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 The following sections shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
     
-## RESTful API
- 
+## RESTful-API
+We provide a simple, asynchronous RESTful-API. As authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) against a Keycloak instance, we first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+
+```kotlin
+val server = "https://localhost:9443"
+
+val credentials = json {
+  obj("username" to "testUser",
+      "password" to "testPass")
+}
+
+val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+if (200 == response.statusCode()) {
+  val user = response.bodyAsJsonObject()
+  val accessToken = user.getString("access_token")
+}
+```
+This access token must then be sent in the Authorization HTTP-Header for each subsequent request. Storing a first resource would look like (simple HTTP PUT-Request):
+
+```kotlin
+val xml = """
+    <xml>
+      foo
+      <bar/>
+    </xml>
+""".trimIndent()
+
+var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+  
+if (200 == response.statusCode()) {
+  println("Stored document.")
+} else {
+  println("Something went wrong ${response.message}")
+}
+```
+First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again.
+
+The HTTP-Response should be 200 and the HTTP-body yields:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item>
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3"/>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+
+We are serializing the generated IDs from our storage system for element-nodes.
+
+Via a `GET HTTP-Request` to `https://localhost:9443/database/resource1` we are also able to retrieve the stored resource again.
+
+However, this is not really interesting so far. We can update the resource via a `POST-Request`. Assuming we retrieved the access token as before, we can simply do a POST-Request and use the information we gathered before about the node-IDs:
+
+```kotlin
+val xml = """
+    <test>
+      yikes
+      <bar/>
+    </test>
+""".trimIndent()
+
+val url = "$server/database/resource1?nodeId=3&insert=asFirstChild"
+
+val httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+```
+
+The interesting part is the URL, we are using as the endpoint. We simply say, select the node with the ID 3, then insert the given XML-fragment as the first child. This yields the following serialized XML-document:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item>
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3">
+        <test rest:id="4">
+          yikes
+          <bar rest:id="6"/>
+        </test>
+      </bar>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-time::*` and get the following XPath-result:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item rest:revision="1" rest:revisionTimestamp="2018-12-20T18:44:39.464Z">
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3"/>
+    </xml>
+  </rest:item>
+  <rest:item rest:revision="2" rest:revisionTimestamp="2018-12-20T18:44:39.518Z">
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3">
+        <xml rest:id="4">
+          foo
+          <bar rest:id="6"/>
+        </xml>
+      </bar>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+
+The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
+
+```GET https://localhost:9443/database/resource1?start-revision=1&end-revision=2```
+
+or via timestamps:
+
+```GET https://localhost:9443/database/resource1?start-revision-timestamp=2018-12-20T18:00:00.000Z&end-revision-timestamp=2018-12-20T19:00:00.000Z```
+
+We for sure are also able to delete the resource or any subtree in the resource either by an Updating XQuery (which is not very RESTful) or with a simple `DELETE` HTTP-request:
+
+```kotlin
+val url = "$server/database/resource1?nodeId=3"
+
+val httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                         .toString(), "Bearer $accessToken").sendAwait()
+
+if (200 == httpResponse.statusCode()) {
+  ...
+}
+```
+
+This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).  
+
 ## XDM/DOM-API
 Think of the XDM-node low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas the transaction is based on a cursor:
 
