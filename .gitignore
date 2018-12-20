@@ -14,6 +14,7 @@ code.style.schemes.xml
 debugger.renderers.xml
 debugger.xml
 filetypes.xml
+parameter.hints.xml
 
 # Eclipse files 
 *.settings
