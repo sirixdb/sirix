@@ -22,7 +22,7 @@ Sirix is a storage system, which brings versioning to a sub-file granular level 
 2. The full revision history of the resource or any subset thereof;
 3. The full modification history of the resource or any subset thereof.
 
-We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
+We not only support all XPath axis (as well as a few more like as for instance a PostOrderAxis) to query a resource in one revision but also novel temporal axis which facilitate navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
 <p>&nbsp;&nbsp;</p>
 
@@ -39,7 +39,7 @@ We not only support all XPath axis (as well as a few more) to query a resource i
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
 -   [Visualizations](#visualizations)
--   [Simple Examples](#simple-examples) 💪
+-   [XDM/DOM like API](#dom-api) 💪
 -   [Simple XQuery Examples ](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
@@ -98,7 +98,16 @@ Brackit binding:
 </dependency>
 ```
 
-Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
+Asynchronous, RESTful API with Vert.x, Kotlin and for authentication via OAuth2/OpenID Connect Keycloak:
+```xml
+<dependency>
+  <groupId>com.github.sirixdb.sirix</groupId>
+  <artifactId>sirix-xquery</artifactId>
+  <version>0.8.9-SNAPSHOT</version>
+</dependency>
+```
+
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
@@ -109,7 +118,7 @@ Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/
 Please have a look into our sirix-example project how to use Sirix from Java. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven.
 
 ## Visualizations
@@ -123,9 +132,11 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 <p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
 
 The following sections shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
+    
+## RESTful API
  
-## Simple Examples
-Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
+## XDM/DOM-API
+Think of the XDM-node low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas the transaction is based on a cursor:
 
 ```java
 // Path to the database.
