@@ -40,7 +40,7 @@ We not only support all XPath axis (as well as a few more like as for instance a
     -   [Documentation](#documentation)
 -   [Visualizations](#visualizations)
 -   [RESTful-API](#restful-api)
--   [XDM/DOM alike API](#xdm/dom-alike-api) 💪
+-   [DOM alike API](#dom-alike-api) 💪
 -   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
