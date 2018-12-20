@@ -22,6 +22,7 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeReadTrx
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.rest.SessionDBStore
 import org.sirix.service.xml.serialize.XMLSerializer
@@ -44,7 +45,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
         val isAuthorized =
                 if (dbName != null)

@@ -14,6 +14,7 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -51,7 +52,7 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
         val isAuthorized =
                 if (dbName != null)
@@ -76,17 +77,6 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
         val body = ctx.bodyAsString
 
         update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?, resFileToStore: String, ctx: RoutingContext) {

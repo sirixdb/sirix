@@ -20,13 +20,14 @@ import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
 import java.nio.file.Path
 
 class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
         val isAuthorized =
                 if (dbName != null)
@@ -48,17 +49,6 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         }
 
         delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
