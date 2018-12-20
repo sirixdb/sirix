@@ -22,6 +22,7 @@ import org.sirix.access.conf.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -34,7 +35,7 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val databaseName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
         val isAuthorized =
                 if (databaseName != null)
@@ -56,17 +57,6 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         }
 
         shredder(databaseName, resource, resToStore, ctx)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String, ctx: RoutingContext) {

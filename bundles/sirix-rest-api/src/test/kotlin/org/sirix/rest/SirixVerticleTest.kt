@@ -45,7 +45,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Test Login via POST-Request and send a subsequent GET-Request")
+    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent GET-Request")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -106,7 +106,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Test Login via POST-Request and send a subsequent PUT-Request")
+    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent PUT-Request")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -167,7 +167,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Test Login via POST-Request and send a subsequent POST-Request")
+    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent POST-Request")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -245,7 +245,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Test Login via POST-Request and send a subsequent DELETE-Request")
+    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent DELETE-Request")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
