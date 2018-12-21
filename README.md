@@ -132,7 +132,7 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 <p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
 
-The following sections shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
+The following sections show different APIs to interact with Sirix.
     
 ## RESTful-API
 We provide a simple, asynchronous RESTful-API. As authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) against a Keycloak instance, we first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
@@ -483,6 +483,8 @@ public interface DiffObserver {
   void diffDone();
 }
 ```
+
+On top of this API we built a brackit(.org) binding, which enables XQuery support as well as another DOM-alike API with DBNode-instances (in-memory) nodes (for instance `public DBNode getLastChild()`, `public DBNode getFirstChild()`, `public Stream<DBNode> getChildren()`...). You can also mix the APIs.
 
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
