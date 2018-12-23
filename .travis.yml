@@ -13,7 +13,7 @@ notifications:
       - lichtenberger.johannes@gmail.com
 after-success:
   mvn jacoco:report coveralls:jacoco
-before_install:
+after_install:
   - docker build -t sirixdb/sirix ./bundles/sirix-rest-api/src/main/docker
 deploy:
   provider: script
