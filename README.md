@@ -156,6 +156,7 @@ if (200 == response.statusCode()) {
   val accessToken = user.getString("access_token")
 }
 ```
+
 This access token must then be sent in the Authorization HTTP-Header for each subsequent request. Storing a first resource would look like (simple HTTP PUT-Request):
 
 ```kotlin
