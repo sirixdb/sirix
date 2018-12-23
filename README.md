@@ -35,6 +35,7 @@ We not only support all XPath axis (as well as a few more like as for instance a
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
     -   [Maven Artifacts](#maven-artifacts)
+    -   [Docker Image](#docker-image)
     -   [Command line tool](#command-line-tool)
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
@@ -103,12 +104,15 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 ```xml
 <dependency>
   <groupId>com.github.sirixdb.sirix</groupId>
-  <artifactId>sirix-xquery</artifactId>
+  <artifactId>sirix-rest-api</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
 ```
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
+
+### Docker images
+Docker images can be pulled from Docker Hub (sirixdb/sirix - https://cloud.docker.com/u/sirixdb/repository/docker/sirixdb/sirix). As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles). 
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
