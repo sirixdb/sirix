@@ -252,7 +252,7 @@ The same can be achieved through specifying a range of revisions to serialize (s
 
 or via timestamps:
 
-```GET https://localhost:9443/database/resource1?start-revision-timestamp=2018-12-20T18:00:00.000Z&end-revision-timestamp=2018-12-20T19:00:00.000Z```
+```GET https://localhost:9443/database/resource1?start-revision-timestamp=2018-12-20T18:00:00&end-revision-timestamp=2018-12-20T19:00:00```
 
 We for sure are also able to delete the resource or any subtree thereof by an updating XQuery expression (which is not very RESTful) or with a simple `DELETE` HTTP-request:
 
