@@ -44,8 +44,96 @@ class SirixVerticleTest {
     }
 
     @Test
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the listing of databases")
+    fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse =
+                            client.deleteAbs("$server/database").putHeader(HttpHeaders.AUTHORIZATION.toString(),
+                                    "Bearer $accessToken").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        var httpResponse =
+                                client.putAbs("$server/database1/resource").putHeader(HttpHeaders.AUTHORIZATION
+                                        .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                        if (200 == httpResponse.statusCode()) {
+                            testContext.verify {
+                                assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                        httpResponse.bodyAsString().replace("\r\n",
+                                                System.getProperty("line.separator")))
+                            }
+                        }
+
+                        httpResponse = client.putAbs("$server/database2/resource").putHeader(HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                        if (200 == httpResponse.statusCode()) {
+                            testContext.verify {
+                                assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                        httpResponse.bodyAsString().replace("\r\n",
+                                                System.getProperty("line.separator")))
+                            }
+                        }
+
+                        val expectedResult = """
+                            <rest:sequence xmlns:rest="https://sirix.io/rest">
+                              <rest:item database-name="database1"/>
+                              <rest:item database-name="database2"/>
+                            </rest:sequence>
+                         """.trimIndent()
+
+                        httpResponse = client.getAbs("$server").putHeader(HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken").sendAwait()
+
+                        if (200 == httpResponse.statusCode()) {
+                            testContext.verify {
+                                val result =
+                                        httpResponse.bodyAsString().replace("\r\n",
+                                                System.getProperty("line.separator"))
+                                assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                                testContext.completeNow()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent GET-Request")
+    @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -106,8 +194,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request, then a POST-Request and then send a subsequent " +
-            "GET-Request")
+    @DisplayName("Testing the creation and storage of a database/resource as well as a subsequent modification thereof")
     fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -220,7 +307,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent PUT-Request")
+    @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -281,8 +368,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent POST-Request in order to " +
-            "send an XQuery-expression")
+    @DisplayName("Testing an XQuery-expression sent via the body of a POST-request")
     fun testXQueryPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -353,7 +439,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent POST-Request")
+    @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
@@ -431,7 +517,7 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent DELETE-Request")
+    @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {

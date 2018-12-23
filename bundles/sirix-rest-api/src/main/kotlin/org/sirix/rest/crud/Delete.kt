@@ -16,6 +16,9 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
 import org.sirix.rest.Auth
+import org.sirix.rest.SessionDBStore
+import org.sirix.xquery.node.BasicDBStore
+import java.nio.file.Files
 import java.nio.file.Path
 
 class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
@@ -39,11 +42,19 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null) {
-            ctx.fail(IllegalArgumentException("Database name not given."))
-            return
-        }
+            // Initialize queryResource context and store.
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
 
-        delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
+            val databases = Files.list(location)
+
+            databases.use {
+                databases.filter { Files.isDirectory(it) }.forEach {
+                    dbStore.drop(it.fileName.toString())
+                }
+            }
+        } else {
+            delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
+        }
     }
 
     private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
@@ -53,7 +64,7 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
 
         if (resPathName == null) {
             removeDatabase(dbFile, dispatcher)
-            ctx.response().setStatusCode(204).end()
+            ctx.response().setStatusCode(200).end()
             return
         }
 
