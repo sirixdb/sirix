@@ -4,15 +4,10 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -84,7 +79,8 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database, resPathName: String?, ctx: RoutingContext): Any? {
+    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database, resPathName: String?,
+                                       ctx: RoutingContext): Any? {
         return try {
             withContext(dispatcher) {
                 database.removeResource(resPathName)
