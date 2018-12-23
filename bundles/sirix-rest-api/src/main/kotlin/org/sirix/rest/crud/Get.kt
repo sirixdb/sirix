@@ -95,7 +95,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
             }
 
             manager.use {
-                if (query != null) {
+                if (query != null && query.isNotEmpty()) {
                     queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user)
                 } else {

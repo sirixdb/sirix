@@ -183,8 +183,33 @@ class SirixVerticleTest {
                             .toString(), "Bearer $accessToken").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
+                        val expectedResult = """
+                            <rest:sequence xmlns:rest="https://sirix.io/rest">
+                              <rest:item rest:revision="1">
+                                <xml rest:id="1">
+                                  foo
+                                  <bar rest:id="3"/>
+                                </xml>
+                              </rest:item>
+                              <rest:item rest:revision="2">
+                                <xml rest:id="1">
+                                  foo
+                                  <bar rest:id="3">
+                                    <xml rest:id="4">
+                                      foo
+                                      <bar rest:id="6"/>
+                                    </xml>
+                                  </bar>
+                                </xml>
+                              </rest:item>
+                            </rest:sequence>
+                        """.trimIndent()
+
                         testContext.verify {
-                            println(httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            val result =
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                                            .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
+                            assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                             testContext.completeNow()
                         }
                     }
@@ -308,9 +333,7 @@ class SirixVerticleTest {
                         </rest:sequence>
                     """.trimIndent()
 
-                    val url = "$server"
-
-                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.postAbs("$server").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer("sdb:doc('database', " +
                             "'resource1')//bar"))
 
@@ -450,16 +473,6 @@ class SirixVerticleTest {
                                     httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
                         }
                     }
-
-                    val expectUpdatedString = """
-                    <rest:sequence xmlns:rest="https://sirix.io/rest">
-                      <rest:item>
-                        <xml rest:id="1">
-                          foo
-                        </xml>
-                      </rest:item>
-                    </rest:sequence>
-                    """.trimIndent()
 
                     val url = "$server$serverPath?nodeId=3"
 
