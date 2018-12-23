@@ -23,7 +23,7 @@
         <kotlin.coroutines.version>1.0.1</kotlin.coroutines.version>
 		<sirix.version>0.8.9-SNAPSHOT</sirix.version>
 		<junit.version>4.12</junit.version>
-        <vertx.version>3.6.0</vertx.version>
+		<vertx.version>3.6.2</vertx.version>
         <verticle.name>org.sirix.rest.SirixVerticle</verticle.name>
 	</properties>
 
@@ -82,7 +82,7 @@
 		</dependency>
 		<dependency>
 			<groupId>io.vertx</groupId>
-			<artifactId>vertx-unit</artifactId>
+			<artifactId>vertx-junit5</artifactId>
 			<version>${vertx.version}</version>
 			<scope>test</scope>
 		</dependency>
@@ -100,6 +100,11 @@
 			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-xquery</artifactId>
 			<version>${sirix.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.jsoup</groupId>
+			<artifactId>jsoup</artifactId>
+			<version>1.11.3</version>
 		</dependency>
 	</dependencies>
 

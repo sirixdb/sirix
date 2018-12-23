@@ -1,61 +1,98 @@
 package org.sirix.rest
 
 import io.vertx.core.DeploymentOptions
-import io.vertx.core.MultiMap
 import io.vertx.core.Vertx
-import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
-import io.vertx.ext.unit.TestContext
-import io.vertx.ext.unit.junit.VertxUnitRunner
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
-import io.vertx.ext.web.client.WebClientSession
-import org.junit.Before
-import org.junit.Test
-import org.junit.runner.RunWith
+import io.vertx.junit5.Timeout
+import io.vertx.junit5.VertxExtension
+import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.core.json.json
+import io.vertx.kotlin.core.json.obj
+import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.web.client.sendAwait
+import io.vertx.kotlin.ext.web.client.sendJsonAwait
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
+import java.util.concurrent.TimeUnit
 
-
-@RunWith(VertxUnitRunner::class)
+@ExtendWith(VertxExtension::class)
+@DisplayName("Integration test")
 class SirixVerticleTest {
-    lateinit var vertx: Vertx
+    private val server = "https://localhost:9443"
+    private val serverPath = "/database/resource1"
 
-    @Before
-    fun setup(context: TestContext) {
-        vertx = Vertx.vertx()
-        val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 10443))
-        vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, context.asyncAssertSuccess())
+    private lateinit var client: WebClient
+
+    @BeforeEach
+    @DisplayName("Deploy a verticle")
+    fun setup(vertx: Vertx, testContext: VertxTestContext) {
+        val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443))
+        vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
+
+        client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
     }
 
     @Test
-    fun testPut(context: TestContext) {
-        val resource: Buffer = Buffer.buffer("<xml>foo<bar/></xml>")
-        val client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(true))
-        val sessionClient = WebClientSession.create(client)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Test Login via POST-Request and send a subsequent GET-Request")
+    fun login(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
 
-        val async = context.async()
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
 
-        sessionClient.putAbs("https://localhost:10443/database/resource1").ssl(true).followRedirects(true).sendBuffer(resource) { ar ->
-            if (ar.succeeded() && 200 == ar.result().statusCode()) {
-                val form = MultiMap.caseInsensitiveMultiMap()
-                form.set("username", "admin")
-                form.set("password", "admin")
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
 
-                sessionClient.postAbs("http://localhost:8080/auth/realms/master/login-actions/authenticate?client_id=sirix")
-                        .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/x-www-form-urlencoded")
-                        .putHeader(HttpHeaders.REFERER.toString(), "http://localhost:8080/auth/realms/master/protocol/openid-connect/auth?state=%2Fdatabase%2Fresource1&response_type=code&client_id=sirix")
-                        .putHeader(HttpHeaders.CONTENT_LENGTH.toString(), form.toString().length.toString())
-                        .sendForm(form) { response ->
-                            if (response.succeeded() && 200 == response.result().statusCode()) {
-                                println("okay")
-                            } else {
-                                println("not okay")
-                            }
-                            async.complete()
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    val httpResponse = client.getAbs("$server/$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
                         }
+                    }
+                }
+
             }
         }
+    }
 
-        async.awaitSuccess(5000)
+    suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
+        launch(coroutineContext) {
+            try {
+                block()
+            } catch (t: Throwable) {
+                failNow(t)
+            }
+        }
+        this
     }
 }
