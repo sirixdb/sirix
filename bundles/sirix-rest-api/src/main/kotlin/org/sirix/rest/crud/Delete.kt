@@ -4,9 +4,15 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
+import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.json.json
+import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -16,15 +22,17 @@ import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
 import java.nio.file.Path
 
-class Delete(private val location: Path) {
+class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
+        val user = authenticateUser(ctx)
+
         val isAuthorized =
                 if (dbName != null)
-                    ctx.user().isAuthorizedAwait("realm:${dbName.toLowerCase()}-delete")
+                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-delete")
                 else
-                    ctx.user().isAuthorizedAwait("realm:delete")
+                    user.isAuthorizedAwait("realm:delete")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -40,6 +48,17 @@ class Delete(private val location: Path) {
         }
 
         delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
+    }
+
+    private suspend fun authenticateUser(ctx: RoutingContext): User {
+        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
+
+        val tokenToAuthenticate = json {
+            obj("access_token" to token.substring(7),
+                    "token_type" to "Bearer")
+        }
+
+        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
