@@ -14,7 +14,7 @@ notifications:
 after-success:
   mvn jacoco:report coveralls:jacoco
 before_install:
-  - docker build -t sirixdb/sirix bundles/sirix-rest-api/src/maim/docker/Dockerfile
+  - docker build -t sirixdb/sirix bundles/sirix-rest-api/src/maim/docker/
 deploy:
   provider: script
   script: bash docker_push
