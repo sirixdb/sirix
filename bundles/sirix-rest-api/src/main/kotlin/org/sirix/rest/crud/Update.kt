@@ -3,14 +3,9 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx

@@ -4,15 +4,10 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -59,7 +54,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         shredder(databaseName, resource, resToStore, ctx)
     }
 
-    private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
+                                 ctx: RoutingContext) {
         val dbFile = location.resolve(dbPathName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -93,7 +89,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         })
     }
 
-    private suspend fun createDatabaseIfNotExists(dbFile: Path, dispatcher: CoroutineDispatcher): DatabaseConfiguration {
+    private suspend fun createDatabaseIfNotExists(dbFile: Path,
+                                                  dispatcher: CoroutineDispatcher): DatabaseConfiguration {
         return withContext(dispatcher) {
             val dbExists = Files.exists(dbFile)
 
@@ -110,7 +107,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun createOrRemoveAndCreateResource(database: Database, resConfig: ResourceConfiguration?, resPathName: String, dispatcher: CoroutineDispatcher) {
+    private suspend fun createOrRemoveAndCreateResource(database: Database, resConfig: ResourceConfiguration?,
+                                                        resPathName: String, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
                 database.removeResource(resPathName)
