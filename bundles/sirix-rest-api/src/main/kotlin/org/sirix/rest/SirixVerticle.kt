@@ -24,7 +24,7 @@ import org.sirix.rest.crud.Update
 import java.nio.file.Paths
 
 
-class SirixVerticle: CoroutineVerticle() {
+class SirixVerticle : CoroutineVerticle() {
     /** User home directory. */
     private val userHome = System.getProperty("user.home")
 
@@ -38,7 +38,9 @@ class SirixVerticle: CoroutineVerticle() {
         val server = vertx.createHttpServer(HttpServerOptions()
                 .setSsl(true)
                 .setUseAlpn(true)
-                .setPemKeyCertOptions(PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString()).setCertPath(location.resolve("cert.pem").toString())))
+                .setPemKeyCertOptions(
+                        PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString()).setCertPath(
+                                location.resolve("cert.pem").toString())))
 
         server.requestHandler { router.handle(it) }
                 .listenAwait(config.getInteger("https.port", 9443))
@@ -72,6 +74,8 @@ class SirixVerticle: CoroutineVerticle() {
         // Get.
         get("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
         get("/:database").coroutineHandler { Get(location, keycloak).handle(it) }
+        post("/").coroutineHandler { Get(location, keycloak).handle(it) }
+        post("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
 
         // Delete.
         delete("/:database/:resource").coroutineHandler { Delete(location, keycloak).handle(it) }
@@ -90,7 +94,8 @@ class SirixVerticle: CoroutineVerticle() {
                 if (failure is HttpStatusException)
                     response(failureRoutingContext.response(), failure.statusCode, failure.message)
                 else
-                    response(failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(), failure.message)
+                    response(failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                            failure.message)
             } else {
                 response(failureRoutingContext.response(), statusCode, failure?.message)
             }
