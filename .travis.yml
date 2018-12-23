@@ -14,6 +14,7 @@ notifications:
 after-success:
   mvn jacoco:report coveralls:jacoco
 before_deploy:
+  - mvn clean package
   - docker build -t sirixdb/sirix ./bundles/sirix-rest-api/src/main/docker
 deploy:
   provider: script
