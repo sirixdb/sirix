@@ -27,15 +27,18 @@ private enum class InsertionMode {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
-    }, ASRIGHTSIBLING {
+    },
+    ASRIGHTSIBLING {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
-    }, ASLEFTSIBLING {
+    },
+    ASLEFTSIBLING {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
-    }, REPLACE {
+    },
+    REPLACE {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.replaceNode(xmlReader)
         }
@@ -79,7 +82,8 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
         update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
     }
 
-    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?, resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
+                               resFileToStore: String, ctx: RoutingContext) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {

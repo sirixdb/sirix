@@ -58,6 +58,21 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
             return
         }
 
+        val query: String? = ctx.queryParam("query").getOrNull(0)
+
+        if (dbName == null && resName == null) {
+
+            if (query == null)
+                IllegalArgumentException("Query must be given if database name and resource name are not given.")
+            else
+                xquery(query, null, ctx, vertxContext, user)
+        }
+
+        get(dbName, ctx, resName, query, vertxContext, user)
+    }
+
+    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+                            vertxContext: Context, user: User) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
@@ -66,30 +81,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-        val query: String? = ctx.queryParam("query").getOrNull(0)
 
-        if (dbName == null && resName == null) {
-            if (query == null)
-                IllegalArgumentException("Query must be given if database name and resource name are not given.")
-            else
-                xquery(query, null, ctx, vertxContext)
-        }
-
-        get(dbName, ctx, resName, query, revision, revisionTimestamp, nodeId, vertxContext, startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
-    }
-
-    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?, revision: String?, revisionTimestamp: String?, nodeId: String?, vertxContext: Context, startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?) {
         val database: Database
         try {
             database = Databases.openDatabase(location.resolve(dbName))
@@ -109,16 +101,21 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
             manager.use {
                 if (query != null) {
-                    queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query, vertxContext)
+                    queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                            vertxContext, user)
                 } else {
-                    val revisions: Array<Int> = getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp, manager, revision, revisionTimestamp)
+                    val revisions: Array<Int> =
+                            getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
+                                    endRevisionTimestamp, manager, revision, revisionTimestamp)
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                 }
             }
         }
     }
 
-    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?, manager: ResourceManager, revision: String?, revisionTimestamp: String?): Array<Int> {
+    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
+                                        endRevisionTimestamp: String?, manager: ResourceManager, revision: String?,
+                                        revisionTimestamp: String?): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
             startRevisionTimestamp != null && endRevisionTimestamp != null -> {
@@ -129,7 +126,9 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database, revision: String?, revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext, nodeId: String?, query: String, vertxContext: Context) {
+    private suspend fun queryResource(dbName: String?, database: Database, revision: String?,
+                                      revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext,
+                                      nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
 
             val dbCollection = DBCollection(dbName, database)
@@ -149,7 +148,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
                         val dbNode = DBNode(trx, dbCollection)
 
-                        xquery(query, dbNode, ctx, vertxContext)
+                        xquery(query, dbNode, ctx, vertxContext, user)
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
@@ -172,10 +171,11 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context) {
+    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context,
+                               user: User) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), routingContext.user())
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext(dbStore)
@@ -186,7 +186,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 out.use {
                     PrintStream(out).use {
-                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
+                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx,
+                                DBSerializer(it, true, true))
                     }
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
@@ -209,7 +210,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: ResourceManager, revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
+    private fun getRevisionNumbers(manager: ResourceManager,
+                                   revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
         var firstRevisionNumber = manager.getRevisionNumber(zdtFirstRevision.toInstant())
@@ -237,7 +239,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String, endRevision: String): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(startRevision: String,
+                                        endRevision: String): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

@@ -106,6 +106,95 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("POST-Request followed by sending a PUT-Request, then a POST-Request and then send a subsequent " +
+            "GET-Request")
+    fun testPUTthenPOSTthenGet(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    val expectUpdatedString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3">
+                            <xml rest:id="4">
+                              foo
+                              <bar rest:id="6"/>
+                            </xml>
+                          </bar>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                    val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
+
+                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    httpResponse = client.getAbs("$server$serverPath?query=/xml/all-time::*").putHeader(HttpHeaders
+                            .AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            println(httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent PUT-Request")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
