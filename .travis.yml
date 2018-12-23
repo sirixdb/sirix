@@ -1,3 +1,5 @@
+services:
+  - docker
 language: java
 jdk:
   - oraclejdk9
@@ -11,3 +13,8 @@ notifications:
       - lichtenberger.johannes@gmail.com
 after-success:
   mvn jacoco:report coveralls:jacoco
+deploy:
+  provider: script
+  script: bash docker_push.sh
+  on:
+    branch: master
