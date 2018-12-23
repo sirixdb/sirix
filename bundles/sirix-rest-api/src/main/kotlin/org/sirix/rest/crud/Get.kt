@@ -4,16 +4,12 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
@@ -58,17 +54,16 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
             return
         }
 
-        val query: String? = ctx.queryParam("query").getOrNull(0)
+        val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
 
         if (dbName == null && resName == null) {
-
             if (query == null)
                 IllegalArgumentException("Query must be given if database name and resource name are not given.")
             else
                 xquery(query, null, ctx, vertxContext, user)
+        } else {
+            get(dbName, ctx, resName, query, vertxContext, user)
         }
-
-        get(dbName, ctx, resName, query, vertxContext, user)
     }
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,

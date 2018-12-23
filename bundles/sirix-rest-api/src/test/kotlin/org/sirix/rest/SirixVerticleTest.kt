@@ -255,6 +255,80 @@ class SirixVerticleTest {
     }
 
     @Test
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent POST-Request in order to " +
+            "send an XQuery-expression")
+    fun testXQueryPost(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    val expectedResult = """
+                        <rest:sequence xmlns:rest="https://sirix.io/rest">
+                          <rest:item rest:revision="1">
+                            <bar rest:id="3"/>
+                          </rest:item>
+                        </rest:sequence>
+                    """.trimIndent()
+
+                    val url = "$server"
+
+                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer("sdb:doc('database', " +
+                            "'resource1')//bar"))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            val result =
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                                            .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
+                            assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("POST-Request followed by sending a PUT-Request and then send a subsequent POST-Request")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
