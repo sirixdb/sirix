@@ -31,6 +31,7 @@ import org.sirix.xquery.node.DBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -57,13 +58,37 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
 
         if (dbName == null && resName == null) {
-            if (query == null)
-                IllegalArgumentException("Query must be given if database name and resource name are not given.")
+            if (query == null || query.isEmpty())
+                listDatabases(ctx, vertxContext)
             else
                 xquery(query, null, ctx, vertxContext, user)
         } else {
             get(dbName, ctx, resName, query, vertxContext, user)
         }
+    }
+
+    private fun listDatabases(ctx: RoutingContext, vertxContext: Context?) {
+        val databases = Files.list(location)
+
+        val buffer = StringBuilder()
+
+        buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+
+        databases.use {
+            databases.filter { Files.isDirectory(it) }.forEach {
+                buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+            }
+        }
+
+        buffer.append("</rest:sequence>")
+
+        val content = buffer.toString()
+
+        ctx.response().setStatusCode(200)
+                .putHeader("Content-Type", "application/xml")
+                .putHeader("Content-Length", content.length.toString())
+                .write(content)
+                .end()
     }
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
@@ -125,7 +150,6 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
                                       revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext,
                                       nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
-
             val dbCollection = DBCollection(dbName, database)
 
             dbCollection.use {

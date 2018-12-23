@@ -72,12 +72,14 @@ class SirixVerticle : CoroutineVerticle() {
         post("/:database/:resource").coroutineHandler { Update(location, keycloak).handle(it) }
 
         // Get.
+        get("/").coroutineHandler { Get(location, keycloak).handle(it) }
         get("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
         get("/:database").coroutineHandler { Get(location, keycloak).handle(it) }
         post("/").coroutineHandler { Get(location, keycloak).handle(it) }
         post("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
 
         // Delete.
+        delete("/").coroutineHandler { Delete(location, keycloak).handle(it) }
         delete("/:database/:resource").coroutineHandler { Delete(location, keycloak).handle(it) }
         delete("/:database").coroutineHandler { Delete(location, keycloak).handle(it) }
 
