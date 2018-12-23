@@ -35,7 +35,7 @@ We not only support all XPath axis (as well as a few more like as for instance a
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
     -   [Maven Artifacts](#maven-artifacts)
-    -   [Docker Image](#docker-image)
+    -   [Docker Images](#docker-images)
     -   [Command line tool](#command-line-tool)
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
