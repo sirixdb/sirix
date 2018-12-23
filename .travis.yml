@@ -13,6 +13,8 @@ notifications:
       - lichtenberger.johannes@gmail.com
 after-success:
   mvn jacoco:report coveralls:jacoco
+before_install:
+  - docker build -t sirixdb/sirix bundles/sirix-rest-api/src/maim/docker/Dockerfile
 deploy:
   provider: script
   script: bash docker_push
