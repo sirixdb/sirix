@@ -11,7 +11,7 @@ jobs:
     - stage: deploy
       name: "Deploy to Sonatype's snapshots repository"
       if: type != pull_request AND env(SONATYPE_NEXUS_USERNAME) IS present
-      script: bash travis.deploy.artifacts.sh
+      script: bash .travis.deploy.artifacts.sh
 notifications:
   email:
     on_failure: always
