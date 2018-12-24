@@ -272,7 +272,9 @@ if (200 == httpResponse.statusCode()) {
 }
 ```
 
-This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).  
+This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).
+
+https://github.com/sirixdb/sirix/wiki/RESTful-API gives an overview about the API.
 
 ## DOM alike API
 Think of this rather low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas nodes can be selected by a transactional cursor API by their unique identifier, which has been created during insertion with a sequence generator. Another DOM like API is available through our XQuery layer, which adds a simple Interface for in-memory node instances. However the low level API, which we are describing below doesn't have to have all nodes in-memory (and it usually doesn't). Nodes are fetched from variable length pages which have been either cached by a buffer manager in memory or reside on the flash drive or a spinning disk and have to be read from a file.
