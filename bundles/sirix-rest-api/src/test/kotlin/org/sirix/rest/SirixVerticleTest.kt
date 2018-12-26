@@ -37,7 +37,8 @@ class SirixVerticleTest {
     @BeforeEach
     @DisplayName("Deploy a verticle")
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
-        val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443))
+        val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443)
+                .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
@@ -83,7 +84,7 @@ class SirixVerticleTest {
                                     "Bearer $accessToken").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
-                        var httpResponse =
+                        httpResponse =
                                 client.putAbs("$server/database1/resource").putHeader(HttpHeaders.AUTHORIZATION
                                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
 

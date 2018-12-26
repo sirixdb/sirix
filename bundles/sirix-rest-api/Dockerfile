@@ -1,7 +1,7 @@
 ###
-# vert.x docker example using a Java verticle packaged as a fatjar
+# Sirix Vert.x based HTTP(S)-server backend packaged as a fatjar.
 # To build (current dir is the sirix-rest-api module root):
-#  docker build -t sirix-rest-api -f src/main/docker/Dockerfile .
+#  docker build -t sirix-rest-api .
 # To run:
 #  docker run -t -i -p 9443:9443 sirix-rest-api
 ###

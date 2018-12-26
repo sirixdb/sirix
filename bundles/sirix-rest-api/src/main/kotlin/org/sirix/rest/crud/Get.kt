@@ -44,11 +44,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
         val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-view")
-                else
-                    user.isAuthorizedAwait("realm:view")
+        val isAuthorized = user.isAuthorizedAwait("realm:view")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -59,7 +55,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
         if (dbName == null && resName == null) {
             if (query == null || query.isEmpty())
-                listDatabases(ctx, vertxContext)
+                listDatabases(ctx)
             else
                 xquery(query, null, ctx, vertxContext, user)
         } else {
@@ -67,7 +63,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private fun listDatabases(ctx: RoutingContext, vertxContext: Context?) {
+    private fun listDatabases(ctx: RoutingContext) {
         val databases = Files.list(location)
 
         val buffer = StringBuilder()
