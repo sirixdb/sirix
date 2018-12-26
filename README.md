@@ -139,7 +139,11 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 The following sections show different APIs to interact with Sirix.
     
 ## RESTful-API
-We provide a simple, asynchronous RESTful-API. As authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) against a Keycloak instance, we first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be setup as described in this excellent documentation:
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/
+All you have to change is setting the client-id to "sirix" and put the client secret into our configuration file: "client.secret": "..." whatever Keycloak set up. The direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof.
+
+We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
 
 ```kotlin
 val server = "https://localhost:9443"
