@@ -8,6 +8,14 @@ branches:
     - master
 jobs:
   include:
+    - stage: test
+      name: "OracleJDK 9"
+      jdk: oraclejdk9
+      script: mvn -q clean verify -B
+    - if: type != pull_request
+      name: "OpenJDK 11"
+      jdk: openjdk11
+      script: mvn -q clean verify -B
     - stage: deploy
       name: "Deploy to Sonatype's snapshots repository"
       if: type != pull_request AND env(SONATYPE_NEXUS_USERNAME) IS present
