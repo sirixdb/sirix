@@ -27,11 +27,7 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
 
         val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-delete")
-                else
-                    user.isAuthorizedAwait("realm:delete")
+        val isAuthorized = user.isAuthorizedAwait("realm:delete")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())

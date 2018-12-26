@@ -52,11 +52,7 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
 
         val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-modify")
-                else
-                    user.isAuthorizedAwait("realm:modify")
+        val isAuthorized = user.isAuthorizedAwait("realm:modify")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())

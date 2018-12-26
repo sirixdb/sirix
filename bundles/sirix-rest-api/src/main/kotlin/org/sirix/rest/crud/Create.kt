@@ -32,11 +32,7 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
 
         val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (databaseName != null)
-                    user.isAuthorizedAwait("realm:${databaseName.toLowerCase()}-create")
-                else
-                    user.isAuthorizedAwait("realm:create")
+        val isAuthorized = user.isAuthorizedAwait("realm:create")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
