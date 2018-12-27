@@ -155,9 +155,17 @@ The following sections show different APIs to interact with Sirix.
 ## RESTful-API
 We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be setup as described in this excellent documentation:
 https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/
-All you have to change is setting the client-id to "sirix" and put the client secret into our configuration file: "client.secret": "..." whatever Keycloak set up. The direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof.
+All you have to change is setting the client-id to "sirix" and put the client secret into our [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). client.secret": "..." whatever Keycloak set up. Regarding Keycloak the direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
 
-We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+Once Keycloak is set up we can start the server via:
+
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+
+If you like to change your user home directory to `/opt/intrexx` for instance.
+
+The fat-JAR can be downloaded from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
+
+After Keycloak and our server are up and running, we can write a simple HTTP-Client. We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
 
 ```kotlin
 val server = "https://localhost:9443"
