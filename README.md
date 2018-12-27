@@ -86,7 +86,7 @@ Maven artifacts are deployed to the central maven repository (however please use
 Core project:
 ```xml
 <dependency>
-  <groupId>com.github.sirixdb.sirix</groupId>
+  <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
@@ -95,7 +95,7 @@ Core project:
 Brackit binding:
 ```xml
 <dependency>
-  <groupId>com.github.sirixdb.sirix</groupId>
+  <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
@@ -104,7 +104,7 @@ Brackit binding:
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
 ```xml
 <dependency>
-  <groupId>com.github.sirixdb.sirix</groupId>
+  <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
