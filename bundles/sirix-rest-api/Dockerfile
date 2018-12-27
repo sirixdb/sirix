@@ -1,7 +1,7 @@
 ###
 # Sirix Vert.x based HTTP(S)-server backend packaged as a fatjar.
 # To build (current dir is the sirix-rest-api module root):
-#  docker build -t sirix-rest-api .
+#  docker build -t sirixdb/sirix .
 # To run:
 #  docker run -t -i -p 9443:9443 sirixdb/sirix
 ###
