@@ -3,7 +3,7 @@
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 <img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/>
 
-[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
@@ -114,11 +114,11 @@ Other modules are currently not available (namely the GUI, the distributed packa
 
 ### Docker images
 Currently something is wrong with the docker-image, but we'll try to fix it as soon as possible.
-Docker images can be pulled from Docker (sirixdb/sirix - `docker pull sirixdb/sirix`).
+Docker images can be pulled from Docker (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
 2. `docker run -t -i -p 9443:9443 sirixdb/sirix`
-3. `docker cp src/main/resources sirixdb/sirix:/opt/sirix`
+3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
 
 You need to override the resources, for instance the sirix-conf.json (where you have to put your client.secret from Keycloak), as well as the files key.pem/cert.pem for running HTTPS (it's a demo key/certificate for example.org).
 
