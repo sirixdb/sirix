@@ -115,18 +115,20 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
 ### Docker images
-Docker images can be pulled from Docker (sirixdb/sirix).
+First, we need a running Keycloak server for now on port 8080.
+
+As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles).
+
+For running a keycloak docker container you could for instance use the following docker command:
+`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+
+Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
 2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
 
-You need to override the resources, for instance the sirix-conf.json (where you have to put your client.secret from Keycloak), as well as the files key.pem/cert.pem for running HTTPS (it's a demo key/certificate for example.org).
-
-As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles).
-
-For running a keycloak docker container you could for instance use:
-`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+In the third step you have to override the resources, for instance the sirix-conf.json file, which is our configuration file where you have to put your client.secret from Keycloak, as well as the files `key.pem`/`cert.pem` for HTTPS (it's shipped with a demo key/certificate for example.org). Ideally all 3 files reside in one directory (in our example and in the sirix-rest-api module it's in `src/main/resources`).
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
