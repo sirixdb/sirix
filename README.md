@@ -40,13 +40,13 @@ We not only support all XPath axis (as well as a few more like as for instance a
     -   [Command line tool](#command-line-tool)
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
--   [Visualizations](#visualizations)
 -   [RESTful-API](#restful-api)
 -   [DOM alike API](#dom-alike-api) 💪
 -   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
     -   [Join us on Slack](#join-us-on-slack)
+-   [Visualizations](#visualizations)
 -   [Why should you even bother?](#why-should-you-even-bother)
 -   [Features in a nutshell](#features-in-a-nutshell)
 -   [Developers](#developers)
@@ -141,16 +141,6 @@ Please have a look into our sirix-example project how to use Sirix from Java. We
 ### Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven.
-
-## Visualizations
-<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
-
-<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
-
-A screencast is available depicting the SunburstView and the TextView side by side: 
-http://www.youtube.com/watch?v=l9CXXBkl5vI
-
-<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
 
 The following sections show different APIs to interact with Sirix.
     
@@ -616,6 +606,16 @@ Any questions or even consider to contribute or use Sirix? Use the [Mailing List
 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
+
+## Visualizations (built on top of the cursor-based transaction API)
+<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
+
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
+
+A screencast is available depicting the SunburstView and the TextView side by side: 
+http://www.youtube.com/watch?v=l9CXXBkl5vI
+
+<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
 
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
