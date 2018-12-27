@@ -28,7 +28,7 @@
 		<artifactId>oss-parent</artifactId>
 		<version>7</version>
 	</parent>
-	<groupId>io.sirix</groupId>
+	<groupId>com.github.sirixdb.sirix</groupId>
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
