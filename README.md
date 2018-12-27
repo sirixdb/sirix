@@ -119,7 +119,7 @@ Currently something is wrong with the docker-image, but we'll try to fix it as s
 Docker images can be pulled from Docker (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
-2. `docker run -t -i -p 9443:9443 sirixdb/sirix`
+2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix`
 3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
 
 You need to override the resources, for instance the sirix-conf.json (where you have to put your client.secret from Keycloak), as well as the files key.pem/cert.pem for running HTTPS (it's a demo key/certificate for example.org).
