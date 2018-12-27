@@ -19,9 +19,11 @@ EXPOSE 9443
 
 # Copy your fat jar to the container
 COPY target/$VERTICLE_FILE $VERTICLE_HOME/
-COPY src/main/resources/ $VERTICLE_HOME/
+COPY src/main/resources/cert.pem $VERTICLE_HOME/sirix-data
+COPY src/main/resources/key.pem $VERTICLE_HOME/sirix-data
+COPY src/main/resources/sirix-conf.json $VERTICLE_HOME/
 
 # Launch the verticle
 WORKDIR $VERTICLE_HOME
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json"]
+CMD ["exec java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
