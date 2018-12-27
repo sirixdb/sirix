@@ -24,4 +24,4 @@ COPY src/main/resources/ $VERTICLE_HOME/
 # Launch the verticle
 WORKDIR $VERTICLE_HOME
 ENTRYPOINT ["sh", "-c"]
-CMD ["exec java -jar -Duser.home=$VERTICLE_HOME -conf sirix-conf.json $VERTICLE_FILE"]
+CMD ["exec java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json"]
