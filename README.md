@@ -115,11 +115,10 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
 ### Docker images
-Currently something is wrong with the docker-image, but we'll try to fix it as soon as possible.
 Docker images can be pulled from Docker (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
-2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix`
+2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
 
 You need to override the resources, for instance the sirix-conf.json (where you have to put your client.secret from Keycloak), as well as the files key.pem/cert.pem for running HTTPS (it's a demo key/certificate for example.org).
