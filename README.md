@@ -3,6 +3,8 @@
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 <img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/>
 
+[![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=SirixDB%2C+a+temporal%2C+versioned+storage+system&url=http://sirix.io&via=sirix&hashtags=versioning,diffing,xml,kotlin,coroutines,vertx)
+
 [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
