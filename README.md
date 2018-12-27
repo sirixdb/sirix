@@ -81,6 +81,8 @@ Just add the following repository section to your POM file:
 </repository>
 ```
 
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`.</strong>
+
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
 Core project:
