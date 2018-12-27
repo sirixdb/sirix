@@ -19,7 +19,7 @@ EXPOSE 9443
 
 # Copy your fat jar to the container
 COPY target/$VERTICLE_FILE $VERTICLE_HOME/
-COPY src/main/resources/ $VERTICLE_HOME/
+COPY src/main/resources/. $VERTICLE_HOME/
 
 # Launch the verticle
 WORKDIR $VERTICLE_HOME
