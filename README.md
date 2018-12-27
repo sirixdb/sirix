@@ -3,7 +3,7 @@
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 <img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/>
 
-[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
 <h2 align="center">A Time Machine for Your Data</h1>
