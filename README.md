@@ -117,7 +117,7 @@ Other modules are currently not available (namely the GUI, the distributed packa
 ### Docker images
 First, we need a running Keycloak server for now on port 8080.
 
-As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles).
+As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
 
 For running a keycloak docker container you could for instance use the following docker command:
 `docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
