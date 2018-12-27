@@ -109,23 +109,35 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         database.use {
             val manager: ResourceManager
             try {
-                manager = database.getResourceManager(resName)
+                if (resName == null) {
+                    val buffer = StringBuilder()
+                    buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+
+                    for (resource in it.listResources()) {
+                        buffer.appendln("  <rest:item resource-name=\"${resource.fileName}\"/>")
+                    }
+
+                    buffer.appendln("</rest:sequence>")
+                } else {
+                    manager = database.getResourceManager(resName)
+
+                    manager.use {
+                        if (query != null && query.isNotEmpty()) {
+                            queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                    vertxContext, user)
+                        } else {
+                            val revisions: Array<Int> =
+                                    getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
+                                            endRevisionTimestamp, manager, revision, revisionTimestamp)
+                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        }
+                    }
+                }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
                 return
             }
 
-            manager.use {
-                if (query != null && query.isNotEmpty()) {
-                    queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                            vertxContext, user)
-                } else {
-                    val revisions: Array<Int> =
-                            getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
-                                    endRevisionTimestamp, manager, revision, revisionTimestamp)
-                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                }
-            }
         }
     }
 
