@@ -116,7 +116,7 @@ Other modules are currently not available (namely the GUI, the distributed packa
 Docker images can be pulled from Docker (sirixdb/sirix - `docker pull sirixdb/sirix`). As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles).
 
 For running a keycloak docker container you could for instance use:
-`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured vis a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
