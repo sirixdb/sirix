@@ -124,6 +124,8 @@ As a Keycloak instance is needed for the RESTful-API we'll build a simple docker
 For running a keycloak docker container you could for instance use the following docker command:
 `docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
 
+FIXME: Any docker specialists out there? Must be pull/create/co and the start for copying the files into the container I guess.
+
 Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
