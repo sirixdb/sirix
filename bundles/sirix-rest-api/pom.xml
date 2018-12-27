@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.github.sirixdb.sirix</groupId>
+        <groupId>io.sirix</groupId>
         <artifactId>sirix-parent</artifactId>
         <version>0.9.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
