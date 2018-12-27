@@ -113,7 +113,7 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
 ### Docker images
-Docker images can be pulled from Docker Hub (sirixdb/sirix - https://cloud.docker.com/u/sirixdb/repository/docker/sirixdb/sirix). As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles). 
+Docker images can be pulled from Docker (sirixdb/sirix - `docker pull sirixdb/sirix`). As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles). 
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
