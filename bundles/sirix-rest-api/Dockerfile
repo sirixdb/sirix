@@ -3,7 +3,7 @@
 # To build (current dir is the sirix-rest-api module root):
 #  docker build -t sirix-rest-api .
 # To run:
-#  docker run -t -i -p 9443:9443 sirix-rest-api
+#  docker run -t -i -p 9443:9443 sirixdb/sirix
 ###
 
 FROM openjdk:9-jre
