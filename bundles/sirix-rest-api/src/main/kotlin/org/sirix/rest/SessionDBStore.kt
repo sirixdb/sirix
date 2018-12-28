@@ -44,7 +44,7 @@ class SessionDBStore(private val dbStore: DBStore, private val user: User) : DBS
     }
 
     private fun checkIfAuthorized(name: String, role: String) {
-        user.isAuthorized("realm:${name.toLowerCase()}-$role") {
+        user.isAuthorized("realm:$role") {
             if (!it.succeeded()) {
                 throw IllegalArgumentException("User is not allowed to $role the database $name")
             }
