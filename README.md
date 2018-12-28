@@ -122,17 +122,20 @@ First, we need a running Keycloak server for now on port 8080.
 As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
 
 For running a keycloak docker container you could for instance use the following docker command:
-`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful, asynchronous API. It is the authorization server instance.
 
-FIXME: Any docker specialists out there? Must be pull/create/cp and then start for copying the files into the container I guess.
+Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix). However the easiest way for now is to download Sirix, then
 
-Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix).
+1. Change into the sirix-rest-api bundle: `cd bundles/sirix-rest-api`
+2. Change the configuration in `src/main/resources/sirix-conf.json` and add the secret from Keycloak (see for instance this great [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/) and change the HTTP(S)-Server port Sirix is listening on:
 
-1. `docker pull sirixdb/sirix`
-2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
-3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
+<img src="https://piotrminkowski.files.wordpress.com/2017/09/vertx-sec-3.png"/>
+3. You can simply use the example `key.pem`/`cert.pem` files in `src/main/resources` for HTTPS (for example.org), but you have to change it, once we release the stable version for production. Then you for sure have to use a certificate/key for your domain. You could use [Let's Encrypt](https://letsencrypt.org/) for instance to get an SSL/TLS certificate for free.
+3. Build the docker image: `docker build -t sirixdb/sirix`
+4. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 
-In the third step you have to override the resources, for instance the sirix-conf.json file, which is our configuration file where you have to put your client.secret from Keycloak, as well as the files `key.pem`/`cert.pem` for HTTPS (it's shipped with a demo key/certificate for example.org). Ideally all 3 files reside in one directory (in our example and in the sirix-rest-api module it's in `src/main/resources`).
+Sirix should be up and running afterwards :-)
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
