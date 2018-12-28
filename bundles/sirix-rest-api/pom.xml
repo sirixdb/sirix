@@ -154,7 +154,7 @@
                 <version>2.3</version>
                 <executions>
                     <execution>
-                        <phase>deploy</phase>
+                        <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
