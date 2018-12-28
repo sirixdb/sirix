@@ -3,10 +3,12 @@
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
 <img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/>
 
+[![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=SirixDB+-+a+storage+system%2C+which+creates+%28very+small-sized%29+snapshots+of+your+data+on+every+transaction-commit+through+the+implementation+of+a+novel+sliding+snapshot+algorithm.&url=http://sirix.io&via=sirix&hashtags=versioning,diffing,xml,kotlin,coroutines,vertx)
+
 [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
 
 <h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
-<h2 align="center">A Time Machine for Your Data</h1>
+<h2 align="center">Effective And Efficient Storing And Querying Of Snapshots</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
@@ -17,7 +19,7 @@
 <p>&nbsp;</p>
 
 ## Storing and querying of your temporal data
-Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
+Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
@@ -40,13 +42,13 @@ We not only support all XPath axis (as well as a few more like as for instance a
     -   [Command line tool](#command-line-tool)
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
--   [Visualizations](#visualizations)
 -   [RESTful-API](#restful-api)
 -   [DOM alike API](#dom-alike-api) 💪
 -   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
     -   [Join us on Slack](#join-us-on-slack)
+-   [Visualizations](#visualizations)
 -   [Why should you even bother?](#why-should-you-even-bother)
 -   [Features in a nutshell](#features-in-a-nutshell)
 -   [Developers](#developers)
@@ -115,19 +117,22 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
 ### Docker images
-Currently something is wrong with the docker-image, but we'll try to fix it as soon as possible.
-Docker images can be pulled from Docker (sirixdb/sirix).
+First, we need a running Keycloak server for now on port 8080.
+
+As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
+
+For running a keycloak docker container you could for instance use the following docker command:
+`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+
+FIXME: Any docker specialists out there? Must be pull/create/cp and then start for copying the files into the container I guess.
+
+Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix).
 
 1. `docker pull sirixdb/sirix`
-2. `docker run -t -i -p 9443:9443 sirixdb/sirix`
+2. `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 3. `docker cp src/main/resources/. sirixdb/sirix:/opt/sirix`
 
-You need to override the resources, for instance the sirix-conf.json (where you have to put your client.secret from Keycloak), as well as the files key.pem/cert.pem for running HTTPS (it's a demo key/certificate for example.org).
-
-As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles).
-
-For running a keycloak docker container you could for instance use:
-`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful asynchronous API. It is the authorization server instance.
+In the third step you have to override the resources, for instance the sirix-conf.json file, which is our configuration file where you have to put your client.secret from Keycloak, as well as the files `key.pem`/`cert.pem` for HTTPS (it's shipped with a demo key/certificate for example.org). Ideally all 3 files reside in one directory (in our example and in the sirix-rest-api module it's in `src/main/resources`).
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
@@ -135,30 +140,35 @@ We ship a (very) simple command line tool for the sirix-xquery bundle:
 Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/sirix-xquery/0.8.9-SNAPSHOT/) with dependencies.
 
 ### First steps
-Please have a look into our sirix-example project how to use Sirix from Java. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
+Please have a look into our sirix-example project how to use Sirix from Java.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
-Please also have a look at and play with our sirix-example bundle which is available via maven.
-
-## Visualizations
-<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
-
-<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
-
-A screencast is available depicting the SunburstView and the TextView side by side: 
-http://www.youtube.com/watch?v=l9CXXBkl5vI
-
-<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki or in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
+Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 The following sections show different APIs to interact with Sirix.
     
 ## RESTful-API
-We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be setup as described in this excellent documentation:
-https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/
-All you have to change is setting the client-id to "sirix" and put the client secret into our configuration file: "client.secret": "..." whatever Keycloak set up. The direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof.
+We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be set up as described in this excellent [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/)
+All you have to change is setting the client-id to "sirix" and put the client secret into our [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up (can be found on the credetials tab of your account). Regarding Keycloak the direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
 
-We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+To created a fat-JAR. Download our ZIP-file for instance, then
+
+1. `cd bundles/sirix-rest-api`
+2. `mvn clean deploy -DskipTests`
+
+And a fat-JAR with all required dependencies should have been created in your target folder.
+
+Once also Keycloak is set up we can start the server via:
+
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+
+If you like to change your user home directory to `/opt/intrexx` for instance.
+
+The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
+
+After Keycloak and our server are up and running, we can write a simple HTTP-Client. We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
 
 ```kotlin
 val server = "https://localhost:9443"
@@ -600,6 +610,16 @@ Any questions or even consider to contribute or use Sirix? Use the [Mailing List
 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
+
+## Visualizations (built on top of the cursor-based transaction API)
+<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
+
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
+
+A screencast is available depicting the SunburstView and the TextView side by side: 
+http://www.youtube.com/watch?v=l9CXXBkl5vI
+
+<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
 
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
