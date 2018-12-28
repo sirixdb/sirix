@@ -113,12 +113,12 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>${dep.version}</version>
 		</dependency>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>${dep.version}</version>
 			<type>test-jar</type>

@@ -97,12 +97,12 @@
             <version>${kotlin.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.github.sirixdb.sirix</groupId>
+            <groupId>io.sirix</groupId>
             <artifactId>sirix-core</artifactId>
             <version>${sirix.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.github.sirixdb.sirix</groupId>
+            <groupId>io.sirix</groupId>
             <artifactId>sirix-xquery</artifactId>
             <version>${sirix.version}</version>
         </dependency>
