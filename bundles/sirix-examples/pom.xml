@@ -51,19 +51,19 @@
 	
 	<dependencies>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>0.8.9-SNAPSHOT</version>
 		</dependency>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>0.8.9-SNAPSHOT</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-xquery</artifactId>
 			<version>0.8.9-SNAPSHOT</version>
 		</dependency>
