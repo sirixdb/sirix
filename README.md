@@ -116,7 +116,7 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
-### Docker images
+### Docker images for the Sirix HTTP(S)-Server / the REST-API 
 First, we need a running Keycloak server for now on port 8080.
 
 As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
@@ -147,7 +147,7 @@ Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/
 Please have a look into our sirix-example project how to use Sirix from Java.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki or in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 The following sections show different APIs to interact with Sirix.
