@@ -72,7 +72,7 @@ import com.google.common.collect.ImmutableSet;
  * </p>
  *
  * <pre>
- * <code>sdb:store($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string</code>
+ * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
