@@ -307,6 +307,24 @@ if (200 == httpResponse.statusCode()) {
 
 This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).
 
+If we ant to get a diff, currently in the form of an XQuery Update Statement (but we could serialize them in any format), simply call the XQuery function `sdb:diff`:
+
+`sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string`
+
+For instance via a GET-request like this:
+
+```GET https://localhost:9443/?query=sdb:diff('database','resource1',1,2)```
+
+In order to get a diff as for instance:
+
+```
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  let $doc := sdb:doc('database','resource1', 1)
+  return (
+    insert nodes <xml>foo<bar/></xml> as first into sdb:select-node($doc, 3)
+  )
+</rest:sequence>
+
 https://github.com/sirixdb/sirix/wiki/RESTful-API gives an overview about the API.
 
 ## DOM alike API
