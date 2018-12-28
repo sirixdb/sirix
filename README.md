@@ -135,7 +135,7 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 3. Build the docker image: `docker build -t sirixdb/sirix`
 4. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 
-Sirix should be up and running afterwards :-)
+Sirix should be up and running afterwards. Please let us know if you have any trouble setting it up.
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
