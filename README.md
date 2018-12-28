@@ -131,9 +131,10 @@ Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix). However th
 https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/) and change the HTTP(S)-Server port Sirix is listening on:
 
 <img src="https://piotrminkowski.files.wordpress.com/2017/09/vertx-sec-3.png"/>
+
 3. You can simply use the example `key.pem`/`cert.pem` files in `src/main/resources` for HTTPS (for example.org), but you have to change it, once we release the stable version for production. Then you for sure have to use a certificate/key for your domain. You could use [Let's Encrypt](https://letsencrypt.org/) for instance to get an SSL/TLS certificate for free.
-3. Build the docker image: `docker build -t sirixdb/sirix`
-4. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
+4. Build the docker image: `docker build -t sirixdb/sirix`
+5. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
 
 Sirix should be up and running afterwards. Please let us know if you have any trouble setting it up.
 
