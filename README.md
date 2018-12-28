@@ -284,6 +284,22 @@ The interesting part is that every PUT- as well as POST-request does an implicit
 </rest:sequence>
 ```
 
+In general we support several additional temporal XPath axis:
+
+```xquery
+future::
+future-or-self::
+past::
+past-or-self::
+previous::
+previous-or-self::
+next::
+next-or-self::
+first::
+last::
+all-time::
+```
+
 The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
 
 ```GET https://localhost:9443/database/resource1?start-revision=1&end-revision=2```
@@ -307,7 +323,7 @@ if (200 == httpResponse.statusCode()) {
 
 This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).
 
-If we ant to get a diff, currently in the form of an XQuery Update Statement (but we could serialize them in any format), simply call the XQuery function `sdb:diff`:
+If we want to get a diff, currently in the form of an XQuery Update Statement (but we could serialize them in any format), simply call the XQuery function `sdb:diff`:
 
 `sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string`
 
