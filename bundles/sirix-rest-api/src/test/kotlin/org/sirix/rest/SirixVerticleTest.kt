@@ -134,6 +134,109 @@ class SirixVerticleTest {
 
     @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing diffing of a database/resource with two revisions.")
+    fun testDiff(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      foo
+                      <bar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    val expectUpdatedString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          foo
+                          <bar rest:id="3">
+                            <xml rest:id="4">
+                              foo
+                              <bar rest:id="6"/>
+                            </xml>
+                          </bar>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                    var url = "$server$serverPath?nodeId=3&insert=asFirstChild"
+
+                    httpResponse =
+                            client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION.toString(),
+                                    "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    url = "$server/?query=sdb:diff('database','resource1',1,2)"
+
+                    httpResponse =
+                            client.getAbs(url).putHeader(HttpHeaders.AUTHORIZATION.toString(),
+                                    "Bearer $accessToken").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        val expectUpdatedString = """
+                            <rest:sequence xmlns:rest="https://sirix.io/rest">
+                            let ${"$"}doc := sdb:doc('database','resource1', 1)
+                            return (
+                              insert nodes <xml>foo<bar/></xml> as first into sdb:select-node(${"$"}doc, 3)
+                            )
+                            </rest:sequence>
+                        """.trimIndent()
+
+                        val responseBody = httpResponse.bodyAsString()
+
+                        testContext.verify {
+                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                    responseBody.replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
