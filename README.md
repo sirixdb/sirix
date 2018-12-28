@@ -311,19 +311,22 @@ If we ant to get a diff, currently in the form of an XQuery Update Statement (bu
 
 `sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string`
 
-For instance via a GET-request like this:
+For instance via a GET-request like this for the database/resource we created above, we could make this request:
 
-```GET https://localhost:9443/?query=sdb:diff('database','resource1',1,2)```
+`GET https://localhost:9443/?query=sdb:diff('database','resource1',1,2)`
 
 In order to get a diff as for instance:
 
-```
+```xml
 <rest:sequence xmlns:rest="https://sirix.io/rest">
   let $doc := sdb:doc('database','resource1', 1)
   return (
     insert nodes <xml>foo<bar/></xml> as first into sdb:select-node($doc, 3)
   )
 </rest:sequence>
+```
+
+This means the `resource1` from `database` is opened in the first revision. Then the subtree `<xml>foo<bar/></xml>` is appended to the node with the stable node-ID 3 as a first child.
 
 https://github.com/sirixdb/sirix/wiki/RESTful-API gives an overview about the API.
 
