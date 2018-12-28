@@ -139,7 +139,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                   ImmutableSet.of(this)).skipSubtrees(true)));
 
       try {
-        mLatch.await(10, TimeUnit.SECONDS);
+        mLatch.await(100000, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
@@ -178,16 +178,11 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append("  insert nodes ");
               mBuf.append(printSubtreeNode(newRtx));
 
-              if (oldRtx.hasLeftSibling()) {
-                mBuf.append(" before into sdb:select-node($doc");
+              if (oldRtx.isDocumentRoot()) {
+                buildUpdateStatement(newRtx);
               } else {
-                oldRtx.moveToParent();
-                mBuf.append(" as first into sdb:select-node($doc");
+                buildUpdateStatement(oldRtx);
               }
-
-              mBuf.append(", ");
-              mBuf.append(oldRtx.getNodeKey());
-              mBuf.append(")");
 
               anotherTupleToEmit =
                   determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
@@ -252,6 +247,19 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append(System.getProperty("line.separator"));
 
     return new Str(mBuf.toString());
+  }
+
+  private void buildUpdateStatement(final XdmNodeReadTrx rtx) {
+    if (rtx.hasLeftSibling()) {
+      mBuf.append(" before into sdb:select-node($doc");
+    } else {
+      rtx.moveToParent();
+      mBuf.append(" as first into sdb:select-node($doc");
+    }
+
+    mBuf.append(", ");
+    mBuf.append(rtx.getNodeKey());
+    mBuf.append(")");
   }
 
   private Optional<DiffTuple> determineIfAnotherTupleToEmitExists(int i,
