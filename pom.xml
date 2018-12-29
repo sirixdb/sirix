@@ -82,9 +82,6 @@
 			<url>http://download.oracle.com/maven</url>
 			<layout>default</layout>
 		</repository>
-		<repository>
-			<url>https://dl.bintray.com/mockito/maven</url>
-		</repository>
 	</repositories>
 	<reporting>
 		<plugins>
