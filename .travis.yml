@@ -9,8 +9,8 @@ branches:
 jobs:
   include:
     - stage: test
-      name: "OracleJDK 9"
-      jdk: oraclejdk9
+      name: "OpenJDK 11"
+      jdk: openjdk11
       script: mvn -q clean verify -B
     - stage: deploy
       name: "Deploy to Sonatype's snapshots repository"
