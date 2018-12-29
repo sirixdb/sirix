@@ -66,6 +66,8 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven (or Gradle?) project.
 
+We just changed to Java11 (OpenJDK 11).
+
 ### Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/).
 Just add the following repository section to your POM file:
