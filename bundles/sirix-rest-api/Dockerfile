@@ -6,7 +6,7 @@
 #  docker run -t -i -p 9443:9443 sirixdb/sirix
 ###
 
-FROM openjdk:9-jre
+FROM openjdk:11.0.1-jre
 
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 
