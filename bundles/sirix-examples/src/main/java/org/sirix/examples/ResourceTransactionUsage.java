@@ -3,16 +3,13 @@ package org.sirix.examples;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -25,26 +22,27 @@ public final class ResourceTransactionUsage {
   /** Storage for databases: Sirix data in home directory. */
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
+  // Under user.home a file with the name input.xml must exist for this simple example. 
   public static void main(final String[] args) {
-    final Path file = LOCATION.resolve("db");
-    final DatabaseConfiguration config = new DatabaseConfiguration(file);
+    var file = LOCATION.resolve("db");
+    var config = new DatabaseConfiguration(file);
     if (Files.exists(file)) {
       Databases.removeDatabase(file);
     }
     Databases.createDatabase(config);
 
-    try (final Database database = Databases.openDatabase(file)) {
+    try (var database = Databases.openDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());
 
-      try (final ResourceManager resource = database.getResourceManager("resource");
-          final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
-          final FileInputStream fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
+      try (var resourceMgr = database.getResourceManager("resource");
+          var wtx = resourceMgr.beginNodeWriteTrx();
+          var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(fis));
         wtx.moveTo(2);
         wtx.moveSubtreeToFirstChild(4).commit();
 
-        final OutputStream out = new ByteArrayOutputStream();
-        new XMLSerializer.XMLSerializerBuilder(resource, out).prettyPrint().build().call();
+        var out = new ByteArrayOutputStream();
+        new XMLSerializer.XMLSerializerBuilder(resourceMgr, out).prettyPrint().build().call();
 
         System.out.println(out);
       }
