@@ -331,9 +331,13 @@ If we want to get a diff, currently in the form of an XQuery Update Statement (b
 
 For instance via a GET-request like this for the database/resource we created above, we could make this request:
 
-`GET https://localhost:9443/?query=sdb:diff('database','resource1',1,2)`
+`GET https://localhost:9443/?query=sdb%3Adiff%28%27database%27%2C%27resource1%27%2C1%2C2%29`
 
-In order to get a diff as for instance:
+Note that the query-String has to be URL-encoded, thus it's decoded
+
+`sdb:diff('database','resource1',1,2)`
+
+The output for the diff in our example is this XQuery-Update statement wrapped in an enclosing sequence-element:
 
 ```xml
 <rest:sequence xmlns:rest="https://sirix.io/rest">
