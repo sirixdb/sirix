@@ -23,6 +23,11 @@
 
 **Discuss it on [Product Hunt](https://www.producthunt.com/posts/sirixdb-a-temporal-storage-system)**
 
+## Why should you even bother? / advantages of a temporal database
+We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system very efficiently and in a way, that storage space is used as effectively as possible while allowing the reconstruction of each version in linear time regarding the data stored at that time, no matter if it's the very first revision or the most recent revision.
+
+However, recently we stumbled across a very nice [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which addresses the why very well.
+
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
 
