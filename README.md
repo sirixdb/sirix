@@ -23,10 +23,10 @@
 
 **Discuss it on [Product Hunt](https://www.producthunt.com/posts/sirixdb-a-temporal-storage-system)**
 
-## Why should you even bother? / advantages of a temporal database
-We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across a very nice [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which addresses the why very well.
+## Why should you even bother? Advantages of a native, temporal database system
+We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations...
 
-Our strong belief is, that a temporal storage system must address the issues, which arise from keeping historical data way better than traditional approaches. Usually, storing time varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdle. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
+Our strong belief is, that a temporal storage system must address the issues, which arise from keeping past state way better than traditional approaches. Usually, storing time varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdle. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
 
 Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally query time of old/past revisions as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
