@@ -1,15 +1,13 @@
 package org.sirix.rest.crud
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.readFileAwait
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
@@ -18,7 +16,6 @@ import org.sirix.access.conf.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
-import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -27,21 +24,13 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Create(private val location: Path, private val keycloak: OAuth2Auth,
-             private val createMultipleResources: Boolean = false) {
-    suspend fun handle(ctx: RoutingContext) {
+class Create(private val location: Path, private val createMultipleResources: Boolean = false) {
+    suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
-        val user = Auth(keycloak).authenticateUser(ctx)
-        val isAuthorized = user.isAuthorizedAwait("realm:create")
-
-        if (!isAuthorized) {
-            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
-            return
-        }
 
         if (createMultipleResources) {
             createMultipleResources(databaseName, ctx)
-            return
+            return ctx.currentRoute()
         }
 
         val resource = ctx.pathParam("resource")
@@ -50,17 +39,18 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth,
             val dbFile = location.resolve(databaseName)
             val dispatcher = ctx.vertx().dispatcher()
             createDatabaseIfNotExists(dbFile, dispatcher)
-            return
+            return ctx.currentRoute()
         }
 
         val resToStore = ctx.bodyAsString
 
         if (databaseName == null || resToStore == null || resToStore.isBlank()) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
-            return
         }
 
         shredder(databaseName, resource, resToStore, ctx)
+
+        return ctx.currentRoute()
     }
 
     private suspend fun createMultipleResources(databaseName: String?, ctx: RoutingContext) {
@@ -99,12 +89,12 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth,
         insertResource(dbFile, resPathName, dbConfig, dispatcher, resFileToStore, context, ctx)
     }
 
-    private suspend fun Create.insertResource(dbFile: Path?, resPathName: String,
-                                              dbConfig: DatabaseConfiguration,
-                                              dispatcher: CoroutineDispatcher,
-                                              resFileToStore: String,
-                                              context: Context,
-                                              ctx: RoutingContext) {
+    private suspend fun insertResource(dbFile: Path?, resPathName: String,
+                                       dbConfig: DatabaseConfiguration,
+                                       dispatcher: CoroutineDispatcher,
+                                       resFileToStore: String,
+                                       context: Context,
+                                       ctx: RoutingContext) {
         val database = Databases.openDatabase(dbFile)
 
         database.use {

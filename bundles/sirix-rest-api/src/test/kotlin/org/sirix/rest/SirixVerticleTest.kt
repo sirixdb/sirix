@@ -133,7 +133,7 @@ class SirixVerticleTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing diffing of a database/resource with two revisions.")
     fun testDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -206,10 +206,11 @@ class SirixVerticleTest {
                         }
                     }
 
-                    url = "$server/?query=sdb:diff('database','resource1',1,2)"
+                    url = "$server/"
 
                     httpResponse =
-                            client.getAbs(url).putHeader(HttpHeaders.AUTHORIZATION.toString(),
+                            client.getAbs(url).addQueryParam("query", "sdb:diff('database','resource1',1,2)").putHeader(
+                                    HttpHeaders.AUTHORIZATION.toString(),
                                     "Bearer $accessToken").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
@@ -236,7 +237,7 @@ class SirixVerticleTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

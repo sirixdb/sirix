@@ -1,15 +1,13 @@
 package org.sirix.rest.crud
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx
-import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -47,17 +45,8 @@ private enum class InsertionMode {
 }
 
 class Update(private val location: Path, private val keycloak: OAuth2Auth) {
-    suspend fun handle(ctx: RoutingContext) {
+    suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
-
-        val user = Auth(keycloak).authenticateUser(ctx)
-
-        val isAuthorized = user.isAuthorizedAwait("realm:modify")
-
-        if (!isAuthorized) {
-            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
-            return
-        }
 
         val resName = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
@@ -65,12 +54,13 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
 
         if (dbName == null || resName == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name not given."))
-            return
         }
 
         val body = ctx.bodyAsString
 
         update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
+
+        return ctx.currentRoute()
     }
 
     private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
