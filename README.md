@@ -304,17 +304,7 @@ The interesting part is that every PUT- as well as POST-request does an implicit
 In general we support several additional temporal XPath axis:
 
 ```xquery
-future::
-future-or-self::
-past::
-past-or-self::
-previous::
-previous-or-self::
-next::
-next-or-self::
-first::
-last::
-all-time::
+future, future-or-self, past, past-or-self, previous, previous-or-self, next, next-or-self, first, last, all-time
 ```
 
 The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
