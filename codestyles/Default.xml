@@ -1,0 +1,11 @@
+<code_scheme name="Default" version="173">
+  <option name="LINE_SEPARATOR" value="&#10;" />
+  <option name="WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN" value="true" />
+  <codeStyleSettings language="kotlin">
+    <option name="ALIGN_MULTILINE_EXTENDS_LIST" value="true" />
+    <option name="CALL_PARAMETERS_WRAP" value="1" />
+    <option name="METHOD_PARAMETERS_WRAP" value="1" />
+    <option name="EXTENDS_LIST_WRAP" value="1" />
+    <option name="ASSIGNMENT_WRAP" value="5" />
+  </codeStyleSettings>
+</code_scheme>

@@ -31,7 +31,7 @@ Our strong belief is, that a temporal storage system must address the issues, wh
 
 Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally query time of old/past revisions as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
-We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also encourage you to issue time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
@@ -304,17 +304,7 @@ The interesting part is that every PUT- as well as POST-request does an implicit
 In general we support several additional temporal XPath axis:
 
 ```xquery
-future::
-future-or-self::
-past::
-past-or-self::
-previous::
-previous-or-self::
-next::
-next-or-self::
-first::
-last::
-all-time::
+future, future-or-self, past, past-or-self, previous, previous-or-self, next, next-or-self, first, last, all-time
 ```
 
 The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
