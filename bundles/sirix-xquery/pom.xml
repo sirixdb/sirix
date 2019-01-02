@@ -33,7 +33,6 @@
 	<artifactId>sirix-xquery</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-xquery</name>
-	<version>0.8.9-SNAPSHOT</version>
 	<description>Sirix/Brackit binding.</description>
 	<repositories>
 		<repository>
@@ -46,8 +45,6 @@
 	<properties>
 		<!-- plugins -->
 		<maven.assembly.plugin.version>2.4</maven.assembly.plugin.version>
-		<!-- dependencies -->
-		<dep.version>0.8.9-SNAPSHOT</dep.version>
 	</properties>
 
 	<build>
@@ -115,12 +112,12 @@
 		<dependency>
 			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>${dep.version}</version>
+			<version>${parent.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>${dep.version}</version>
+			<version>${parent.version}</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>

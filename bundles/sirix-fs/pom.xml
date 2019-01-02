@@ -39,7 +39,6 @@
 	<artifactId>sirix-fs</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-fs</name>
-	<version>0.8.9-SNAPSHOT</version>
 	<description>Sirix DeepFS binding.</description>
 	<repositories>
 		<repository>
@@ -53,12 +52,12 @@
 		<dependency>
 			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.8.9-SNAPSHOT</version>
+			<version>${parent.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.8.9-SNAPSHOT</version>
+			<version>${parent.version}</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>

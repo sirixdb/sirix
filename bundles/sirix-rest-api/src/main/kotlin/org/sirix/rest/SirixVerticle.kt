@@ -66,8 +66,9 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         // Create.
-        put("/:database").coroutineHandler { Create(location, keycloak).handle(it) }
-        put("/:database/:resource").coroutineHandler { Create(location, keycloak).handle(it) }
+        put("/:database").coroutineHandler { Create(location, keycloak, false).handle(it) }
+        put("/:database/:resource").coroutineHandler { Create(location, keycloak, false).handle(it) }
+        post("/:database").coroutineHandler { Create(location, keycloak, true).handle(it) }
 
         // Update.
         post("/:database/:resource").coroutineHandler { Update(location, keycloak).handle(it) }
