@@ -213,7 +213,7 @@ class SirixVerticleTest {
                                     "Bearer $accessToken").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
-                        val expectUpdatedString = """
+                        val expectString = """
                             <rest:sequence xmlns:rest="https://sirix.io/rest">
                             let ${"$"}doc := sdb:doc('database','resource1', 1)
                             return (
@@ -225,7 +225,7 @@ class SirixVerticleTest {
                         val responseBody = httpResponse.bodyAsString()
 
                         testContext.verify {
-                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                            assertEquals(expectString.replace("\n", System.getProperty("line.separator")),
                                     responseBody.replace("\r\n", System.getProperty("line.separator")))
                             testContext.completeNow()
                         }
