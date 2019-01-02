@@ -4,15 +4,10 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -22,6 +17,7 @@ import org.sirix.access.conf.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -34,13 +30,9 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val databaseName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (databaseName != null)
-                    user.isAuthorizedAwait("realm:${databaseName.toLowerCase()}-create")
-                else
-                    user.isAuthorizedAwait("realm:create")
+        val isAuthorized = user.isAuthorizedAwait("realm:create")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -58,18 +50,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         shredder(databaseName, resource, resToStore, ctx)
     }
 
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
-    }
-
-    private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
+                                 ctx: RoutingContext) {
         val dbFile = location.resolve(dbPathName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -103,7 +85,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         })
     }
 
-    private suspend fun createDatabaseIfNotExists(dbFile: Path, dispatcher: CoroutineDispatcher): DatabaseConfiguration {
+    private suspend fun createDatabaseIfNotExists(dbFile: Path,
+                                                  dispatcher: CoroutineDispatcher): DatabaseConfiguration {
         return withContext(dispatcher) {
             val dbExists = Files.exists(dbFile)
 
@@ -120,7 +103,8 @@ class Create(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun createOrRemoveAndCreateResource(database: Database, resConfig: ResourceConfiguration?, resPathName: String, dispatcher: CoroutineDispatcher) {
+    private suspend fun createOrRemoveAndCreateResource(database: Database, resConfig: ResourceConfiguration?,
+                                                        resPathName: String, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
                 database.removeResource(resPathName)

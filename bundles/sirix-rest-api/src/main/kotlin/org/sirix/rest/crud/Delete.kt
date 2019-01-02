@@ -4,15 +4,10 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -20,19 +15,19 @@ import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
+import org.sirix.rest.SessionDBStore
+import org.sirix.xquery.node.BasicDBStore
+import java.nio.file.Files
 import java.nio.file.Path
 
 class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-delete")
-                else
-                    user.isAuthorizedAwait("realm:delete")
+        val isAuthorized = user.isAuthorizedAwait("realm:delete")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -43,22 +38,19 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null) {
-            ctx.fail(IllegalArgumentException("Database name not given."))
-            return
+            // Initialize queryResource context and store.
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
+
+            val databases = Files.list(location)
+
+            databases.use {
+                databases.filter { Files.isDirectory(it) }.forEach {
+                    dbStore.drop(it.fileName.toString())
+                }
+            }
+        } else {
+            delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
         }
-
-        delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
     }
 
     private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
@@ -68,7 +60,7 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
 
         if (resPathName == null) {
             removeDatabase(dbFile, dispatcher)
-            ctx.response().setStatusCode(204).end()
+            ctx.response().setStatusCode(200).end()
             return
         }
 
@@ -94,7 +86,8 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database, resPathName: String?, ctx: RoutingContext): Any? {
+    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database, resPathName: String?,
+                                       ctx: RoutingContext): Any? {
         return try {
             withContext(dispatcher) {
                 database.removeResource(resPathName)

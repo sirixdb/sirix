@@ -41,7 +41,14 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
+import org.sirix.access.Databases;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.Database;
+import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -73,41 +80,88 @@ public final class DiffTest extends TestCase {
   }
 
   @Test
-  public void test() throws IOException, QueryException {
+  public void testSimpleDiff() throws Exception {
+    final Path databasePath = PATHS.PATH2.getFile();
+
+    final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
+    Databases.createDatabase(config);
+
+    try (final Database database = Databases.openDatabase(databasePath)) {
+      database.createResource(
+          ResourceConfiguration.newBuilder(TestHelper.RESOURCE, config).build());
+      try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
+        wtx.moveTo(3);
+        wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
+      }
+    }
+
+    // Initialize query context and store.
+    try (final BasicDBStore store =
+        BasicDBStore.newBuilder().location(databasePath.getParent()).build()) {
+      final QueryContext ctx = new SirixQueryContext(store);
+
+      final String dbName = databasePath.getFileName().toString();
+      final String resName = TestHelper.RESOURCE;
+
+      final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
+
+      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+
+      try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        query.serialize(ctx, new PrintStream(out));
+        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        out.reset();
+
+        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+
+        final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',3)";
+        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        out.reset();
+
+        final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',2)";
+        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+
+        assertEquals(contentNewRev, contentOldRev);
+
+        out.reset();
+      }
+    }
+  }
+
+  @Test
+  public void testMultipleDiffs() throws IOException, QueryException {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicDBStore store =
+        BasicDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();
       final String resName = TestHelper.RESOURCE;
 
-      final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "', 1, 5)";
+      final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "',1,5)";
 
       final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
-
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
-
         out.reset();
 
         new XQuery(new SirixCompileChain(store), content).execute(ctx);
 
-        final String xq2 = "sdb:doc('" + dbName + "', '" + resName + "', 6)";
-
+        final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',6)";
         new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
-
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
-
         out.reset();
 
-        final String xq3 = "sdb:doc('" + dbName + "', '" + resName + "', 5)";
-
+        final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',5)";
         new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
-
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);

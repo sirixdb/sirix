@@ -247,8 +247,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey)
-      throws SirixException, IllegalArgumentException {
+  public XdmNodeWriteTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       Preconditions.checkArgument(
@@ -361,7 +360,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    *
    * @throws SirixException if anything went wrong
    */
-  private void computeNewDeweyIDs() throws SirixException {
+  private void computeNewDeweyIDs() {
     SirixDeweyID id = null;
     if (hasLeftSibling() && hasRightSibling()) {
       id = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), getRightSiblingDeweyID().get());
@@ -439,8 +438,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey)
-      throws SirixException, IllegalArgumentException {
+  public XdmNodeWriteTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       if (mNodeReadTrx.getStructuralNode().hasLeftSibling()) {
@@ -456,8 +454,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey)
-      throws SirixException {
+  public XdmNodeWriteTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
@@ -544,7 +541,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @throws SirixException if removing a node fails after merging text nodes
    */
   private void adaptForMove(final StructNode fromNode, final StructNode toNode,
-      final InsertPos insertPos) throws SirixException {
+      final InsertPos insertPos) {
     assert fromNode != null;
     assert toNode != null;
     assert insertPos != null;
@@ -649,7 +646,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertElementAsFirstChild(final QNm name) throws SirixException {
+  public XdmNodeWriteTrx insertElementAsFirstChild(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -686,7 +683,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertElementAsLeftSibling(final QNm name) throws SirixException {
+  public XdmNodeWriteTrx insertElementAsLeftSibling(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -726,7 +723,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertElementAsRightSibling(final QNm name) throws SirixException {
+  public XdmNodeWriteTrx insertElementAsRightSibling(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -766,25 +763,21 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertSubtreeAsFirstChild(final XMLEventReader reader)
-      throws SirixException {
+  public XdmNodeWriteTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
     return insertSubtree(reader, Insert.ASFIRSTCHILD);
   }
 
   @Override
-  public XdmNodeWriteTrx insertSubtreeAsRightSibling(final XMLEventReader reader)
-      throws SirixException {
+  public XdmNodeWriteTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
     return insertSubtree(reader, Insert.ASRIGHTSIBLING);
   }
 
   @Override
-  public XdmNodeWriteTrx insertSubtreeAsLeftSibling(final XMLEventReader reader)
-      throws SirixException {
+  public XdmNodeWriteTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
     return insertSubtree(reader, Insert.ASLEFTSIBLING);
   }
 
-  private XdmNodeWriteTrx insertSubtree(final XMLEventReader reader, final Insert insert)
-      throws SirixException {
+  private XdmNodeWriteTrx insertSubtree(final XMLEventReader reader, final Insert insert) {
     checkNotNull(reader);
     assert insert != null;
     acquireLock();
@@ -793,8 +786,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
         checkAccessAndCommit();
         mBulkInsert = true;
         long nodeKey = getCurrentNode().getNodeKey();
-        final XMLShredder shredder =
-            new XMLShredder.Builder(this, reader, insert).commitAfterwards().build();
+        final XMLShredder shredder = new XMLShredder.Builder(this, reader, insert).build();
         shredder.call();
         moveTo(nodeKey);
         switch (insert) {
@@ -819,6 +811,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
           addParentHash(startNode);
         }
         moveTo(nodeKey);
+        commit();
         mBulkInsert = false;
       }
     } finally {
@@ -828,20 +821,17 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertPIAsLeftSibling(final String target, final String content)
-      throws SirixException {
+  public XdmNodeWriteTrx insertPIAsLeftSibling(final String target, final String content) {
     return pi(target, content, Insert.ASLEFTSIBLING);
   }
 
   @Override
-  public XdmNodeWriteTrx insertPIAsRightSibling(final String target, final String content)
-      throws SirixException {
+  public XdmNodeWriteTrx insertPIAsRightSibling(final String target, final String content) {
     return pi(target, content, Insert.ASRIGHTSIBLING);
   }
 
   @Override
-  public XdmNodeWriteTrx insertPIAsFirstChild(final String target, final String content)
-      throws SirixException {
+  public XdmNodeWriteTrx insertPIAsFirstChild(final String target, final String content) {
     return pi(target, content, Insert.ASFIRSTCHILD);
   }
 
@@ -853,8 +843,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeWriteTrx pi(final String target, final String content, final Insert insert)
-      throws SirixException {
+  private XdmNodeWriteTrx pi(final String target, final String content, final Insert insert) {
     final byte[] targetBytes = getBytes(target);
     if (!XMLToken.isNCName(checkNotNull(targetBytes))) {
       throw new IllegalArgumentException("The target is not valid!");
@@ -923,17 +912,17 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertCommentAsLeftSibling(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertCommentAsLeftSibling(final String value) {
     return comment(value, Insert.ASLEFTSIBLING);
   }
 
   @Override
-  public XdmNodeWriteTrx insertCommentAsRightSibling(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertCommentAsRightSibling(final String value) {
     return comment(value, Insert.ASRIGHTSIBLING);
   }
 
   @Override
-  public XdmNodeWriteTrx insertCommentAsFirstChild(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertCommentAsFirstChild(final String value) {
     return comment(value, Insert.ASFIRSTCHILD);
   }
 
@@ -944,7 +933,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeWriteTrx comment(final String value, final Insert insert) throws SirixException {
+  private XdmNodeWriteTrx comment(final String value, final Insert insert) {
     // Produces a NPE if value is null (what we want).
     if (value.contains("--")) {
       throw new SirixUsageException("Character sequence \"--\" is not allowed in comment content!");
@@ -1011,7 +1000,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertTextAsFirstChild(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertTextAsFirstChild(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1060,7 +1049,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertTextAsLeftSibling(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertTextAsLeftSibling(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1128,7 +1117,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertTextAsRightSibling(final String value) throws SirixException {
+  public XdmNodeWriteTrx insertTextAsRightSibling(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1200,7 +1189,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @return optional namespace {@link SirixDeweyID} reference
    * @throws SirixException if generating an ID fails
    */
-  private Optional<SirixDeweyID> newNamespaceID() throws SirixException {
+  private Optional<SirixDeweyID> newNamespaceID() {
     Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.hasNamespaces()) {
@@ -1220,7 +1209,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @return optional attribute {@link SirixDeweyID} reference
    * @throws SirixException if generating an ID fails
    */
-  private Optional<SirixDeweyID> newAttributeID() throws SirixException {
+  private Optional<SirixDeweyID> newAttributeID() {
     Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.hasAttributes()) {
@@ -1240,7 +1229,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @return optional first child {@link SirixDeweyID} reference
    * @throws SirixException if generating an ID fails
    */
-  private Optional<SirixDeweyID> newFirstChildID() throws SirixException {
+  private Optional<SirixDeweyID> newFirstChildID() {
     Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       if (mNodeReadTrx.getStructuralNode().hasFirstChild()) {
@@ -1259,7 +1248,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @return optional left sibling {@link SirixDeweyID} reference
    * @throws SirixException if generating an ID fails
    */
-  private Optional<SirixDeweyID> newLeftSiblingID() throws SirixException {
+  private Optional<SirixDeweyID> newLeftSiblingID() {
     Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       final SirixDeweyID currID = mNodeReadTrx.getCurrentNode().getDeweyID().get();
@@ -1281,7 +1270,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @return optional right sibling {@link SirixDeweyID} reference
    * @throws SirixException if generating an ID fails
    */
-  private Optional<SirixDeweyID> newRightSiblingID() throws SirixException {
+  private Optional<SirixDeweyID> newRightSiblingID() {
     Optional<SirixDeweyID> id = Optional.empty();
     if (mDeweyIDsStored) {
       final SirixDeweyID currID = mNodeReadTrx.getCurrentNode().getDeweyID().get();
@@ -1308,13 +1297,12 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertAttribute(final QNm name, final String value) throws SirixException {
+  public XdmNodeWriteTrx insertAttribute(final QNm name, final String value) {
     return insertAttribute(name, value, Movement.NONE);
   }
 
   @Override
-  public XdmNodeWriteTrx insertAttribute(final QNm name, final String value, final Movement move)
-      throws SirixException {
+  public XdmNodeWriteTrx insertAttribute(final QNm name, final String value, final Movement move) {
     checkNotNull(value);
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
@@ -1380,13 +1368,12 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx insertNamespace(final QNm name) throws SirixException {
+  public XdmNodeWriteTrx insertNamespace(final QNm name) {
     return insertNamespace(name, Movement.NONE);
   }
 
   @Override
-  public XdmNodeWriteTrx insertNamespace(final QNm name, final Movement move)
-      throws SirixException {
+  public XdmNodeWriteTrx insertNamespace(final QNm name, final Movement move) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1452,7 +1439,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx remove() throws SirixException {
+  public XdmNodeWriteTrx remove() {
     checkAccessAndCommit();
     acquireLock();
     try {
@@ -1544,7 +1531,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    *
    * @throws SirixException if anything goes wrong
    */
-  private void removeNonStructural() throws SirixException {
+  private void removeNonStructural() {
     if (mNodeReadTrx.getKind() == Kind.ELEMENT) {
       for (int i = 0, attCount = mNodeReadTrx.getAttributeCount(); i < attCount; i++) {
         moveToAttribute(i);
@@ -1568,7 +1555,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    *
    * @throws SirixException if Sirix fails
    */
-  private void removeName() throws SirixException {
+  private void removeName() {
     if (getCurrentNode() instanceof NameNode) {
       final NameNode node = ((NameNode) getCurrentNode());
       final Kind nodeKind = node.getKind();
@@ -1587,7 +1574,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx setName(final QNm name) throws SirixException {
+  public XdmNodeWriteTrx setName(final QNm name) {
     checkNotNull(name);
     acquireLock();
     try {
@@ -1655,7 +1642,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx setValue(final String value) throws SirixException {
+  public XdmNodeWriteTrx setValue(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1957,7 +1944,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    *
    * @throws SirixException if anything weird happens
    */
-  private void checkAccessAndCommit() throws SirixException {
+  private void checkAccessAndCommit() {
     mNodeReadTrx.assertNotClosed();
     mModificationCount++;
     intermediateCommitIfRequired();
@@ -2019,7 +2006,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param oldNode pointer of the old node to be replaced
    * @throws SirixException if anything weird happens
    */
-  private void adaptForRemove(final StructNode oldNode, final PageKind page) throws SirixException {
+  private void adaptForRemove(final StructNode oldNode, final PageKind page) {
     assert oldNode != null;
 
     // Concatenate neighbor text nodes if they exist (the right sibling is
@@ -2115,7 +2102,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    *
    * @throws SirixException if commit fails
    */
-  private void intermediateCommitIfRequired() throws SirixException {
+  private void intermediateCommitIfRequired() {
     mNodeReadTrx.assertNotClosed();
     if ((mMaxNodeCount > 0) && (mModificationCount > mMaxNodeCount)) {
       commit();
@@ -2405,7 +2392,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx copySubtreeAsFirstChild(final XdmNodeReadTrx rtx) throws SirixException {
+  public XdmNodeWriteTrx copySubtreeAsFirstChild(final XdmNodeReadTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2421,7 +2408,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx copySubtreeAsLeftSibling(final XdmNodeReadTrx rtx) throws SirixException {
+  public XdmNodeWriteTrx copySubtreeAsLeftSibling(final XdmNodeReadTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2437,7 +2424,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   }
 
   @Override
-  public XdmNodeWriteTrx copySubtreeAsRightSibling(final XdmNodeReadTrx rtx) throws SirixException {
+  public XdmNodeWriteTrx copySubtreeAsRightSibling(final XdmNodeReadTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2459,7 +2446,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
    * @param insert the insertion strategy
    * @throws SirixException if anything fails in sirix
    */
-  private void copy(final XdmNodeReadTrx trx, final Insert insert) throws SirixException {
+  private void copy(final XdmNodeReadTrx trx, final Insert insert) {
     assert trx != null;
     assert insert != null;
     final XdmNodeReadTrx rtx = trx.getResourceManager().beginNodeReadTrx(trx.getRevisionNumber());
@@ -2630,7 +2617,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     }
   }
 
-  private ImmutableNode removeAndThenInsert(final XdmNodeReadTrx rtx) throws SirixException {
+  private ImmutableNode removeAndThenInsert(final XdmNodeReadTrx rtx) {
     assert rtx != null;
     final StructNode currentNode = mNodeReadTrx.getStructuralNode();
     long key = currentNode.getNodeKey();
@@ -2650,7 +2637,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
     return mNodeReadTrx.getCurrentNode();
   }
 
-  private ImmutableNode insertAndThenRemove(final XdmNodeReadTrx rtx) throws SirixException {
+  private ImmutableNode insertAndThenRemove(final XdmNodeReadTrx rtx) {
     assert rtx != null;
     final StructNode currentNode = mNodeReadTrx.getStructuralNode();
     long key = currentNode.getNodeKey();
@@ -2763,17 +2750,17 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx
   public XdmNodeWriteTrx commit(final String commitMessage) {
     mNodeReadTrx.assertNotClosed();
 
-    // Execute pre-commit hooks.
-    for (final PreCommitHook hook : mPreCommitHooks) {
-      hook.preCommit(this);
-    }
-
-    // Reset modification counter.
-    mModificationCount = 0L;
-
     // Optionally lock while commiting and assigning new instances.
     acquireLock();
     try {
+      // Execute pre-commit hooks.
+      for (final PreCommitHook hook : mPreCommitHooks) {
+        hook.preCommit(this);
+      }
+
+      // Reset modification counter.
+      mModificationCount = 0L;
+
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = getPageTransaction();
       final UberPage uberPage = commitMessage == null
           ? pageWtx.commit()
