@@ -4,16 +4,12 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
@@ -22,6 +18,7 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeReadTrx
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.rest.SessionDBStore
 import org.sirix.service.xml.serialize.XMLSerializer
@@ -34,6 +31,7 @@ import org.sirix.xquery.node.DBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -44,19 +42,53 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-view")
-                else
-                    user.isAuthorizedAwait("realm:view")
+        val isAuthorized = user.isAuthorizedAwait("realm:view")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             return
         }
 
+        val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
+
+        if (dbName == null && resName == null) {
+            if (query == null || query.isEmpty())
+                listDatabases(ctx)
+            else
+                xquery(query, null, ctx, vertxContext, user)
+        } else {
+            get(dbName, ctx, resName, query, vertxContext, user)
+        }
+    }
+
+    private fun listDatabases(ctx: RoutingContext) {
+        val databases = Files.list(location)
+
+        val buffer = StringBuilder()
+
+        buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+
+        databases.use {
+            databases.filter { Files.isDirectory(it) }.forEach {
+                buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+            }
+        }
+
+        buffer.append("</rest:sequence>")
+
+        val content = buffer.toString()
+
+        ctx.response().setStatusCode(200)
+                .putHeader("Content-Type", "application/xml")
+                .putHeader("Content-Length", content.length.toString())
+                .write(content)
+                .end()
+    }
+
+    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+                            vertxContext: Context, user: User) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
@@ -65,30 +97,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-        val query: String? = ctx.queryParam("query").getOrNull(0)
 
-        if (dbName == null && resName == null) {
-            if (query == null)
-                IllegalArgumentException("Query must be given if database name and resource name are not given.")
-            else
-                xquery(query, null, ctx, vertxContext)
-        }
-
-        get(dbName, ctx, resName, query, revision, revisionTimestamp, nodeId, vertxContext, startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp)
-    }
-
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
-    }
-
-    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?, revision: String?, revisionTimestamp: String?, nodeId: String?, vertxContext: Context, startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?) {
         val database: Database
         try {
             database = Databases.openDatabase(location.resolve(dbName))
@@ -100,24 +109,41 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         database.use {
             val manager: ResourceManager
             try {
-                manager = database.getResourceManager(resName)
+                if (resName == null) {
+                    val buffer = StringBuilder()
+                    buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+
+                    for (resource in it.listResources()) {
+                        buffer.appendln("  <rest:item resource-name=\"${resource.fileName}\"/>")
+                    }
+
+                    buffer.appendln("</rest:sequence>")
+                } else {
+                    manager = database.getResourceManager(resName)
+
+                    manager.use {
+                        if (query != null && query.isNotEmpty()) {
+                            queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                    vertxContext, user)
+                        } else {
+                            val revisions: Array<Int> =
+                                    getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
+                                            endRevisionTimestamp, manager, revision, revisionTimestamp)
+                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        }
+                    }
+                }
             } catch (e: SirixUsageException) {
                 ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
                 return
             }
 
-            manager.use {
-                if (query != null) {
-                    queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query, vertxContext)
-                } else {
-                    val revisions: Array<Int> = getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp, endRevisionTimestamp, manager, revision, revisionTimestamp)
-                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                }
-            }
         }
     }
 
-    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?, endRevisionTimestamp: String?, manager: ResourceManager, revision: String?, revisionTimestamp: String?): Array<Int> {
+    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
+                                        endRevisionTimestamp: String?, manager: ResourceManager, revision: String?,
+                                        revisionTimestamp: String?): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
             startRevisionTimestamp != null && endRevisionTimestamp != null -> {
@@ -128,9 +154,10 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database, revision: String?, revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext, nodeId: String?, query: String, vertxContext: Context) {
+    private suspend fun queryResource(dbName: String?, database: Database, revision: String?,
+                                      revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext,
+                                      nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
-
             val dbCollection = DBCollection(dbName, database)
 
             dbCollection.use {
@@ -148,7 +175,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
                         val dbNode = DBNode(trx, dbCollection)
 
-                        xquery(query, dbNode, ctx, vertxContext)
+                        xquery(query, dbNode, ctx, vertxContext, user)
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
@@ -171,10 +198,11 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context) {
+    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context,
+                               user: User) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), routingContext.user())
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext(dbStore)
@@ -185,7 +213,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
                 out.use {
                     PrintStream(out).use {
-                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx, DBSerializer(it, true, true))
+                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx,
+                                DBSerializer(it, true, true))
                     }
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
@@ -208,7 +237,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: ResourceManager, revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
+    private fun getRevisionNumbers(manager: ResourceManager,
+                                   revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
         var firstRevisionNumber = manager.getRevisionNumber(zdtFirstRevision.toInstant())
@@ -236,7 +266,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String, endRevision: String): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(startRevision: String,
+                                        endRevision: String): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

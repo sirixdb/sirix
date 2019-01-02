@@ -1,9 +1,29 @@
+services:
+  - docker
 language: java
 jdk:
-  - oraclejdk9
+  - openjdk11
 branches:
   only:
     - master
+cache:
+  directories:
+  - "$HOME/.m2/repository"
+  - "$HOME/apache-maven-3.6.0"
+before_install:
+  - export M2_HOME=$HOME/apache-maven-3.6.0
+  - if [ ! -d $M2_HOME/bin ]; then curl https://archive.apache.org/dist/maven/maven-3/3.6.0/binaries/apache-maven-3.6.0-bin.tar.gz | tar zxf - -C $HOME; fi
+  - export PATH=$M2_HOME/bin:$PATH
+jobs:
+  include:
+    - stage: test
+      name: "OpenJDK 11"
+      jdk: openjdk11
+      script: mvn -q clean verify -B
+    - stage: deploy
+      name: "Deploy to Sonatype's snapshots repository"
+      if: type != pull_request AND env(SONATYPE_NEXUS_USERNAME) IS present
+      script: bash .travis.deploy.artifacts.sh
 notifications:
   email:
     on_failure: always
@@ -11,3 +31,8 @@ notifications:
       - lichtenberger.johannes@gmail.com
 after-success:
   mvn jacoco:report coveralls:jacoco
+deploy:
+  provider: script
+  script: bash docker_push.sh
+  on:
+    branch: master

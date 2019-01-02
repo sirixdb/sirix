@@ -3,17 +3,13 @@ package org.sirix.rest.crud
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.json.json
-import io.vertx.kotlin.core.json.obj
-import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import org.sirix.access.Databases
 import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.service.xml.serialize.XMLSerializer
 import org.sirix.service.xml.shredder.XMLShredder
@@ -26,15 +22,18 @@ private enum class InsertionMode {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
-    }, ASRIGHTSIBLING {
+    },
+    ASRIGHTSIBLING {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
-    }, ASLEFTSIBLING {
+    },
+    ASLEFTSIBLING {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
-    }, REPLACE {
+    },
+    REPLACE {
         override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
             wtx.replaceNode(xmlReader)
         }
@@ -51,13 +50,9 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
     suspend fun handle(ctx: RoutingContext) {
         val dbName = ctx.pathParam("database")
 
-        val user = authenticateUser(ctx)
+        val user = Auth(keycloak).authenticateUser(ctx)
 
-        val isAuthorized =
-                if (dbName != null)
-                    user.isAuthorizedAwait("realm:${dbName.toLowerCase()}-modify")
-                else
-                    user.isAuthorizedAwait("realm:modify")
+        val isAuthorized = user.isAuthorizedAwait("realm:modify")
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
@@ -78,18 +73,8 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
         update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
     }
 
-    private suspend fun authenticateUser(ctx: RoutingContext): User {
-        val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
-
-        val tokenToAuthenticate = json {
-            obj("access_token" to token.substring(7),
-                    "token_type" to "Bearer")
-        }
-
-        return keycloak.authenticateAwait(tokenToAuthenticate)
-    }
-
-    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?, resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
+                               resFileToStore: String, ctx: RoutingContext) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {

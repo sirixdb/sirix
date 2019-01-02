@@ -1,11 +1,18 @@
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
 [![Coverage Status](https://coveralls.io/repos/sirixdb/sirix/badge.svg)](https://coveralls.io/r/sirixdb/sirix)
 [![CodeFactor](https://www.codefactor.io/repository/github/sirixdb/sirix/badge)](https://www.codefactor.io/repository/github/sirixdb/sirix)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 
-[Download Showcase ZIP](https://github.com/sirixdb/sirix/raw/master/showcase/simple-showcase.zip) | [Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+<p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/logo.png"/></p>
 
-<h1 align="center">Sirix - An Evolutionary Tree-Structured Storage System</h1>
-<h2 align="center">A Time Machine for Your Data</h1>
+[![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=SirixDB+-+a+storage+system%2C+which+creates+%28very+small-sized%29+snapshots+of+your+data+on+every+transaction-commit+through+the+implementation+of+a+novel+sliding+snapshot+algorithm.&url=http://sirix.io&via=sirix&hashtags=versioning,diffing,xml,kotlin,coroutines,vertx)
+
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+
+**Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
+
+<h1 align="center">SirixDB - An Evolutionary Tree-Structured Storage System</h1>
+<h2 align="center">Store and query revisions of your data efficiently</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 
@@ -15,14 +22,25 @@
 
 <p>&nbsp;</p>
 
-## Storing and querying of your temporal data
-Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Currently we provide a low-level API to store key (long) / value pairs as well as an XML layer on top of it. Our goal is to provide a seamless integration of a native JSON layer besides the XML layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). We provide
+**Discuss it on [Product Hunt](https://www.producthunt.com/posts/sirixdb-a-temporal-storage-system)**
+
+## Why should you even bother? Advantages of a native, temporal database system
+We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples.
+
+Our strong belief is, that a temporal storage system must address the issues, which arise from keeping past state way better than traditional approaches. Usually, storing time varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdle. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
+
+Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally query time of old/past revisions as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
+
+We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also encourage you to issue time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+
+## Versioning at the sub-file level / supporting time-travel queries
+Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
 3. The full modification history of the resource or any subset thereof.
 
-We not only support all XPath axis (as well as a few more) to query a resource in one revision but also novel temporal axis which allow navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
+We not only support all XPath axis (as well as a few more like as for instance a PostOrderAxis) to query a resource in one revision but also novel temporal axis which facilitate navigation in time. A transaction (cursor) on a resource can be started either by specifying a specific revision number (to open a revision/version/snapshot of a resource) or by a given point in time. The latter starts a transaction on the revision number which was committed closest to the given timestamp.
 
 <p>&nbsp;&nbsp;</p>
 
@@ -35,15 +53,17 @@ We not only support all XPath axis (as well as a few more) to query a resource i
 -   [Getting Started](#getting-started)
     -   [Download ZIP or Git Clone](#download-zip-or-git-clone)
     -   [Maven Artifacts](#maven-artifacts)
+    -   [Docker Images](#docker-images)
     -   [Command line tool](#command-line-tool)
     -   [First steps](#first-steps)
     -   [Documentation](#documentation)
--   [Visualizations](#visualizations)
--   [Simple Examples](#simple-examples) 💪
--   [Simple XQuery Examples ](#simple-xquery-examples)
+-   [RESTful-API](#restful-api)
+-   [DOM alike API](#dom-alike-api) 💪
+-   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
     -   [Mailinglist](#mailinglist)
     -   [Join us on Slack](#join-us-on-slack)
+-   [Visualizations](#visualizations)
 -   [Why should you even bother?](#why-should-you-even-bother)
 -   [Features in a nutshell](#features-in-a-nutshell)
 -   [Developers](#developers)
@@ -60,6 +80,8 @@ git clone https://github.com/sirixdb/sirix.git
 ```
 
 or use the following dependencies in your Maven (or Gradle?) project.
+
+We just changed to Java11 (OpenJDK 11).
 
 ### Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/).
@@ -78,12 +100,14 @@ Just add the following repository section to your POM file:
 </repository>
 ```
 
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`.</strong>
+
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
 Core project:
 ```xml
 <dependency>
-  <groupId>com.github.sirixdb.sirix</groupId>
+  <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
@@ -92,13 +116,44 @@ Core project:
 Brackit binding:
 ```xml
 <dependency>
-  <groupId>com.github.sirixdb.sirix</groupId>
+  <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
   <version>0.8.9-SNAPSHOT</version>
 </dependency>
 ```
 
-Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
+Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
+```xml
+<dependency>
+  <groupId>io.sirix</groupId>
+  <artifactId>sirix-rest-api</artifactId>
+  <version>0.8.9-SNAPSHOT</version>
+</dependency>
+```
+
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
+
+### Docker images for the Sirix HTTP(S)-Server / the REST-API 
+First, we need a running Keycloak server for now on port 8080.
+
+As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
+
+For running a keycloak docker container you could for instance use the following docker command:
+`docker run -d --name keycloak -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -e KEYCLOAK_LOGLEVEL=DEBUG jboss/keycloak`. Afterwards it can be configured via a Web UI: http://localhost:8080. Keycloak is needed for our RESTful, asynchronous API. It is the authorization server instance.
+
+Docker images of Sirix can be pulled from Docker Hub (sirixdb/sirix). However the easiest way for now is to download Sirix, then
+
+1. Change into the sirix-rest-api bundle: `cd bundles/sirix-rest-api`
+2. Change the configuration in `src/main/resources/sirix-conf.json` and add the secret from Keycloak (see for instance this great [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/) and change the HTTP(S)-Server port Sirix is listening on:
+
+<img src="https://piotrminkowski.files.wordpress.com/2017/09/vertx-sec-3.png"/>
+
+3. You can simply use the example `key.pem`/`cert.pem` files in `src/main/resources` for HTTPS (for example.org), but you have to change it, once we release the stable version for production. Then you for sure have to use a certificate/key for your domain. You could use [Let's Encrypt](https://letsencrypt.org/) for instance to get an SSL/TLS certificate for free.
+4. Build the docker image: `docker build -t sirixdb/sirix`
+5. Run the docker container: `docker run --network=host -t -i -p 9443:9443 sirixdb/sirix` (on Windows this does not seem to work)
+
+Sirix should be up and running afterwards. Please let us know if you have any trouble setting it up.
 
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
@@ -106,26 +161,204 @@ We ship a (very) simple command line tool for the sirix-xquery bundle:
 Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/sirix-xquery/0.8.9-SNAPSHOT/) with dependencies.
 
 ### First steps
-Please have a look into our sirix-example project how to use Sirix from Java. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
+Please have a look into our sirix-example project how to use Sirix from Java.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
-Please also have a look at and play with our sirix-example bundle which is available via maven.
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
+Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
-## Visualizations
-<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
+The following sections show different APIs to interact with Sirix.
+    
+## RESTful-API
+We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be set up as described in this excellent [tutorial](
+https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/).
+All you have to change is setting the client-id to "sirix" and put the client secret into our [configuration file]( https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-rest-api/src/main/resources/sirix-conf.json). Change the value of "client.secret" to whatever Keycloak set up (can be found on the credetials tab of your account). Regarding Keycloak the direct access grant on the settings tab must be enabled. Our user-roles are "create" to allow creating databases/resources, "view" to allow to query database resources, "modify" to modify a database resource and "delete" to allow deletion thereof. Furthermore, a `key.pem` and a `cert.pem` file are needed. These two files have to be in your user home directory in a directory called "sirix-data", where Sirix stores the databases. For demo purposes they can be copied from our [resources directory](https://github.com/sirixdb/sirix/tree/master/bundles/sirix-rest-api/src/main/resources).
 
-<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
+To created a fat-JAR. Download our ZIP-file for instance, then
 
-A screencast is available depicting the SunburstView and the TextView side by side: 
-http://www.youtube.com/watch?v=l9CXXBkl5vI
+1. `cd bundles/sirix-rest-api`
+2. `mvn clean package -DskipTests`
 
-<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
+And a fat-JAR with all required dependencies should have been created in your target folder.
 
-The following sections shows some short snippets of our core API. On top of that we built a brackit(.org) binding, which enables XQuery support as well as another DOM-like API with DBNode-instances (in-memory) nodes (for instance <code>public DBNode getLastChild()</code>, <code>public DBNode getFirstChild()</code>, <code>public Stream<DBNode> getChildren()</code>...). You can also mix the APIs.
- 
-## Simple Examples
-Think of the XDM-node low level API of a persistent DOM interface for Sirix, whereas the transaction is based on a cursor:
+Once also Keycloak is set up we can start the server via:
+
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+
+If you like to change your user home directory to `/opt/intrexx` for instance.
+
+The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
+
+After Keycloak and our server are up and running, we can write a simple HTTP-Client. We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+
+```kotlin
+val server = "https://localhost:9443"
+
+val credentials = json {
+  obj("username" to "testUser",
+      "password" to "testPass")
+}
+
+val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+if (200 == response.statusCode()) {
+  val user = response.bodyAsJsonObject()
+  val accessToken = user.getString("access_token")
+}
+```
+
+This access token must then be sent in the Authorization HTTP-Header for each subsequent request. Storing a first resource would look like (simple HTTP PUT-Request):
+
+```kotlin
+val xml = """
+    <xml>
+      foo
+      <bar/>
+    </xml>
+""".trimIndent()
+
+var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+  
+if (200 == response.statusCode()) {
+  println("Stored document.")
+} else {
+  println("Something went wrong ${response.message}")
+}
+```
+First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again.
+
+The HTTP-Response should be 200 and the HTTP-body yields:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item>
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3"/>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+
+We are serializing the generated IDs from our storage system for element-nodes.
+
+Via a `GET HTTP-Request` to `https://localhost:9443/database/resource1` we are also able to retrieve the stored resource again.
+
+However, this is not really interesting so far. We can update the resource via a `POST-Request`. Assuming we retrieved the access token as before, we can simply do a POST-Request and use the information we gathered before about the node-IDs:
+
+```kotlin
+val xml = """
+    <test>
+      yikes
+      <bar/>
+    </test>
+""".trimIndent()
+
+val url = "$server/database/resource1?nodeId=3&insert=asFirstChild"
+
+val httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+```
+
+The interesting part is the URL, we are using as the endpoint. We simply say, select the node with the ID 3, then insert the given XML-fragment as the first child. This yields the following serialized XML-document:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item>
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3">
+        <test rest:id="4">
+          yikes
+          <bar rest:id="6"/>
+        </test>
+      </bar>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-time::*` and get the following XPath-result:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  <rest:item rest:revision="1" rest:revisionTimestamp="2018-12-20T18:44:39.464Z">
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3"/>
+    </xml>
+  </rest:item>
+  <rest:item rest:revision="2" rest:revisionTimestamp="2018-12-20T18:44:39.518Z">
+    <xml rest:id="1">
+      foo
+      <bar rest:id="3">
+        <xml rest:id="4">
+          foo
+          <bar rest:id="6"/>
+        </xml>
+      </bar>
+    </xml>
+  </rest:item>
+</rest:sequence>
+```
+
+In general we support several additional temporal XPath axis:
+
+```xquery
+future, future-or-self, past, past-or-self, previous, previous-or-self, next, next-or-self, first, last, all-time
+```
+
+The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
+
+```GET https://localhost:9443/database/resource1?start-revision=1&end-revision=2```
+
+or via timestamps:
+
+```GET https://localhost:9443/database/resource1?start-revision-timestamp=2018-12-20T18:00:00&end-revision-timestamp=2018-12-20T19:00:00```
+
+We for sure are also able to delete the resource or any subtree thereof by an updating XQuery expression (which is not very RESTful) or with a simple `DELETE` HTTP-request:
+
+```kotlin
+val url = "$server/database/resource1?nodeId=3"
+
+val httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
+                         .toString(), "Bearer $accessToken").sendAwait()
+
+if (200 == httpResponse.statusCode()) {
+  ...
+}
+```
+
+This deletes the node with ID 3 and in our case as it's an element node the whole subtree. For sure it's committed as revision 3 and as such all old revisions still can be queried for the whole subtree (or in the first revision it's only the element with the name "bar" without any subtree).
+
+If we want to get a diff, currently in the form of an XQuery Update Statement (but we could serialize them in any format), simply call the XQuery function `sdb:diff`:
+
+`sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string`
+
+For instance via a GET-request like this for the database/resource we created above, we could make this request:
+
+`GET https://localhost:9443/?query=sdb%3Adiff%28%27database%27%2C%27resource1%27%2C1%2C2%29`
+
+Note that the query-String has to be URL-encoded, thus it's decoded
+
+`sdb:diff('database','resource1',1,2)`
+
+The output for the diff in our example is this XQuery-Update statement wrapped in an enclosing sequence-element:
+
+```xml
+<rest:sequence xmlns:rest="https://sirix.io/rest">
+  let $doc := sdb:doc('database','resource1', 1)
+  return (
+    insert nodes <xml>foo<bar/></xml> as first into sdb:select-node($doc, 3)
+  )
+</rest:sequence>
+```
+
+This means the `resource1` from `database` is opened in the first revision. Then the subtree `<xml>foo<bar/></xml>` is appended to the node with the stable node-ID 3 as a first child.
+
+https://github.com/sirixdb/sirix/wiki/RESTful-API gives an overview about the API.
+
+## DOM alike API
+Think of this rather low level API as a persistent (in the sense of storing it to disk/a flash drive) DOM interface for Sirix, whereas nodes can be selected by a transactional cursor API by their unique identifier, which has been created during insertion with a sequence generator. Another DOM like API is available through our XQuery layer, which adds a simple Interface for in-memory node instances. However the low level API, which we are describing below doesn't have to have all nodes in-memory (and it usually doesn't). Nodes are fetched from variable length pages which have been either cached by a buffer manager in memory or reside on the flash drive or a spinning disk and have to be read from a file.
 
 ```java
 // Path to the database.
@@ -339,6 +572,8 @@ public interface DiffObserver {
 }
 ```
 
+On top of this API we built a brackit(.org) binding, which enables XQuery support as well as another DOM-alike API with DBNode-instances (in-memory) nodes (for instance `public DBNode getLastChild()`, `public DBNode getFirstChild()`, `public Stream<DBNode> getChildren()`...). You can also mix the APIs.
+
 ## Simple XQuery Examples 
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 ```xquery
@@ -428,6 +663,16 @@ Any questions or even consider to contribute or use Sirix? Use the [Mailing List
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
 
+## Visualizations (built on top of the cursor-based transaction API)
+<p>The following diagram shows a screenshot of an interactive visualization, which depicts moves of single nodes or whole subtress through hierarchical edge bundling.</p>
+
+<p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
+
+A screencast is available depicting the SunburstView and the TextView side by side: 
+http://www.youtube.com/watch?v=l9CXXBkl5vI
+
+<p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
+
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
 
@@ -483,11 +728,11 @@ Furthermore in stark contrast to all other approaches the authors are aware of m
 - Flexible backend.
 - Optional encryption and/or compression of each page on disk.
 
-Currently we are refactoring a RESTful-API and we'll explore how to efficiently distribute Sirix. Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward.
+Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward. Afterwards we'll explore how to efficiently distribute Sirix with Vert.x or directly via an Ignite or Hazelcast data grid. 
 
 Besides, the architecture for versioning data is not restricted to tree-structures by all means as demonstrated in the Ph.D. Thesis of Sebastian Graf (Sirix originated a few years ago as a fork of Treetank going back to its roots and focusing on the versioning of tree-structured data): http://nbn-resolving.de/urn:nbn:de:bsz:352-272505
 
-Storing files natively is also on our agenda. Furthermore a key management schema similar to the one described in Sebastian's Thesis has to be implemented. 
+Storing files natively is also on our agenda.
 
 ## Developers
 Developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON) are always welcome. The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
