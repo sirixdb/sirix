@@ -1,45 +1,34 @@
 package org.sirix.rest.crud
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
+import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeWriteTrx
-import org.sirix.rest.Auth
 import org.sirix.rest.SessionDBStore
 import org.sirix.xquery.node.BasicDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
 class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
-    suspend fun handle(ctx: RoutingContext) {
+    suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
-
-        val user = Auth(keycloak).authenticateUser(ctx)
-
-        val isAuthorized = user.isAuthorizedAwait("realm:delete")
-
-        if (!isAuthorized) {
-            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
-            return
-        }
-
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null) {
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
+            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), ctx.get("user") as User)
 
             val databases = Files.list(location)
 
@@ -51,6 +40,8 @@ class Delete(private val location: Path, private val keycloak: OAuth2Auth) {
         } else {
             delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
         }
+
+        return ctx.currentRoute()
     }
 
     private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {

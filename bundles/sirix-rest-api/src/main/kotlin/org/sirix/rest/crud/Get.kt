@@ -6,11 +6,11 @@ import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.OAuth2Auth
+import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
-import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
@@ -18,7 +18,6 @@ import org.sirix.api.Database
 import org.sirix.api.ResourceManager
 import org.sirix.api.XdmNodeReadTrx
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.Auth
 import org.sirix.rest.Serialize
 import org.sirix.rest.SessionDBStore
 import org.sirix.service.xml.serialize.XMLSerializer
@@ -37,19 +36,10 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 class Get(private val location: Path, private val keycloak: OAuth2Auth) {
-    suspend fun handle(ctx: RoutingContext) {
+    suspend fun handle(ctx: RoutingContext): Route {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
-
-        val user = Auth(keycloak).authenticateUser(ctx)
-
-        val isAuthorized = user.isAuthorizedAwait("realm:view")
-
-        if (!isAuthorized) {
-            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
-            return
-        }
 
         val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
 
@@ -57,10 +47,12 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
             if (query == null || query.isEmpty())
                 listDatabases(ctx)
             else
-                xquery(query, null, ctx, vertxContext, user)
+                xquery(query, null, ctx, vertxContext, ctx.get("user") as User)
         } else {
-            get(dbName, ctx, resName, query, vertxContext, user)
+            get(dbName, ctx, resName, query, vertxContext, ctx.get("user") as User)
         }
+
+        return ctx.currentRoute()
     }
 
     private fun listDatabases(ctx: RoutingContext) {
