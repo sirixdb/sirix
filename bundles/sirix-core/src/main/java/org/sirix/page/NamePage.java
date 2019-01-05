@@ -63,6 +63,9 @@ public final class NamePage extends AbstractForwardingPage {
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
 
+  /** Current maximum levels of indirect pages in the tree. */
+  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+
   /**
    * Create name page.
    */
@@ -73,6 +76,7 @@ public final class NamePage extends AbstractForwardingPage {
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
     mPIs = Names.getInstance();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
 
   /**
@@ -91,6 +95,11 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces = Names.clone(in);
     mAttributes = Names.clone(in);
     mPIs = Names.clone(in);
+    final int currentMaxLevelOfIndirectPages = in.readInt();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+    }
   }
 
   /**
@@ -217,6 +226,20 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces.serialize(out);
     mAttributes.serialize(out);
     mPIs.serialize(out);
+    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    out.writeInt(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+    }
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.get(index);
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.merge(
+        index, 1, (previousValue, value) -> previousValue + value);
   }
 
   @Override
@@ -272,6 +295,12 @@ public final class NamePage extends AbstractForwardingPage {
         mMaxNodeKeys.put(index, 0L);
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+      }
+      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
+        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
+      } else {
+        mCurrentMaxLevelsOfIndirectPages.put(
+            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
       }
     }
   }

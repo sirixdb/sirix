@@ -147,6 +147,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
   }
 
   @Override
+  public void setReference(int offset, PageReference pageReference) {}
+
+  @Override
   public Set<Entry<K, V>> entrySet() {
     return mRecords.entrySet();
   }

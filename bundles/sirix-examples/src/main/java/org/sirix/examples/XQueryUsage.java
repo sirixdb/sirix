@@ -21,15 +21,13 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Sequence;
-import org.sirix.access.Databases;
-import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.SirixQueryContext.CommitStrategy;
-import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.DBNode;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you would use a logger

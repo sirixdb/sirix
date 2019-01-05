@@ -54,6 +54,11 @@ public final class OverflowPage implements Page {
   }
 
   @Override
+  public void setReference(int offset, PageReference pageReference) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
     out.writeInt(mData.length);
     out.write(mData);

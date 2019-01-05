@@ -389,8 +389,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           reference.setPage(new OverflowPage(data));
           mReferences.put(recordID, reference);
         } else {
-          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter && record instanceof Node
-              && ((Node) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
+          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter
+              && record instanceof Node && ((Node) record).getDeweyID().isPresent()
+              && record.getNodeKey() != 0)
             mDeweyIDs.put(((Node) record).getDeweyID().get(), record.getNodeKey());
           mSlots.put(recordID, data);
         }
@@ -442,6 +443,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   @Override
   public PageReference getReference(int offset) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 

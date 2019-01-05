@@ -69,6 +69,9 @@ public final class UberPage extends AbstractForwardingPage {
   /** Key to previous uberpage in persistent storage. */
   private long mPreviousUberPageKey;
 
+  /** Current maximum level of indirect pages in the tree. */
+  private int mCurrentMaxLevelOfIndirectPages;
+
   /**
    * Create uber page.
    *
@@ -81,6 +84,7 @@ public final class UberPage extends AbstractForwardingPage {
     mIsBootstrap = true;
     mPreviousUberPageKey = -1;
     mRootPage = null;
+    mCurrentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -99,6 +103,7 @@ public final class UberPage extends AbstractForwardingPage {
         : mRevisionCount - 1;
     mIsBootstrap = false;
     mRootPage = null;
+    mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
   }
 
   /**
@@ -122,6 +127,7 @@ public final class UberPage extends AbstractForwardingPage {
       mIsBootstrap = false;
       mRootPage = null;
     }
+    mCurrentMaxLevelOfIndirectPages = committedUberPage.mCurrentMaxLevelOfIndirectPages;
   }
 
   public long getPreviousUberPageKey() {
@@ -172,7 +178,21 @@ public final class UberPage extends AbstractForwardingPage {
     if (!mIsBootstrap) {
       out.writeLong(mPreviousUberPageKey);
     }
+    out.writeByte(mCurrentMaxLevelOfIndirectPages);
     mIsBootstrap = false;
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages() {
+    return mCurrentMaxLevelOfIndirectPages;
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages() {
+    return ++mCurrentMaxLevelOfIndirectPages;
+  }
+
+  @Override
+  public void setReference(int offset, PageReference pageReference) {
+    delegate().setReference(0, pageReference);
   }
 
   @Override
@@ -201,12 +221,9 @@ public final class UberPage extends AbstractForwardingPage {
     Page page = null;
     PageReference reference = getIndirectPageReference();
 
-    // Remaining levels.
-    for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-      page = new IndirectPage();
-      log.put(reference, PageContainer.getInstance(page, page));
-      reference = page.getReference(0);
-    }
+    page = new IndirectPage();
+    log.put(reference, PageContainer.getInstance(page, page));
+    reference = page.getReference(0);
 
     mRootPage = new RevisionRootPage();
 

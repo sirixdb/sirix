@@ -115,6 +115,10 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
+    if (mMap.containsKey(key)) {
+      mMap.remove(key);
+    }
+
     key.setKey(Constants.NULL_ID_LONG);
     key.setLogKey(mLogKey++);
     mMap.put(key, value);
@@ -165,7 +169,7 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /**
    * Truncate the log.
-   * 
+   *
    * @return this log instance
    */
   public TransactionIntentLog truncate() {
