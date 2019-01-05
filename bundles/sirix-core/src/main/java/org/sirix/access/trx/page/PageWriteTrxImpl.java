@@ -112,9 +112,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    * @param pageRtx the page reading transaction used as a delegate
    * @param indexController the index controller, which is used to update indexes
    */
-  PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer,
-      final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
-      final PageReadTrxImpl pageRtx, final IndexController indexController) {
+  PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
+      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx, final IndexController indexController) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
     mLog = checkNotNull(log);
@@ -134,8 +133,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public Record prepareEntryForModification(final @Nonnegative Long recordKey,
-      final PageKind pageKind, final int index) {
+  public Record prepareEntryForModification(final @Nonnegative Long recordKey, final PageKind pageKind,
+      final int index) {
     mPageRtx.assertNotClosed();
     checkNotNull(recordKey);
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
@@ -157,8 +156,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public Record createEntry(final Long key, final Record record, final PageKind pageKind,
-      final int index) {
+  public Record createEntry(final Long key, final Record record, final PageKind pageKind, final int index) {
     mPageRtx.assertNotClosed();
     // Allocate record key and increment record count.
     long recordKey;
@@ -167,8 +165,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
         recordKey = mNewRoot.incrementAndGetMaxNodeKey();
         break;
       case PATHSUMMARYPAGE:
-        final PathSummaryPage pathSummaryPage =
-            ((PathSummaryPage) mNewRoot.getPathSummaryPageReference().getPage());
+        final PathSummaryPage pathSummaryPage = ((PathSummaryPage) mNewRoot.getPathSummaryPageReference().getPage());
         recordKey = pathSummaryPage.incrementAndGetMaxNodeKey(index);
         break;
       case CASPAGE:
@@ -204,8 +201,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     final Optional<Record> node = getRecord(recordKey, pageKind, index);
     if (node.isPresent()) {
       final Record nodeToDel = node.get();
-      final Node delNode = new DeletedNode(
-          new NodeDelegate(nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID>empty()));
+      final Node delNode =
+          new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID>empty()));
       ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
       ((UnorderedKeyValuePage) cont.getComplete()).setEntry(delNode.getNodeKey(), delNode);
     } else {
@@ -321,8 +318,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     uberPageReference.setPage(null);
 
     final Path indexes =
-        mPageRtx.mResourceConfig.resourcePath.resolve(
-            ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+        mPageRtx.mResourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
                                              .resolve(String.valueOf(revision) + ".xml");
 
     if (!Files.exists(indexes)) {
@@ -350,8 +346,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       throw new SirixIOException("Commit file couldn't be deleted!");
     }
 
-    final UberPage commitedUberPage =
-        (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
+    final UberPage commitedUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
     mPageRtx.mResourceManager.getCommitLock().unlock();
 
@@ -369,8 +364,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mLog.truncate();
 
-    final UberPage lastUberPage =
-        (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
+    final UberPage lastUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
     return lastUberPage;
   }
@@ -380,8 +374,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     if (!mIsClosed) {
       mPageRtx.assertNotClosed();
 
-      final UberPage lastUberPage =
-          (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
+      final UberPage lastUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
 
       mPageRtx.mResourceManager.setLastCommittedUberPage(lastUberPage);
 
@@ -416,8 +409,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  private PageContainer prepareRecordPage(final @Nonnegative long recordPageKey,
-      final int indexNumber, final PageKind pageKind) {
+  private PageContainer prepareRecordPage(final @Nonnegative long recordPageKey, final int indexNumber,
+      final PageKind pageKind) {
     assert recordPageKey >= 0;
     assert pageKind != null;
 
@@ -426,9 +419,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     final PageReference pageReference = mPageRtx.getPageReference(mNewRoot, pageKind, indexNumber);
 
     // Get the reference to the unordered key/value page storing the records.
-    final PageReference reference = mTreeModifier.prepareLeafOfTree(
-        mPageRtx, mLog, getUberPage().getPageCountExp(pageKind), pageReference, recordPageKey,
-        maxPageKey, indexNumber, pageKind, mNewRoot);
+    final PageReference reference =
+        mTreeModifier.prepareLeafOfTree(mPageRtx, mLog, getUberPage().getPageCountExp(pageKind), pageReference,
+            recordPageKey, maxPageKey, indexNumber, pageKind, mNewRoot);
 
     PageContainer pageContainer = mLog.get(reference, mPageRtx);
 
@@ -461,8 +454,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     return pageContainer;
   }
 
-  private long getMaxNodeKey(final int index, final PageKind pageKind,
-      final RevisionRootPage revisionRoot) {
+  private long getMaxNodeKey(final int index, final PageKind pageKind, final RevisionRootPage revisionRoot) {
     final long maxNodeKey;
 
     switch (pageKind) {
@@ -483,8 +475,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
         break;
       // $CASES-OMITTED$
       default:
-        throw new IllegalStateException(
-            "Only defined for node, path summary, text value and attribute value pages!");
+        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     }
 
     return maxNodeKey;
@@ -498,12 +489,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
-    final VersioningType revisioning =
-        mPageRtx.mResourceManager.getResourceConfig().revisioningType;
-    final int mileStoneRevision =
-        mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
-    return revisioning.combineRecordPagesForModification(
-        revs, mileStoneRevision, mPageRtx, reference);
+    final VersioningType revisioning = mPageRtx.mResourceManager.getResourceConfig().revisioningType;
+    final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
+    return revisioning.combineRecordPagesForModification(revs, mileStoneRevision, mPageRtx, reference);
   }
 
   @Override
@@ -522,8 +510,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(
-      final PageReference reference, final PageContainer pageContainer) {
+  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(final PageReference reference,
+      final PageContainer pageContainer) {
     checkNotNull(pageContainer);
     mLog.put(reference, pageContainer);
     return this;
