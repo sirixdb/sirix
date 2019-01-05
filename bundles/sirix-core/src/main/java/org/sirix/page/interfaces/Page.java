@@ -71,4 +71,6 @@ public interface Page {
    * @return the {@link PageReference} at the specified offset
    */
   PageReference getReference(@Nonnegative int offset);
+
+  void setReference(int offset, PageReference pageReference);
 }

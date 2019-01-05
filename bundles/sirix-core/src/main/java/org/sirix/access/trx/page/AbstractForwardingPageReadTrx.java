@@ -3,6 +3,7 @@ package org.sirix.access.trx.page;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.PageContainer;
@@ -56,8 +57,26 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 
   @Override
   public PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
-      @Nonnegative long pageKey, int index, @Nonnull PageKind pageKind) throws SirixIOException {
-    return delegate().getPageReferenceForPage(startReference, pageKey, index, pageKind);
+      @Nonnegative long pageKey, @Nonnegative long maxNodeKey, int indexNumber,
+      @Nonnull PageKind pageKind) {
+    return delegate().getPageReferenceForPage(
+        startReference, pageKey, maxNodeKey, indexNumber, pageKind);
+  }
+
+  @Override
+  public int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index,
+      RevisionRootPage revisionRootPage) {
+    return delegate().getCurrentMaxIndirectPageTreeLevel(pageKind, index, revisionRootPage);
+  }
+
+  @Override
+  public CommitCredentials getCommitCredentials() {
+    return delegate().getCommitCredentials();
+  }
+
+  @Override
+  public long getTrxId() {
+    return delegate().getTrxId();
   }
 
   @Override

@@ -26,12 +26,40 @@ public final class CASPage extends AbstractForwardingPage {
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
 
+  /** Current maximum levels of indirect pages in the tree. */
+  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+
   /**
    * Constructor.
    */
   public CASPage() {
     mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
     mMaxNodeKeys = new HashMap<>();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
+  }
+
+  /**
+   * Read meta page.
+   *
+   * @param in input bytes to read from
+   */
+  protected CASPage(final DataInput in, final SerializationType type) throws IOException {
+    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
+    final int maxNodeKeySize = in.readInt();
+    mMaxNodeKeys = new HashMap<>(maxNodeKeySize);
+    for (int i = 0; i < maxNodeKeySize; i++) {
+      mMaxNodeKeys.put(i, in.readLong());
+    }
+    final int currentMaxLevelOfIndirectPages = in.readInt();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+    }
+  }
+
+  @Override
+  public void setReference(int offset, PageReference pageReference) {
+    delegate().setReference(offset, pageReference);
   }
 
   /**
@@ -42,20 +70,6 @@ public final class CASPage extends AbstractForwardingPage {
    */
   public PageReference getIndirectPageReference(int index) {
     return getReference(index);
-  }
-
-  /**
-   * Read meta page.
-   *
-   * @param in input bytes to read from
-   */
-  protected CASPage(final DataInput in, final SerializationType type) throws IOException {
-    mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in, type);
-    final int size = in.readInt();
-    mMaxNodeKeys = new HashMap<>(size);
-    for (int i = 0; i < size; i++) {
-      mMaxNodeKeys.put(i, in.readLong());
-    }
   }
 
   @Override
@@ -87,17 +101,37 @@ public final class CASPage extends AbstractForwardingPage {
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
       }
+      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
+        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
+      } else {
+        mCurrentMaxLevelsOfIndirectPages.put(
+            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
+      }
     }
   }
 
   @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
     super.serialize(out, type);
-    final int size = mMaxNodeKeys.size();
-    out.writeInt(size);
-    for (int i = 0; i < size; i++) {
+    final int maxNodeKeySize = mMaxNodeKeys.size();
+    out.writeInt(maxNodeKeySize);
+    for (int i = 0; i < maxNodeKeySize; i++) {
       out.writeLong(mMaxNodeKeys.get(i));
     }
+    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    out.writeInt(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+    }
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.get(index);
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.merge(
+        index, 1, (previousValue, value) -> previousValue + value);
   }
 
   /**

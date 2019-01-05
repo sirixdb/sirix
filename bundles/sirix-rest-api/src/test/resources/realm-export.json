@@ -69,6 +69,47 @@
         "attributes": {}
       },
       {
+        "id": "d1f6d3ae-d8d7-44bf-b79c-299bf8b4f6c1",
+        "name": "database2-create",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "e214413b-1659-42a9-b649-f6a862739509",
+        "name": "database1-view",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "18c8004b-e412-4967-89dc-8b490e1125ab",
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "14e9d4be-7acf-4ccc-9656-c83ec85fb6dd",
+        "name": "database2-delete",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "48d0b5b2-16e4-4979-ae4d-889bc3219b13",
+        "name": "database1-delete",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
         "id": "251a3844-cfa2-4fe6-a436-cca4913b1f60",
         "name": "database-create",
         "composite": false,
@@ -94,9 +135,16 @@
         "attributes": {}
       },
       {
-        "id": "18c8004b-e412-4967-89dc-8b490e1125ab",
-        "name": "uma_authorization",
-        "description": "${role_uma_authorization}",
+        "id": "5153aafc-7170-4ce1-b199-736e3c03db12",
+        "name": "database2-view",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "27ae331c-95f5-40dc-9e23-6c213906e0fb",
+        "name": "delete",
         "composite": false,
         "clientRole": false,
         "containerId": "master",
@@ -155,6 +203,14 @@
         "id": "0a85925f-5d2e-4e8e-8aa9-e06d54a82b6e",
         "name": "offline_access",
         "description": "${role_offline-access}",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "master",
+        "attributes": {}
+      },
+      {
+        "id": "bd3c92b6-e126-4c1c-afe7-775d62ab9f9c",
+        "name": "database1-create",
         "composite": false,
         "clientRole": false,
         "containerId": "master",
@@ -456,9 +512,9 @@
       "notBefore": 0,
       "bearerOnly": false,
       "consentRequired": false,
-      "standardFlowEnabled": true,
+      "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": true,
       "publicClient": false,

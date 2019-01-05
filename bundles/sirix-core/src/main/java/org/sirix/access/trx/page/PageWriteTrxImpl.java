@@ -230,7 +230,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       if (node == null) {
         node = ((UnorderedKeyValuePage) pageCont.getComplete()).getValue(recordKey);
       }
-      return PageReadTrxImpl.checkItemIfDeleted(node);
+      return mPageRtx.checkItemIfDeleted(node);
     }
   }
 
@@ -275,7 +275,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     reference.setPage(page);
 
-    // Recursively commit indirectly referenced pages and then write self.
+    // Recursively commit indirectly referenced pages and then write self.f
     page.commit(this);
     mPageWriter.write(reference);
 
@@ -320,9 +320,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     mPageWriter.writeUberPageReference(uberPageReference);
     uberPageReference.setPage(null);
 
-    final Path indexes = mPageRtx.mResourceConfig.resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                       .resolve(String.valueOf(revision) + ".xml");
+    final Path indexes =
+        mPageRtx.mResourceConfig.resourcePath.resolve(
+            ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                             .resolve(String.valueOf(revision) + ".xml");
 
     if (!Files.exists(indexes)) {
       try {
@@ -340,7 +341,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mLog.truncate();
 
-    // Delete commit file which denotes that a commit must write the log in the data file.
+    // Delete commit file which denotes that a commit must write the log in the
+    // data file.
 
     try {
       Files.delete(commitFile);
@@ -409,18 +411,24 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    * Prepare record page.
    *
    * @param recordPageKey the key of the record page
+   * @param indexNumber the index number if it's a record-page of an index, {@code -1}, else
    * @param pageKind the kind of page (used to determine the right subtree)
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  private PageContainer prepareRecordPage(final @Nonnegative long recordPageKey, final int index,
-      final PageKind pageKind) {
+  private PageContainer prepareRecordPage(final @Nonnegative long recordPageKey,
+      final int indexNumber, final PageKind pageKind) {
     assert recordPageKey >= 0;
     assert pageKind != null;
+
+    final long maxNodeKey = getMaxNodeKey(indexNumber, pageKind, mNewRoot);
+    final long maxPageKey = maxNodeKey >> 1;
+    final PageReference pageReference = mPageRtx.getPageReference(mNewRoot, pageKind, indexNumber);
+
     // Get the reference to the unordered key/value page storing the records.
     final PageReference reference = mTreeModifier.prepareLeafOfTree(
-        mPageRtx, mLog, getUberPage().getPageCountExp(pageKind),
-        mPageRtx.getPageReference(mNewRoot, pageKind, index), recordPageKey, index, pageKind);
+        mPageRtx, mLog, getUberPage().getPageCountExp(pageKind), pageReference, recordPageKey,
+        maxPageKey, indexNumber, pageKind, mNewRoot);
 
     PageContainer pageContainer = mLog.get(reference, mPageRtx);
 
@@ -453,6 +461,35 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     return pageContainer;
   }
 
+  private long getMaxNodeKey(final int index, final PageKind pageKind,
+      final RevisionRootPage revisionRoot) {
+    final long maxNodeKey;
+
+    switch (pageKind) {
+      case RECORDPAGE:
+        maxNodeKey = revisionRoot.getMaxNodeKey();
+        break;
+      case CASPAGE:
+        maxNodeKey = getCASPage(revisionRoot).getMaxNodeKey(index);
+        break;
+      case PATHPAGE:
+        maxNodeKey = getPathPage(revisionRoot).getMaxNodeKey(index);
+        break;
+      case NAMEPAGE:
+        maxNodeKey = getNamePage(revisionRoot).getMaxNodeKey(index);
+        break;
+      case PATHSUMMARYPAGE:
+        maxNodeKey = getPathSummaryPage(revisionRoot).getMaxNodeKey(index);
+        break;
+      // $CASES-OMITTED$
+      default:
+        throw new IllegalStateException(
+            "Only defined for node, path summary, text value and attribute value pages!");
+    }
+
+    return maxNodeKey;
+  }
+
   /**
    * Dereference record page reference.
    *
@@ -461,8 +498,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    */
   private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(reference);
-    final VersioningType revisioning = mPageRtx.mResourceManager.getResourceConfig().revisioningType;
-    final int mileStoneRevision = mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
+    final VersioningType revisioning =
+        mPageRtx.mResourceManager.getResourceConfig().revisioningType;
+    final int mileStoneRevision =
+        mPageRtx.mResourceManager.getResourceConfig().numberOfRevisionsToRestore;
     return revisioning.combineRecordPagesForModification(
         revs, mileStoneRevision, mPageRtx, reference);
   }

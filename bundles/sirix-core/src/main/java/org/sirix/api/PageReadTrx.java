@@ -63,10 +63,10 @@ public interface PageReadTrx extends AutoCloseable {
    * @param pageKind the page kind from which to fetch the record
    * @param index the index number
    * @return an {@link Optional} reference usually containing the node reference
-   * @throws SirixIOException if an I/O error occured
+   * @throws SirixIOException if an I/O error occurred
    */
   Optional<? extends Record> getRecord(final @Nonnegative long key, final PageKind pageKind,
-      final int index) throws SirixIOException;
+      final int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -110,7 +110,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @throws SirixIOException if something weird happened in the storage
    */
   @Override
-  void close() throws SirixIOException;
+  void close();
 
   /**
    * Get a the record page container with the full/modified pages from the page layer, given the
@@ -126,8 +126,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @throws IllegalArgumentException if {@code key} is negative
    */
   <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
-      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
-      throws SirixIOException;
+      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind);
 
   /** Determines if transaction is closed or not. */
   boolean isClosed();
@@ -152,11 +151,11 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Calculate record page key from a given record key.
    *
-   * @param key entry key to find record page key for
+   * @param recordKey record key to find record page key for
    * @return record page key
    * @throws IllegalArgumentException if {code recordKey} < 0
    */
-  long pageKey(@Nonnegative long key);
+  long pageKey(@Nonnegative long recordKey);
 
   /**
    * Get the {@link NamePage} associated with the current revision root.
@@ -164,7 +163,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link NamePage}
    * @throws SirixIOException if an I/O error occurs
    */
-  NamePage getNamePage(RevisionRootPage revisionRoot) throws SirixIOException;
+  NamePage getNamePage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link PathPage} associated with the current revision root.
@@ -172,7 +171,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link PathPage}
    * @throws SirixIOException if an I/O error occur@Nonnull RevisionRootPage revisionRoots
    */
-  PathPage getPathPage(RevisionRootPage revisionRoot) throws SirixIOException;
+  PathPage getPathPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link CASPage} associated with the current revision root.
@@ -180,7 +179,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link CASPage}
    * @throws SirixIOException if an I/O error occurs
    */
-  CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException;
+  CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link PathSummaryPage} associated with the current revision root.
@@ -188,7 +187,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link PathSummaryPage}
    * @throws SirixIOException if an I/O error occurs
    */
-  PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot) throws SirixIOException;
+  PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
@@ -196,14 +195,15 @@ public interface PageReadTrx extends AutoCloseable {
    * @param startReference the start reference (for instance to the indirect tree or the root-node
    *        of a BPlusTree)
    * @param pageKey the unique key of the page to search for
-   * @param index the index number, or {@code -1} if a regular record pages should be retrieved
+   * @param maxNodeKey the maximum node key
+   * @param indexNumber the index number or {@code -1}
    * @param pageKind the kind of subtree
    * @return {@link PageReference} instance pointing to the page denoted by {@code key}
    * @throws SirixIOException if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} < 0
    */
   PageReference getPageReferenceForPage(PageReference startReference, @Nonnegative long pageKey,
-      int index, @Nonnull PageKind pageKind) throws SirixIOException;
+      @Nonnegative long maxNodeKey, int indexNumber, @Nonnull PageKind pageKind);
 
   /**
    * Get the {@link Reader} to read a page from persistent storage if needed.
@@ -227,4 +227,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @return The revision root.
    */
   RevisionRootPage loadRevRoot(int lastCommitedRev);
+
+  int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index,
+      RevisionRootPage revisionRootPage);
 }

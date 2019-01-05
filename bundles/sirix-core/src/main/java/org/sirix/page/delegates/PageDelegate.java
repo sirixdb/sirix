@@ -130,7 +130,7 @@ public final class PageDelegate implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public final PageReference getReference(final @Nonnegative int offset) {
+  public PageReference getReference(final @Nonnegative int offset) {
     if (mBitmap.get(offset)) {
       final int index = index(offset);
       return mReferences.get(index);
@@ -139,15 +139,19 @@ public final class PageDelegate implements Page {
     }
   }
 
+  @Override
+  public void setReference(final int offset, final PageReference pageReference) {
+    final int index = index(offset);
+    mReferences.set(index, pageReference);
+    mBitmap.set(offset, true);
+  }
+
   private PageReference createNewReference(final int offset) {
     final int index = index(offset);
-
-    final PageReference reference = new PageReference();
-    mReferences.add(index, reference);
-
+    final PageReference pageReference = new PageReference();
+    mReferences.add(index, pageReference);
     mBitmap.set(offset, true);
-
-    return reference;
+    return pageReference;
   }
 
   private int index(final int offset) {

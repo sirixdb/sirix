@@ -36,17 +36,9 @@ public final class PageUtils {
    */
   public static void createTree(@Nonnull PageReference reference, final PageKind pageKind,
       final int index, final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
-    Page page = null;
-
-    // Level page count exponent from the configuration.
-    final int[] levelPageCountExp = pageReadTrx.getUberPage().getPageCountExp(pageKind);
-
-    // Remaining levels.
-    for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
-      page = new IndirectPage();
-      log.put(reference, PageContainer.getInstance(page, page));
-      reference = page.getReference(0);
-    }
+    final Page page = new IndirectPage();
+    log.put(reference, PageContainer.getInstance(page, page));
+    reference = page.getReference(0);
 
     // Create new record page.
     final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(

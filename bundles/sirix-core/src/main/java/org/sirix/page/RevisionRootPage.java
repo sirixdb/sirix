@@ -78,6 +78,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /** Optional commit message. */
   private String mCommitMessage;
 
+  /** Current maximum level of indirect pages in the tree. */
+  private int mCurrentMaxLevelOfIndirectPages;
+
   /**
    * Create revision root page.
    */
@@ -89,6 +92,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
     mMaxNodeKey = -1L;
+    mCurrentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -106,6 +110,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       in.readFully(commitMessage);
       mCommitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
     }
+
+    mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
   }
 
   /**
@@ -121,6 +127,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     mRevision = representRev;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
     mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
+    mCurrentMaxLevelOfIndirectPages = committedRevisionRootPage.mCurrentMaxLevelOfIndirectPages;
   }
 
   /**
@@ -228,6 +235,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       out.writeInt(commitMessage.length);
       out.write(commitMessage);
     }
+
+    out.writeByte(mCurrentMaxLevelOfIndirectPages);
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages() {
+    return mCurrentMaxLevelOfIndirectPages;
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages() {
+    return ++mCurrentMaxLevelOfIndirectPages;
   }
 
   @Override

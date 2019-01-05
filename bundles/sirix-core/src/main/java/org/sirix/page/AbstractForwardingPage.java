@@ -62,6 +62,11 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
+  public void setReference(int offset, PageReference pageReference) {
+    delegate().setReference(offset, pageReference);
+  }
+
+  @Override
   public void serialize(final DataOutput out, final SerializationType type) throws IOException {
     delegate().serialize(checkNotNull(out), checkNotNull(type));
   }

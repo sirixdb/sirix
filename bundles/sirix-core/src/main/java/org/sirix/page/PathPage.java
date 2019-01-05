@@ -26,12 +26,16 @@ public final class PathPage extends AbstractForwardingPage {
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
 
+  /** Current maximum levels of indirect pages in the tree. */
+  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+
   /**
    * Constructor.
    */
   public PathPage() {
     mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
     mMaxNodeKeys = new HashMap<>();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
 
   /**
@@ -56,6 +60,11 @@ public final class PathPage extends AbstractForwardingPage {
     mMaxNodeKeys = new HashMap<>(size);
     for (int i = 0; i < size; i++) {
       mMaxNodeKeys.put(i, in.readLong());
+    }
+    final int currentMaxLevelOfIndirectPages = in.readInt();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
     }
   }
 
@@ -88,6 +97,12 @@ public final class PathPage extends AbstractForwardingPage {
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
       }
+      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
+        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
+      } else {
+        mCurrentMaxLevelsOfIndirectPages.put(
+            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
+      }
     }
   }
 
@@ -99,6 +114,20 @@ public final class PathPage extends AbstractForwardingPage {
     for (int i = 0; i < size; i++) {
       out.writeLong(mMaxNodeKeys.get(i));
     }
+    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    out.writeInt(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+    }
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.get(index);
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.merge(
+        index, 1, (previousValue, value) -> previousValue + value);
   }
 
   /**

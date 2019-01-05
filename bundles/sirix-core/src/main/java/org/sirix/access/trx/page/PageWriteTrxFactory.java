@@ -81,9 +81,11 @@ public final class PageWriteTrxFactory {
     final IndexController indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
-            String.valueOf(lastStoredRev) + ".xml");
+    final Path indexes =
+        resourceManager.getResourceConfig().resourcePath.resolve(
+            ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                        .resolve(
+                                                            String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -93,9 +95,7 @@ public final class PageWriteTrxFactory {
     }
 
     final TreeModifierImpl treeModifier = new TreeModifierImpl();
-
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-
     final TransactionIntentLog log =
         logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
 
@@ -162,7 +162,8 @@ public final class PageWriteTrxFactory {
 
       final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(
           pageRtx, log, uberPage.getPageCountExp(PageKind.UBERPAGE),
-          uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE);
+          uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(),
+          uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, newRevisionRootPage);
 
       log.put(
           revisionRootPageReference,
