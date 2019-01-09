@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -29,24 +29,21 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.Move;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.AttributeNode;
-import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
-import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
-import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.TextNode;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableDocument;
@@ -62,6 +59,12 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.xdm.AttributeNode;
+import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xdm.ElementNode;
+import org.sirix.node.xdm.NamespaceNode;
+import org.sirix.node.xdm.PINode;
+import org.sirix.node.xdm.TextNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
@@ -85,7 +88,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   private final long mId;
 
   /** Resource manager this write transaction is bound to. */
-  protected final XdmResourceManager mResourceManager;
+  protected final XdmResourceManagerImpl mResourceManager;
 
   /** State of transaction including all cached stuff. */
   private PageReadTrx mPageReadTrx;
@@ -107,7 +110,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XdmNodeReadTrxImpl(final XdmResourceManager resourceManager, final @Nonnegative long trxId,
+  XdmNodeReadTrxImpl(final XdmResourceManagerImpl resourceManager, final @Nonnegative long trxId,
       final PageReadTrx pageReadTransaction, final Node documentNode) {
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
@@ -196,8 +199,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
           newNode = Optional.empty();
         }
       } else {
-        final Optional<? extends Record> node =
-            mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
         newNode = node;
       }
     } catch (final SirixIOException e) {
@@ -305,8 +307,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   public QNm getName() {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
-      final String uri =
-          mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+      final String uri = mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
@@ -478,7 +479,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public ResourceManager getResourceManager() {
+  public XdmResourceManager getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }
@@ -781,8 +782,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   public String getNamespaceURI() {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
-      final String URI =
-          mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+      final String URI = mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
       return URI;
     }
     return null;
@@ -904,15 +904,13 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   @Override
   public boolean hasAttributes() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.ELEMENT
-        && ((ElementNode) mCurrentNode).getAttributeCount() > 0;
+    return mCurrentNode.getKind() == Kind.ELEMENT && ((ElementNode) mCurrentNode).getAttributeCount() > 0;
   }
 
   @Override
   public boolean hasNamespaces() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.ELEMENT
-        && ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
+    return mCurrentNode.getKind() == Kind.ELEMENT && ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
   }
 
   @Override

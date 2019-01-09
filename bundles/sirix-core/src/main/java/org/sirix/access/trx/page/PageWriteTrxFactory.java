@@ -36,8 +36,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.XdmResourceManager;
+import org.sirix.access.trx.node.xdm.IndexController;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
@@ -64,7 +64,7 @@ public final class PageWriteTrxFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager {@link XdmResourceManager} this page write trx is bound to
+   * @param resourceManager {@link XdmResourceManagerImpl} this page write trx is bound to
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID
@@ -73,7 +73,7 @@ public final class PageWriteTrxFactory {
    * @param bufferManager the page cache buffer
    */
   public PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
-      final XdmResourceManager resourceManager, final UberPage uberPage, final Writer writer,
+      final XdmResourceManagerImpl resourceManager, final UberPage uberPage, final Writer writer,
       final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager) {

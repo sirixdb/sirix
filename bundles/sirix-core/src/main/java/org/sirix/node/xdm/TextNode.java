@@ -19,12 +19,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node;
+package org.sirix.node.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;

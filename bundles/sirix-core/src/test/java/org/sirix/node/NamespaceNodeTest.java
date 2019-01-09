@@ -38,6 +38,7 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.xdm.NamespaceNode;
 
 /**
  * Namespace node test.

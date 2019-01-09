@@ -9,7 +9,7 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.access.trx.node.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractVisitor;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;

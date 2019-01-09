@@ -1,20 +1,20 @@
 package org.sirix.axis;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import com.google.common.collect.AbstractIterator;
 
 /**
  * TemporalAxis abstract class.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public abstract class AbstractTemporalAxis extends AbstractIterator<XdmNodeReadTrx> {
+public abstract class AbstractTemporalAxis<R extends NodeReadTrx> extends AbstractIterator<R> {
 
   /**
    * Get the transaction.
-   * 
-   * @return Sirix {@link XdmNodeReadTrx}
+   *
+   * @return Sirix {@link NodeReadTrx}
    */
-  public abstract XdmNodeReadTrx getTrx();
+  public abstract R getTrx();
 }

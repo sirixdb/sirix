@@ -9,12 +9,12 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbstractStructForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 

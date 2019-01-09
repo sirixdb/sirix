@@ -30,6 +30,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.Objects;
 
 /**

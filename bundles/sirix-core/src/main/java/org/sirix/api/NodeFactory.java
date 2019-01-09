@@ -7,16 +7,16 @@ import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathNode;
-import org.sirix.node.AttributeNode;
-import org.sirix.node.CommentNode;
-import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
-import org.sirix.node.NamespaceNode;
-import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.TextNode;
 import org.sirix.node.json.JSONArray;
 import org.sirix.node.json.JSONObject;
+import org.sirix.node.xdm.AttributeNode;
+import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xdm.ElementNode;
+import org.sirix.node.xdm.NamespaceNode;
+import org.sirix.node.xdm.PINode;
+import org.sirix.node.xdm.TextNode;
 
 /**
  * Node factory for creating nodes.

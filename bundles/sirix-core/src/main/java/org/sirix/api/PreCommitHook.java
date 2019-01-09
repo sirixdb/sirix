@@ -14,5 +14,5 @@ public interface PreCommitHook {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
-  void preCommit(XdmNodeReadTrx rtx);
+  void preCommit(NodeReadTrx rtx);
 }

@@ -31,8 +31,8 @@ import org.sirix.access.trx.node.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.Record;
+import org.sirix.node.xdm.TextNode;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.shredder.XMLShredder;
 import com.google.common.annotations.Beta;
@@ -117,14 +117,14 @@ import com.google.common.annotations.Beta;
  *
  * </p>
  */
-public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
+public interface XdmNodeWriteTrx extends XdmNodeReadTrx, NodeWriteTrx {
 
   // --- Node Modifiers
   // --------------------------------------------------------
 
   /**
-   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the
-   * provided transaction) and insert as right sibling of the current node.
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as right sibling of the current node.
    *
    * @param rtx read transaction reference which implements the {@link XdmNodeReadTrx} interface
    * @return the transaction instance
@@ -134,8 +134,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx copySubtreeAsFirstChild(XdmNodeReadTrx rtx);
 
   /**
-   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the
-   * provided transaction) and insert as left sibling of the current node.
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as left sibling of the current node.
    *
    * @param rtx read transaction reference which implements the {@link XdmNodeReadTrx} interface
    * @return the transaction instance
@@ -145,8 +145,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx copySubtreeAsLeftSibling(XdmNodeReadTrx rtx);
 
   /**
-   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the
-   * provided transaction) and insert as right sibling of the current node.
+   * Copy subtree from another {@code database/resource/revision} (the subtree rooted at the provided
+   * transaction) and insert as right sibling of the current node.
    *
    * @param rtx read transaction reference which implements the {@link XdmNodeReadTrx} interface
    * @return the transaction instance
@@ -192,8 +192,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long fromKey);
 
   /**
-   * Move a subtree rooted at {@code fromKey} to the right sibling of the current node. In case of
-   * the moved node is a text-node the value of the current node is prepended to the moved node and
+   * Move a subtree rooted at {@code fromKey} to the right sibling of the current node. In case of the
+   * moved node is a text-node the value of the current node is prepended to the moved node and
    * deleted afterwards. In this case the transaction is moved to the moved node.
    *
    * @param fromKey root node key of the subtree to move
@@ -207,8 +207,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx moveSubtreeToRightSibling(long fromKey);
 
   /**
-   * Move a subtree rooted at {@code fromKey} to the left sibling of the current node. In case of
-   * the moved node is a text-node the value of the current node is prepended to the moved node and
+   * Move a subtree rooted at {@code fromKey} to the left sibling of the current node. In case of the
+   * moved node is a text-node the value of the current node is prepended to the moved node and
    * deleted afterwards. In this case the transaction is moved to the moved node.
    *
    * @param fromKey root node key of the subtree to move
@@ -255,8 +255,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx insertCommentAsFirstChild(String value);
 
   /**
-   * Insert new Processing Instruction node as left sibling of currently selected node. The cursor
-   * is moved to the inserted node.
+   * Insert new Processing Instruction node as left sibling of currently selected node. The cursor is
+   * moved to the inserted node.
    *
    * @param content content of processing instruction
    * @param target target of processing instruction
@@ -267,8 +267,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx insertPIAsLeftSibling(String content, @Nonnull String target);
 
   /**
-   * Insert new Processing Instruction node as right sibling of currently selected node. The cursor
-   * is moved to the inserted node.
+   * Insert new Processing Instruction node as right sibling of currently selected node. The cursor is
+   * moved to the inserted node.
    *
    * @param content content of processing instruction
    * @param target target of processing instruction
@@ -313,8 +313,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx insertElementAsLeftSibling(QNm name);
 
   /**
-   * Insert new element node as right sibling of currently selected node. The transaction is moved
-   * to the inserted node.
+   * Insert new element node as right sibling of currently selected node. The transaction is moved to
+   * the inserted node.
    *
    * @param name {@link QNm} of the new node
    * @throws SirixException if element node couldn't be inserted as right sibling
@@ -325,8 +325,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
 
   /**
    * Insert new text node as first child of currently selected node. The cursor is moved to the
-   * inserted node. If the result would be two adjacent {@link TextNode}s the value is appended with
-   * a single whitespace character prepended at first.
+   * inserted node. If the result would be two adjacent {@link TextNode}s the value is appended with a
+   * single whitespace character prepended at first.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as first child
@@ -336,8 +336,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx insertTextAsFirstChild(String value);
 
   /**
-   * Insert new text node as left sibling of currently selected node. The transaction is moved to
-   * the inserted node.
+   * Insert new text node as left sibling of currently selected node. The transaction is moved to the
+   * inserted node.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as right sibling
@@ -347,8 +347,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   XdmNodeWriteTrx insertTextAsLeftSibling(String value);
 
   /**
-   * Insert new text node as right sibling of currently selected node. The transaction is moved to
-   * the inserted node.
+   * Insert new text node as right sibling of currently selected node. The transaction is moved to the
+   * inserted node.
    *
    * @param value value of node to insert
    * @throws SirixException if text node couldn't be inserted as right sibling
@@ -449,8 +449,8 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
 
   /**
    * Remove currently selected node. This does automatically remove descendants. If two adjacent
-   * {@link TextNode}s would be the result after the remove, the value of the former right sibling
-   * is appended to the left sibling {@link TextNode} and removed afterwards.
+   * {@link TextNode}s would be the result after the remove, the value of the former right sibling is
+   * appended to the left sibling {@link TextNode} and removed afterwards.
    *
    * The cursor is located at the former right sibling. If there was no right sibling, it is located
    * at the former left sibling. If there was no left sibling, it is located at the former parent.
@@ -489,6 +489,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *
    * @throws SirixException if this revision couldn't be commited
    */
+  @Override
   XdmNodeWriteTrx commit();
 
   /**
@@ -498,6 +499,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    * @param commitMessage message of the commit
    * @throws SirixException if this revision couldn't be commited
    */
+  @Override
   XdmNodeWriteTrx commit(String commitMessage);
 
   /**
@@ -505,14 +507,16 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *
    * @throws SirixException if the changes in this revision couldn't be rollbacked
    */
+  @Override
   XdmNodeWriteTrx rollback();
 
   /**
-   * Reverting all changes to the revision defined. This command has to be finalized with a commit.
-   * A revert is always bound to a {@link XdmNodeReadTrx#moveToDocumentRoot()}.
+   * Reverting all changes to the revision defined. This command has to be finalized with a commit. A
+   * revert is always bound to a {@link XdmNodeReadTrx#moveToDocumentRoot()}.
    *
    * @param revision revert to the revision
    */
+  @Override
   XdmNodeWriteTrx revertTo(@Nonnegative int revision);
 
   /**
@@ -528,6 +532,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *
    * @param hook pre commit hook
    */
+  @Override
   XdmNodeWriteTrx addPreCommitHook(PreCommitHook hook);
 
   /**
@@ -535,6 +540,7 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
    *
    * @param hook post commit hook
    */
+  @Override
   XdmNodeWriteTrx addPostCommitHook(PostCommitHook hook);
 
   /**
@@ -553,5 +559,6 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx {
   @Beta
   PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
 
+  @Override
   XdmNodeWriteTrx truncateTo(int revision);
 }

@@ -1,5 +1,6 @@
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
+import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;

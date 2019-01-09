@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -40,14 +40,16 @@ import org.sirix.access.LocalDatabase;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -71,9 +73,10 @@ import com.google.common.base.MoreObjects;
  * Makes sure that there only is a single resource manager instance per thread bound to a resource.
  * </p>
  */
-public final class XdmResourceManager implements ResourceManager {
+public final class XdmResourceManagerImpl
+    implements XdmResourceManager, InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> {
 
-  /** Database for centralized closure of related Sessions. */
+  /** The database. */
   private final LocalDatabase mDatabase;
 
   /** Write semaphore to assure only one exclusive write transaction exists. */
@@ -124,29 +127,18 @@ public final class XdmResourceManager implements ResourceManager {
   /** The resource store with which this manager has been created. */
   private final ResourceStore mResourceStore;
 
-  /** Abort a write transaction. */
-  enum Abort {
-    /** Yes, abort. */
-    YES,
-
-    /** No, don't abort. */
-    NO
-  }
-
   /**
    * Package private constructor.
    *
    * @param database {@link LocalDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
-   * @param pageCache the cache of in-memory pages shared amongst all sessions / resource
-   *        transactions
+   * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  public XdmResourceManager(final LocalDatabase database,
-      final @Nonnull ResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
-      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage,
-      final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
+  public XdmResourceManagerImpl(final LocalDatabase database, final @Nonnull ResourceStore resourceStore,
+      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
+      final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
       final @Nonnull Semaphore writeSemaphore) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
@@ -177,6 +169,7 @@ public final class XdmResourceManager implements ResourceManager {
     return mResourceConfig.resourcePath;
   }
 
+  @Override
   public Lock getCommitLock() {
     return mCommitLock;
   }
@@ -205,8 +198,8 @@ public final class XdmResourceManager implements ResourceManager {
     final Node documentNode = getDocumentNode(pageReadTrx);
 
     // Create new reader.
-    final XdmNodeReadTrx reader = new XdmNodeReadTrxImpl(this, mNodeTrxIDCounter.incrementAndGet(),
-        pageReadTrx, documentNode);
+    final XdmNodeReadTrx reader =
+        new XdmNodeReadTrxImpl(this, mNodeTrxIDCounter.incrementAndGet(), pageReadTrx, documentNode);
 
     // Remember reader for debugging and safe close.
     if (mNodeReaderMap.put(reader.getId(), reader) != null) {
@@ -220,8 +213,9 @@ public final class XdmResourceManager implements ResourceManager {
     final Node documentNode;
 
     @SuppressWarnings("unchecked")
-    final Optional<? extends Node> node = (Optional<? extends Node>) pageReadTrx.getRecord(
-        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.RECORDPAGE, -1);
+    final Optional<? extends Node> node =
+        (Optional<? extends Node>) pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+            PageKind.RECORDPAGE, -1);
     if (node.isPresent()) {
       documentNode = node.get();
     } else {
@@ -233,12 +227,13 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   /**
-   * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting
-   * or not.
+   * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting or
+   * not.
    */
-  public Path commitFile() {
-    return mResourceConfig.resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit");
+  @Override
+  public Path getCommitFile() {
+    return mResourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
+                                       .resolve(".commit");
   }
 
   @Override
@@ -252,8 +247,7 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnull TimeUnit timeUnit,
-      final @Nonnegative int maxTime) {
+  public XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
     return beginNodeWriteTrx(0, timeUnit, maxTime);
   }
 
@@ -270,8 +264,7 @@ public final class XdmResourceManager implements ResourceManager {
     // Make sure not to exceed available number of write transactions.
     try {
       if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No write transaction available, please close the write transaction first.");
+        throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
@@ -288,12 +281,11 @@ public final class XdmResourceManager implements ResourceManager {
     final Node documentNode = getDocumentNode(pageWtx);
 
     // Create new node write transaction.
-    final XdmNodeWriteTrx wtx = new XdmNodeWriteTrxImpl(currentTrxID, this, pageWtx, maxNodeCount,
-        timeUnit, maxTime, documentNode);
+    final XdmNodeWriteTrx wtx =
+        new XdmNodeWriteTrxImpl(currentTrxID, this, pageWtx, maxNodeCount, timeUnit, maxTime, documentNode);
 
     // Remember node transaction for debugging and safe close.
-    if (mNodeReaderMap.put(currentTrxID, wtx) != null
-        || mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
+    if (mNodeReaderMap.put(currentTrxID, wtx) != null || mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
       throw new SirixThreadedException("ID generation is bogus because of duplicate ID.");
     }
 
@@ -309,21 +301,20 @@ public final class XdmResourceManager implements ResourceManager {
    * @param abort determines if a transaction must be aborted (rollback) or not
    * @return a new {@link PageWriteTrx} instance
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(
-      final @Nonnegative long id, final @Nonnegative int representRevision,
-      final @Nonnegative int storeRevision, final Abort abort) {
+  @Override
+  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(final @Nonnegative long id,
+      final @Nonnegative int representRevision, final @Nonnegative int storeRevision, final Abort abort) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
     final Writer writer = mFac.createWriter();
     final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
-    return new PageWriteTrxFactory().createPageWriteTrx(
-        this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
-            ? new UberPage()
-            : new UberPage(lastCommitedUberPage, representRevision > 0
-                ? writer.readUberPageReference().getKey()
-                : -1),
+    return new PageWriteTrxFactory().createPageWriteTrx(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+        ? new UberPage()
+        : new UberPage(lastCommitedUberPage, representRevision > 0
+            ? writer.readUberPageReference().getKey()
+            : -1),
         writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
   }
 
@@ -331,7 +322,7 @@ public final class XdmResourceManager implements ResourceManager {
   public synchronized void close() {
     if (!mClosed) {
       // Close all open node transactions.
-      for (XdmNodeReadTrx rtx : mNodeReaderMap.values()) {
+      for (NodeReadTrx rtx : mNodeReaderMap.values()) {
         if (rtx instanceof XdmNodeWriteTrx) {
           ((XdmNodeWriteTrx) rtx).rollback();
         }
@@ -364,10 +355,11 @@ public final class XdmResourceManager implements ResourceManager {
    * Checks for valid revision.
    *
    * @param revision revision number to check
-   * @throws IllegalStateException if {@link XdmResourceManager} is already closed
+   * @throws IllegalStateException if {@link XdmResourceManagerImpl} is already closed
    * @throws IllegalArgumentException if revision isn't valid
    */
-  void assertAccess(final @Nonnegative long revision) {
+  @Override
+  public void assertAccess(final @Nonnegative int revision) {
     if (mClosed) {
       throw new IllegalStateException("Resource manager is already closed!");
     }
@@ -375,8 +367,11 @@ public final class XdmResourceManager implements ResourceManager {
       throw new IllegalArgumentException("Revision must be at least 0!");
     } else if (revision > mLastCommittedUberPage.get().getRevision()) {
       throw new IllegalArgumentException(
-          new StringBuilder("Revision must not be bigger than ").append(
-              Long.toString(mLastCommittedUberPage.get().getRevision())).append("!").toString());
+          new StringBuilder("Revision must not be bigger than ")
+                                                                .append(Long.toString(
+                                                                    mLastCommittedUberPage.get().getRevision()))
+                                                                .append("!")
+                                                                .toString());
     }
   }
 
@@ -396,7 +391,8 @@ public final class XdmResourceManager implements ResourceManager {
    * @param transactionID page write transaction ID
    * @param pageWriteTrx page write trx
    */
-  void setNodePageWriteTransaction(final @Nonnegative long transactionID,
+  @Override
+  public void setNodePageWriteTransaction(final @Nonnegative long transactionID,
       @Nonnull final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mNodePageTrxMap.put(transactionID, pageWriteTrx);
   }
@@ -407,8 +403,8 @@ public final class XdmResourceManager implements ResourceManager {
    * @param transactionID page write transaction ID
    * @throws SirixIOException if an I/O error occurs
    */
-  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
-      throws SirixIOException {
+  @Override
+  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) throws SirixIOException {
     final PageReadTrx pageRtx = mNodePageTrxMap.remove(transactionID);
     if (pageRtx != null)
       // assert pageRtx != null : "Must be in the page trx map!";
@@ -433,6 +429,7 @@ public final class XdmResourceManager implements ResourceManager {
    *
    * @param transactionID read transaction ID
    */
+  @Override
   public void closeReadTransaction(final @Nonnegative long transactionID) {
     // Remove from internal map.
     removeFromPageMapping(transactionID);
@@ -469,6 +466,7 @@ public final class XdmResourceManager implements ResourceManager {
    *
    * @param page the new {@link UberPage}
    */
+  @Override
   public void setLastCommittedUberPage(final UberPage page) {
     mLastCommittedUberPage.set(checkNotNull(page));
   }
@@ -506,8 +504,8 @@ public final class XdmResourceManager implements ResourceManager {
     assertAccess(revision);
 
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final PageReadTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this,
-        mLastCommittedUberPage.get(), revision, mFac.createReader(), null, null, mBufferManager);
+    final PageReadTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(), revision,
+        mFac.createReader(), null, null, mBufferManager);
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -518,8 +516,7 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx()
-      throws SirixException {
+  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx() throws SirixException {
     return beginPageWriteTrx(mLastCommittedUberPage.get().getRevisionNumber());
   }
 
@@ -531,8 +528,7 @@ public final class XdmResourceManager implements ResourceManager {
     // Make sure not to exceed available number of write transactions.
     try {
       if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No write transaction available, please close the write transaction first.");
+        throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
@@ -577,12 +573,12 @@ public final class XdmResourceManager implements ResourceManager {
   }
 
   @Override
-  public Optional<XdmNodeReadTrx> getXdmNodeReadTrx(final long ID) {
+  public Optional<XdmNodeReadTrx> getNodeReadTrx(final long ID) {
     return Optional.ofNullable(mNodeReaderMap.get(ID));
   }
 
   @Override
-  public synchronized Optional<XdmNodeWriteTrx> getXdmNodeWriteTrx() {
+  public synchronized Optional<XdmNodeWriteTrx> getNodeWriteTrx() {
     return mNodeReaderMap.values()
                          .stream()
                          .filter(rtx -> rtx instanceof XdmNodeWriteTrx)
@@ -610,8 +606,8 @@ public final class XdmResourceManager implements ResourceManager {
     final XdmNodeReadTrx rtxRevisionMinus1 = beginNodeReadTrx(revision - 1);
     final XdmNodeReadTrx rtxRevision = beginNodeReadTrx(revision);
 
-    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(
-        timestamp, rtxRevision.getRevisionTimestamp())) {
+    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
+        rtxRevision.getRevisionTimestamp())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -668,8 +664,8 @@ public final class XdmResourceManager implements ResourceManager {
         final XdmNodeReadTrx rtxRevision = beginNodeReadTrx(revision)) {
       final int revisionNumber;
 
-      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(
-          timestamp, rtxRevision.getRevisionTimestamp())) {
+      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
+          rtxRevision.getRevisionTimestamp())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

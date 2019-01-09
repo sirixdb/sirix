@@ -31,8 +31,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -45,12 +45,11 @@ import org.sirix.service.xml.shredder.XMLShredder;
  */
 public final class XPathWriteTransactionTest {
 
-  private static final Path XML =
-      Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
+  private static final Path XML = Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
 
   private static final String RESOURCE = "bla";
 
-  private ResourceManager manager;
+  private XdmResourceManager manager;
 
   private XdmNodeWriteTrx wtx;
 
@@ -60,14 +59,12 @@ public final class XPathWriteTransactionTest {
   public void setUp() throws Exception {
     TestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(
-        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XMLShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
     // Verify.
     database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getResourceManager(TestHelper.RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
+    manager = database.getXdmResourceManager(TestHelper.RESOURCE);
     wtx = manager.beginNodeWriteTrx();
   }
 

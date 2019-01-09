@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,6 +22,7 @@
 package org.sirix.service.xml.xpath.parser;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.NoSuchElementException;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
@@ -92,7 +93,7 @@ public final class XPathParser {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx The transaction.
    * @param mQuery The query to process.
    */
@@ -106,7 +107,7 @@ public final class XPathParser {
 
   /**
    * Starts parsing the query.
-   * 
+   *
    * @throws SirixXPathException
    */
   public void parseQuery() throws SirixXPathException {
@@ -130,7 +131,7 @@ public final class XPathParser {
    * <p>
    * [2] Expr ::= ExprSingle ("," ExprSingle)* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseExpression() throws SirixXPathException {
@@ -151,7 +152,7 @@ public final class XPathParser {
    * <p>
    * [3] ExprSingle ::= ForExpr | QuantifiedExpr | IfExpr | OrExpr .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseExprSingle() throws SirixXPathException {
@@ -175,7 +176,7 @@ public final class XPathParser {
    * <p>
    * ForExpr ::= SimpleForClause "return" ExprSingle .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseForExpr() throws SirixXPathException {
@@ -194,10 +195,9 @@ public final class XPathParser {
   /**
    * Parses the the rule SimpleForClause according to the following production rule:
    * <p>
-   * [5] SimpleForClause ::= <"for" "$"> VarName "in" ExprSingle ("," "$" VarName "in" ExprSingle)*
-   * .
+   * [5] SimpleForClause ::= <"for" "$"> VarName "in" ExprSingle ("," "$" VarName "in" ExprSingle)* .
    * </p>
-   * 
+   *
    * @return returns the number of for-conditions
    * @throws SirixXPathException
    */
@@ -232,7 +232,7 @@ public final class XPathParser {
    * [6] QuantifiedExpr ::= (<"some" "$"> | <"every" "$">) VarName "in" ExprSingle ("," "$" VarName
    * "in" ExprSingle)* "satisfies" ExprSingle .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseQuantifiedExpr() throws SirixXPathException {
@@ -273,7 +273,7 @@ public final class XPathParser {
    * <p>
    * [7] IfExpr ::= <"if" "("> Expr ")" "then" ExprSingle "else" ExprSingle.
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseIfExpr() throws SirixXPathException {
@@ -303,7 +303,7 @@ public final class XPathParser {
    * <p>
    * [8] OrExpr ::= AndExpr ( "or" AndExpr )* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseOrExpr() throws SirixXPathException {
@@ -325,7 +325,7 @@ public final class XPathParser {
    * <p>
    * [9] AndExpr ::= ComparisonExpr ( "and" ComparisonExpr )* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseAndExpr() throws SirixXPathException {
@@ -347,7 +347,7 @@ public final class XPathParser {
    * <p>
    * [10] ComparisonExpr ::= RangeExpr ( (ValueComp | GeneralComp | NodeComp) RangeExpr )? .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseComparisionExpr() throws SirixXPathException {
@@ -381,18 +381,18 @@ public final class XPathParser {
    * [24] NodeComp ::= "is" | "<<" | ">>" .
    * </p>
    * <p>
-   * [22-24] Comp ::= "=" | "!=" | "<" | "<=" | ">" | ">=" |"eq" | "ne" | "lt" | "le" | "gt" | "ge"
-   * | "is" | "<<" | ">>" .
+   * [22-24] Comp ::= "=" | "!=" | "<" | "<=" | ">" | ">=" |"eq" | "ne" | "lt" | "le" | "gt" | "ge" |
+   * "is" | "<<" | ">>" .
    * </p>
-   * 
+   *
    * @return true, if the current token is a comparison operator.
    */
   private boolean isComp() {
 
     return is(TokenType.L_SHIFT, true) || is(TokenType.R_SHIFT, true) || is(TokenType.EQ, true)
         || is(TokenType.N_EQ, true) || is(TokenType.COMP, true)
-        || mToken.getType() == TokenType.TEXT && (is("ne", true) || is("eq", true) || is("lt", true)
-            || is("le", true) || is("gt", true) || is("ge", true) || is("is", true));
+        || mToken.getType() == TokenType.TEXT && (is("ne", true) || is("eq", true) || is("lt", true) || is("le", true)
+            || is("gt", true) || is("ge", true) || is("is", true));
   }
 
   /**
@@ -400,7 +400,7 @@ public final class XPathParser {
    * <p>
    * [11] RangeExpr ::= AdditiveExpr ( "to" AdditiveExpr )? .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseRangeExpr() throws SirixXPathException {
@@ -421,7 +421,7 @@ public final class XPathParser {
    * <p>
    * [12] AdditiveExpr ::= MultiplicativeExpr(("+" | "-") MultiplicativeExpr)* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseAdditiveExpr() throws SirixXPathException {
@@ -453,7 +453,7 @@ public final class XPathParser {
    * <p>
    * [13] MultiplicativeExpr ::= UnionExpr ( ("*" | "div" | "idiv" | "mod") UnionExpr )* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseMultiplicativeExpr() throws SirixXPathException {
@@ -484,7 +484,7 @@ public final class XPathParser {
    * <p>
    * [14] UnionExpr ::= IntersectExceptExpr ( ("union" | "|") IntersectExceptExpr )* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseUnionExpr() throws SirixXPathException {
@@ -509,7 +509,7 @@ public final class XPathParser {
    * <p>
    * [15] IntersectExceptExpr ::= InstanceofExpr ( ("intersect" | * "except") InstanceofExpr )* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseIntersectExceptExpr() throws SirixXPathException {
@@ -537,7 +537,7 @@ public final class XPathParser {
    * <p>
    * [16] InstanceofExpr ::= TreatExpr ( <"instance" "of"> SequenceType )?.
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseInstanceOfExpr() throws SirixXPathException {
@@ -556,7 +556,7 @@ public final class XPathParser {
    * <p>
    * [17] TreatExpr ::= CastableExpr ( <"treat" "as"> SequenceType )? .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseTreatExpr() throws SirixXPathException {
@@ -573,7 +573,7 @@ public final class XPathParser {
    * <p>
    * [18] CastableExpr ::= CastExpr ( <"castable" "as"> SingleType )? .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseCastableExpr() throws SirixXPathException {
@@ -592,7 +592,7 @@ public final class XPathParser {
    * <p>
    * [19] CastExpr ::= UnaryExpr ( <"cast" "as"> SingleType )? .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseCastExpr() throws SirixXPathException {
@@ -610,7 +610,7 @@ public final class XPathParser {
    * <p>
    * [20] UnaryExpr ::= ("-" | "+")* ValueExpr .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseUnaryExpr() throws SirixXPathException {
@@ -648,7 +648,7 @@ public final class XPathParser {
    * <p>
    * [21] ValueExpr ::= PathExpr .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseValueExpr() throws SirixXPathException {
@@ -661,7 +661,7 @@ public final class XPathParser {
    * <p>
    * [25] PathExpr ::= ("/" RelativePathExpr?) | ("//" RelativePathExpr) | RelativePathExpr .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parsePathExpr() throws SirixXPathException {
@@ -699,7 +699,7 @@ public final class XPathParser {
    * <p>
    * [26] RelativePathExpr ::= StepExpr (("/" | "//") StepExpr)* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseRelativePathExpr() throws SirixXPathException {
@@ -722,7 +722,7 @@ public final class XPathParser {
    * <p>
    * [27] StepExpr ::= AxisStep | FilterExpr .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseStepExpr() throws SirixXPathException {
@@ -738,15 +738,15 @@ public final class XPathParser {
    */
   private boolean isFilterExpr() {
     final TokenType type = mToken.getType();
-    return type == TokenType.DOLLAR || type == TokenType.POINT || type == TokenType.OPEN_BR
-        || isFunctionCall() || isLiteral();
+    return type == TokenType.DOLLAR || type == TokenType.POINT || type == TokenType.OPEN_BR || isFunctionCall()
+        || isLiteral();
   }
 
   /**
    * The current token is part of a function call, if it is followed by a open braces (current token
    * is name of the function), or is followed by a colon that is followed by a name an a open braces
    * (current token is prefix of the function name.).
-   * 
+   *
    * @return true, if the current token is part of a function call
    */
   private boolean isFunctionCall() {
@@ -760,14 +760,14 @@ public final class XPathParser {
   /**
    * Although XPath is supposed to have no reserved words, some keywords are not allowed as function
    * names in an unprefixed form because expression syntax takes precedence.
-   * 
+   *
    * @return true if the token is one of the reserved words of XPath 2.0
    */
   private boolean isReservedKeyword() {
 
     final String content = mToken.getContent();
-    return isKindTest() || "item".equals(content) || "if".equals(content)
-        || "empty-sequence".equals(content) || "typeswitch".equals(content);
+    return isKindTest() || "item".equals(content) || "if".equals(content) || "empty-sequence".equals(content)
+        || "typeswitch".equals(content);
   }
 
   /**
@@ -775,7 +775,7 @@ public final class XPathParser {
    * <p>
    * [28] AxisStep ::= (ForwardStep | ReverseStep) PredicateList .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseAxisStep() throws SirixXPathException {
@@ -794,13 +794,13 @@ public final class XPathParser {
    * <p>
    * [29] ForwardStep ::= (ForwardAxis NodeTest) | AbbrevForwardStep .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseForwardStep() throws SirixXPathException {
 
     Axis axis;
-    Filter filter;
+    Filter<XdmNodeReadTrx> filter;
     if (isForwardAxis()) {
       axis = parseForwardAxis();
       filter = parseNodeTest(axis.getClass() == AttributeAxis.class);
@@ -816,11 +816,11 @@ public final class XPathParser {
   /**
    * Parses the the rule ForwardAxis according to the following production rule:
    * <p>
-   * [30] ForwardAxis ::= <"child" "::"> | <"descendant" "::"> | <"attribute" "::"> | <"self" "::">
-   * | <"descendant-or-self" "::"> | <"following-sibling" "::"> | <"following" "::"> | <"namespace"
+   * [30] ForwardAxis ::= <"child" "::"> | <"descendant" "::"> | <"attribute" "::"> | <"self" "::"> |
+   * <"descendant-or-self" "::"> | <"following-sibling" "::"> | <"following" "::"> | <"namespace"
    * "::"> .
    * </p>
-   * 
+   *
    * @return axis
    * @throws SirixXPathException
    */
@@ -853,16 +853,15 @@ public final class XPathParser {
 
   /**
    * Checks if a given token represents a ForwardAxis.
-   * 
+   *
    * @return true if the token is a ForwardAxis
    */
   private boolean isForwardAxis() {
 
     final String content = mToken.getContent();
-    return (mToken.getType() == TokenType.TEXT && ("child".equals(content)
-        || ("descendant".equals(content) || "descendant-or-self".equals(content)
-            || "attribute".equals(content) || "self".equals(content) || "following".equals(content)
-            || "following-sibling".equals(content) || "namespace".equals(content))));
+    return (mToken.getType() == TokenType.TEXT && ("child".equals(content) || ("descendant".equals(content)
+        || "descendant-or-self".equals(content) || "attribute".equals(content) || "self".equals(content)
+        || "following".equals(content) || "following-sibling".equals(content) || "namespace".equals(content))));
   }
 
   /**
@@ -870,7 +869,7 @@ public final class XPathParser {
    * <p>
    * [31] AbbrevForwardStep ::= "@"? NodeTest .
    * </p>
-   * 
+   *
    * @return FilterAxis
    */
   private AbstractAxis parseAbbrevForwardStep() {
@@ -918,10 +917,10 @@ public final class XPathParser {
   }
 
   /**
-   * Parses the the rule ReverceAxis according to the following production rule: [33] ReverseAxis
-   * ::= <"parent" "::"> | <"ancestor" "::"> | <"preceding-sibling" "::">|<"preceding"
+   * Parses the the rule ReverceAxis according to the following production rule: [33] ReverseAxis ::=
+   * <"parent" "::"> | <"ancestor" "::"> | <"preceding-sibling" "::">|<"preceding"
    * "::">|<"ancestor-or-self" "::"> .
-   * 
+   *
    * @return axis
    */
   private AbstractAxis parseReverceAxis() {
@@ -961,7 +960,7 @@ public final class XPathParser {
    * <p>
    * [34] AbbrevReverseStep ::= ".." .
    * </p>
-   * 
+   *
    * @return ParentAxis
    */
   private AbstractAxis parseAbbrevReverseStep() {
@@ -988,12 +987,12 @@ public final class XPathParser {
    * <p>
    * [35] NodeTest ::= KindTest | NameTest .
    * </p>
-   * 
+   *
    * @return filter
    */
-  private Filter parseNodeTest(final boolean mIsAtt) {
+  private Filter<XdmNodeReadTrx> parseNodeTest(final boolean mIsAtt) {
 
-    Filter filter;
+    Filter<XdmNodeReadTrx> filter;
     if (isKindTest()) {
       filter = parseKindTest();
     } else {
@@ -1007,7 +1006,7 @@ public final class XPathParser {
    * <p>
    * [36] NameTest ::= QName | Wildcard .
    * </p>
-   * 
+   *
    * @param mIsAtt Attribute
    * @return filter
    */
@@ -1024,14 +1023,14 @@ public final class XPathParser {
   }
 
   /**
-   * @return true, if has the structure of a name test containing a wildcard ("*" | < NCName ":" "*"
-   *         > | < "*" ":" NCName >)
+   * @return true, if has the structure of a name test containing a wildcard ("*" | < NCName ":" "*" >
+   *         | < "*" ":" NCName >)
    */
   private boolean isWildcardNameTest() {
 
-    return mToken.getType() == TokenType.STAR || (mToken.getType() == TokenType.TEXT
-        && mScanner.lookUpTokens(1).getType() == TokenType.COLON
-        && mScanner.lookUpTokens(2).getType() == TokenType.STAR);
+    return mToken.getType() == TokenType.STAR
+        || (mToken.getType() == TokenType.TEXT && mScanner.lookUpTokens(1).getType() == TokenType.COLON
+            && mScanner.lookUpTokens(2).getType() == TokenType.STAR);
   }
 
   /**
@@ -1039,7 +1038,7 @@ public final class XPathParser {
    * <p>
    * [37] Wildcard ::= "*" | < NCName ":" "*" > | < "*" ":" NCName > .
    * <p>
-   * 
+   *
    * @param pIsAtt Attribute
    * @return filter
    */
@@ -1070,7 +1069,7 @@ public final class XPathParser {
    * <p>
    * [38] FilterExpr ::= PrimaryExpr PredicateList .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseFilterExpr() throws SirixXPathException {
@@ -1084,7 +1083,7 @@ public final class XPathParser {
    * <p>
    * [39] PredicateList ::= Predicate* .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parsePredicateList() throws SirixXPathException {
@@ -1103,7 +1102,7 @@ public final class XPathParser {
    * The whole predicate expression is build as a separate expression chain and is then inserted to
    * the main expression chain by a predicate filter.
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parsePredicate() throws SirixXPathException {
@@ -1124,7 +1123,7 @@ public final class XPathParser {
    * <p>
    * [41] PrimaryExpr ::= Literal | VarRef | ParenthesizedExpr | ContextItemExpr | FunctionCall .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parsePrimaryExpr() throws SirixXPathException {
@@ -1151,8 +1150,7 @@ public final class XPathParser {
   private boolean isLiteral() {
 
     final TokenType type = mToken.getType();
-    return (type == TokenType.SINGLE_QUOTE || type == TokenType.DBL_QUOTE
-        || type == TokenType.VALUE);
+    return (type == TokenType.SINGLE_QUOTE || type == TokenType.DBL_QUOTE || type == TokenType.VALUE);
   }
 
   /**
@@ -1170,8 +1168,7 @@ public final class XPathParser {
       itemKey = parseNumericLiteral();
     } else {
       // is string literal
-      assert (mToken.getType() == TokenType.DBL_QUOTE
-          || mToken.getType() == TokenType.SINGLE_QUOTE);
+      assert (mToken.getType() == TokenType.DBL_QUOTE || mToken.getType() == TokenType.SINGLE_QUOTE);
       itemKey = parseStringLiteral();
     }
 
@@ -1184,7 +1181,7 @@ public final class XPathParser {
    * <p>
    * [43] NumericLiteral ::= IntegerLiteral | DecimalLiteral | DoubleLiteral .
    * </p>
-   * 
+   *
    * @return parseIntegerLiteral
    */
   private int parseNumericLiteral() {
@@ -1211,7 +1208,7 @@ public final class XPathParser {
    * <p>
    * [45] ParenthesizedExpr ::= "(" Expr? ")" .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseParenthesizedExpr() throws SirixXPathException {
@@ -1242,7 +1239,7 @@ public final class XPathParser {
    * <p>
    * [47] FunctionCall ::= < QName "(" > (ExprSingle ("," ExprSingle)*)? ")" .
    * </p>
-   * 
+   *
    * @throws SirixXPathException
    */
   private void parseFunctionCall() throws SirixXPathException {
@@ -1272,7 +1269,7 @@ public final class XPathParser {
    * <p>
    * [48] SingleType ::= AtomicType "?"? .
    * </p>
-   * 
+   *
    * @return SingleType
    * @throws SirixXPathException
    */
@@ -1288,7 +1285,7 @@ public final class XPathParser {
    * <p>
    * 49] SequenceType ::= (ItemType OccurrenceIndicator?) | <"void" "(" ")"> .
    * </p>
-   * 
+   *
    * @return SequenceType
    */
   private SequenceType parseSequenceType() {
@@ -1322,7 +1319,7 @@ public final class XPathParser {
    * <p>
    * [50] OccurrenceIndicator ::= "?" | "*" | "+" .
    * </p>
-   * 
+   *
    * @return wildcard
    */
   private char parseOccuranceIndicator() {
@@ -1347,7 +1344,7 @@ public final class XPathParser {
    * <p>
    * [51] ItemType ::= AtomicType | KindTest | <"item" "(" ")"> .
    * </p>
-   * 
+   *
    * @return filter
    */
   private Filter parseItemType() {
@@ -1372,7 +1369,7 @@ public final class XPathParser {
    * <p>
    * [52] AtomicType ::= QName .
    * </p>
-   * 
+   *
    * @return parseQName
    */
   private String parseAtomicType() {
@@ -1386,12 +1383,12 @@ public final class XPathParser {
    * [53] KindTest ::= DocumentCreater | ElementTest | AttributeTest | SchemaElementTest |
    * SchemaAttributeTest | PITest | CommentTest | TextTest | AnyKindTest .
    * </p>
-   * 
+   *
    * @return filter
    */
-  private Filter parseKindTest() {
+  private Filter<XdmNodeReadTrx> parseKindTest() {
 
-    Filter filter;
+    Filter<XdmNodeReadTrx> filter;
     final String test = mToken.getContent();
 
     if ("document-node".equals(test)) {
@@ -1421,7 +1418,7 @@ public final class XPathParser {
    * <p>
    * [54] AnyKindTest ::= <"node" "("> ")" .
    * <p>
-   * 
+   *
    * @return NodeFilter
    */
   private Filter parseAnyKindTest() {
@@ -1435,7 +1432,7 @@ public final class XPathParser {
 
   /**
    * Checks if a given token represents a kind test.
-   * 
+   *
    * @return true, if the token is a kind test
    */
   private boolean isKindTest() {
@@ -1445,10 +1442,9 @@ public final class XPathParser {
     // nodes
     // with a name like text:bla or node:bla, where text and node are the
     // namespace prefixes.
-    return (("node".equals(content) || "attribute".equals(content)
-        || "schema-attribute".equals(content) || "schema-element".equals(content)
-        || "element".equals(content) || "text".equals(content) || "comment".equals(content)
-        || "document-node".equals(content) || "processing-instruction".equals(content))
+    return (("node".equals(content) || "attribute".equals(content) || "schema-attribute".equals(content)
+        || "schema-element".equals(content) || "element".equals(content) || "text".equals(content)
+        || "comment".equals(content) || "document-node".equals(content) || "processing-instruction".equals(content))
         && mScanner.lookUpTokens(1).getType() == TokenType.OPEN_BR);
   }
 
@@ -1457,22 +1453,22 @@ public final class XPathParser {
    * <p>
    * [55] DocumentCreater ::= <"document-node" "("> (ElementTest | SchemaElementTest)? ")" .
    * <p>
-   * 
+   *
    * @return filter
    */
-  private Filter parseDocumentTest() {
+  private Filter<XdmNodeReadTrx> parseDocumentTest() {
 
     consume("document-node", true);
     consume(TokenType.OPEN_BR, true);
-    Filter filter = new DocumentRootNodeFilter(getTransaction());
+    Filter<XdmNodeReadTrx> filter = new DocumentRootNodeFilter(getTransaction());
 
-    Filter innerFilter;
+    Filter<XdmNodeReadTrx> innerFilter;
     if (mToken.getContent().equals("element")) {
       innerFilter = parseElementTest();
-      filter = new NestedFilter(getTransaction(), filter, innerFilter);
+      filter = new NestedFilter(getTransaction(), List.of(filter, innerFilter));
     } else if (mToken.getContent().equals("schema-element")) {
       innerFilter = parseSchemaElementTest();
-      filter = new NestedFilter(getTransaction(), filter, innerFilter);
+      filter = new NestedFilter(getTransaction(), List.of(filter, innerFilter));
     }
 
     consume(TokenType.CLOSE_BR, true);
@@ -1485,7 +1481,7 @@ public final class XPathParser {
    * <p>
    * [56] TextTest ::= <"text" "("> ")" .
    * </p>
-   * 
+   *
    * @return TextFilter
    */
   private Filter parseTextTest() {
@@ -1502,7 +1498,7 @@ public final class XPathParser {
    * <p>
    * [57] CommentTest ::= <"comment" "("> ")" .
    * </p>
-   * 
+   *
    * @return CommonFilter
    */
   private Filter parseCommentTest() {
@@ -1519,7 +1515,7 @@ public final class XPathParser {
    * <p>
    * [58] PITest ::= <"processing-instruction" "("> (NCName | StringLiteral)? ")" .
    * </p>
-   * 
+   *
    * @return filter
    */
   private Filter parsePITest() {
@@ -1532,9 +1528,8 @@ public final class XPathParser {
     if (!is(TokenType.CLOSE_BR, true)) {
       String stringLiteral;
       if (isQuote()) {
-        final byte[] param = ((ValueNode) getTransaction().getItemList()
-                                                          .getItem(parseStringLiteral())
-                                                          .get()).getRawValue();
+        final byte[] param =
+            ((ValueNode) getTransaction().getItemList().getItem(parseStringLiteral()).get()).getRawValue();
         stringLiteral = Arrays.toString(param);
       } else {
         stringLiteral = parseNCName();
@@ -1542,8 +1537,7 @@ public final class XPathParser {
 
       consume(TokenType.CLOSE_BR, true);
 
-      filter = new NestedFilter(getTransaction(), filter,
-          new NameFilter(getTransaction(), stringLiteral));
+      filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), stringLiteral)));
     }
 
     return filter;
@@ -1563,7 +1557,7 @@ public final class XPathParser {
    * <p>
    * [59] AttributeTest ::= <"attribute" "("> (AttribNameOrWildcard ("," TypeName)?)? ")" .
    * </p>
-   * 
+   *
    * @return filter
    */
   private Filter parseAttributeTest() {
@@ -1577,15 +1571,14 @@ public final class XPathParser {
       // add name filter
       final String name = parseAttributeNameOrWildcard();
       if (!name.equals("*")) {
-        filter = new NestedFilter(getTransaction(), filter, new NameFilter(getTransaction(), name));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), name)));
       } // if it is '*', all attributes are accepted, so the normal
         // attribute
         // filter is sufficient
 
       if (is(TokenType.COMMA, true)) {
         // add type filter
-        filter = new NestedFilter(getTransaction(), filter,
-            new TypeFilter(getTransaction(), parseTypeName()));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new TypeFilter(getTransaction(), parseTypeName())));
       }
     }
 
@@ -1599,7 +1592,7 @@ public final class XPathParser {
    * <p>
    * [60] AttribNameOrWildcard ::= AttributeName | "*" .
    * </p>
-   * 
+   *
    * @return name
    */
   private String parseAttributeNameOrWildcard() {
@@ -1620,7 +1613,7 @@ public final class XPathParser {
    * <p>
    * [61] SchemaAttributeTest ::= <"schema-attribute" "("> AttributeDeclaration ")" .
    * </p>
-   * 
+   *
    * @return filter
    */
   private Filter parseSchemaAttributeTest() {
@@ -1628,10 +1621,9 @@ public final class XPathParser {
     consume("schema-attribute", true);
     consume(TokenType.OPEN_BR, true);
 
-    final Filter filter =
-        new SchemaAttributeFilter(getTransaction()/*
-                                                   * , parseAttributeDeclaration ()
-                                                   */);
+    final Filter filter = new SchemaAttributeFilter(getTransaction()/*
+                                                                     * , parseAttributeDeclaration ()
+                                                                     */);
 
     consume(TokenType.CLOSE_BR, true);
 
@@ -1655,10 +1647,10 @@ public final class XPathParser {
    * <p>
    * [63] ElementTest ::= <"element" "("> (ElementNameOrWildcard ("," TypeName "?"?)?)? ")" .
    * </p>
-   * 
+   *
    * @return filter
    */
-  private Filter parseElementTest() {
+  private Filter<XdmNodeReadTrx> parseElementTest() {
 
     consume("element", true);
     consume(TokenType.OPEN_BR, true);
@@ -1669,15 +1661,13 @@ public final class XPathParser {
 
       final String mName = parseElementNameOrWildcard();
       if (!mName.equals("*")) {
-        filter =
-            new NestedFilter(getTransaction(), filter, new NameFilter(getTransaction(), mName));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), mName)));
       } // if it is '*', all elements are accepted, so the normal element
         // filter is sufficient
 
       if (is(TokenType.COMMA, true)) {
 
-        filter = new NestedFilter(getTransaction(), filter,
-            new TypeFilter(getTransaction(), parseTypeName()));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new TypeFilter(getTransaction(), parseTypeName())));
 
         if (is(TokenType.INTERROGATION, true)) {
           // TODO: Nilled property of node can be true or false.
@@ -1698,7 +1688,7 @@ public final class XPathParser {
    * <p>
    * [64] ElementNameOrWildcard ::= ElementName | "*" .
    * </p>
-   * 
+   *
    * @return name
    */
   private String parseElementNameOrWildcard() {
@@ -1719,7 +1709,7 @@ public final class XPathParser {
    * <p>
    * [65] SchemaElementTest ::= <"schema-element" "("> ElementDeclaration ")" .
    * </p>
-   * 
+   *
    * @return SchemaElementFilter
    */
   private Filter parseSchemaElementTest() {
@@ -1751,7 +1741,7 @@ public final class XPathParser {
    * <p>
    * [67] AttributeName ::= QName .
    * </p>
-   * 
+   *
    * @return parseQName
    */
   private String parseAttributeName() {
@@ -1764,7 +1754,7 @@ public final class XPathParser {
    * <p>
    * [68] ElementName ::= QName .
    * </p>
-   * 
+   *
    * @return parseQName
    */
   private String parseElementName() {
@@ -1777,7 +1767,7 @@ public final class XPathParser {
    * <p>
    * [69] TypeName ::= QName .
    * </p>
-   * 
+   *
    * @return parseQName
    */
   private String parseTypeName() {
@@ -1790,7 +1780,7 @@ public final class XPathParser {
    * <p>
    * [70] IntegerLiteral ::= Digits => IntergerLiteral : Token.Value .
    * </p>
-   * 
+   *
    * @return parseItem
    */
   private int parseIntegerLiteral() {
@@ -1804,7 +1794,9 @@ public final class XPathParser {
         // TODO: not so nice, try to find a better solution
         final boolean isDouble = mScanner.lookUpTokens(2).getType() == TokenType.E_NUMBER;
         value = parseDecimalLiteral(value);
-        type = isDouble ? "xs:double" : "xs:decimal";
+        type = isDouble
+            ? "xs:double"
+            : "xs:decimal";
       }
 
       // values containing an 'e' are double literals
@@ -1817,23 +1809,24 @@ public final class XPathParser {
       // decimal literal that starts with a "."
       final boolean isDouble = mScanner.lookUpTokens(2).getType() == TokenType.E_NUMBER;
       value = parseDecimalLiteral("");
-      type = isDouble ? "xs:double" : "xs:decimal";
+      type = isDouble
+          ? "xs:double"
+          : "xs:decimal";
     }
 
     is(TokenType.SPACE, true);
 
-    final AtomicValue intLiteral =
-        new AtomicValue(TypedValue.getBytes(value), getTransaction().keyForName(type));
+    final AtomicValue intLiteral = new AtomicValue(TypedValue.getBytes(value), getTransaction().keyForName(type));
     return getTransaction().getItemList().addItem(intLiteral);
   }
 
   /**
    * Parses the the rule DecimalLiteral according to the following production rule:
    * <p>
-   * [71] DecimalLiteral ::= ("." Digits) | (Digits "." [0-9]*) => DecimalLiteral : ("."
-   * Token.VALUE) | (Token.VALUE "." Token.VALUE?) .
+   * [71] DecimalLiteral ::= ("." Digits) | (Digits "." [0-9]*) => DecimalLiteral : ("." Token.VALUE)
+   * | (Token.VALUE "." Token.VALUE?) .
    * </p>
-   * 
+   *
    * @param mValue Value to Parse
    * @return dValue
    */
@@ -1858,14 +1851,13 @@ public final class XPathParser {
   /**
    * Parses the the rule DoubleLiteral according to the following production rule:
    * <p>
-   * [72] DoubleLiteral ::= (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]? Digits .
-   * DoubleLiteral : (("." Token.VALUE) | (Token.VALUE ("." Token.VALUE?)?)) ("e" | "E") [+-]?
-   * Token.VALUE .
+   * [72] DoubleLiteral ::= (("." Digits) | (Digits ("." [0-9]*)?)) [eE] [+-]? Digits . DoubleLiteral
+   * : (("." Token.VALUE) | (Token.VALUE ("." Token.VALUE?)?)) ("e" | "E") [+-]? Token.VALUE .
    * </p>
-   * 
+   *
    * @param mValue Value to Parse
    * @return dValue
-   * 
+   *
    */
   private String parseDoubleLiteral(final String mValue) {
 
@@ -1890,7 +1882,7 @@ public final class XPathParser {
    * <p>
    * [73] StringLiteral ::= ('"' (('"' '"') | [^"])* '"') | ("'" (("'" "'") | [^'])* "'" .
    * </p>
-   * 
+   *
    * @return parseStringLiteral
    */
   private int parseStringLiteral() {
@@ -1929,8 +1921,8 @@ public final class XPathParser {
 
     }
 
-    final AtomicValue mStringLiteral = new AtomicValue(TypedValue.getBytes(mValue.toString()),
-        getTransaction().keyForName("xs:string"));
+    final AtomicValue mStringLiteral =
+        new AtomicValue(TypedValue.getBytes(mValue.toString()), getTransaction().keyForName("xs:string"));
     return (getTransaction().getItemList().addItem(mStringLiteral));
   }
 
@@ -1939,7 +1931,7 @@ public final class XPathParser {
    * <p>
    * [74] VarName ::= QName .
    * </p>
-   * 
+   *
    * @return string representation of variable name.
    */
   private String parseVarName() {
@@ -1950,7 +1942,7 @@ public final class XPathParser {
   /**
    * Specifies whether the current token is a multiplication operator. Multiplication operators are:
    * '*', 'div�, 'idiv' and 'mod'.
-   * 
+   *
    * @return true, if current token is a multiplication operator
    */
   private boolean isMultiplication() {
@@ -1977,7 +1969,7 @@ public final class XPathParser {
    * <p>
    * [11] LocalPart ::= NCName => QName ::= (NCName ":" )? NCName .
    * </p>
-   * 
+   *
    * @return string representation of QName
    */
   private String parseQName() {
@@ -2005,7 +1997,7 @@ public final class XPathParser {
    * <p>
    * [6] NCNameStartChar ::= Letter | '_' => NCName : Token.TEXT .
    * </p>
-   * 
+   *
    * @return string representation of NCName
    */
   private String parseNCName() {
@@ -2022,7 +2014,7 @@ public final class XPathParser {
    * Otherwise gets a new token from the scanner. If that new token is of type whitespace and the
    * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
    * type whitespace.
-   * 
+   *
    * @param mType the specified token type
    * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
    *        token is retrieved from the scanner
@@ -2031,8 +2023,8 @@ public final class XPathParser {
 
     if (!is(mType, mIgnoreWhitespace)) {
       // error found by parser - stopping
-      throw new IllegalStateException("Wrong token after " + mScanner.begin() + " at position "
-          + mScanner.getPos() + " found " + mToken.getType() + " expected " + mType + ".");
+      throw new IllegalStateException("Wrong token after " + mScanner.begin() + " at position " + mScanner.getPos()
+          + " found " + mToken.getType() + " expected " + mType + ".");
     }
   }
 
@@ -2041,7 +2033,7 @@ public final class XPathParser {
    * Otherwise gets a new token from the scanner. If that new token is of type whitespace and the
    * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
    * type whitespace.
-   * 
+   *
    * @param mName the specified token content
    * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
    *        token is retrieved from the scanner
@@ -2050,17 +2042,16 @@ public final class XPathParser {
 
     if (!is(mName, mIgnoreWhitespace)) {
       // error found by parser - stopping
-      throw new IllegalStateException("Wrong token after " + mScanner.begin() + " found "
-          + mToken.getContent() + ". Expected " + mName);
+      throw new IllegalStateException(
+          "Wrong token after " + mScanner.begin() + " found " + mToken.getContent() + ". Expected " + mName);
     }
   }
 
   /**
-   * Returns true or false if a token has the expected name. If the token has the given name, it
-   * gets a new token from the scanner. If that new token is of type whitespace and the
-   * ignoreWhitespace parameter is true, a new token is retrieved, until the current token is not of
-   * type whitespace.
-   * 
+   * Returns true or false if a token has the expected name. If the token has the given name, it gets
+   * a new token from the scanner. If that new token is of type whitespace and the ignoreWhitespace
+   * parameter is true, a new token is retrieved, until the current token is not of type whitespace.
+   *
    * @param mName the specified token content
    * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
    *        token is retrieved from the scanner
@@ -2072,9 +2063,9 @@ public final class XPathParser {
       return false;
     }
 
-    if (mToken.getType() == TokenType.COMP || mToken.getType() == TokenType.EQ
-        || mToken.getType() == TokenType.N_EQ || mToken.getType() == TokenType.PLUS
-        || mToken.getType() == TokenType.MINUS || mToken.getType() == TokenType.STAR) {
+    if (mToken.getType() == TokenType.COMP || mToken.getType() == TokenType.EQ || mToken.getType() == TokenType.N_EQ
+        || mToken.getType() == TokenType.PLUS || mToken.getType() == TokenType.MINUS
+        || mToken.getType() == TokenType.STAR) {
       return is(mToken.getType(), mIgnoreWhitespace);
     } else {
       return is(TokenType.TEXT, mIgnoreWhitespace);
@@ -2082,10 +2073,10 @@ public final class XPathParser {
   }
 
   /**
-   * Returns true or false if a token has the expected type. If so, a new token is retrieved from
-   * the scanner. If that new token is of type whitespace and the ignoreWhitespace parameter is
-   * true, a new token is retrieved, until the current token is not of type whitespace.
-   * 
+   * Returns true or false if a token has the expected type. If so, a new token is retrieved from the
+   * scanner. If that new token is of type whitespace and the ignoreWhitespace parameter is true, a
+   * new token is retrieved, until the current token is not of type whitespace.
+   *
    * @param mType the specified token content
    * @param mIgnoreWhitespace if true all new tokens with type whitespace are ignored and the next
    *        token is retrieved from the scanner
@@ -2112,7 +2103,7 @@ public final class XPathParser {
   /**
    * Returns a queue containing all pipelines (chains of nested axis and filters) to execute the
    * query.
-   * 
+   *
    * @return the query pipelines
    */
   public Axis getQueryPipeline() {
@@ -2121,7 +2112,7 @@ public final class XPathParser {
 
   /**
    * Returns the read transaction.
-   * 
+   *
    * @return the current transaction
    */
   private XdmNodeReadTrx getTransaction() {

@@ -29,8 +29,8 @@ import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.TestHelper;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -104,10 +104,9 @@ public final class DocumentCreator {
           + "</para></article>";
 
   /** String representation of ID. */
-  public static final String ID =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" "
-          + "id=\"1\" i=\"j\">oops1<b id=\"5\">foo<c id=\"7\"/></b>oops2<b id=\"9\" p:x=\"y\">"
-          + "<c id=\"11\"/>bar</b>oops3</p:a>";
+  public static final String ID = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" "
+      + "id=\"1\" i=\"j\">oops1<b id=\"5\">foo<c id=\"7\"/></b>oops2<b id=\"9\" p:x=\"y\">"
+      + "<c id=\"11\"/>bar</b>oops3</p:a>";
 
   /** String representation of rest. */
   public static final String REST = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -117,41 +116,35 @@ public final class DocumentCreator {
 
   /** String representation of test document. */
   public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-      + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\">"
-      + "<c/>bar</b>oops3</p:a>";
+      + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\">" + "<c/>bar</b>oops3</p:a>";
 
   /** String representation of test document. */
-  public static final String COMMENTPIXML =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<p:a xmlns:p=\"ns\" i=\"j\"><!-- foo -->oops1<b>foo<c/></b><?bar baz=\"foo\"?>oops2<b p:x=\"y\">"
-          + "<c/>bar</b>oops3</p:a>";
+  public static final String COMMENTPIXML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<p:a xmlns:p=\"ns\" i=\"j\"><!-- foo -->oops1<b>foo<c/></b><?bar baz=\"foo\"?>oops2<b p:x=\"y\">"
+      + "<c/>bar</b>oops3</p:a>";
 
   /** String representation of test document without xml declaration. */
   public static final String XML_WITHOUT_XMLDECL =
       "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a>";
 
   /** String representation of versioned test document. */
-  public static final String VERSIONEDXML =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
-          + "<sdb:sirix-item sdb:revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
-          + "<sdb:sirix-item sdb:revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item></sdb:sirix>";
+  public static final String VERSIONEDXML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<sdb:sirix xmlns:sdb=\"https://sirix.io/rest\"><sdb:sirix-item sdb:revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+      + "<sdb:sirix-item sdb:revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item>"
+      + "<sdb:sirix-item sdb:revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sdb:sirix-item></sdb:sirix>";
 
   /** String representation of test document without attributes. */
-  public static final String XMLWITHOUTATTRIBUTES =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<p:a>oops1<b>foo<c></c></b>oops2<b>" + "<c></c>bar</b>oops3</p:a>";
+  public static final String XMLWITHOUTATTRIBUTES = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<p:a>oops1<b>foo<c></c></b>oops2<b>" + "<c></c>bar</b>oops3</p:a>";
 
   /** XML for the index structure. */
-  public static final String XML_INDEX =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-          + "<t:o><t:oo><t:oop><t:oops><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-          + "<d:TEXT_KIND nodeID=\"4\"/></d:p:a></d:DOCUMENT_ROOT_KIND></t:oops></t:oop></t:oo>"
-          + "</t:o><t:f><t:fo><t:foo><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-          + "<d:b nodeID=\"5\"><d:TEXT_KIND nodeID=\"6\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:foo>"
-          + "</t:fo></t:f><t:b><t:ba><t:bar><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-          + "<d:b nodeID=\"9\"><d:TEXT_KIND nodeID=\"12\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:bar>"
-          + "</t:ba></t:b>";
+  public static final String XML_INDEX = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<t:o><t:oo><t:oop><t:oops><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:TEXT_KIND nodeID=\"4\"/></d:p:a></d:DOCUMENT_ROOT_KIND></t:oops></t:oop></t:oo>"
+      + "</t:o><t:f><t:fo><t:foo><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:b nodeID=\"5\"><d:TEXT_KIND nodeID=\"6\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:foo>"
+      + "</t:fo></t:f><t:b><t:ba><t:bar><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:b nodeID=\"9\"><d:TEXT_KIND nodeID=\"12\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:bar>" + "</t:ba></t:b>";
 
   /**
    * Private Constructor, not used.
@@ -267,8 +260,7 @@ public final class DocumentCreator {
    * @param wtx {@link XdmNodeWriteTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeWriteTrx wtx)
-      throws SirixException {
+  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeWriteTrx wtx) throws SirixException {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -350,13 +342,12 @@ public final class DocumentCreator {
    * @throws XMLStreamException if StAX reader couldn't be created
    * @throws IOException if reading XML string fails
    */
-  public static void createRevisioned(final Database database)
-      throws SirixException, IOException, XMLStreamException {
+  public static void createRevisioned(final Database database) throws SirixException, IOException, XMLStreamException {
 
-    try (final ResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager resMgr = database.getXdmResourceManager(TestHelper.RESOURCE)) {
       try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
-        final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
-            XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD).commitAfterwards().build();
+        final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
+            Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }
 

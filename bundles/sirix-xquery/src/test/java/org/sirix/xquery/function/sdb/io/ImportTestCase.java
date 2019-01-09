@@ -27,30 +27,9 @@
  */
 package org.sirix.xquery.function.sdb.io;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
-import org.brackit.xquery.XQuery;
-import org.brackit.xquery.compiler.CompileChain;
-import org.custommonkey.xmlunit.DetailedDiff;
-import org.custommonkey.xmlunit.Diff;
-import org.custommonkey.xmlunit.Difference;
-import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.utils.SirixFiles;
-import org.sirix.xquery.SirixCompileChain;
-import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.BasicDBStore;
-import org.xml.sax.SAXException;
 import junit.framework.TestCase;
 
 /**

@@ -41,8 +41,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
@@ -199,20 +199,18 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
   private void test(final Path folder) throws Exception {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final XdmResourceManager manager = database.getXdmResourceManager(TestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
-        Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(
-            Collectors.toList());
+        Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(Collectors.toList());
 
     // Sort files array according to file names.
     files.sort((first, second) -> {
       final String firstName =
           first.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(
-          0, second.getFileName().toString().indexOf('.'));
+      final String secondName =
+          second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
       if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
         return -1;
       } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
@@ -230,15 +228,15 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
         try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
-            final XMLShredder shredder = new XMLShredder.Builder(wtx,
-                XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+            final XMLShredder shredder =
+                new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
+                                                                                                    .build();
             shredder.call();
             first = false;
           } else {
             @SuppressWarnings("deprecation")
-            final XMLUpdateShredder shredder =
-                new XMLUpdateShredder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD,
-                    file, ShredderCommit.COMMIT);
+            final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, XMLShredder.createFileReader(fis),
+                Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
             shredder.call();
           }
           assertEquals(i, wtx.getRevisionNumber());
@@ -246,8 +244,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
           i++;
 
           final OutputStream out = new ByteArrayOutputStream();
-          final XMLSerializer serializer =
-              new XMLSerializerBuilder(manager, out).prettyPrint().build();
+          final XMLSerializer serializer = new XMLSerializerBuilder(manager, out).prettyPrint().build();
           serializer.call();
           final StringBuilder sBuilder = TestHelper.readFile(file, false);
 

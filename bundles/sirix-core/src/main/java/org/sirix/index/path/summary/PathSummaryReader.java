@@ -22,6 +22,7 @@ import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.DescendantAxis;
@@ -60,8 +61,7 @@ import com.google.common.base.MoreObjects;
 public final class PathSummaryReader implements XdmNodeReadTrx {
 
   /** Logger. */
-  private final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(PathSummaryReader.class));
+  private final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(PathSummaryReader.class));
 
   /** Strong reference to currently selected node. */
   private StructNode mCurrentNode;
@@ -70,7 +70,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   private final PageReadTrx mPageReadTrx;
 
   /** {@link ResourceManager} reference. */
-  private final ResourceManager mResourceManager;
+  private final XdmResourceManager mResourceManager;
 
   /** Determines if path summary is closed or not. */
   private boolean mClosed;
@@ -89,15 +89,15 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
    * @param pageReadTrx page reader
    * @param resourceManager {@link ResourceManager} reference
    */
-  private PathSummaryReader(final PageReadTrx pageReadTrx, final ResourceManager resourceManager) {
+  private PathSummaryReader(final PageReadTrx pageReadTrx, final XdmResourceManager resourceManager) {
     mPathCache = new HashMap<>();
     mPageReadTrx = pageReadTrx;
     mClosed = false;
     mResourceManager = resourceManager;
 
     try {
-      final Optional<? extends Record> node = mPageReadTrx.getRecord(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
+      final Optional<? extends Record> node =
+          mPageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.PATHSUMMARYPAGE, 0);
       if (node.isPresent()) {
         mCurrentNode = (StructNode) node.get();
       } else {
@@ -138,7 +138,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
    * @return new path summary reader instance
    */
   public static final PathSummaryReader getInstance(final PageReadTrx pageReadTrx,
-      final ResourceManager resourceManager) {
+      final XdmResourceManager resourceManager) {
     return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
   }
 
@@ -174,16 +174,14 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   }
 
   /**
-   * Match all descendants of the node denoted by its {@code pathNodeKey} with the given
-   * {@code name}.
+   * Match all descendants of the node denoted by its {@code pathNodeKey} with the given {@code name}.
    *
    * @param name the QName
    * @param pathNodeKey the path node key to start the search from
    * @param inclSelf
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
    */
-  public BitSet matchDescendants(final QNm name, final @Nonnegative long pathNodeKey,
-      final IncludeSelf inclSelf) {
+  public BitSet matchDescendants(final QNm name, final @Nonnegative long pathNodeKey, final IncludeSelf inclSelf) {
     assertNotClosed();
     final Set<PathNode> set = mQNmMapping.get(name);
     if (set == null) {
@@ -273,8 +271,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
-  public Set<Long> getPCRsForPath(final Path<QNm> path, final boolean useCache)
-      throws PathException {
+  public Set<Long> getPCRsForPath(final Path<QNm> path, final boolean useCache) throws PathException {
     final Set<Long> pcrSet;
     if (useCache) {
       if (mPathCache.containsKey(path) && mPathCache.get(path) != null) {
@@ -354,8 +351,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
       // Immediately return node from item list if node key negative.
       @SuppressWarnings("unchecked")
       final Optional<? extends StructNode> node =
-          (Optional<? extends StructNode>) mPageReadTrx.getRecord(
-              nodeKey, PageKind.PATHSUMMARYPAGE, 0);
+          (Optional<? extends StructNode>) mPageReadTrx.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
       newNode = node;
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
@@ -564,7 +560,7 @@ public final class PathSummaryReader implements XdmNodeReadTrx {
   }
 
   @Override
-  public ResourceManager getResourceManager() {
+  public XdmResourceManager getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }

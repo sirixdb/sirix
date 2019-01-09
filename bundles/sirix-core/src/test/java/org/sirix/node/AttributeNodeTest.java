@@ -39,6 +39,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.xdm.AttributeNode;
 import org.sirix.utils.NamePageHash;
 
 /**

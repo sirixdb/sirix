@@ -52,7 +52,7 @@ public class ElementFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(0L);
     FilterTest.testFilterConventions(new ElementFilter(rtx), false);
@@ -86,7 +86,7 @@ public class ElementFilterTest {
 
   @Test
   public void testFluentIterable() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
 
     final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx))
                                                  .filter(new ElementFilter(rtx))

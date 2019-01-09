@@ -61,15 +61,15 @@ public class AddOpAxisTest {
     AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbstractAxis op1 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item1));
+        new LiteralExpr(holder.getNodeReadTrx(), holder.getNodeReadTrx().getItemList().addItem(item1));
     AbstractAxis op2 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item2));
-    AbstractObAxis axis = new AddOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+        new LiteralExpr(holder.getNodeReadTrx(), holder.getNodeReadTrx().getItemList().addItem(item2));
+    AbstractObAxis axis = new AddOpAxis(holder.getNodeReadTrx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(3.0, is(Double.parseDouble(holder.getXdmNodeReadTrx().getValue())));
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertThat(3.0, is(Double.parseDouble(holder.getNodeReadTrx().getValue())));
+    assertEquals(holder.getNodeReadTrx().keyForName("xs:double"), holder.getNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }
@@ -77,30 +77,30 @@ public class AddOpAxisTest {
   @Test
   public final void testGetReturnType() throws SirixException {
 
-    AbstractAxis op1 = new SequenceAxis(holder.getXdmNodeReadTrx());
-    AbstractAxis op2 = new SequenceAxis(holder.getXdmNodeReadTrx());
-    AbstractObAxis axis = new AddOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+    AbstractAxis op1 = new SequenceAxis(holder.getNodeReadTrx());
+    AbstractAxis op2 = new SequenceAxis(holder.getNodeReadTrx());
+    AbstractObAxis axis = new AddOpAxis(holder.getNodeReadTrx(), op1, op2);
 
     assertEquals(
         Type.DOUBLE,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:double"),
-            holder.getXdmNodeReadTrx().keyForName("xs:double")));
+            holder.getNodeReadTrx().keyForName("xs:double"),
+            holder.getNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.DOUBLE,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXdmNodeReadTrx().keyForName("xs:double")));
+            holder.getNodeReadTrx().keyForName("xs:decimal"),
+            holder.getNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.FLOAT,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:float"),
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal")));
+            holder.getNodeReadTrx().keyForName("xs:float"),
+            holder.getNodeReadTrx().keyForName("xs:decimal")));
     assertEquals(
         Type.DECIMAL,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXdmNodeReadTrx().keyForName("xs:integer")));
+            holder.getNodeReadTrx().keyForName("xs:decimal"),
+            holder.getNodeReadTrx().keyForName("xs:integer")));
     // assertEquals(Type.INTEGER,
     // axis.getReturnType(holder.getRtx().keyForName("xs:integer"),
     // holder.getRtx().keyForName("xs:integer")));
@@ -108,44 +108,44 @@ public class AddOpAxisTest {
     assertEquals(
         Type.YEAR_MONTH_DURATION,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"),
-            holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration")));
+            holder.getNodeReadTrx().keyForName("xs:yearMonthDuration"),
+            holder.getNodeReadTrx().keyForName("xs:yearMonthDuration")));
     assertEquals(
         Type.DAY_TIME_DURATION,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:dayTimeDuration"),
-            holder.getXdmNodeReadTrx().keyForName("xs:dayTimeDuration")));
+            holder.getNodeReadTrx().keyForName("xs:dayTimeDuration"),
+            holder.getNodeReadTrx().keyForName("xs:dayTimeDuration")));
 
     assertEquals(
         Type.DATE,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:date"),
-            holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration")));
+            holder.getNodeReadTrx().keyForName("xs:date"),
+            holder.getNodeReadTrx().keyForName("xs:yearMonthDuration")));
     assertEquals(
         Type.DATE,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:date"),
-            holder.getXdmNodeReadTrx().keyForName("xs:dayTimeDuration")));
+            holder.getNodeReadTrx().keyForName("xs:date"),
+            holder.getNodeReadTrx().keyForName("xs:dayTimeDuration")));
     assertEquals(
         Type.TIME,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:time"),
-            holder.getXdmNodeReadTrx().keyForName("xs:dayTimeDuration")));
+            holder.getNodeReadTrx().keyForName("xs:time"),
+            holder.getNodeReadTrx().keyForName("xs:dayTimeDuration")));
     assertEquals(
         Type.DATE_TIME,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:dateTime"),
-            holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration")));
+            holder.getNodeReadTrx().keyForName("xs:dateTime"),
+            holder.getNodeReadTrx().keyForName("xs:yearMonthDuration")));
     assertEquals(
         Type.DATE_TIME,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:dateTime"),
-            holder.getXdmNodeReadTrx().keyForName("xs:dayTimeDuration")));
+            holder.getNodeReadTrx().keyForName("xs:dateTime"),
+            holder.getNodeReadTrx().keyForName("xs:dayTimeDuration")));
 
     try {
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"),
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"));
+          holder.getNodeReadTrx().keyForName("xs:dateTime"),
+          holder.getNodeReadTrx().keyForName("xs:dateTime"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
       assertThat(
@@ -157,7 +157,7 @@ public class AddOpAxisTest {
 
     try {
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:double"));
+          holder.getNodeReadTrx().keyForName("xs:dateTime"), holder.getNodeReadTrx().keyForName("xs:double"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
       assertThat(
@@ -169,8 +169,8 @@ public class AddOpAxisTest {
 
     try {
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:string"),
-          holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"));
+          holder.getNodeReadTrx().keyForName("xs:string"),
+          holder.getNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
       assertThat(
@@ -183,7 +183,7 @@ public class AddOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:IDREF"));
+          holder.getNodeReadTrx().keyForName("xs:dateTime"), holder.getNodeReadTrx().keyForName("xs:IDREF"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
       assertThat(

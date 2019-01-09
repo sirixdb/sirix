@@ -35,8 +35,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
+import org.sirix.access.trx.node.xdm.IndexController;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
@@ -286,7 +286,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mPageRtx.mResourceManager.getCommitLock().lock();
 
-    final Path commitFile = mPageRtx.mResourceManager.commitFile();
+    final Path commitFile = mPageRtx.mResourceManager.getCommitFile();
     commitFile.toFile().deleteOnExit();
     // Issues with windows that it's not created in the first time?
     while (!Files.exists(commitFile)) {

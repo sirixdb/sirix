@@ -34,8 +34,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.HashType;
-import org.sirix.access.trx.node.XdmResourceManager;
+import org.sirix.access.trx.node.xdm.HashType;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
@@ -64,7 +64,7 @@ import com.google.gson.stream.JsonWriter;
 public final class ResourceConfiguration {
 
   /**
-   * Paths for a {@link XdmResourceManager}. Each resource has the same folder layout.
+   * Paths for a {@link XdmResourceManagerImpl}. Each resource has the same folder layout.
    */
   public enum ResourcePaths {
 

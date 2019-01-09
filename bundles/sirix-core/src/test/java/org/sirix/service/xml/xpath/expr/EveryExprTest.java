@@ -57,33 +57,33 @@ public class EveryExprTest {
   public void testEveryExpr() throws SirixException {
 
     final AbstractAxis axis1 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "every $child in child::node()" + "satisfies $child/@i");
+        new XPathAxis(holder.getNodeReadTrx(), "every $child in child::node()" + "satisfies $child/@i");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new XPathAxis(holder.getXdmNodeReadTrx(),
+    final AbstractAxis axis2 = new XPathAxis(holder.getNodeReadTrx(),
         "every $child in child::node()" + "satisfies $child/@abc");
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    final AbstractAxis axis3 = new XPathAxis(holder.getXdmNodeReadTrx(),
+    holder.getNodeReadTrx().moveTo(1L);
+    final AbstractAxis axis3 = new XPathAxis(holder.getNodeReadTrx(),
         "every $child in child::element()" + " satisfies $child/attribute::attribute()");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    final AbstractAxis axis4 = new XPathAxis(holder.getXdmNodeReadTrx(),
+    holder.getNodeReadTrx().moveTo(1L);
+    final AbstractAxis axis4 = new XPathAxis(holder.getNodeReadTrx(),
         "every $child in child::element() satisfies $child/child::c");
     assertEquals(true, axis4.hasNext());
     axis4.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
   }
 

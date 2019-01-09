@@ -40,6 +40,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.xdm.ElementNode;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.HashBiMap;
 

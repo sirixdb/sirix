@@ -49,6 +49,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
@@ -68,17 +69,15 @@ import org.slf4j.LoggerFactory;
 public final class XMLSerializer extends AbstractSerializer {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(XMLSerializer.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLSerializer.class));
 
   /** Offset that must be added to digit to make it ASCII. */
   private static final int ASCII_OFFSET = 48;
 
   /** Precalculated powers of each available long digit. */
-  private static final long[] LONG_POWERS =
-      {1L, 10L, 100L, 1000L, 10000L, 100000L, 1000000L, 10000000L, 100000000L, 1000000000L,
-          10000000000L, 100000000000L, 1000000000000L, 10000000000000L, 100000000000000L,
-          1000000000000000L, 10000000000000000L, 100000000000000000L, 1000000000000000000L};
+  private static final long[] LONG_POWERS = {1L, 10L, 100L, 1000L, 10000L, 100000L, 1000000L, 10000000L, 100000000L,
+      1000000000L, 10000000000L, 100000000000L, 1000000000000L, 10000000000000L, 100000000000000L, 1000000000000000L,
+      10000000000000000L, 100000000000000000L, 1000000000000000000L};
 
   /** OutputStream to write to. */
   private final OutputStream mOut;
@@ -118,9 +117,9 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XMLSerializer(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final XMLSerializerBuilder builder, final boolean initialIndent,
-      final @Nonnegative int revision, final int... revsions) {
+  private XMLSerializer(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+      final XMLSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
+      final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
@@ -187,8 +186,7 @@ public final class XMLSerializer extends AbstractSerializer {
             mOut.write(CharsForSerializing.SPACE.getBytes());
             writeQName(rtx);
             mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
-            mOut.write(
-                XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
+            mOut.write(XMLToken.escapeAttribute(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
             mOut.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
@@ -354,9 +352,8 @@ public final class XMLSerializer extends AbstractSerializer {
               write(" sdb:revisionTimestamp=\"");
             }
 
-            write(
-                DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(
-                    Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
+            write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
+                                               .format(Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
             write("\"");
           }
 
@@ -470,11 +467,10 @@ public final class XMLSerializer extends AbstractSerializer {
     Databases.createDatabase(config);
     try (final Database db = Databases.openDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      final ResourceManager resMgr = db.getResourceManager("shredded");
 
-      try (final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
-        final XMLSerializer serializer =
-            XMLSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
+      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
+          final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
+        final XMLSerializer serializer = XMLSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
       }
     }
@@ -489,8 +485,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final ResourceManager resMgr,
-      final OutputStream stream, final int... revisions) {
+  public static XMLSerializerBuilder newBuilder(final XdmResourceManager resMgr, final OutputStream stream,
+      final int... revisions) {
     return new XMLSerializerBuilder(resMgr, stream, revisions);
   }
 
@@ -503,9 +499,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param properties {@link XMLSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final ResourceManager resMgr,
-      final @Nonnegative long nodeKey, final OutputStream stream,
-      final XMLSerializerProperties properties, final int... revisions) {
+  public static XMLSerializerBuilder newBuilder(final XdmResourceManager resMgr, final @Nonnegative long nodeKey,
+      final OutputStream stream, final XMLSerializerProperties properties, final int... revisions) {
     return new XMLSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
 
@@ -543,8 +538,8 @@ public final class XMLSerializer extends AbstractSerializer {
     /** Stream to pipe to. */
     private final OutputStream mStream;
 
-    /** Session to use. */
-    private final ResourceManager mResourceMgr;
+    /** Resource manager to use. */
+    private final XdmResourceManager mResourceMgr;
 
     /** Further revisions to serialize. */
     private int[] mVersions;
@@ -568,7 +563,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final ResourceManager resourceMgr, final OutputStream stream,
+    public XMLSerializerBuilder(final XdmResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
@@ -593,9 +588,8 @@ public final class XMLSerializer extends AbstractSerializer {
      * @param properties {@link XMLSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final ResourceManager resourceMgr, final @Nonnegative long nodeKey,
-        final OutputStream stream, final XMLSerializerProperties properties,
-        final int... revisions) {
+    public XMLSerializerBuilder(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+        final OutputStream stream, final XMLSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;

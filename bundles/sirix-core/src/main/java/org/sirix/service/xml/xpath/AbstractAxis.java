@@ -27,6 +27,7 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.IncludeSelf;
@@ -204,7 +205,7 @@ public abstract class AbstractAxis implements Axis {
    */
   @Override
   public XdmNodeReadTrx getTrx() {
-    if (mRtx instanceof XdmNodeReadTrx) {
+    if (mRtx instanceof NodeReadTrx) {
       return (XdmNodeReadTrx) mRtx;
     } else {
       return null;

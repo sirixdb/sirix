@@ -7,8 +7,10 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.XdmResourceManager;
+import org.sirix.access.trx.node.json.JsonResourceManager;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
@@ -22,8 +24,11 @@ import org.sirix.page.UberPage;
  * @author Johannes Lichtenberger
  */
 public final class ResourceStore implements AutoCloseable {
-  /** Central repository of all open resource managers. */
-  private final ConcurrentMap<Path, ResourceManager> mResourceManagers;
+  /** Central repository of all open XDM resource managers. */
+  private final ConcurrentMap<Path, XdmResourceManager> mXdmResourceManagers;
+
+  /** Central repository of all open JSON resource managers. */
+  private final ConcurrentMap<Path, JsonResourceManager> mJsonResourceManagers;
 
   /**
    * Constructor.
@@ -31,12 +36,13 @@ public final class ResourceStore implements AutoCloseable {
    * @throws NullPointerException if one if the arguments is {@code null}
    */
   public ResourceStore() {
-    mResourceManagers = new ConcurrentHashMap<>();
+    mXdmResourceManagers = new ConcurrentHashMap<>();
+    mJsonResourceManagers = new ConcurrentHashMap<>();
   }
 
   /**
-   * Open a resource, that is get an instance of a {@link ResourceManager} in order to read/write
-   * from the resource.
+   * Open a resource, that is get an instance of a {@link ResourceManager} in order to read/write from
+   * the resource.
    *
    * @param database The database.
    * @param resourceConfig The resource configuration.
@@ -45,12 +51,15 @@ public final class ResourceStore implements AutoCloseable {
    * @return A resource manager.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
-  public ResourceManager openResource(final @Nonnull LocalDatabase database,
-      final @Nonnull ResourceConfiguration resourceConfig,
-      final @Nonnull BufferManager bufferManager, final @Nonnull Path resourceFile) {
+  public XdmResourceManager openXdmResource(final @Nonnull LocalDatabase database,
+      final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
+      final @Nonnull Path resourceFile) {
     checkNotNull(database);
     checkNotNull(resourceConfig);
-    return mResourceManagers.computeIfAbsent(resourceFile, k -> {
+    checkNotNull(bufferManager);
+    checkNotNull(resourceFile);
+
+    return mXdmResourceManagers.computeIfAbsent(resourceFile, k -> {
       final Storage storage = StorageType.getStorage(resourceConfig);
       final UberPage uberPage;
 
@@ -69,13 +78,12 @@ public final class ResourceStore implements AutoCloseable {
       }
 
       // Get sempahores.
-      final Semaphore readSem = Databases.computeReadSempahoreIfAbsent(
-          resourceConfig.getResource(), database.getDatabaseConfig().getMaxResourceReadTrx());
-      final Semaphore writeSem =
-          Databases.computeWriteSempahoreIfAbsent(resourceConfig.getResource(), 1);
+      final Semaphore readSem = Databases.computeReadSempahoreIfAbsent(resourceConfig.getResource(),
+          database.getDatabaseConfig().getMaxResourceReadTrx());
+      final Semaphore writeSem = Databases.computeWriteSempahoreIfAbsent(resourceConfig.getResource(), 1);
 
       // Create the resource manager instance.
-      final ResourceManager resourceManager = new XdmResourceManager(database, this, resourceConfig,
+      final XdmResourceManager resourceManager = new XdmResourceManagerImpl(database, this, resourceConfig,
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeSem);
 
       // Put it in the databases cache.
@@ -88,21 +96,21 @@ public final class ResourceStore implements AutoCloseable {
 
   public boolean hasOpenResourceManager(final Path resourceFile) {
     checkNotNull(resourceFile);
-    return mResourceManagers.containsKey(resourceFile);
+    return mXdmResourceManagers.containsKey(resourceFile);
   }
 
-  public ResourceManager getOpenResourceManager(final Path resourceFile) {
+  public XdmResourceManager getOpenResourceManager(final Path resourceFile) {
     checkNotNull(resourceFile);
-    return mResourceManagers.get(resourceFile);
+    return mXdmResourceManagers.get(resourceFile);
   }
 
   @Override
   public void close() {
-    mResourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
+    mXdmResourceManagers.forEach((resourceName, resourceMgr) -> resourceMgr.close());
   }
 
   public boolean closeResource(final Path resourceFile) {
-    final ResourceManager manager = mResourceManagers.remove(resourceFile);
+    final XdmResourceManager manager = mXdmResourceManagers.remove(resourceFile);
     Databases.removeResourceManager(resourceFile, manager);
     return manager != null;
   }

@@ -23,7 +23,7 @@ package org.sirix.diff.algorithm.fmse;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Map;
 import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.access.trx.node.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixException;

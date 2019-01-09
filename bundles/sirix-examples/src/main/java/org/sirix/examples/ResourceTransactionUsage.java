@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -22,7 +21,7 @@ public final class ResourceTransactionUsage {
   /** Storage for databases: Sirix data in home directory. */
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
-  // Under user.home a file with the name input.xml must exist for this simple example. 
+  // Under user.home a file with the name input.xml must exist for this simple example.
   public static void main(final String[] args) {
     var file = LOCATION.resolve("db");
     var config = new DatabaseConfiguration(file);
@@ -34,7 +33,7 @@ public final class ResourceTransactionUsage {
     try (var database = Databases.openDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());
 
-      try (var resourceMgr = database.getResourceManager("resource");
+      try (var resourceMgr = database.getXdmResourceManager("resource");
           var wtx = resourceMgr.beginNodeWriteTrx();
           var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(fis));

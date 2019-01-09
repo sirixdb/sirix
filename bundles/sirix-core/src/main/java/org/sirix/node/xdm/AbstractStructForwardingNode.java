@@ -1,6 +1,7 @@
-package org.sirix.node;
+package org.sirix.node.xdm;
 
 import javax.annotation.Nonnegative;
+import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;

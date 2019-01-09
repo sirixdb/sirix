@@ -46,8 +46,8 @@ public class NodeCompTest {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
-    comparator = new NodeComp(holder.getXdmNodeReadTrx(), new LiteralExpr(holder.getXdmNodeReadTrx(), -2),
-        new LiteralExpr(holder.getXdmNodeReadTrx(), -1), CompKind.IS);
+    comparator = new NodeComp(holder.getNodeReadTrx(), new LiteralExpr(holder.getNodeReadTrx(), -2),
+        new LiteralExpr(holder.getNodeReadTrx(), -1), CompKind.IS);
   }
 
   @After
@@ -67,8 +67,8 @@ public class NodeCompTest {
     assertEquals(true, comparator.compare(op3, op2));
 
     try {
-      comparator = new NodeComp(holder.getXdmNodeReadTrx(), new LiteralExpr(holder.getXdmNodeReadTrx(), -2),
-          new LiteralExpr(holder.getXdmNodeReadTrx(), -1), CompKind.PRE);
+      comparator = new NodeComp(holder.getNodeReadTrx(), new LiteralExpr(holder.getNodeReadTrx(), -2),
+          new LiteralExpr(holder.getNodeReadTrx(), -1), CompKind.PRE);
       comparator.compare(op1, op2);
       fail("Expexcted not yet implemented exception.");
     } catch (IllegalStateException e) {
@@ -76,8 +76,8 @@ public class NodeCompTest {
     }
 
     try {
-      comparator = new NodeComp(holder.getXdmNodeReadTrx(), new LiteralExpr(holder.getXdmNodeReadTrx(), -2),
-          new LiteralExpr(holder.getXdmNodeReadTrx(), -1), CompKind.FO);
+      comparator = new NodeComp(holder.getNodeReadTrx(), new LiteralExpr(holder.getNodeReadTrx(), -2),
+          new LiteralExpr(holder.getNodeReadTrx(), -1), CompKind.FO);
       comparator.compare(op1, op2);
       fail("Expexcted not yet implemented exception.");
     } catch (IllegalStateException e) {
@@ -88,16 +88,16 @@ public class NodeCompTest {
 
   @Test
   public void testAtomize() throws SirixXPathException {
-    Axis axis = new LiteralExpr(holder.getXdmNodeReadTrx(), -2);
+    Axis axis = new LiteralExpr(holder.getNodeReadTrx(), -2);
     axis.hasNext();
     axis.next();
     AtomicValue[] value = comparator.atomize(axis);
     assertEquals(value.length, 1);
-    assertEquals(holder.getXdmNodeReadTrx().getNodeKey(), value[0].getNodeKey());
+    assertEquals(holder.getNodeReadTrx().getNodeKey(), value[0].getNodeKey());
     assertEquals("xs:integer", value[0].getType());
 
     try {
-      axis = new DescendantAxis(holder.getXdmNodeReadTrx());
+      axis = new DescendantAxis(holder.getNodeReadTrx());
       axis.hasNext();
       comparator.atomize(axis);
     } catch (SirixXPathException e) {

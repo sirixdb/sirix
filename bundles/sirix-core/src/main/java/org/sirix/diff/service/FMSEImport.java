@@ -34,9 +34,9 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
@@ -54,8 +54,7 @@ import org.slf4j.LoggerFactory;
 public final class FMSEImport {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
 
   /**
    * Shredder new revision as temporal resource.
@@ -78,13 +77,12 @@ public final class FMSEImport {
 
     try (final Database db = Databases.openDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
-      try (final ResourceManager resMgr = db.getResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
           final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
           final FileInputStream fis = new FileInputStream(resNewRev.toFile())) {
         final XMLEventReader fileReader = XMLShredder.createFileReader(fis);
         final XMLShredder shredder =
-            new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards()
-                                                                         .build();
+            new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }
     }
@@ -105,10 +103,10 @@ public final class FMSEImport {
       shredder(checkNotNull(resNewRev), newRevTarget);
 
       try (final Database databaseOld = Databases.openDatabase(resOldRev);
-          final ResourceManager resMgrOld = databaseOld.getResourceManager("shredded");
+          final XdmResourceManager resMgrOld = databaseOld.getXdmResourceManager("shredded");
           final XdmNodeWriteTrx wtx = resMgrOld.beginNodeWriteTrx();
           final Database databaseNew = Databases.openDatabase(newRevTarget);
-          final ResourceManager resourceNew = databaseNew.getResourceManager("shredded");
+          final XdmResourceManager resourceNew = databaseNew.getXdmResourceManager("shredded");
           final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
           final FMSE fmes = new FMSE()) {
         fmes.diff(wtx, rtx);
@@ -132,8 +130,7 @@ public final class FMSEImport {
    */
   public static void main(final String[] args) {
     if (args.length < 2 || args.length > 4) {
-      throw new IllegalArgumentException(
-          "Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
+      throw new IllegalArgumentException("Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
     }
 
     final Path resOldRev = Paths.get(args[0]);

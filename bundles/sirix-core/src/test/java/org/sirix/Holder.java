@@ -31,6 +31,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 
 /**
@@ -46,8 +47,8 @@ public class Holder {
   /** {@link Database} implementation. */
   private Database mDatabase;
 
-  /** {@link ResourceManager} implementation. */
-  private ResourceManager mResMgr;
+  /** {@link XdmResourceManager} implementation. */
+  private XdmResourceManager mResMgr;
 
   /** {@link XdmNodeReadTrx} implementation. */
   private XdmNodeReadTrx mRtx;
@@ -71,11 +72,8 @@ public class Holder {
     }
     final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
     database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-                                                                                       .useDeweyIDs(
-                                                                                           true)
-                                                                                       .build());
-    final ResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+    final XdmResourceManager resourceManager = database.getXdmResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -96,9 +94,8 @@ public class Holder {
     }
     final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
     database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE,
-            PATHS.PATH1.getConfig()).buildPathSummary(true).build());
-    final ResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
+        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
+    final XdmResourceManager resourceManager = database.getXdmResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -113,7 +110,7 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE);
+    final XdmResourceManager resMgr = database.getXdmResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
@@ -184,7 +181,7 @@ public class Holder {
    *
    * @return {@link ResourceManager} handle
    */
-  public ResourceManager getResourceManager() {
+  public XdmResourceManager getResourceManager() {
     return mResMgr;
   }
 
@@ -193,7 +190,7 @@ public class Holder {
    *
    * @return {@link XdmNodeReadTrx} handle
    */
-  public XdmNodeReadTrx getXdmNodeReadTrx() {
+  public XdmNodeReadTrx getNodeReadTrx() {
     return mRtx;
   }
 
@@ -233,8 +230,8 @@ public class Holder {
    *
    * @param pRtx {@link XdmNodeReadTrx} instance
    */
-  private void setResourceManager(final ResourceManager pSession) {
-    mResMgr = pSession;
+  private void setResourceManager(final XdmResourceManager resourceManager) {
+    mResMgr = resourceManager;
   }
 
   /**

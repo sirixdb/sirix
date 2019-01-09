@@ -1,8 +1,9 @@
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.trx.node.Movement;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
