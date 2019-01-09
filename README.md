@@ -104,7 +104,7 @@ Just add the following repository section to your POM file:
 </repository>
 ```
 
-<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`.</strong>
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.0-SNAPSHOT.</strong>
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
@@ -113,7 +113,7 @@ Core project:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -122,7 +122,7 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -131,7 +131,7 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
