@@ -27,10 +27,10 @@ public final class SirixOptimizer extends TopDownOptimizer {
   }
 
   private static class IndexMatching implements Stage {
-    private final DBStore mStore;
+    // private final DBStore mStore;
 
     public IndexMatching(final DBStore store) {
-      mStore = store;
+      // mStore = store;
     }
 
     @Override

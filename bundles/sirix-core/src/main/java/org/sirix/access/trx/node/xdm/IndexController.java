@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileInputStream;
@@ -27,6 +27,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -124,7 +125,7 @@ public final class IndexController {
    * @throws SirixIOException if an I/O exception occurs while deserializing the index configuration
    *         for the specified {@code revision}
    */
-  public static boolean containsIndex(final IndexType type, final ResourceManager resourceManager,
+  public static boolean containsIndex(final IndexType type, final XdmResourceManager resourceManager,
       final int revision) throws SirixIOException {
     final Indexes indexes = new Indexes();
 
@@ -202,8 +203,8 @@ public final class IndexController {
    *        node)
    * @throws SirixIOException if an I/O error occurs
    */
-  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node,
-      final long pathNodeKey) throws SirixIOException {
+  public void notifyChange(final ChangeType type, @Nonnull final ImmutableNode node, final long pathNodeKey)
+      throws SirixIOException {
     for (final ChangeListener listener : mListeners) {
       listener.listen(type, node, pathNodeKey);
     }
@@ -217,8 +218,8 @@ public final class IndexController {
    * @return this {@link IndexController} instance
    * @throws SirixIOException if an I/O exception during index creation occured
    */
-  public IndexController createIndexes(final Set<IndexDef> indexDefs,
-      final XdmNodeWriteTrx nodeWriteTrx) throws SirixIOException {
+  public IndexController createIndexes(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx)
+      throws SirixIOException {
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -234,22 +235,18 @@ public final class IndexController {
    *
    * @return the created index builder instances
    */
-  Set<Visitor> createIndexBuilders(final Set<IndexDef> indexDefs,
-      final XdmNodeWriteTrx nodeWriteTrx) {
+  Set<Visitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
     // Index builders for all index definitions.
     final Set<Visitor> indexBuilders = new HashSet<>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
       switch (indexDef.getType()) {
         case PATH:
           indexBuilders.add(
-              createPathIndexBuilder(
-                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
+              createPathIndexBuilder(nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(
-              createCASIndexBuilder(
-                  nodeWriteTrx, nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-                  indexDef));
+          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageTransaction(),
+              nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageTransaction(), indexDef));
@@ -269,8 +266,7 @@ public final class IndexController {
    *
    * @return this {@link IndexController} instance
    */
-  IndexController createIndexListeners(final Set<IndexDef> indexDefs,
-      final XdmNodeWriteTrx nodeWriteTrx) {
+  IndexController createIndexListeners(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
     checkNotNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
@@ -278,13 +274,11 @@ public final class IndexController {
       switch (indexDef.getType()) {
         case PATH:
           mListeners.add(
-              createPathIndexListener(
-                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
+              createPathIndexListener(nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
           mListeners.add(
-              createCASIndexListener(
-                  nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
+              createCASIndexListener(nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
           mListeners.add(createNameIndexListener(nodeWriteTrx.getPageTransaction(), indexDef));
@@ -296,38 +290,33 @@ public final class IndexController {
     return this;
   }
 
-  private ChangeListener createPathIndexListener(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createPathIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mPathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createCASIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createNameIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return mNameIndex.createListener(pageWriteTrx, indexDef);
   }
 
-  private Visitor createPathIndexBuilder(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private Visitor createPathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private Visitor createCASIndexBuilder(final XdmNodeReadTrx nodeReadTrx,
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private Visitor createNameIndexBuilder(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private Visitor createNameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }
@@ -341,16 +330,15 @@ public final class IndexController {
     return new NameFilter(includes, Collections.emptySet());
   }
 
-  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx)
-      throws PathException {
+  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
       paths.add(Path.parse(path));
     return new PathFilter(paths, new PCRCollectorImpl(rtx));
   }
 
-  public CASFilter createCASFilter(final String[] pathArray, final Atomic key,
-      final SearchMode mode, final PCRCollector pcrCollector) throws PathException {
+  public CASFilter createCASFilter(final String[] pathArray, final Atomic key, final SearchMode mode,
+      final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
     if (pathArray.length > 0) {
       for (final String path : pathArray)
@@ -359,9 +347,8 @@ public final class IndexController {
     return new CASFilter(paths, key, mode, pcrCollector);
   }
 
-  public CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min,
-      final Atomic max, final boolean incMin, final boolean incMax, final PCRCollector pcrCollector)
-      throws PathException {
+  public CASFilterRange createCASFilterRange(final String[] pathArray, final Atomic min, final Atomic max,
+      final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
     if (pathArray.length > 0) {
       for (final String path : pathArray)

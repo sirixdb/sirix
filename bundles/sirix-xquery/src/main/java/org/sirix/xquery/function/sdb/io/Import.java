@@ -16,16 +16,16 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.function.sdb.SDBFun;
+import org.sirix.xquery.node.BasicDBStore;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.BasicDBStore;
 
 /**
  * <p>
@@ -80,11 +80,11 @@ public final class Import extends AbstractFunction {
     try {
       doc = coll.getDocument(resName);
 
-      try (
-          final XdmNodeWriteTrx wtx = doc.getTrx().getResourceManager().getXdmNodeWriteTrx().orElse(
-              doc.getTrx().getResourceManager().beginNodeWriteTrx())) {
-        final Path newRevTarget =
-            Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
+      try (final XdmNodeWriteTrx wtx = doc.getTrx()
+                                          .getResourceManager()
+                                          .getNodeWriteTrx()
+                                          .orElse(doc.getTrx().getResourceManager().beginNodeWriteTrx())) {
+        final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
         }
@@ -95,7 +95,7 @@ public final class Import extends AbstractFunction {
         }
 
         try (final Database databaseNew = Databases.openDatabase(newRevTarget);
-            final ResourceManager resourceNew = databaseNew.getResourceManager("shredded");
+            final XdmResourceManager resourceNew = databaseNew.getXdmResourceManager("shredded");
             final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);

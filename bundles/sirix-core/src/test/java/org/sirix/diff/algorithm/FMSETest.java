@@ -21,8 +21,8 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -210,16 +210,15 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final Path folder) throws Exception {
     Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
+    XdmResourceManager resource = database.getXdmResourceManager(TestHelper.RESOURCE);
     Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
     final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
     // Sort files list according to file names.
     list.sort((first, second) -> {
-      final String firstName =
-          first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(
-          0, second.getFileName().toString().indexOf('.'));
+      final String firstName = first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+      final String secondName =
+          second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
       if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
         return -1;
@@ -239,18 +238,18 @@ public final class FMSETest extends XMLTestCase {
           first = false;
           try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
               final FileInputStream fis = new FileInputStream(file.toFile())) {
-            final XMLShredder shredder = new XMLShredder.Builder(wtx,
-                XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+            final XMLShredder shredder =
+                new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
+                                                                                                    .build();
             shredder.call();
           }
         } else {
           FMSEImport.main(
-              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(),
-                  file.toAbsolutePath().toString()});
+              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
         }
 
         resource.close();
-        resource = database.getResourceManager(TestHelper.RESOURCE);
+        resource = database.getXdmResourceManager(TestHelper.RESOURCE);
 
         final OutputStream out = new ByteArrayOutputStream();
         final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();

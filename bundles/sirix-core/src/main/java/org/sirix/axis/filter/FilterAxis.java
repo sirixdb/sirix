@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,13 +21,16 @@
 
 package org.sirix.axis.filter;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
  * <h1>TestAxis</h1>
- * 
+ *
  * <p>
  * Perform a test on a given axis.
  * </p>
@@ -38,30 +41,32 @@ public final class FilterAxis extends AbstractAxis {
   private final Axis mAxis;
 
   /** Test to apply to axis. */
-  private final Filter[] mAxisFilter;
+  private final List<Filter<XdmNodeReadTrx>> mAxisFilter;
 
   /**
    * Constructor initializing internal state.
-   * 
+   *
    * @param axis axis to iterate over
    * @param firstAxisTest test to perform for each node found with axis
    * @param axisTest tests to perform for each node found with axis
    */
-  public FilterAxis(final Axis axis, final Filter firstAxisTest, final Filter... axisTest) {
+  @SafeVarargs
+  public FilterAxis(final Axis axis, final Filter<XdmNodeReadTrx> firstAxisTest,
+      final Filter<XdmNodeReadTrx>... axisTest) {
     super(axis.getTrx());
     mAxis = axis;
-    final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;
-    mAxisFilter = new Filter[length];
-    mAxisFilter[0] = firstAxisTest;
-    if (!mAxis.getTrx().equals(mAxisFilter[0].getTrx())) {
-      throw new IllegalArgumentException(
-          "The filter must be bound to the same transaction as the axis!");
+    mAxisFilter = new ArrayList<>();
+    mAxisFilter.add(firstAxisTest);
+    if (!mAxis.getTrx().equals(mAxisFilter.get(0).getTrx())) {
+      throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
     }
-    for (int i = 1; i < length; i++) {
-      mAxisFilter[i] = axisTest[i - 1];
-      if (!mAxis.getTrx().equals(mAxisFilter[i].getTrx())) {
-        throw new IllegalArgumentException(
-            "The filter must be bound to the same transaction as the axis!");
+
+    if (axisTest != null) {
+      for (final var filter : axisTest) {
+        mAxisFilter.add(filter);
+        if (!mAxis.getTrx().equals(mAxisFilter.get(mAxisFilter.size() - 1).getTrx())) {
+          throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
+        }
       }
     }
   }
@@ -79,7 +84,7 @@ public final class FilterAxis extends AbstractAxis {
     while (mAxis.hasNext()) {
       final long nodeKey = mAxis.next();
       boolean filterResult = true;
-      for (final Filter filter : mAxisFilter) {
+      for (final Filter<XdmNodeReadTrx> filter : mAxisFilter) {
         filterResult = filterResult && filter.filter();
         if (!filterResult) {
           break;
@@ -94,7 +99,7 @@ public final class FilterAxis extends AbstractAxis {
 
   /**
    * Returns the inner axis.
-   * 
+   *
    * @return the axis
    */
   public Axis getAxis() {

@@ -41,7 +41,9 @@ import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
+import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
@@ -71,8 +73,7 @@ import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 public final class LocalDatabase implements Database {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(LocalDatabase.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalDatabase.class));
 
   /** Unique ID of a resource. */
   private final AtomicLong mResourceID = new AtomicLong();
@@ -119,8 +120,7 @@ public final class LocalDatabase implements Database {
 
     boolean returnVal = true;
     final Path path =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resConfig.resourcePath);
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;
@@ -165,8 +165,8 @@ public final class LocalDatabase implements Database {
       mResources.forcePut(mResourceID.get(), resConfig.getResource().getFileName().toString());
 
       try (
-          final ResourceManager resourceTrxManager =
-              this.getResourceManager(resConfig.getResource().getFileName().toString());
+          final ResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> resourceTrxManager =
+              this.getXdmResourceManager(resConfig.getResource().getFileName().toString());
           final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
         wtx.commit();
       } catch (final SirixException e) {
@@ -183,15 +183,12 @@ public final class LocalDatabase implements Database {
     return returnVal;
   }
 
-  private void createAndStoreKeysetIfNeeded(final ResourceConfiguration resConfig,
-      final Path createdPath) {
+  private void createAndStoreKeysetIfNeeded(final ResourceConfiguration resConfig, final Path createdPath) {
     final Path encryptionKeyPath = createdPath.resolve("encryptionKey.json");
-    if (resConfig.byteHandlePipeline.getComponents()
-                                    .contains(new Encryptor(createdPath.getParent()))) {
+    if (resConfig.byteHandlePipeline.getComponents().contains(new Encryptor(createdPath.getParent()))) {
       try {
         Files.createFile(encryptionKeyPath);
-        final KeysetHandle handle =
-            KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
+        final KeysetHandle handle = KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
         CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(encryptionKeyPath));
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
@@ -204,16 +201,14 @@ public final class LocalDatabase implements Database {
     assertNotClosed();
 
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            name);
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
     // Check that no running resource managers / sessions are opened.
     if (Databases.hasOpenResourceManagers(resourceFile)) {
       throw new IllegalStateException("Opened resource managers found, must be closed first.");
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
-    if (Files.exists(resourceFile)
-        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+    if (Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
@@ -255,17 +250,14 @@ public final class LocalDatabase implements Database {
   // //////////////////////////////////////////////////////////
 
   @Override
-  public synchronized ResourceManager getResourceManager(final String resource)
-      throws SirixException {
+  public synchronized XdmResourceManager getXdmResourceManager(final String resource) throws SirixException {
     assertNotClosed();
 
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resource);
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resource);
 
     if (!Files.exists(resourceFile)) {
-      throw new SirixUsageException(
-          "Resource could not be opened (since it was not created?) at location",
+      throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
     }
 
@@ -278,14 +270,13 @@ public final class LocalDatabase implements Database {
     assert resourceConfig.resourcePath.getParent().getParent().equals(mDBConfig.getFile());
 
     // Keep track of the resource-ID.
-    mResources.forcePut(
-        resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+    mResources.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
     if (!mBufferManagers.containsKey(resourceFile))
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
-    final ResourceManager resourceManager = mResourceStore.openResource(
-        this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
+    final XdmResourceManager resourceManager =
+        mResourceStore.openXdmResource(this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
 
     return resourceManager;
   }
@@ -303,8 +294,7 @@ public final class LocalDatabase implements Database {
     Databases.removeDatabase(mDBConfig.getFile(), this);
 
     // Remove lock file.
-    SirixFiles.recursiveRemove(
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
+    SirixFiles.recursiveRemove(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
   }
 
   private void assertNotClosed() {
@@ -323,19 +313,17 @@ public final class LocalDatabase implements Database {
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
     final Path resourceFile =
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-            resourceName);
-    return Files.exists(resourceFile)
-        && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0
-            ? true
-            : false;
+        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0
+        ? true
+        : false;
   }
 
   @Override
   public List<Path> listResources() {
     assertNotClosed();
-    try (final Stream<Path> stream = Files.list(
-        mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+    try (final Stream<Path> stream =
+        Files.list(mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.collect(Collectors.toList());
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -365,6 +353,7 @@ public final class LocalDatabase implements Database {
 
   @Override
   public Transaction beginTransaction() {
+    // FIXME
     return null;
   }
 }

@@ -67,7 +67,7 @@ public final class SirixQueryContext extends QueryContext {
       if (!updateList.isEmpty()) {
         final Function<Sequence, Optional<XdmNodeWriteTrx>> mapDBNodeToWtx = sequence -> {
           if (sequence instanceof DBNode) {
-            return ((DBNode) sequence).getTrx().getResourceManager().getXdmNodeWriteTrx();
+            return ((DBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
           }
 
           return Optional.empty();

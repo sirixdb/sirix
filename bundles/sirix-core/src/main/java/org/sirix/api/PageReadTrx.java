@@ -40,7 +40,7 @@ public interface PageReadTrx extends AutoCloseable {
    *
    * @return resource manager instance
    */
-  ResourceManager getResourceManager();
+  ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager();
 
   /**
    * Get the transaction-ID.
@@ -65,8 +65,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  Optional<? extends Record> getRecord(final @Nonnegative long key, final PageKind pageKind,
-      final int index);
+  Optional<? extends Record> getRecord(final @Nonnegative long key, final PageKind pageKind, final int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -192,8 +191,8 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
    *
-   * @param startReference the start reference (for instance to the indirect tree or the root-node
-   *        of a BPlusTree)
+   * @param startReference the start reference (for instance to the indirect tree or the root-node of
+   *        a BPlusTree)
    * @param pageKey the unique key of the page to search for
    * @param maxNodeKey the maximum node key
    * @param indexNumber the index number or {@code -1}
@@ -228,6 +227,13 @@ public interface PageReadTrx extends AutoCloseable {
    */
   RevisionRootPage loadRevRoot(int lastCommitedRev);
 
-  int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index,
-      RevisionRootPage revisionRootPage);
+  /**
+   * Get the maximum level of the current indirect page tree.
+   *
+   * @param pageKind the page kind
+   * @param index the index or {@code -1}
+   * @param revisionRootPage the revision root page
+   * @return The maximum level of the current indirect page tree.
+   */
+  int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index, RevisionRootPage revisionRootPage);
 }

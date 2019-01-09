@@ -50,9 +50,9 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -73,14 +73,13 @@ import org.slf4j.LoggerFactory;
 public final class WikipediaImport implements Import<StartElement> {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(WikipediaImport.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(WikipediaImport.class));
 
   /** StAX parser {@link XMLEventReader}. */
   private transient XMLEventReader mReader;
 
   /** Resource manager instance. */
-  private final ResourceManager mResourceManager;
+  private final XdmResourceManager mResourceManager;
 
   /** sirix {@link NodeWriteTrx}. */
   private transient XdmNodeWriteTrx mWtx;
@@ -141,7 +140,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createDatabase(config);
     mDatabase = Databases.openDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    mResourceManager = mDatabase.getResourceManager("shredded");
+    mResourceManager = mDatabase.getXdmResourceManager("shredded");
     mWtx = mResourceManager.beginNodeWriteTrx();
   }
 
@@ -244,12 +243,12 @@ public final class WikipediaImport implements Import<StartElement> {
                 XMLShredder shredder = null;
                 if (hasFirstChild) {
                   // Shredder as child.
-                  shredder = new XMLShredder.Builder(mWtx,
-                      XMLShredder.createQueueReader(mPageEvents), Insert.ASRIGHTSIBLING).build();
+                  shredder = new XMLShredder.Builder(mWtx, XMLShredder.createQueueReader(mPageEvents),
+                      Insert.ASRIGHTSIBLING).build();
                 } else {
                   // Shredder as right sibling.
-                  shredder = new XMLShredder.Builder(mWtx,
-                      XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).build();
+                  shredder = new XMLShredder.Builder(mWtx, XMLShredder.createQueueReader(mPageEvents),
+                      Insert.ASFIRSTCHILD).build();
                 }
 
                 shredder.call();
@@ -278,16 +277,16 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createDatabase(dbConf);
     final Database db = Databases.openDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
-    final ResourceManager resourceManager = db.getResourceManager("wiki");
+    final XdmResourceManager resourceManager = db.getXdmResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
-      mPageEvents.addFirst(
-          XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
+      mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
     final XdmNodeWriteTrx wtx = resourceManager.beginNodeWriteTrx();
-    final XMLShredder shredder = new XMLShredder.Builder(wtx,
-        XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards().build();
+    final XMLShredder shredder =
+        new XMLShredder.Builder(wtx, XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards()
+                                                                                                     .build();
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
@@ -327,9 +326,9 @@ public final class WikipediaImport implements Import<StartElement> {
    * @throws XMLStreamException In case of any XML parsing errors.
    * @throws SirixException In case of any sirix errors.
    */
-  private void parseStartTag(final XMLEvent startTagEvent, final StartElement timestamp,
-      final StartElement wikiPage, final StartElement revision, final StartElement pageID,
-      final DateBy dateRange) throws XMLStreamException, SirixException {
+  private void parseStartTag(final XMLEvent startTagEvent, final StartElement timestamp, final StartElement wikiPage,
+      final StartElement revision, final StartElement pageID, final DateBy dateRange)
+      throws XMLStreamException, SirixException {
     XMLEvent event = startTagEvent;
 
     if (checkStAXStartElement(event.asStartElement(), pageID)) {
@@ -361,8 +360,7 @@ public final class WikipediaImport implements Import<StartElement> {
       // Search for existing page.
       final QName page = wikiPage.getName();
       final QName id = pageID.getName();
-      final String query =
-          "//" + qNameToString(page) + "[fn:string(" + qNameToString(id) + ") = '" + mIdText + "']";
+      final String query = "//" + qNameToString(page) + "[fn:string(" + qNameToString(id) + ") = '" + mIdText + "']";
       mWtx.moveToDocumentRoot();
       final Axis axis = new XPathAxis(mWtx, query);
 
@@ -486,8 +484,7 @@ public final class WikipediaImport implements Import<StartElement> {
       throws XMLStreamException {
     assert startTag != null && elem != null;
     boolean retVal = false;
-    if (startTag.getEventType() == XMLStreamConstants.START_ELEMENT
-        && startTag.getName().equals(elem.getName())) {
+    if (startTag.getEventType() == XMLStreamConstants.START_ELEMENT && startTag.getName().equals(elem.getName())) {
       // Check attributes.
       boolean foundAtts = false;
       boolean hasAtts = false;
@@ -496,8 +493,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Attribute attStartTag = (Attribute) itStartTag.next();
         for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
           final Attribute attElem = (Attribute) itElem.next();
-          if (attStartTag.getName().equals(attElem.getName())
-              && attStartTag.getName().equals(attElem.getName())) {
+          if (attStartTag.getName().equals(attElem.getName()) && attStartTag.getName().equals(attElem.getName())) {
             foundAtts = true;
             break;
           }
@@ -519,8 +515,7 @@ public final class WikipediaImport implements Import<StartElement> {
         final Namespace nsStartTag = (Namespace) itStartTag.next();
         for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
           final Namespace nsElem = (Namespace) itElem.next();
-          if (nsStartTag.getName().equals(nsElem.getName())
-              && nsStartTag.getName().equals(nsElem.getName())) {
+          if (nsStartTag.getName().equals(nsElem.getName()) && nsStartTag.getName().equals(nsElem.getName())) {
             foundNamesps = true;
             break;
           }
@@ -552,8 +547,7 @@ public final class WikipediaImport implements Import<StartElement> {
    */
   public static void main(final String[] args) throws SirixException {
     if (args.length != 2) {
-      throw new IllegalArgumentException(
-          "Usage: WikipediaImport path/to/xmlFile path/to/SirixStorage");
+      throw new IllegalArgumentException("Usage: WikipediaImport path/to/xmlFile path/to/SirixStorage");
     }
 
     LOGWRAPPER.info("Importing wikipedia...");
@@ -566,16 +560,16 @@ public final class WikipediaImport implements Import<StartElement> {
     // Create necessary element nodes.
     final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
-    final StartElement timestamp = eventFactory.createStartElement(
-        new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement page = eventFactory.createStartElement(
-        new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement rev = eventFactory.createStartElement(
-        new QName(NSP_URI, "revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement id = eventFactory.createStartElement(
-        new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement text = eventFactory.createStartElement(
-        new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement timestamp =
+        eventFactory.createStartElement(new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement page =
+        eventFactory.createStartElement(new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement rev =
+        eventFactory.createStartElement(new QName(NSP_URI, "revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement id =
+        eventFactory.createStartElement(new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+    final StartElement text =
+        eventFactory.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
     // Create list.
     final List<StartElement> list = new LinkedList<StartElement>();

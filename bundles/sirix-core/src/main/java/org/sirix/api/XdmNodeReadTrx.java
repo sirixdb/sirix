@@ -26,23 +26,20 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.access.trx.node.Moved;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
-import org.sirix.node.AttributeNode;
-import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
-import org.sirix.node.NamespaceNode;
-import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.xdm.AttributeNode;
+import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xdm.ElementNode;
+import org.sirix.node.xdm.NamespaceNode;
+import org.sirix.node.xdm.PINode;
+import org.sirix.node.xdm.TextNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
@@ -118,7 +115,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *
  * </p>
  */
-public interface XdmNodeReadTrx extends NodeCursor {
+public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   /**
    * Get the page reading transaction.
    *
@@ -127,44 +124,16 @@ public interface XdmNodeReadTrx extends NodeCursor {
   PageReadTrx getPageTrx();
 
   /** String constants used by XPath. */
-  String[] XPATHCONSTANTS = {"xs:anyType", "xs:anySimpleType", "xs:anyAtomicType",
-      "xs:untypedAtomic", "xs:untyped", "xs:string", "xs:duration", "xs:yearMonthDuration",
-      "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date", "xs:gYearMonth", "xs:gYear",
-      "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean", "xs:base64Binary", "xs:hexBinary",
-      "xs:anyURI", "xs:QName", "xs:NOTATION", "xs:float", "xs:double", "xs:pDecimal", "xs:decimal",
-      "xs:integer", "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger",
-      "xs:negativeInteger", "xs:nonNegativeInteger", "xs:positiveInteger", "xs:unsignedLong",
-      "xs:unsignedInt", "xs:unsignedShort", "xs:unsignedByte", "xs:normalizedString", "xs:token",
-      "xs:language", "xs:name", "xs:NCName", "xs:ID", "xs:IDREF", "xs:ENTITY", "xs:IDREFS",
-      "xs:NMTOKEN", "xs:NMTOKENS",};
+  String[] XPATHCONSTANTS = {"xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped",
+      "xs:string", "xs:duration", "xs:yearMonthDuration", "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date",
+      "xs:gYearMonth", "xs:gYear", "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean", "xs:base64Binary",
+      "xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION", "xs:float", "xs:double", "xs:pDecimal", "xs:decimal",
+      "xs:integer", "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger", "xs:negativeInteger",
+      "xs:nonNegativeInteger", "xs:positiveInteger", "xs:unsignedLong", "xs:unsignedInt", "xs:unsignedShort",
+      "xs:unsignedByte", "xs:normalizedString", "xs:token", "xs:language", "xs:name", "xs:NCName", "xs:ID", "xs:IDREF",
+      "xs:ENTITY", "xs:IDREFS", "xs:NMTOKEN", "xs:NMTOKENS",};
 
-  /**
-   * Get ID of reader.
-   *
-   * @return ID of reader
-   */
-  long getId();
 
-  /**
-   * Get the revision number of this transaction.
-   *
-   * @return immutable revision number of this IReadTransaction
-   */
-  int getRevisionNumber();
-
-  /**
-   * UNIX-style timestamp of the commit of the revision.
-   *
-   * @throws SirixIOException if can't get timestamp
-   */
-  long getRevisionTimestamp();
-
-  /**
-   * Getting the maximum nodekey available in this revision.
-   *
-   * @return the maximum nodekey
-   */
-  long getMaxNodeKey();
 
   // --- Node Selectors
   // --------------------------------------------------------
@@ -252,29 +221,11 @@ public interface XdmNodeReadTrx extends NodeCursor {
   ItemList<AtomicValue> getItemList();
 
   /**
-   * Close shared read transaction and immediately release all resources.
-   *
-   * This is an idempotent operation and does nothing if the transaction is already closed.
-   *
-   * @throws SirixException if can't close {@link XdmNodeReadTrx}
-   */
-  @Override
-  void close();
-
-  /**
    * Determines if this transaction is closed.
    *
    * @return {@code true} if closed, {@code false} otherwise
    */
   boolean isClosed();
-
-  /**
-   * Get the node key of the currently selected node.
-   *
-   * @return node key of the currently selected node
-   */
-  @Override
-  long getNodeKey();
 
   @Override
   Move<? extends XdmNodeReadTrx> moveToNextFollowing();
@@ -358,12 +309,7 @@ public interface XdmNodeReadTrx extends NodeCursor {
    */
   int getLocalNameKey();
 
-  /**
-   * Get the {@link ResourceManager} this instance is bound to.
-   *
-   * @return session instance
-   */
-  ResourceManager getResourceManager();
+
 
   // /**
   // * Clone an instance, that is just create a new instance and move the new
@@ -502,9 +448,6 @@ public interface XdmNodeReadTrx extends NodeCursor {
   String getNamespaceURI();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveTo(long key);
-
-  @Override
   Move<? extends XdmNodeReadTrx> moveToDocumentRoot();
 
   @Override
@@ -592,9 +535,10 @@ public interface XdmNodeReadTrx extends NodeCursor {
   ImmutableValueNode getValueNode();
 
   /**
-   * Get the commit credentials.
+   * Get the {@link ResourceManager} this instance is bound to.
    *
-   * @return The commit credentials.
+   * @return the resource manager
    */
-  CommitCredentials getCommitCredentials();
+  @Override
+  XdmResourceManager getResourceManager();
 }

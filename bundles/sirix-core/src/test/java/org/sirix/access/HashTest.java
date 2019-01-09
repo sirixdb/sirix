@@ -31,10 +31,10 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.HashType;
+import org.sirix.access.trx.node.xdm.HashType;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -220,9 +220,8 @@ public class HashTest {
 
   private XdmNodeWriteTrx createWtx(final HashType kind) throws SirixException {
     final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final XdmResourceManager manager = database.getXdmResourceManager(TestHelper.RESOURCE);
     final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
     return wTrx;
   }

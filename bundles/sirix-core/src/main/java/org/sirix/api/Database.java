@@ -48,8 +48,8 @@ import org.sirix.exception.SirixIOException;
 public interface Database extends AutoCloseable {
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be
-   * created within this method. This includes the creation of a suitable folder structure as well
-   * as the serialization of the configuration of this resource.
+   * created within this method. This includes the creation of a suitable folder structure as well as
+   * the serialization of the configuration of this resource.
    *
    * @param config the config of the resource
    * @return {@code true} if successful, {@code false} otherwise
@@ -79,7 +79,7 @@ public interface Database extends AutoCloseable {
    * @return the session
    * @throws SirixException if can't get session
    */
-  ResourceManager getResourceManager(String resourceName) throws SirixException;
+  XdmResourceManager getXdmResourceManager(String resourceName) throws SirixException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.

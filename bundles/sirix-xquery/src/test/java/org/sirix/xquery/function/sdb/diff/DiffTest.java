@@ -45,8 +45,8 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreator;
@@ -87,9 +87,8 @@ public final class DiffTest extends TestCase {
     Databases.createDatabase(config);
 
     try (final Database database = Databases.openDatabase(databasePath)) {
-      database.createResource(
-          ResourceConfiguration.newBuilder(TestHelper.RESOURCE, config).build());
-      try (final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+      database.createResource(ResourceConfiguration.newBuilder(TestHelper.RESOURCE, config).build());
+      try (final XdmResourceManager manager = database.getXdmResourceManager(TestHelper.RESOURCE);
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
@@ -98,8 +97,7 @@ public final class DiffTest extends TestCase {
     }
 
     // Initialize query context and store.
-    try (final BasicDBStore store =
-        BasicDBStore.newBuilder().location(databasePath.getParent()).build()) {
+    try (final BasicDBStore store = BasicDBStore.newBuilder().location(databasePath.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = databasePath.getFileName().toString();
@@ -137,8 +135,7 @@ public final class DiffTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicDBStore store =
-        BasicDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();

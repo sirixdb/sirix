@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Stack;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.axis.ForAxis;
 import org.sirix.axis.filter.FilterAxis;
@@ -655,7 +656,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mSequenceType sequence type the context item will be treated as.
    */
-  public void addTreatExpr(final XdmNodeReadTrx mTransaction, final SequenceType mSequenceType) {
+  public void addTreatExpr(final NodeReadTrx mTransaction, final SequenceType mSequenceType) {
 
     throw new IllegalStateException("the Treat expression is not supported yet");
 

@@ -27,41 +27,34 @@ import org.sirix.utils.SirixFiles;
 public final class Databases {
 
   /** Central repository of all running databases. */
-  private static final ConcurrentMap<Path, Set<Database>> DATABASE_SESSIONS =
-      new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Set<Database>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
 
   /** Central repository of all running resource managers. */
-  private static final ConcurrentMap<Path, Set<ResourceManager>> RESOURCE_MANAGERS =
-      new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} read semaphore mappings. */
-  private static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES =
-      new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} write semaphore mappings. */
-  private static final ConcurrentMap<Path, Semaphore> RESOURCE_WRITE_SEMAPHORES =
-      new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Semaphore> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
 
   public static Semaphore computeReadSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
-    return RESOURCE_READ_SEMAPHORES.computeIfAbsent(
-        resourcePath, res -> new Semaphore(numberOfPermits));
+    return RESOURCE_READ_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
   }
 
   public static Semaphore computeWriteSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
-    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(
-        resourcePath, res -> new Semaphore(numberOfPermits));
+    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
   }
 
   /**
-   * Creating a database. This includes loading the database configuration, building up the
-   * structure and preparing everything for login.
+   * Creating a database. This includes loading the database configuration, building up the structure
+   * and preparing everything for login.
    *
    * @param dbConfig config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
    */
-  public static synchronized boolean createDatabase(final DatabaseConfiguration dbConfig)
-      throws SirixIOException {
+  public static synchronized boolean createDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
     boolean returnVal = true;
     // if file is existing, skipping
     if (Files.exists(dbConfig.getFile())) {
@@ -85,10 +78,9 @@ public final class Databases {
           } else {
             try {
               returnVal =
-                  toCreate.getFileName()
-                          .equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())
-                              ? true
-                              : Files.createFile(toCreate) != null;
+                  toCreate.getFileName().equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())
+                      ? true
+                      : Files.createFile(toCreate) != null;
             } catch (final IOException e) {
               SirixFiles.recursiveRemove(dbConfig.getFile());
               throw new SirixIOException(e);
@@ -143,12 +135,10 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database openDatabase(final Path file)
-      throws SirixUsageException, SirixIOException {
+  public static synchronized Database openDatabase(final Path file) throws SirixUsageException, SirixIOException {
     checkNotNull(file);
     if (!Files.exists(file)) {
-      throw new SirixUsageException(
-          "DB could not be opened (since it was not created?) at location", file.toString());
+      throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
     final DatabaseConfiguration config = DatabaseConfiguration.deserialize(file);
     if (config == null) {
@@ -202,12 +192,8 @@ public final class Databases {
    * @param file resource file to put into the map
    * @param resourceManager resourceManager handle to put into the map
    */
-  public static synchronized void putResourceManager(final Path file,
-      final ResourceManager resourceManager) {
-    final Set<ResourceManager> resourceManagers =
-        RESOURCE_MANAGERS.getOrDefault(file, new HashSet<>());
-    resourceManagers.add(resourceManager);
-    RESOURCE_MANAGERS.put(file, resourceManagers);
+  public static synchronized void putResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
+    RESOURCE_MANAGERS.computeIfAbsent(file, path -> new HashSet<>()).add(resourceManager);
   }
 
   /**
@@ -215,9 +201,8 @@ public final class Databases {
    *
    * @param resource manager to remove
    */
-  public static synchronized void removeResourceManager(final Path file,
-      final ResourceManager resourceManager) {
-    final Set<ResourceManager> resourceManagers = RESOURCE_MANAGERS.get(file);
+  public static synchronized void removeResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
+    final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
 
     if (resourceManagers == null) {
       return;
@@ -235,8 +220,8 @@ public final class Databases {
    * @param file the resource file
    * @return {@code true}, if there are any open resource managers, {@code false} otherwise.
    */
-  public static synchronized boolean hasOpenResourceManagers(Path file) {
-    final Set<ResourceManager> resourceManagers = RESOURCE_MANAGERS.get(file);
+  public static synchronized boolean hasOpenResourceManagers(final Path file) {
+    final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
 
     if (resourceManagers == null || resourceManagers.isEmpty()) {
       return false;

@@ -18,15 +18,15 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.xdm.TextNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Fixed;
 

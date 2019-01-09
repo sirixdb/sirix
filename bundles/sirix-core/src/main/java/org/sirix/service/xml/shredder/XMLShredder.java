@@ -48,11 +48,11 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.ElementNode;
+import org.sirix.node.xdm.ElementNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -70,8 +70,7 @@ import org.slf4j.LoggerFactory;
 public final class XMLShredder extends AbstractShredder implements Callable<Long> {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
 
   /** {@link XdmNodeWriteTrx}. */
   protected final XdmNodeWriteTrx mWtx;
@@ -230,8 +229,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
             break;
           case XMLStreamConstants.END_ELEMENT:
             level--;
-            if (level == 0 && rootElement != null
-                && rootElement.equals(event.asEndElement().getName())) {
+            if (level == 0 && rootElement != null && rootElement.equals(event.asEndElement().getName())) {
               endElemReached = true;
             }
             final QName name = event.asEndElement().getName();
@@ -294,8 +292,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
       final Attribute attribute = (Attribute) it.next();
       final QName attName = attribute.getName();
-      mWtx.insertAttribute(
-          new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
+      mWtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
           attribute.getValue());
       mWtx.moveToParent();
     }
@@ -309,11 +306,9 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
    * @throws IOException if an I/O error occurs
    * @throws SirixException if a Sirix error occurs
    */
-  public static void main(final String... args)
-      throws SirixException, IOException, XMLStreamException {
+  public static void main(final String... args) throws SirixException, IOException, XMLStreamException {
     if (args.length != 2 && args.length != 3) {
-      throw new IllegalArgumentException(
-          "Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
+      throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
     }
     LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
     final long time = System.nanoTime();
@@ -324,7 +319,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
 
     try (final Database db = Databases.openDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      try (final ResourceManager resMgr = db.getResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
           final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
@@ -379,8 +374,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
     try {
-      final InputStream in =
-          new ByteArrayInputStream(xmlString.getBytes(Constants.DEFAULT_ENCODING));
+      final InputStream in = new ByteArrayInputStream(xmlString.getBytes(Constants.DEFAULT_ENCODING));
       return factory.createXMLEventReader(in);
     } catch (XMLStreamException e) {
       throw new SirixException(e.getMessage(), e);

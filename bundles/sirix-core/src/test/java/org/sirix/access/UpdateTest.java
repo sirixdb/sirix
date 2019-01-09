@@ -31,7 +31,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.access.trx.node.XdmNodeReadTrxImpl;
+import org.sirix.access.trx.node.xdm.XdmNodeReadTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;

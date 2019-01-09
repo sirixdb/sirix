@@ -1,14 +1,16 @@
-package org.sirix.access.trx.node;
+package org.sirix.access.trx.node.xdm;
 
 import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
@@ -25,8 +27,7 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
-    implements XdmNodeReadTrx {
+public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject implements XdmNodeReadTrx {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingXdmNodeReadTrx() {}
@@ -80,7 +81,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public ResourceManager getResourceManager() {
+  public XdmResourceManager getResourceManager() {
     return delegate().getResourceManager();
   }
 

@@ -23,8 +23,8 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
@@ -90,8 +90,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     /**
      * Set if path summaries should be build for resources.
      *
-     * @param buildPathSummary {@code true} if path summaries should be build, {@code false}
-     *        otherwise
+     * @param buildPathSummary {@code true} if path summaries should be build, {@code false} otherwise
      * @return this builder instance
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
@@ -180,14 +179,13 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public DBCollection create(final String collName, final SubtreeParser parser)
-      throws DocumentException {
+  public DBCollection create(final String collName, final SubtreeParser parser) throws DocumentException {
     return create(collName, null, parser);
   }
 
   @Override
-  public DBCollection create(final String collName, final String optResName,
-      final SubtreeParser parser) throws DocumentException {
+  public DBCollection create(final String collName, final String optResName, final SubtreeParser parser)
+      throws DocumentException {
     final Path dbPath = mLocation.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -197,23 +195,19 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       mDatabases.add(database);
       final String resName = optResName != null
           ? optResName
-          : new StringBuilder(3).append("resource")
-                                .append(database.listResources().size() + 1)
-                                .toString();
-      database.createResource(
-          ResourceConfiguration.newBuilder(resName, dbConf)
-                               .useDeweyIDs(true)
-                               .useTextCompression(true)
-                               .buildPathSummary(mBuildPathSummary)
-                               .storageType(mStorageType)
-                               .build());
+          : new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
+      database.createResource(ResourceConfiguration.newBuilder(resName, dbConf)
+                                                   .useDeweyIDs(true)
+                                                   .useTextCompression(true)
+                                                   .buildPathSummary(mBuildPathSummary)
+                                                   .storageType(mStorageType)
+                                                   .build());
       final DBCollection collection = new DBCollection(collName, database);
       mCollections.put(database, collection);
 
-      try (final ResourceManager manager = database.getResourceManager(resName);
+      try (final XdmResourceManager manager = database.getXdmResourceManager(resName);
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-        parser.parse(
-            new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
+        parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
         wtx.commit();
       }
@@ -239,30 +233,25 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
         Databases.createDatabase(dbConf);
         final Database database = Databases.openDatabase(dbConf.getFile());
         mDatabases.add(database);
-        final ExecutorService pool =
-            Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         int i = database.listResources().size() + 1;
         try {
           SubtreeParser parser = null;
           while ((parser = parsers.next()) != null) {
             final SubtreeParser nextParser = parser;
-            final String resourceName =
-                new StringBuilder("resource").append(String.valueOf(i)).toString();
+            final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
             pool.submit(() -> {
-              database.createResource(
-                  ResourceConfiguration.newBuilder(resourceName, dbConf)
-                                       .storageType(mStorageType)
-                                       .useDeweyIDs(true)
-                                       .useTextCompression(true)
-                                       .buildPathSummary(true)
-                                       .build());
-              try (final ResourceManager manager = database.getResourceManager(resourceName);
+              database.createResource(ResourceConfiguration.newBuilder(resourceName, dbConf)
+                                                           .storageType(mStorageType)
+                                                           .useDeweyIDs(true)
+                                                           .useTextCompression(true)
+                                                           .buildPathSummary(true)
+                                                           .build());
+              try (final XdmResourceManager manager = database.getXdmResourceManager(resourceName);
                   final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
-                nextParser.parse(
-                    new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-                        Collections.emptyList()));
+                nextParser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
                 wtx.commit();
               }
               return null;

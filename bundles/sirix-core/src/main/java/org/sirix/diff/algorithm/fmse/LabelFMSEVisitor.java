@@ -26,7 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.access.trx.node.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixException;

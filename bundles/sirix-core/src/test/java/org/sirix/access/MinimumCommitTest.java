@@ -67,7 +67,7 @@ public final class MinimumCommitTest {
     holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateRtx();
-    assertEquals(3L, holder.getXdmNodeReadTrx().getRevisionNumber());
+    assertEquals(3L, holder.getNodeReadTrx().getRevisionNumber());
   }
 
   @Test

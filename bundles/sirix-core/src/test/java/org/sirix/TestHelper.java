@@ -37,15 +37,12 @@ import org.junit.Test;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.XdmResourceManager;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.settings.CharsForSerializing;
@@ -53,7 +50,7 @@ import org.sirix.utils.DocumentCreator;
 
 /**
  *
- * Helper class for offering convenient usage of {@link XdmResourceManager}s for test cases.
+ * Helper class for offering convenient usage of {@link XdmResourceManagerImpl}s for test cases.
  *
  * This includes instantiation of databases plus resources.
  *
@@ -110,8 +107,8 @@ public final class TestHelper {
   }
 
   /**
-   * Getting a database and create one if not existing. This includes the creation of a resource
-   * with the settings in the builder as standard.
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
    *
    * @param file to be created
    * @return a database-obj
@@ -243,8 +240,7 @@ public final class TestHelper {
    * @throws IOException if an I/O operation fails
    */
   @Ignore("Not a test, utility method only")
-  public static StringBuilder readFile(final Path file, final boolean whitespaces)
-      throws IOException {
+  public static StringBuilder readFile(final Path file, final boolean whitespaces) throws IOException {
     final BufferedReader in = new BufferedReader(new FileReader(file.toFile()));
     final StringBuilder sBuilder = new StringBuilder();
     for (String line = in.readLine(); line != null; line = in.readLine()) {
@@ -271,9 +267,8 @@ public final class TestHelper {
    */
   public static void createTestDocument() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final ResourceManager manager = database.getResourceManager(RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    try (final XdmResourceManager manager = database.getXdmResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.create(wtx);
       wtx.commit();
@@ -287,9 +282,8 @@ public final class TestHelper {
    */
   public static void createPICommentTestDocument() throws SirixException {
     final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final ResourceManager manager = database.getResourceManager(RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    try (final XdmResourceManager manager = database.getXdmResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.createCommentPI(wtx);
       wtx.commit();

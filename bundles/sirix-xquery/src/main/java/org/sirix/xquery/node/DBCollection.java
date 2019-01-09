@@ -23,10 +23,10 @@ import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
 import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.Insert;
@@ -44,8 +44,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     implements TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
 
   /** Logger. */
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(DBCollection.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(DBCollection.class));
 
   /** ID sequence. */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
@@ -123,8 +122,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, String name, boolean updatable)
-      throws DocumentException {
+  public DBNode getDocument(Instant pointInTime, String name, boolean updatable) throws DocumentException {
     try {
       return getDocumentInternal(name, pointInTime, updatable);
     } catch (final SirixException e) {
@@ -132,15 +130,14 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     }
   }
 
-  private DBNode getDocumentInternal(final String resName, final Instant pointInTime,
-      final boolean updatable) {
-    final ResourceManager resource = mDatabase.getResourceManager(resName);
+  private DBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
+    final XdmResourceManager resource = mDatabase.getXdmResourceManager(resName);
 
     final XdmNodeReadTrx trx;
 
     if (updatable) {
       if (resource.getAvailableNodeWriteTrx() == 0) {
-        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getXdmNodeWriteTrx();
+        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();
@@ -172,8 +169,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public void remove(final long documentID)
-      throws OperationNotSupportedException, DocumentException {
+  public void remove(final long documentID) throws OperationNotSupportedException, DocumentException {
     if (documentID >= 0) {
       final String resource = mDatabase.getResourceName((int) documentID);
       if (resource != null) {
@@ -189,8 +185,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final ResourceManager manager =
-          mDatabase.getResourceManager(resources.get(0).getFileName().toString());
+      final XdmResourceManager manager = mDatabase.getXdmResourceManager(resources.get(0).getFileName().toString());
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
@@ -204,19 +199,16 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode add(final String resName, SubtreeParser parser)
       throws OperationNotSupportedException, DocumentException {
     try {
-      final String resource = new StringBuilder(2).append("resource")
-                                                  .append(mDatabase.listResources().size() + 1)
-                                                  .toString();
-      mDatabase.createResource(
-          ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
-                               .useDeweyIDs(true)
-                               .useTextCompression(true)
-                               .buildPathSummary(true)
-                               .build());
-      final ResourceManager manager = mDatabase.getResourceManager(resource);
+      final String resource =
+          new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
+                                                    .useDeweyIDs(true)
+                                                    .useTextCompression(true)
+                                                    .buildPathSummary(true)
+                                                    .build());
+      final XdmResourceManager manager = mDatabase.getXdmResourceManager(resource);
       final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
-      final SubtreeHandler handler =
-          new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
+      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -234,20 +226,17 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   @Override
   public DBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
     try {
-      final String resourceName = new StringBuilder(2).append("resource")
-                                                      .append(mDatabase.listResources().size() + 1)
-                                                      .toString();
-      mDatabase.createResource(
-          ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
-                               .useDeweyIDs(true)
-                               .useTextCompression(true)
-                               .buildPathSummary(true)
-                               .build());
-      final ResourceManager resource = mDatabase.getResourceManager(resourceName);
+      final String resourceName =
+          new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
+                                                    .useDeweyIDs(true)
+                                                    .useTextCompression(true)
+                                                    .buildPathSummary(true)
+                                                    .build());
+      final XdmResourceManager resource = mDatabase.getXdmResourceManager(resourceName);
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
 
-      final SubtreeHandler handler =
-          new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
+      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.ASFIRSTCHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -266,10 +255,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throws OperationNotSupportedException, DocumentException {
     try {
       mDatabase.createResource(
-          ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
-                               .useDeweyIDs(true)
-                               .build());
-      final ResourceManager resource = mDatabase.getResourceManager(resourceName);
+          ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig()).useDeweyIDs(true).build());
+      final XdmResourceManager resource = mDatabase.getXdmResourceManager(resourceName);
       final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
@@ -311,8 +298,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(final int revision, final String name, final boolean updatable)
-      throws DocumentException {
+  public DBNode getDocument(final int revision, final String name, final boolean updatable) throws DocumentException {
     try {
       return getDocumentInternal(name, revision, updatable);
     } catch (final SirixException e) {
@@ -320,9 +306,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     }
   }
 
-  private DBNode getDocumentInternal(final String resName, final int revision,
-      final boolean updatable) {
-    final ResourceManager resource = mDatabase.getResourceManager(resName);
+  private DBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
+    final XdmResourceManager resource = mDatabase.getXdmResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
         : revision;
@@ -330,7 +315,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     final XdmNodeReadTrx trx;
     if (updatable) {
       if (resource.getAvailableNodeWriteTrx() == 0) {
-        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getXdmNodeWriteTrx();
+        final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();
@@ -372,7 +357,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     for (final Path resourcePath : resources) {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final ResourceManager resource = mDatabase.getResourceManager(resourceName);
+        final XdmResourceManager resource = mDatabase.getXdmResourceManager(resourceName);
         final XdmNodeReadTrx trx = updatable
             ? resource.beginNodeWriteTrx()
             : resource.beginNodeReadTrx();

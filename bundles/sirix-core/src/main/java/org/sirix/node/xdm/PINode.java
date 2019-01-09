@@ -1,36 +1,17 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-package org.sirix.node;
+package org.sirix.node.xdm;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
@@ -38,13 +19,13 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>AttributeNode</h1>
+ * <h1>PINode</h1>
  *
  * <p>
- * Node representing an attribute.
+ * Node representing a processing instruction.
  * </p>
  */
-public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode {
+public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -52,45 +33,46 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   /** Delegate for val node information. */
   private final ValNodeDelegate mValDel;
 
-  /** Node delegate. */
-  private final NodeDelegate mDel;
+  /** Delegate for structural node information. */
+  private final StructNodeDelegate mStructDel;
 
-  /** The qualified name. */
-  private final QNm mQNm;
+  /** {@link PageReadTrx} reference. */
+  private final PageReadTrx mPageReadTrx;
 
   /**
    * Creating an attribute.
    *
-   * @param nodeDel {@link NodeDelegate} to be set
-   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param structDel {@link StructNodeDelegate} to be set
+   * @param nameDel {@link NameNodeDelegate} to be set
    * @param valDel {@link ValNodeDelegate} to be set
    *
    */
-  public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
-      final ValNodeDelegate valDel, final QNm qNm) {
-    assert nodeDel != null : "nodeDel must not be null!";
-    mDel = nodeDel;
+  public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
+      final PageReadTrx pageReadTrx) {
+    assert structDel != null : "structDel must not be null!";
+    mStructDel = structDel;
     assert nameDel != null : "nameDel must not be null!";
     mNameDel = nameDel;
     assert valDel != null : "valDel must not be null!";
     mValDel = valDel;
-    assert qNm != null : "qNm must not be null!";
-    mQNm = qNm;
+    assert pageReadTrx != null : "pageReadTrx must not be null!";
+    mPageReadTrx = pageReadTrx;
   }
 
   @Override
   public Kind getKind() {
-    return Kind.ATTRIBUTE;
+    return Kind.PROCESSING_INSTRUCTION;
   }
 
   @Override
   public VisitResult acceptVisitor(final Visitor visitor) {
-    return visitor.visit(ImmutableAttribute.of(this));
+    return visitor.visit(ImmutablePI.of(this));
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
+                      .add("structDel", mStructDel)
                       .add("nameDel", mNameDel)
                       .add("valDel", mValDel)
                       .toString();
@@ -132,8 +114,8 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public void setValue(final byte[] pVal) {
-    mValDel.setValue(pVal);
+  public void setValue(final byte[] value) {
+    mValDel.setValue(value);
   }
 
   @Override
@@ -143,8 +125,8 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof AttributeNode) {
-      final AttributeNode other = (AttributeNode) obj;
+    if (obj instanceof PINode) {
+      final PINode other = (PINode) obj;
       return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
     }
     return false;
@@ -165,7 +147,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    *
    * @return the {@link NameNodeDelegate} instance
    */
-  NameNodeDelegate getNameNodeDelegate() {
+  public NameNodeDelegate getNameNodeDelegate() {
     return mNameDel;
   }
 
@@ -174,18 +156,32 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
    *
    * @return the {@link ValNodeDelegate} instance
    */
-  ValNodeDelegate getValNodeDelegate() {
+  public ValNodeDelegate getValNodeDelegate() {
     return mValDel;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mDel;
+    return mStructDel.getNodeDelegate();
+  }
+
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructDel;
   }
 
   @Override
   public QNm getName() {
-    return mQNm;
+    final String uri = mPageReadTrx.getName(mNameDel.getURIKey(), Kind.NAMESPACE);
+    final int prefixKey = mNameDel.getPrefixKey();
+    final String prefix = prefixKey == -1
+        ? ""
+        : mPageReadTrx.getName(prefixKey, Kind.PROCESSING_INSTRUCTION);
+    final int localNameKey = mNameDel.getLocalNameKey();
+    final String localName = localNameKey == -1
+        ? ""
+        : mPageReadTrx.getName(localNameKey, Kind.PROCESSING_INSTRUCTION);
+    return new QNm(uri, prefix, localName);
   }
 
   @Override

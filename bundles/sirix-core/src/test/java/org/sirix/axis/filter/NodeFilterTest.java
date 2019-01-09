@@ -48,7 +48,7 @@ public class NodeFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
     rtx.moveTo(9L);
     FilterTest.testFilterConventions(new NodeFilter(rtx), true);
 

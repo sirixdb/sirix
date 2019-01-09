@@ -67,7 +67,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateWhole() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -76,7 +76,7 @@ public class PostOrderTest {
         ImmutableList.of(4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new PostOrderAxis(rtx);
       }
@@ -85,7 +85,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateFirstSubtree() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(5L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {6L, 7L});
@@ -93,7 +93,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(5L);
         return new PostOrderAxis(rtx);
       }
@@ -102,7 +102,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateZero() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(8L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
@@ -110,7 +110,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(8L);
         return new PostOrderAxis(rtx);
       }

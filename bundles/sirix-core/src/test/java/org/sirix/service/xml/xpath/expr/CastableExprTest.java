@@ -59,15 +59,15 @@ public class CastableExprTest {
   @Test
   public void testCastableExpr() throws SirixException {
 
-    final AbstractAxis axis1 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 castable as xs:decimal");
+    final AbstractAxis axis1 = new XPathAxis(holder.getNodeReadTrx(), "1 castable as xs:decimal");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
     final AbstractAxis axis2 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "10.0 castable as xs:anyAtomicType");
+        new XPathAxis(holder.getNodeReadTrx(), "10.0 castable as xs:anyAtomicType");
     try {
       assertEquals(true, axis2.hasNext());
       axis2.next();
@@ -87,11 +87,11 @@ public class CastableExprTest {
     // assertEquals(true, holder.getRtx().getValueAsBoolean());
     // assertEquals(false, axis3.hasNext());
 
-    final AbstractAxis axis4 = new XPathAxis(holder.getXdmNodeReadTrx(), "\"hello\" castable as xs:string");
+    final AbstractAxis axis4 = new XPathAxis(holder.getNodeReadTrx(), "\"hello\" castable as xs:string");
     assertEquals(true, axis4.hasNext());
     axis4.next();
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
 
     // final IAxis axis5 = new XPathAxis(holder.getRtx(),

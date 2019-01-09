@@ -6,7 +6,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreator;
@@ -45,13 +45,12 @@ public final class FirstAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
+    final NodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
 
-    new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(firstRtx), null) {
+    new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
-      protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new FirstAxis(holder.getXdmNodeReadTrx());
+      protected Iterator<NodeReadTrx> newTargetIterator() {
+        return new FirstAxis(holder.getNodeReadTrx());
       }
     }.test();
   }

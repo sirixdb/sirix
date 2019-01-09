@@ -1,4 +1,4 @@
 /**
- * Node-level transactional stuff.
+ * Node-level transaction stuff.
  */
 package org.sirix.access.trx.node;

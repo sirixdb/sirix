@@ -29,8 +29,7 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
-    implements PageReadTrx {
+public abstract class AbstractForwardingPageReadTrx extends ForwardingObject implements PageReadTrx {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingPageReadTrx() {}
@@ -56,16 +55,13 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
   }
 
   @Override
-  public PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
-      @Nonnegative long pageKey, @Nonnegative long maxNodeKey, int indexNumber,
-      @Nonnull PageKind pageKind) {
-    return delegate().getPageReferenceForPage(
-        startReference, pageKey, maxNodeKey, indexNumber, pageKind);
+  public PageReference getPageReferenceForPage(@Nonnull PageReference startReference, @Nonnegative long pageKey,
+      @Nonnegative long maxNodeKey, int indexNumber, @Nonnull PageKind pageKind) {
+    return delegate().getPageReferenceForPage(startReference, pageKey, maxNodeKey, indexNumber, pageKind);
   }
 
   @Override
-  public int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index,
-      RevisionRootPage revisionRootPage) {
+  public int getCurrentMaxIndirectPageTreeLevel(PageKind pageKind, int index, RevisionRootPage revisionRootPage) {
     return delegate().getCurrentMaxIndirectPageTreeLevel(pageKind, index, revisionRootPage);
   }
 
@@ -80,7 +76,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
   }
 
   @Override
-  public ResourceManager getResourceManager() {
+  public ResourceManager<?, ?> getResourceManager() {
     return delegate().getResourceManager();
   }
 
@@ -95,8 +91,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
   }
 
   @Override
-  public PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot)
-      throws SirixIOException {
+  public PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getPathSummaryPage(revisionRoot);
   }
 
@@ -106,8 +101,8 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
   }
 
   @Override
-  public Optional<? extends Record> getRecord(@Nonnegative long key, @Nonnull PageKind page,
-      @Nonnegative int index) throws SirixIOException {
+  public Optional<? extends Record> getRecord(@Nonnegative long key, @Nonnull PageKind page, @Nonnegative int index)
+      throws SirixIOException {
     return delegate().getRecord(key, page, index);
   }
 
@@ -143,8 +138,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
-      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
-      throws SirixIOException {
+      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind) throws SirixIOException {
     return delegate().<K, V, S>getRecordPageContainer(key, index, pageKind);
   }
 

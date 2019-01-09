@@ -15,5 +15,5 @@ public interface PostCommitHook {
    * @param rtx Sirix {@link XdmNodeReadTrx}
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
-  void postCommit(XdmNodeReadTrx rtx);
+  void postCommit(NodeReadTrx rtx);
 }

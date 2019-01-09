@@ -39,8 +39,11 @@ import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.XdmResourceManager;
+import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.xdm.IndexController;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
@@ -105,8 +108,8 @@ public final class PageReadTrxImpl implements PageReadTrx {
   /** Internal reference to page cache. */
   private final LoadingCache<PageReference, Page> mPageCache;
 
-  /** {@link XdmResourceManager} reference. */
-  protected final XdmResourceManager mResourceManager;
+  /** {@link XdmResourceManagerImpl} reference. */
+  protected final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
 
   /** {@link NamePage} reference. */
   private final NamePage mNamePage;
@@ -133,7 +136,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
    * Standard constructor.
    *
    * @param trxId the transaction-ID.
-   * @param resourceManager {@link XdmResourceManager} instance
+   * @param resourceManager {@link XdmResourceManagerImpl} instance
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
    * @param reader reader to read stored pages for this transaction
@@ -142,9 +145,11 @@ public final class PageReadTrxImpl implements PageReadTrx {
    * @param unorderedKeyValuePageWriteLog optional key/value page cache
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  public PageReadTrxImpl(final long trxId, final XdmResourceManager resourceManager, final UberPage uberPage,
-      final @Nonnegative int revision, final Reader reader, final @Nullable TransactionIntentLog trxIntentLog,
-      final @Nullable IndexController indexController, final @Nonnull BufferManager bufferManager) {
+  public PageReadTrxImpl(final long trxId,
+      final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager,
+      final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
+      final @Nullable TransactionIntentLog trxIntentLog, final @Nullable IndexController indexController,
+      final @Nonnull BufferManager bufferManager) {
     checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     mTrxId = trxId;
@@ -232,7 +237,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
   }
 
   @Override
-  public ResourceManager getResourceManager() {
+  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }
@@ -756,7 +761,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
       closeCaches();
       mPageReader.close();
 
-      if (!mResourceManager.getXdmNodeReadTrx(mTrxId).isPresent())
+      if (!mResourceManager.getNodeReadTrx(mTrxId).isPresent())
         mResourceManager.closeReadTransaction(mTrxId);
 
       mClosed = true;

@@ -19,13 +19,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node;
+package org.sirix.node.xdm;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.node.AbstractForwardingNode;
+import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.ImmutableNamespace;
@@ -123,10 +125,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("nodeDel", mNodeDel)
-                      .add("nameDel", mNameDel)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel).toString();
   }
 
   @Override
@@ -144,7 +143,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
    *
    * @return {@link NameNodeDelegate} instance
    */
-  NameNodeDelegate getNameNodeDelegate() {
+  public NameNodeDelegate getNameNodeDelegate() {
     return mNameDel;
   }
 
