@@ -376,14 +376,14 @@ Think of this rather low level API as a persistent (in the sense of storing it t
 
 ```java
 // Path to the database.
-final Path file = Paths.get("sirix-database");
+var file = Paths.get("sirix-database");
 
 // Create the database.
-final DatabaseConfiguration config = new DatabaseConfiguration(file);
+var config = new DatabaseConfiguration(file);
 Databases.createDatabase(config);
 
 // Open the database.
-try (final Database database = Databases.openDatabase(file)) {
+try (var database = Databases.openDatabase(file)) {
   /* 
    * Create a resource in the database with the name "resource1".
    * Store deweyIDs (hierarchical node labels), use text node compression,
@@ -399,9 +399,9 @@ try (final Database database = Databases.openDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      final ResourceManager manager = database.getResourceManager("resource1");
+      var manager = database.getXdmResourceManager("resource1");
       // Start the single read/write transaction.
-      final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+      var wtx = manager.beginNodeWriteTrx()) {
     // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
     
@@ -442,7 +442,7 @@ There are N reading transactions as well as one write-transaction permitted on a
 A read-only transaction can be opened through:
 
 ```java
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()
+var rtx = manager.beginNodeReadTrx()
 ```
 
 The codè above starts a transaction on the most recent revision.
@@ -450,14 +450,14 @@ The codè above starts a transaction on the most recent revision.
 The following code starts a transaction at revision 1.
 
 ```java
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(1)
+var rtx = manager.beginNodeReadTrx(1)
 ```
 
 The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
-final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(time.toInstant())
+var time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
+var rtx = manager.beginNodeReadTrx(time.toInstant())
 ```
 
 There are also several ways to start the single write-transaction:
@@ -515,20 +515,20 @@ With <code>wtx.revertTo(int)</code> you're able to revert everything to an old r
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
 ```java
-final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
+var axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
 ```
 Post-order traversal:
 ```java
-final PostOrderAxis axis = new PostOrderAxis(rtx)
+var axis = new PostOrderAxis(rtx)
 ```
 And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
 ```java
-final FutureAxis axis = new FutureAxis(rtx)
+var axis = new FutureAxis<XdmNodeReadTrx>(rtx)
 ```
 ```java
-final PastAxis axis = new PastAxis(rtx)
+var axis = new PastAxis<XdmNodeReadTrx>(rtx)
 ```
 
 and many more as well.
@@ -538,8 +538,8 @@ Besides, we for instance provide diff-algorithms to import differences between s
 For instance after storing one revision in Sirix, we can import only the differences encountered by a sophisticated tree-to-tree diff-algorithm.
 
 ```java
-final Path resOldRev = Paths.get("sirix-resource-to-update");
-final Path resNewRev = Paths.get("new-revision-as-xml-file");
+var resOldRev = Paths.get("sirix-resource-to-update");
+var resNewRev = Paths.get("new-revision-as-xml-file");
 
 FMSEImport.dataImport(resOldRev, resNewRev);
 ```
