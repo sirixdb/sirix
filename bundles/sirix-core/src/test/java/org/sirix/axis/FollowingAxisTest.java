@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class FollowingAxisTest {

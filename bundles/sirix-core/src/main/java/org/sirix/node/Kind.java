@@ -53,8 +53,12 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.json.JSONArray;
-import org.sirix.node.json.JSONObject;
+import org.sirix.node.json.JSONArrayNode;
+import org.sirix.node.json.JSONBooleanNode;
+import org.sirix.node.json.JSONNumberNode;
+import org.sirix.node.json.JSONObjectNode;
+import org.sirix.node.json.JSONObjectKeyNode;
+import org.sirix.node.json.JSONStringNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
 import org.sirix.node.xdm.ElementNode;
@@ -80,8 +84,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is element. */
   ELEMENT((byte) 1, ElementNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -118,8 +122,7 @@ public enum Kind implements NodePersistenter {
           ? ""
           : pageReadTrx.getName(localNameKey, Kind.ELEMENT);
 
-      return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys,
-          new QNm(uri, prefix, localName));
+      return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys, new QNm(uri, prefix, localName));
     }
 
     @Override
@@ -145,8 +148,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is attribute. */
   ATTRIBUTE((byte) 2, AttributeNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -190,8 +193,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is namespace. */
   NAMESPACE((byte) 13, NamespaceNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -225,8 +228,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is text. */
   TEXT((byte) 3, TextNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -240,9 +243,8 @@ public enum Kind implements NodePersistenter {
 
       // Struct delegate.
       final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel =
-          new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-              nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
 
       // Returning an instance.
       return new TextNode(valDel, structDel);
@@ -264,8 +266,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is processing instruction. */
   PROCESSING_INSTRUCTION((byte) 7, PINode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -301,8 +303,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is comment. */
   COMMENT((byte) 8, CommentNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -316,9 +318,8 @@ public enum Kind implements NodePersistenter {
 
       // Struct delegate.
       final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel =
-          new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-              nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
 
       // Returning an instance.
       return new CommentNode(valDel, structDel);
@@ -341,17 +342,16 @@ public enum Kind implements NodePersistenter {
   // Virtualize document root node?
   DOCUMENT((byte) 9, DocumentRootNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), source.readLong(), getVarLong(source),
-          Optional.of(SirixDeweyID.newRootID()));
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, getVarLong(source),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-          source.readByte() == ((byte) 0)
-              ? 0
-              : 1,
-          source.readLong());
+          Fixed.NULL_NODE_KEY.getStandardProperty(), source.readLong(), getVarLong(source), SirixDeweyID.newRootID());
+      final StructNodeDelegate structDel =
+          new StructNodeDelegate(nodeDel, getVarLong(source), Fixed.NULL_NODE_KEY.getStandardProperty(),
+              Fixed.NULL_NODE_KEY.getStandardProperty(), source.readByte() == ((byte) 0)
+                  ? 0
+                  : 1,
+              source.readLong());
       return new DocumentRootNode(nodeDel, structDel);
     }
 
@@ -362,132 +362,116 @@ public enum Kind implements NodePersistenter {
       sink.writeLong(node.getHash());
       putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
-      sink.writeByte(
-          node.hasFirstChild()
-              ? (byte) 1
-              : (byte) 0);
+      sink.writeByte(node.hasFirstChild()
+          ? (byte) 1
+          : (byte) 0);
       sink.writeLong(node.getDescendantCount());
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {}
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
   },
 
   /** Whitespace text. */
   WHITESPACE((byte) 4, null) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record,
-        final PageReadTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {}
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
   },
 
   /** Node kind is deleted node. */
   DELETE((byte) 5, DeletedNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      final NodeDelegate delegate =
-          new NodeDelegate(recordID, 0, 0, 0, Optional.<SirixDeweyID>empty());
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) {
+      final NodeDelegate delegate = new NodeDelegate(recordID, 0, 0, 0, null);
       return new DeletedNode(delegate);
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record,
-        final PageReadTrx pageReadTrx) {}
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx) {}
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       return Optional.empty();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {}
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
   },
 
   /** NullNode to support the Null Object pattern. */
   NULL((byte) 6, NullNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void serialize(final DataOutput ink, final Record record,
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serialize(final DataOutput ink, final Record record, final PageReadTrx pageReadTrx) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       return null;
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {}
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
   },
 
   /** Dumb node for testing. */
   DUMB((byte) 20, DumbNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) {
       return new DumbNode(recordID);
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record,
-        final PageReadTrx pageReadTrx) {
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -495,28 +479,25 @@ public enum Kind implements NodePersistenter {
   /** AtomicKind. */
   ATOMIC((byte) 15, AtomicValue.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void serialize(final DataOutput sink, final Record record,
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -524,8 +505,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is path node. */
   PATH((byte) 16, PathNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, pageReadTrx);
 
@@ -535,8 +516,8 @@ public enum Kind implements NodePersistenter {
       // Name delegate.
       final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-      return new PathNode(nodeDel, structDel, nameDel, Kind.getKind(source.readByte()),
-          source.readInt(), source.readInt());
+      return new PathNode(nodeDel, structDel, nameDel, Kind.getKind(source.readByte()), source.readInt(),
+          source.readInt());
     }
 
     @Override
@@ -552,16 +533,14 @@ public enum Kind implements NodePersistenter {
     };
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -569,8 +548,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is a CAS-AVL node. */
   CASAVL((byte) 17, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       final int valueSize = source.readInt();
       final byte[] value = new byte[valueSize];
       source.readFully(value, 0, valueSize);
@@ -641,22 +620,20 @@ public enum Kind implements NodePersistenter {
     };
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     private Type resolveType(final String s) {
-      final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
-          s.substring(Namespaces.XS_PREFIX.length() + 1));
+      final QNm name =
+          new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX, s.substring(Namespaces.XS_PREFIX.length() + 1));
       for (final Type type : Type.builtInTypes) {
         if (type.getName().getLocalName().equals(name.getLocalName())) {
           return type;
@@ -669,8 +646,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is a PATH-AVL node. */
   PATHAVL((byte) 18, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       final long key = getVarLong(source);
       final int keySize = source.readInt();
       final Set<Long> nodeKeys = new HashSet<>(keySize);
@@ -682,8 +659,7 @@ public enum Kind implements NodePersistenter {
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final AVLNode<Long, NodeReferences> node =
-          new AVLNode<>(key, new NodeReferences(nodeKeys), nodeDel);
+      final AVLNode<Long, NodeReferences> node = new AVLNode<>(key, new NodeReferences(nodeKeys), nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -709,16 +685,14 @@ public enum Kind implements NodePersistenter {
     };
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -726,8 +700,8 @@ public enum Kind implements NodePersistenter {
   /** Node kind is a PATH-AVL node. */
   NAMEAVL((byte) 19, AVLNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       final byte[] nspBytes = new byte[source.readInt()];
       source.readFully(nspBytes);
       final byte[] prefixBytes = new byte[source.readInt()];
@@ -735,8 +709,7 @@ public enum Kind implements NodePersistenter {
       final byte[] localNameBytes = new byte[source.readInt()];
       source.readFully(localNameBytes);
       final QNm name = new QNm(new String(nspBytes, Constants.DEFAULT_ENCODING),
-          new String(prefixBytes, Constants.DEFAULT_ENCODING),
-          new String(localNameBytes, Constants.DEFAULT_ENCODING));
+          new String(prefixBytes, Constants.DEFAULT_ENCODING), new String(localNameBytes, Constants.DEFAULT_ENCODING));
       final int keySize = source.readInt();
       final Set<Long> nodeKeys = new HashSet<>(keySize);
       for (int i = 0; i < keySize; i++) {
@@ -747,8 +720,7 @@ public enum Kind implements NodePersistenter {
       final long leftChild = getVarLong(source);
       final long rightChild = getVarLong(source);
       final boolean isChanged = source.readBoolean();
-      final AVLNode<QNm, NodeReferences> node =
-          new AVLNode<>(name, new NodeReferences(nodeKeys), nodeDel);
+      final AVLNode<QNm, NodeReferences> node = new AVLNode<>(name, new NodeReferences(nodeKeys), nodeDel);
       node.setLeftChildKey(leftChild);
       node.setRightChildKey(rightChild);
       node.setChanged(isChanged);
@@ -782,16 +754,14 @@ public enum Kind implements NodePersistenter {
     };
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -799,86 +769,292 @@ public enum Kind implements NodePersistenter {
   /** Node includes a deweyID <=> nodeKey mapping. */
   DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void serialize(final DataOutput sink, final Record record,
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
 
   /** JSON object node. */
-  JSONOBJECT((byte) 24, JSONObject.class) {
+  JSON_OBJECT((byte) 24, JSONObjectNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONObjectNode(structDel);
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record,
-        final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
+      final JSONObjectNode node = (JSONObjectNode) record;
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
 
   /** JSON array node. */
-  JSONARRAY((byte) 25, JSONArray.class) {
+  JSON_ARRAY((byte) 25, JSONArrayNode.class) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONArrayNode(structDel);
     }
 
     @Override
-    public void serialize(final DataOutput sink, final Record record,
-        final PageReadTrx pageReadTrx) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
+      final JSONArrayNode node = (JSONArrayNode) record;
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /** JSON array node. */
+  JSON_OBJECT_KEY((byte) 26, JSONObjectKeyNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      final int nameKey = source.readInt();
+      final long pathNodeKey = getVarLong(source);
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      final String name = nameKey == -1
+          ? ""
+          : pageReadTrx.getName(nameKey, Kind.JSON_OBJECT_KEY);
+
+      // Returning an instance.
+      return new JSONObjectKeyNode(structDel, nameKey, name, pathNodeKey);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
+      final JSONObjectKeyNode node = (JSONObjectKeyNode) record;
+      sink.writeInt(node.getNameKey());
+      putVarLong(sink, node.getPathNodeKey());
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /** JSON string value node. */
+  JSON_STRING_VALUE((byte) 26, JSONStringNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Val delegate.
+      final boolean isCompressed = source.readByte() == (byte) 1
+          ? true
+          : false;
+      final byte[] vals = new byte[source.readInt()];
+      source.readFully(vals, 0, vals.length);
+      final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONStringNode(valDel, structDel);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+        throws IOException {
+      final JSONStringNode node = (JSONStringNode) record;
+      serializeDelegate(node.getNodeDelegate(), sink);
+      serializeValDelegate(node.getValNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /** JSON boolean value node. */
+  JSON_BOOLEAN_VALUE((byte) 27, JSONBooleanNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      final boolean boolValue = source.readBoolean();
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONBooleanNode(boolValue, structDel);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+        throws IOException {
+      final JSONBooleanNode node = (JSONBooleanNode) record;
+      sink.writeBoolean(node.getValue());
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /** JSON number value node. */
+  JSON_NUMBER_VALUE((byte) 28, JSONNumberNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      final double doubleValue = source.readDouble();
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONNumberNode(doubleValue, structDel);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+        throws IOException {
+      final JSONNumberNode node = (JSONNumberNode) record;
+      sink.writeDouble(node.getValue());
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   },
@@ -886,8 +1062,8 @@ public enum Kind implements NodePersistenter {
   /** Node type not known. */
   UNKNOWN((byte) 22, null) {
     @Override
-    public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-        final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
       throw new UnsupportedOperationException();
     }
 
@@ -898,16 +1074,14 @@ public enum Kind implements NodePersistenter {
     }
 
     @Override
-    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-        Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-        Optional<SirixDeweyID> prevDeweyID, ResourceConfiguration resourceConfig)
-        throws IOException {
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
   };
@@ -981,12 +1155,11 @@ public enum Kind implements NodePersistenter {
   }
 
   @Override
-  public Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
-      Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-      throws IOException {
+  public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+      ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
-      if (previousDeweyID.isPresent()) {
-        final byte[] previousDeweyIDBytes = previousDeweyID.get().toBytes();
+      if (previousDeweyID != null) {
+        final byte[] previousDeweyIDBytes = previousDeweyID.toBytes();
         final int cutOffSize = source.readByte();
         final int size = source.readByte();
         final byte[] deweyIDBytes = new byte[size];
@@ -1010,12 +1183,12 @@ public enum Kind implements NodePersistenter {
   }
 
   @Override
-  public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
-      Optional<SirixDeweyID> nextDeweyID, ResourceConfiguration resourceConfig) throws IOException {
+  public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID nextDeweyID,
+      ResourceConfiguration resourceConfig) throws IOException {
     if (resourceConfig.areDeweyIDsStored) {
-      if (nextDeweyID.isPresent()) {
+      if (nextDeweyID != null) {
         final byte[] deweyIDBytes = deweyID.toBytes();
-        final byte[] nextDeweyIDBytes = nextDeweyID.get().toBytes();
+        final byte[] nextDeweyIDBytes = nextDeweyID.toBytes();
 
         assert deweyIDBytes.length <= nextDeweyIDBytes.length;
 
@@ -1047,7 +1220,7 @@ public enum Kind implements NodePersistenter {
     final long parentKey = nodeKey - getVarLong(source);
     final long hash = source.readLong();
     final long revision = getVarLong(source);
-    return new NodeDelegate(nodeKey, parentKey, hash, revision, Optional.<SirixDeweyID>empty());
+    return new NodeDelegate(nodeKey, parentKey, hash, revision, null);
   }
 
   /**
@@ -1057,9 +1230,8 @@ public enum Kind implements NodePersistenter {
    * @param resourceConfig resource configuration
    * @return {@link NodeDelegate} instance
    */
-  private static final NodeDelegate deserializeNodeDelegate(final DataInput source,
-      final @Nonnegative long recordID, final Optional<SirixDeweyID> id,
-      final PageReadTrx pageReadTrx) throws IOException {
+  private static final NodeDelegate deserializeNodeDelegate(final DataInput source, final @Nonnegative long recordID,
+      final SirixDeweyID id, final PageReadTrx pageReadTrx) throws IOException {
     final long nodeKey = recordID;
     final long parentKey = nodeKey - getVarLong(source);
     final long hash = source.readLong();
@@ -1076,8 +1248,7 @@ public enum Kind implements NodePersistenter {
    * @param pageReadTrx {@link PageReadTrx} instance
    * @param {@link ResourceConfiguration} instance
    */
-  private static final void serializeDelegate(final NodeDelegate nodeDel, final DataOutput sink)
-      throws IOException {
+  private static final void serializeDelegate(final NodeDelegate nodeDel, final DataOutput sink) throws IOException {
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
     sink.writeLong(nodeDel.getHash());
     putVarLong(sink, nodeDel.getRevision());
@@ -1090,8 +1261,8 @@ public enum Kind implements NodePersistenter {
    * @param deweyID deweyID in bytes
    * @param i the index from which to start the copy of the array
    */
-  private static void writeDeweyID(final DataOutput sink, final byte[] deweyID,
-      final @Nonnegative int i) throws IOException {
+  private static void writeDeweyID(final DataOutput sink, final byte[] deweyID, final @Nonnegative int i)
+      throws IOException {
     sink.writeByte(i);
     sink.writeByte(deweyID.length - i);
     sink.write(Arrays.copyOfRange(deweyID, i, deweyID.length));
@@ -1103,8 +1274,8 @@ public enum Kind implements NodePersistenter {
    * @param nodeDel to be serialize
    * @param sink to serialize to
    */
-  private static final void serializeStrucDelegate(final StructNodeDelegate nodeDel,
-      final DataOutput sink) throws IOException {
+  private static final void serializeStrucDelegate(final StructNodeDelegate nodeDel, final DataOutput sink)
+      throws IOException {
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
@@ -1119,16 +1290,15 @@ public enum Kind implements NodePersistenter {
    * @param source input source
    * @return {@link StructNodeDelegate} instance
    */
-  private static final StructNodeDelegate deserializeStructDel(final NodeDelegate nodeDel,
-      final DataInput source) throws IOException {
+  private static final StructNodeDelegate deserializeStructDel(final NodeDelegate nodeDel, final DataInput source)
+      throws IOException {
     final long currKey = nodeDel.getNodeKey();
     final long rightSibl = currKey - getVarLong(source);
     final long leftSibl = currKey - getVarLong(source);
     final long firstChild = currKey - getVarLong(source);
     final long childCount = getVarLong(source);
     final long descendantCount = getVarLong(source) + childCount;
-    return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl, childCount,
-        descendantCount);
+    return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl, childCount, descendantCount);
   }
 
   /**
@@ -1138,8 +1308,8 @@ public enum Kind implements NodePersistenter {
    * @param source source to read from
    * @return {@link NameNodeDelegate} instance
    */
-  private static final NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel,
-      final DataInput source) throws IOException {
+  private static final NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel, final DataInput source)
+      throws IOException {
     final int uriKey = source.readInt();
     int prefixKey = source.readInt();
     int localNameKey = source.readInt();
@@ -1152,8 +1322,8 @@ public enum Kind implements NodePersistenter {
    * @param nameDel {@link NameNodeDelegate} instance
    * @param sink to serialize to
    */
-  private static final void serializeNameDelegate(final NameNodeDelegate nameDel,
-      final DataOutput sink) throws IOException {
+  private static final void serializeNameDelegate(final NameNodeDelegate nameDel, final DataOutput sink)
+      throws IOException {
     sink.writeInt(nameDel.getURIKey());
     sink.writeInt(nameDel.getPrefixKey());
     sink.writeInt(nameDel.getLocalNameKey());
@@ -1166,13 +1336,12 @@ public enum Kind implements NodePersistenter {
    * @param valueDel to be serialized
    * @param sink to serialize to
    */
-  private static final void serializeValDelegate(final ValNodeDelegate valueDel,
-      final DataOutput sink) throws IOException {
+  private static final void serializeValDelegate(final ValNodeDelegate valueDel, final DataOutput sink)
+      throws IOException {
     final boolean isCompressed = valueDel.isCompressed();
-    sink.writeByte(
-        isCompressed
-            ? (byte) 1
-            : (byte) 0);
+    sink.writeByte(isCompressed
+        ? (byte) 1
+        : (byte) 0);
     final byte[] value = isCompressed
         ? valueDel.getCompressed()
         : valueDel.getRawValue();

@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.operators;
 
 import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AbstractAxis;

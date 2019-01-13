@@ -28,8 +28,8 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
 

@@ -32,7 +32,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableAttribute;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;

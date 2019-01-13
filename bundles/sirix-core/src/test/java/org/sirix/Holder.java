@@ -29,9 +29,9 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 
 /**

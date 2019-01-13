@@ -11,7 +11,7 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Sequence;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 

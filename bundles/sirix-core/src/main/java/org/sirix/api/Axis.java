@@ -2,6 +2,7 @@ package org.sirix.api;
 
 import javax.annotation.Nonnegative;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import com.google.common.collect.PeekingIterator;
 

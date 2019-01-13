@@ -37,7 +37,7 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;

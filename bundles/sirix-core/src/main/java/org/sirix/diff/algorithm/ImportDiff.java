@@ -20,8 +20,8 @@
  */
 package org.sirix.diff.algorithm;
 
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**

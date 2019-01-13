@@ -3,7 +3,6 @@ package org.sirix.node.interfaces;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
@@ -28,8 +27,8 @@ public interface RecordPersister {
    * @throws IOException if an I/O error occurs during deserialization
    */
   @Nonnull
-  Record deserialize(DataInput source, @Nonnegative long recordID, Optional<SirixDeweyID> deweyID,
-      PageReadTrx pageReadTrx) throws IOException;
+  Record deserialize(DataInput source, @Nonnegative long recordID, SirixDeweyID deweyID, PageReadTrx pageReadTrx)
+      throws IOException;
 
   /**
    * Serialize a record.

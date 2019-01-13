@@ -21,8 +21,8 @@
 package org.sirix.access.trx.node.xdm;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;

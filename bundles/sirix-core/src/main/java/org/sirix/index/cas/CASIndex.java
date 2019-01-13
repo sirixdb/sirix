@@ -3,7 +3,7 @@ package org.sirix.index.cas;
 import java.util.Iterator;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.avltree.interfaces.References;
 import org.sirix.index.path.summary.PathSummaryReader;

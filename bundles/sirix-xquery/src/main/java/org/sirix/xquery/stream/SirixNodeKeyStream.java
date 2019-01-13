@@ -5,7 +5,7 @@ import java.util.Iterator;
 import java.util.Set;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;

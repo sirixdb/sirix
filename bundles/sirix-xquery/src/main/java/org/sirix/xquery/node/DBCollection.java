@@ -24,9 +24,9 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.Transaction;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.Insert;
@@ -136,7 +136,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     final XdmNodeReadTrx trx;
 
     if (updatable) {
-      if (resource.getAvailableNodeWriteTrx() == 0) {
+      if (resource.hasRunningNodeWriteTrx()) {
         final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
@@ -314,7 +314,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
     final XdmNodeReadTrx trx;
     if (updatable) {
-      if (resource.getAvailableNodeWriteTrx() == 0) {
+      if (resource.hasRunningNodeWriteTrx()) {
         final Optional<XdmNodeWriteTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {

@@ -11,7 +11,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.immutable.ImmutablePI;
+import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;

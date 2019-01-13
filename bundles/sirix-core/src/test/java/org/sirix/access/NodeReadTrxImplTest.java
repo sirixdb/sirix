@@ -32,8 +32,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 

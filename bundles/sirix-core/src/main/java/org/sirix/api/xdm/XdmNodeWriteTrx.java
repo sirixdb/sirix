@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.api;
+package org.sirix.api.xdm;
 
 import java.io.IOException;
 import javax.annotation.Nonnegative;
@@ -28,6 +28,10 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.Movement;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PostCommitHook;
+import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;

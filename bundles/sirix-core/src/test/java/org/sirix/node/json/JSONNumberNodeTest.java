@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node;
+package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
 import java.io.ByteArrayInputStream;
@@ -27,7 +27,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,17 +34,17 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.xdm.TextNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 /**
  * Text node test.
  */
-public class TextNodeTest {
+public class JSONNumberNodeTest {
 
   /** {@link Holder} instance. */
   private Holder mHolder;
@@ -68,26 +67,25 @@ public class TextNodeTest {
   }
 
   @Test
-  public void testTextRootNode() throws IOException {
+  public void test() throws IOException {
     // Create empty node.
-    final byte[] value = {(byte) 17, (byte) 18};
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final double value = 10.87463;
+    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final TextNode node = new TextNode(valDel, strucDel);
+    final JSONNumberNode node = new JSONNumberNode(value, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final TextNode node2 = (TextNode) Kind.TEXT.deserialize(
-        new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    final JSONNumberNode node2 = (JSONNumberNode) Kind.JSON_NUMBER_VALUE.deserialize(new DataInputStream(in),
+        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private final static void check(final TextNode node) {
+  private final void check(final JSONNumberNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
@@ -95,8 +93,8 @@ public class TextNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.TEXT, node.getKind());
+    assertEquals(10.87463D, node.getValue(), 0);
+    assertEquals(Kind.JSON_NUMBER_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

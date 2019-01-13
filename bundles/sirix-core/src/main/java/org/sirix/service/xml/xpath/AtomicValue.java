@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -54,14 +54,14 @@ public final class AtomicValue implements Node, ValueNode {
   private int mType;
 
   /**
-   * The item's key. In case of an Atomic value this is always a negative to make them
-   * distinguishable from nodes.
+   * The item's key. In case of an Atomic value this is always a negative to make them distinguishable
+   * from nodes.
    */
   private long mItemKey;
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param value the value of the Item
    * @param type the item's type
    */
@@ -72,7 +72,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    */
   public AtomicValue(final boolean pValue) {
@@ -82,7 +82,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    * @param pType the item's type
    */
@@ -94,7 +94,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    * @param pType the item's type
    */
@@ -105,7 +105,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Set node key.
-   * 
+   *
    * @param pItemKey unique item key
    */
   public void setNodeKey(final long pItemKey) {
@@ -134,7 +134,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Check if is fulltext.
-   * 
+   *
    * @return true if fulltext, false otherwise
    */
   public boolean isFullText() {
@@ -144,7 +144,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Test if the lead is tes.
-   * 
+   *
    * @return true if fulltest leaf, false otherwise
    */
   public boolean isFullTextLeaf() {
@@ -153,7 +153,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Test if the root is full text.
-   * 
+   *
    * @return true if fulltest root, false otherwise
    */
   public boolean isFullTextRoot() {
@@ -167,7 +167,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Getting the type of the value.
-   * 
+   *
    * @return the type of this value
    */
   public final String getType() {
@@ -176,7 +176,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as an integer.
-   * 
+   *
    * @return the value as an integer
    */
   public int getInt() {
@@ -185,7 +185,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a boolean.
-   * 
+   *
    * @return the value as a boolean
    */
   public boolean getBool() {
@@ -194,7 +194,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a float.
-   * 
+   *
    * @return the value as a float
    */
   public float getFLT() {
@@ -203,7 +203,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a double.
-   * 
+   *
    * @return the value as a double
    */
   public double getDBL() {
@@ -212,7 +212,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * To String method.
-   * 
+   *
    * @return String representation of this node
    */
   @Override
@@ -281,7 +281,7 @@ public final class AtomicValue implements Node, ValueNode {
   }
 
   @Override
-  public void setDeweyID(Optional<SirixDeweyID> id) {
+  public void setDeweyID(SirixDeweyID id) {
     throw new UnsupportedOperationException();
   }
 

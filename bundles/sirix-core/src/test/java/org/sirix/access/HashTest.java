@@ -33,8 +33,8 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.HashType;
 import org.sirix.api.Database;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 

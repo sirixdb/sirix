@@ -22,7 +22,7 @@
 package org.sirix.axis.filter;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 
 /**
  * <h1>NameAxisTest</h1>

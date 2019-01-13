@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;

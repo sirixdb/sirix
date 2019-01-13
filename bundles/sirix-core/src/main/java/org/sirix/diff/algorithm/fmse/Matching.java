@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.Kind;

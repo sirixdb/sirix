@@ -21,13 +21,13 @@
 
 package org.sirix.api.visitor;
 
-import org.sirix.node.immutable.ImmutableAttribute;
-import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableDocument;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutableNamespace;
-import org.sirix.node.immutable.ImmutablePI;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableComment;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutableNamespace;
+import org.sirix.node.immutable.xdm.ImmutablePI;
+import org.sirix.node.immutable.xdm.ImmutableText;
 
 /**
  * Interface which must be implemented from visitors to implement functionality based on the visitor

@@ -57,6 +57,9 @@ public final class NamePage extends AbstractForwardingPage {
   /** Processing instruction names. */
   private final Names mPIs;
 
+  /** JSON Object key names. */
+  private final Names mJSONObjectKeys;
+
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
 
@@ -76,6 +79,7 @@ public final class NamePage extends AbstractForwardingPage {
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
     mPIs = Names.getInstance();
+    mJSONObjectKeys = Names.getInstance();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
 
@@ -95,6 +99,7 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces = Names.clone(in);
     mAttributes = Names.clone(in);
     mPIs = Names.clone(in);
+    mJSONObjectKeys = Names.clone(in);
     final int currentMaxLevelOfIndirectPages = in.readInt();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
@@ -122,6 +127,9 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case PROCESSING_INSTRUCTION:
         rawName = mPIs.getRawName(key);
+        break;
+      case JSON_OBJECT_KEY:
+        rawName = mJSONObjectKeys.getRawName(key);
         break;
       // $CASES-OMITTED$
       default:
@@ -151,6 +159,9 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         name = mPIs.getName(key);
         break;
+      case JSON_OBJECT_KEY:
+        name = mJSONObjectKeys.getName(key);
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -178,6 +189,9 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case PROCESSING_INSTRUCTION:
         count = mPIs.getCount(key);
+        break;
+      case JSON_OBJECT_KEY:
+        count = mJSONObjectKeys.getCount(key);
         break;
       // $CASES-OMITTED$
       default:
@@ -207,6 +221,9 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.setName(key, name);
         break;
+      case JSON_OBJECT_KEY:
+        mJSONObjectKeys.setName(key, name);
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -226,6 +243,7 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces.serialize(out);
     mAttributes.serialize(out);
     mPIs.serialize(out);
+    mJSONObjectKeys.serialize(out);
     final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
@@ -238,8 +256,7 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.merge(
-        index, 1, (previousValue, value) -> previousValue + value);
+    return mCurrentMaxLevelsOfIndirectPages.merge(index, 1, (previousValue, value) -> previousValue + value);
   }
 
   @Override
@@ -271,6 +288,9 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.removeName(key);
         break;
+      case JSON_OBJECT_KEY:
+        mJSONObjectKeys.removeName(key);
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -284,8 +304,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index, final TransactionIntentLog log) {
     final PageReference reference = getReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
@@ -299,8 +318,7 @@ public final class NamePage extends AbstractForwardingPage {
       if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
         mCurrentMaxLevelsOfIndirectPages.put(index, 1);
       } else {
-        mCurrentMaxLevelsOfIndirectPages.put(
-            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
+        mCurrentMaxLevelsOfIndirectPages.put(index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
       }
     }
   }

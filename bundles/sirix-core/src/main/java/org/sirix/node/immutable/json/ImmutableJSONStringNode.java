@@ -1,46 +1,45 @@
-package org.sirix.node.immutable;
+package org.sirix.node.immutable.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.xdm.PINode;
+import org.sirix.node.json.JSONStringNode;
+import org.sirix.node.xdm.TextNode;
 
 /**
- * Immutable processing instruction node wrapper.
- * 
+ * Immutable JSONValueString wrapper.
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode {
-  /** Mutable {@link PINode}. */
-  private final PINode mNode;
+public final class ImmutableJSONStringNode implements ImmutableValueNode, ImmutableStructNode {
+  /** Mutable {@link JSONStringNode}. */
+  private final JSONStringNode mNode;
 
   /**
    * Private constructor.
-   * 
-   * @param node {@link PINode} to wrap
+   *
+   * @param node {@link JSONStringNode} to wrap
    */
-  private ImmutablePI(final PINode node) {
+  private ImmutableJSONStringNode(final JSONStringNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
-   * Get an immutable processing instruction node instance.
-   * 
-   * @param node the mutable {@link PINode} to wrap
-   * @return immutable processing instruction node instance
+   * Get an immutable text node instance.
+   *
+   * @param node the mutable {@link TextNode} to wrap
+   * @return immutable text node instance
    */
-  public static ImmutablePI of(final PINode node) {
-    return new ImmutablePI(node);
+  public static ImmutableJSONStringNode of(final JSONStringNode node) {
+    return new ImmutableJSONStringNode(node);
   }
 
   @Override
@@ -54,8 +53,8 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor pVisitor) {
-    return pVisitor.visit(this);
+  public VisitResult acceptVisitor(final Visitor visitor) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -129,28 +128,13 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public int getLocalNameKey() {
-    return mNode.getLocalNameKey();
-  }
-
-  @Override
-  public int getPrefixKey() {
-    return mNode.getPrefixKey();
-  }
-
-  @Override
-  public int getURIKey() {
-    return mNode.getURIKey();
-  }
-
-  @Override
-  public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
-  }
-
-  @Override
   public byte[] getRawValue() {
     return mNode.getRawValue();
+  }
+
+  @Override
+  public String getValue() {
+    return mNode.getValue();
   }
 
   @Override
@@ -171,15 +155,5 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   @Override
   public String toString() {
     return mNode.toString();
-  }
-
-  @Override
-  public QNm getName() {
-    return mNode.getName();
-  }
-
-  @Override
-  public String getValue() {
-    return mNode.getValue();
   }
 }

@@ -2,6 +2,7 @@ package org.sirix.api;
 
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 

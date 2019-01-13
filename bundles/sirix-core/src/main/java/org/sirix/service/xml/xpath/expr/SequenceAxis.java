@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.Arrays;
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**

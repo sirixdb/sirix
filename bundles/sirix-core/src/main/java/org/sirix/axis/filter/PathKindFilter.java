@@ -1,7 +1,7 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 

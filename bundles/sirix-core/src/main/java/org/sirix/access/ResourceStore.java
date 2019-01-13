@@ -5,12 +5,13 @@ import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.json.JsonResourceManager;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
@@ -80,11 +81,11 @@ public final class ResourceStore implements AutoCloseable {
       // Get sempahores.
       final Semaphore readSem = Databases.computeReadSempahoreIfAbsent(resourceConfig.getResource(),
           database.getDatabaseConfig().getMaxResourceReadTrx());
-      final Semaphore writeSem = Databases.computeWriteSempahoreIfAbsent(resourceConfig.getResource(), 1);
+      final Lock writeLock = Databases.computeWriteLockIfAbsent(resourceConfig.getResource());
 
       // Create the resource manager instance.
       final XdmResourceManager resourceManager = new XdmResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeSem);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock);
 
       // Put it in the databases cache.
       Databases.putResourceManager(resourceFile, resourceManager);

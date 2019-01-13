@@ -23,7 +23,7 @@ package org.sirix.diff;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;

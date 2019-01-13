@@ -8,7 +8,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import com.google.common.base.Optional;

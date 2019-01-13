@@ -17,7 +17,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.trx.node.Movement;
 import org.sirix.access.trx.node.xdm.IndexController;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -79,7 +79,7 @@ public class AVLTreeTest {
     final AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
     final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
-    assertTrue(!fooRefs.isPresent());
+    assertTrue(fooRefs.isEmpty());
     final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
     check(bazRefs1, ImmutableSet.of(3L));
     final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);

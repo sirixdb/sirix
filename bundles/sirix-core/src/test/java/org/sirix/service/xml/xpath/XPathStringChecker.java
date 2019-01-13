@@ -28,7 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.sirix.TestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class XPathStringChecker {

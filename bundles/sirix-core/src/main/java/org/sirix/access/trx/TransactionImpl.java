@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 
 public final class TransactionImpl implements Transaction {
 

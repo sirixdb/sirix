@@ -26,7 +26,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
 /**

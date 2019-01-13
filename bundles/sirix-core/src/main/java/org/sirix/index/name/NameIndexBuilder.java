@@ -15,7 +15,7 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -24,8 +24,7 @@ import org.slf4j.LoggerFactory;
 
 final class NameIndexBuilder extends AbstractVisitor {
 
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(NameIndexBuilder.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(NameIndexBuilder.class));
 
   private final Set<QNm> mIncludes;
   private final Set<QNm> mExcludes;
@@ -36,8 +35,7 @@ final class NameIndexBuilder extends AbstractVisitor {
     mIncludes = checkNotNull(indexDefinition.getIncluded());
     mExcludes = checkNotNull(indexDefinition.getExcluded());
     assert indexDefinition.getType() == IndexType.NAME;
-    mAVLTreeWriter =
-        AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
+    mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
   }
 
   @Override
@@ -53,11 +51,8 @@ final class NameIndexBuilder extends AbstractVisitor {
     final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(name, SearchMode.EQUAL);
 
     try {
-      if (textReferences.isPresent()) {
-        setNodeReferences(node, textReferences.get(), name);
-      } else {
-        setNodeReferences(node, new NodeReferences(), name);
-      }
+      textReferences.ifPresentOrElse(nodeReferences -> setNodeReferences(node, nodeReferences, name),
+          () -> setNodeReferences(node, new NodeReferences(), name));
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -65,8 +60,8 @@ final class NameIndexBuilder extends AbstractVisitor {
     return VisitResultType.CONTINUE;
   }
 
-  private void setNodeReferences(final ImmutableNode node, final NodeReferences references,
-      final QNm name) throws SirixIOException {
+  private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final QNm name)
+      throws SirixIOException {
     mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
 

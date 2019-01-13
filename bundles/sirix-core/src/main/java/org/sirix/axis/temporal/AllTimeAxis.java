@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**

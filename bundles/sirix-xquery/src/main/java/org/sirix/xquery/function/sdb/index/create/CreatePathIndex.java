@@ -15,7 +15,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.xdm.IndexController;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;

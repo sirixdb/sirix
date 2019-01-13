@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.api;
+package org.sirix.api.xdm;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +28,11 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.Move;
 import org.sirix.access.trx.node.Moved;
+import org.sirix.api.ItemList;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.PageReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;

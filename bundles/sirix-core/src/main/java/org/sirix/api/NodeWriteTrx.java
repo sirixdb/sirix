@@ -1,6 +1,7 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 

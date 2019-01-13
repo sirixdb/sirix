@@ -1,6 +1,5 @@
 package org.sirix.page;
 
-import java.util.Optional;
 import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.PageContainer;
@@ -34,27 +33,24 @@ public final class PageUtils {
    * @param reference reference from revision root
    * @param pageKind the page kind
    */
-  public static void createTree(@Nonnull PageReference reference, final PageKind pageKind,
-      final int index, final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
+  public static void createTree(@Nonnull PageReference reference, final PageKind pageKind, final int index,
+      final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getReference(0);
 
     // Create new record page.
-    final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-        Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, Constants.NULL_ID_LONG, pageReadTrx);
+    final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
+        Constants.NULL_ID_LONG, pageReadTrx);
 
     // Create a {@link DocumentRootNode}.
-    final Optional<SirixDeweyID> id =
-        pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
-            ? Optional.of(SirixDeweyID.newRootID())
-            : Optional.empty();
+    final SirixDeweyID id = pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
+        ? SirixDeweyID.newRootID()
+        : null;
     final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
-        id);
-    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
+    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
     log.put(reference, PageContainer.getInstance(ndp, ndp));
   }

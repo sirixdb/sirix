@@ -24,13 +24,13 @@ package org.sirix.access.trx.node.xdm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.immutable.ImmutableAttribute;
-import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableDocument;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutableNamespace;
-import org.sirix.node.immutable.ImmutablePI;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableComment;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutableNamespace;
+import org.sirix.node.immutable.xdm.ImmutablePI;
+import org.sirix.node.immutable.xdm.ImmutableText;
 
 /**
  * <h1>AbstractVisitor</h1>

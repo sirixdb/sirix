@@ -22,7 +22,7 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
 /**

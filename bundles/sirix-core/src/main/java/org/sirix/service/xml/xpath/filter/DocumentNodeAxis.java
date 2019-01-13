@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 

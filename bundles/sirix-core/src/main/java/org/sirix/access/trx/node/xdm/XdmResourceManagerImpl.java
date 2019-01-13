@@ -47,9 +47,9 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -79,8 +79,8 @@ public final class XdmResourceManagerImpl
   /** The database. */
   private final LocalDatabase mDatabase;
 
-  /** Write semaphore to assure only one exclusive write transaction exists. */
-  private final Semaphore mWriteSemaphore;
+  /** Write lock to assure only one exclusive write transaction exists. */
+  private final Lock mWriteLock;
 
   /** Read semaphore to control running read transactions. */
   private final Semaphore mReadSemaphore;
@@ -139,7 +139,7 @@ public final class XdmResourceManagerImpl
   public XdmResourceManagerImpl(final LocalDatabase database, final @Nonnull ResourceStore resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
       final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
-      final @Nonnull Semaphore writeSemaphore) {
+      final @Nonnull Lock writeLock) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
     mResourceConfig = checkNotNull(resourceConf);
@@ -157,7 +157,7 @@ public final class XdmResourceManagerImpl
     mCommitLock = new ReentrantLock(false);
 
     mReadSemaphore = checkNotNull(readSemaphore);
-    mWriteSemaphore = checkNotNull(writeSemaphore);
+    mWriteLock = checkNotNull(writeLock);
 
     mLastCommittedUberPage = new AtomicReference<>(uberPage);
 
@@ -263,20 +263,18 @@ public final class XdmResourceManagerImpl
 
     // Make sure not to exceed available number of write transactions.
     try {
-      if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+      if (!mWriteLock.tryLock(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
     }
 
-    assert mWriteSemaphore.availablePermits() == 0;
-
     // Create new page write transaction (shares the same ID with the node write trx).
     final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
-        createPageWriteTransaction(currentTrxID, lastRev, lastRev, Abort.NO);
+        createPageWriteTransaction(currentTrxID, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -303,7 +301,8 @@ public final class XdmResourceManagerImpl
    */
   @Override
   public PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(final @Nonnegative long id,
-      final @Nonnegative int representRevision, final @Nonnegative int storeRevision, final Abort abort) {
+      final @Nonnegative int representRevision, final @Nonnegative int storeRevision, final Abort abort,
+      boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
@@ -315,7 +314,7 @@ public final class XdmResourceManagerImpl
         : new UberPage(lastCommitedUberPage, representRevision > 0
             ? writer.readUberPageReference().getKey()
             : -1),
-        writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager);
+        writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager, isBoundToNodeTrx);
   }
 
   @Override
@@ -381,8 +380,13 @@ public final class XdmResourceManagerImpl
   }
 
   @Override
-  public int getAvailableNodeWriteTrx() {
-    return mWriteSemaphore.availablePermits();
+  public boolean hasRunningNodeWriteTrx() {
+    if (mWriteLock.tryLock()) {
+      mWriteLock.unlock();
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -416,12 +420,13 @@ public final class XdmResourceManagerImpl
    *
    * @param transactionID write transaction ID
    */
+  @Override
   public void closeWriteTransaction(final @Nonnegative long transactionID) {
     // Remove from internal map.
     removeFromPageMapping(transactionID);
 
     // Make new transactions available.
-    mWriteSemaphore.release();
+    mWriteLock.unlock();
   }
 
   /**
@@ -527,7 +532,7 @@ public final class XdmResourceManagerImpl
 
     // Make sure not to exceed available number of write transactions.
     try {
-      if (!mWriteSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+      if (!mWriteLock.tryLock(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
       }
     } catch (final InterruptedException e) {
@@ -537,7 +542,7 @@ public final class XdmResourceManagerImpl
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
-        createPageWriteTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO);
+        createPageWriteTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {

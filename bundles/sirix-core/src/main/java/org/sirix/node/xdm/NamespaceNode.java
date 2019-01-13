@@ -30,7 +30,7 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.immutable.ImmutableNamespace;
+import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;

@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
