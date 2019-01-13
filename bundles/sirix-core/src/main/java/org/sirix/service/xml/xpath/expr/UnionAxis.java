@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;

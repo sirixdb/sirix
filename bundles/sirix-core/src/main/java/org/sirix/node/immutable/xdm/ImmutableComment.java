@@ -1,4 +1,4 @@
-package org.sirix.node.immutable;
+package org.sirix.node.immutable.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;

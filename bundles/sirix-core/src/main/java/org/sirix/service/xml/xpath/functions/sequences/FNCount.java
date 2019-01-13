@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.utils.TypedValue;

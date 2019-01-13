@@ -1,8 +1,8 @@
 package org.sirix.index;
 
 import java.util.Set;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.NonStructuralWrapperAxis;
 

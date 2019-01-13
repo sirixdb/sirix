@@ -31,7 +31,7 @@ import java.util.Stack;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.ForAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PredicateFilterAxis;

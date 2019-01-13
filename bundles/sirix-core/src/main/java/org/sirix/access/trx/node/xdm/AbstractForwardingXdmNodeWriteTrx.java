@@ -4,8 +4,8 @@ import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.Movement;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**

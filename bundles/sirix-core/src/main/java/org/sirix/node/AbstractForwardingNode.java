@@ -9,9 +9,9 @@ import com.google.common.collect.ForwardingObject;
 
 /**
  * Skeletal implementation of {@link Node} interface.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public abstract class AbstractForwardingNode extends ForwardingObject implements Node {
 
@@ -23,7 +23,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 
   /**
    * Get a snapshot of the node delegate.
-   * 
+   *
    * @return new {@link NodeDelegate} instance (snapshot of the current one)
    */
   @Nonnull
@@ -87,7 +87,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public void setDeweyID(Optional<SirixDeweyID> id) {
+  public void setDeweyID(SirixDeweyID id) {
     delegate().setDeweyID(id);
   }
 

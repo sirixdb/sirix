@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
@@ -36,14 +38,14 @@ public final class Databases {
   private static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} write semaphore mappings. */
-  private static final ConcurrentMap<Path, Semaphore> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
 
   public static Semaphore computeReadSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
     return RESOURCE_READ_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
   }
 
-  public static Semaphore computeWriteSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
-    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
+  public static Lock computeWriteLockIfAbsent(Path resourcePath) {
+    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new ReentrantLock());
   }
 
   /**

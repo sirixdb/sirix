@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node;
+package org.sirix.node.xdm;
 
 import static org.junit.Assert.assertEquals;
 import java.io.ByteArrayInputStream;
@@ -27,8 +27,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Optional;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -37,17 +35,15 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.xdm.ElementNode;
-import org.sirix.utils.NamePageHash;
-import com.google.common.collect.HashBiMap;
 
 /**
- * Element node test.
+ * Namespace node test.
  */
-public class ElementNodeTest {
+public class NamespaceNodeTest {
 
   /** {@link Holder} instance. */
   private Holder mHolder;
@@ -70,53 +66,32 @@ public class ElementNodeTest {
   }
 
   @Test
-  public void testElementNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
-
-    final ElementNode node = new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-        HashBiMap.<Long, Long>create(), new ArrayList<Long>(), new QNm("ns", "a", "p"));
+  public void testNamespaceNode() throws IOException {
+    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, SirixDeweyID.newRootID());
+    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
     // Create empty node.
-    node.insertAttribute(97, 100);
-    node.insertAttribute(98, 101);
-    node.insertNamespace(99);
-    node.insertNamespace(100);
-    check(node);
+    final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(
-        new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), mPageReadTrx);
+    final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
+        node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private final static void check(final ElementNode node) {
+  private final void check(final NamespaceNode node) {
     // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(12L, node.getFirstChildKey());
-    assertEquals(16L, node.getLeftSiblingKey());
-    assertEquals(17L, node.getRightSiblingKey());
-    assertEquals(1, node.getChildCount());
-    assertEquals(2, node.getAttributeCount());
-    assertEquals(2, node.getNamespaceCount());
-    assertEquals(17, node.getURIKey());
-    assertEquals(18, node.getPrefixKey());
-    assertEquals(19, node.getLocalNameKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(Kind.ELEMENT, node.getKind());
-    assertEquals(true, node.hasFirstChild());
+    assertEquals(99L, node.getNodeKey());
+    assertEquals(13L, node.getParentKey());
+
+    assertEquals(13, node.getURIKey());
+    assertEquals(14, node.getPrefixKey());
+    assertEquals(15, node.getLocalNameKey());
+    assertEquals(Kind.NAMESPACE, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
-    assertEquals(97L, node.getAttributeKey(0));
-    assertEquals(98L, node.getAttributeKey(1));
-    assertEquals(99L, node.getNamespaceKey(0));
-    assertEquals(100L, node.getNamespaceKey(1));
   }
 
 }

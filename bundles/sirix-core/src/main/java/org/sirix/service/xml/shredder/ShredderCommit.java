@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.shredder;
 
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**

@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**

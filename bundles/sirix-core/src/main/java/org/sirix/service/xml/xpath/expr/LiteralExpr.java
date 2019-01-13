@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 
 /**
  * <h1>LiteralExpr</h1>

@@ -5,7 +5,7 @@ import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;

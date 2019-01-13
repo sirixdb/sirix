@@ -21,14 +21,14 @@
 
 package org.sirix.axis.filter;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.node.Kind;
 
 /**
  * <h1>TextFilter</h1>
  *
  * <p>
- * Only select nodes of kind {@link TextNode}.
+ * Only select nodes of kind {@link JSONStringNode}.
  * </p>
  */
 public final class TextFilter extends AbstractFilter {

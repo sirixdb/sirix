@@ -29,48 +29,68 @@ package org.sirix.node.json;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.xdm.AbstractStructForwardingNode;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
- *
  */
-public final class JSONArray extends AbstractForwardingNode {
+public final class JSONObjectNode extends AbstractStructForwardingNode {
 
-  /*
-   * (non-Javadoc)
-   * 
-   * @see org.sirix.node.interfaces.Node#getKind()
+  /** {@link StructNodeDelegate} reference. */
+  private final StructNodeDelegate mStructNodeDel;
+
+  /**
+   * Constructor
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
    */
+  public JSONObjectNode(final StructNodeDelegate structDel) {
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
+
   @Override
   public Kind getKind() {
-    // TODO Auto-generated method stub
-    return null;
+    return Kind.JSON_OBJECT;
   }
 
-  /*
-   * (non-Javadoc)
-   * 
-   * @see
-   * org.sirix.node.interfaces.immutable.ImmutableNode#acceptVisitor(org.sirix.api.visitor.Visitor)
-   */
-  @Override
-  public VisitResult acceptVisitor(Visitor visitor) {
-    // TODO Auto-generated method stub
-    return null;
-  }
-
-  /*
-   * (non-Javadoc)
-   * 
-   * @see org.sirix.node.AbstractForwardingNode#delegate()
-   */
   @Override
   protected NodeDelegate delegate() {
-    // TODO Auto-generated method stub
-    return null;
+    return mStructNodeDel.getNodeDelegate();
+  }
+
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructNodeDel;
+  }
+
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("structDelegate", mStructNodeDel).toString();
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final Visitor visitor) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int hashCode() {
+    return delegate().hashCode();
+  }
+
+  @Override
+  public boolean equals(final Object obj) {
+    if (!(obj instanceof JSONObjectKeyNode))
+      return false;
+
+    final JSONObjectKeyNode other = (JSONObjectKeyNode) obj;
+    return Objects.equal(delegate(), other.delegate());
   }
 
 }

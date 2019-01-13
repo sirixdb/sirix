@@ -45,7 +45,6 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
-import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -101,7 +100,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   /** {@link IndexController} instance. */
   private final IndexController mIndexController;
 
+  /** The tree modifier. */
   private final TreeModifier mTreeModifier;
+
+  /** {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise */
+  private final boolean mIsBoundToNodeTrx;
 
   /**
    * Constructor.
@@ -111,15 +114,19 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    * @param revisionRootPage the revision root page
    * @param pageRtx the page reading transaction used as a delegate
    * @param indexController the index controller, which is used to update indexes
+   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   *        {@code false} otherwise
    */
   PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx, final IndexController indexController) {
+      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx, final IndexController indexController,
+      final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
     mLog = checkNotNull(log);
     mNewRoot = checkNotNull(revisionRootPage);
     mPageRtx = checkNotNull(pageRtx);
     mIndexController = checkNotNull(indexController);
+    mIsBoundToNodeTrx = isBoundToNodeTrx;
   }
 
   @Override
@@ -201,8 +208,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     final Optional<Record> node = getRecord(recordKey, pageKind, index);
     if (node.isPresent()) {
       final Record nodeToDel = node.get();
-      final Node delNode =
-          new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID>empty()));
+      final Node delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, -1, -1, null));
       ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
       ((UnorderedKeyValuePage) cont.getComplete()).setEntry(delNode.getNodeKey(), delNode);
     } else {
@@ -297,11 +303,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
       }
     }
 
-    // // Forcefully flush write-ahead transaction logs to persistent storage.
-    // if (mPageRtx.mResourceManager.getResourceManagerConfig().dumpLogs()) {
-    // mLog.toSecondCache();
-    // }
-
     final PageReference uberPageReference = new PageReference();
     final UberPage uberPage = getUberPage();
     uberPageReference.setPage(uberPage);
@@ -378,9 +379,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
       mPageRtx.mResourceManager.setLastCommittedUberPage(lastUberPage);
 
+      if (!mIsBoundToNodeTrx)
+        mPageRtx.mResourceManager.closeWriteTransaction(mPageRtx.getTrxId());
+
       mPageRtx.clearCaches();
       mPageRtx.closeCaches();
       closeCaches();
+      mPageRtx.close();
       mPageWriter.close();
       mIsClosed = true;
     }

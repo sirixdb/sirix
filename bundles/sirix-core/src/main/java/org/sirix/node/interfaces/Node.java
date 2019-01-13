@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -21,14 +21,13 @@
 
 package org.sirix.node.interfaces;
 
-import java.util.Optional;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
  * <h1>Node</h1>
- * 
+ *
  * <p>
  * Common interface for all node kinds.
  * </p>
@@ -40,14 +39,14 @@ public interface Node extends ImmutableNode {
 
   /**
    * Set a new DeweyID (may only be necessary during moves.)
-   * 
+   *
    * @param id new dewey ID
    */
-  void setDeweyID(Optional<SirixDeweyID> id);
+  void setDeweyID(SirixDeweyID id);
 
   /**
    * Set the type key.
-   * 
+   *
    * @param typeKey the type to set
    */
   void setTypeKey(int typeKey);
@@ -55,14 +54,14 @@ public interface Node extends ImmutableNode {
   /**
    * Set the actual hash of the structure. The hash of one node should have the entire integrity of
    * the related subtree.
-   * 
+   *
    * @param hash hash for this node
    */
   void setHash(long hash);
 
   /**
    * Set the parent key.
-   * 
+   *
    * @param nodeKey the parent nodeKey
    */
   void setParentKey(long nodeKey);

@@ -21,9 +21,9 @@ import org.brackit.xquery.xdm.TemporalNode;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
@@ -1504,7 +1504,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private XdmNodeWriteTrx getWtx() {
     final XdmResourceManager resource = mRtx.getResourceManager();
     final XdmNodeWriteTrx wtx;
-    if (resource.getAvailableNodeWriteTrx() == 0 && resource.getNodeWriteTrx().isPresent()) {
+    if (resource.hasRunningNodeWriteTrx() && resource.getNodeWriteTrx().isPresent()) {
       wtx = resource.getNodeWriteTrx().get();
     } else {
       wtx = resource.beginNodeWriteTrx();

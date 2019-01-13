@@ -27,7 +27,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.xdm.HashType;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmResourceManager;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 
 /**

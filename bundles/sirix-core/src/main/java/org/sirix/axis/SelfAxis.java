@@ -21,7 +21,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 
 /**
  * <h1>ParentAxis</h1>

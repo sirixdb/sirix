@@ -24,7 +24,7 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.sirix.api.Filter;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadTrx;
 import com.google.common.base.Predicate;
 
 /**

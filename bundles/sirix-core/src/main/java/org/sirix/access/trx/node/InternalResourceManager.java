@@ -6,6 +6,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -24,14 +25,16 @@ public interface InternalResourceManager<R extends NodeReadTrx, W extends NodeWr
 
   void assertAccess(int revision);
 
-  void closeNodePageWriteTransaction(long id);
-
   PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(long trxID, int revision, int i,
-      Abort no);
-
-  void setNodePageWriteTransaction(long id, PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx);
+      Abort no, boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
 
   void setLastCommittedUberPage(UberPage lastUberPage);
+
+  void closeWriteTransaction(long transactionID);
+
+  void setNodePageWriteTransaction(long transactionID, PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
+
+  void closeNodePageWriteTransaction(long transactionID) throws SirixIOException;
 }

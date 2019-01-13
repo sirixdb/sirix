@@ -1,5 +1,7 @@
 package org.sirix.api;
 
+import org.sirix.api.xdm.XdmNodeReadTrx;
+
 /**
  * Pre commit hook.
  *

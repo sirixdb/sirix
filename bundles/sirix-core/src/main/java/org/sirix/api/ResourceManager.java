@@ -29,6 +29,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.IndexController;
+import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -252,13 +254,6 @@ public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> 
   int getAvailableNodeReadTrx();
 
   /**
-   * Get available number of {@link XdmNodeWriteTrx}s.
-   *
-   * @return available number of {@link XdmNodeWriteTrx}s
-   */
-  int getAvailableNodeWriteTrx();
-
-  /**
    * Get the index controller.
    *
    * @return the {@link IndexController} instance
@@ -281,4 +276,6 @@ public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> 
   Optional<R> getNodeReadTrx(long ID);
 
   void closeReadTransaction(long trxId);
+
+  boolean hasRunningNodeWriteTrx();
 }
