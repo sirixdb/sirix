@@ -7,9 +7,9 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.xdm.AbstractForwardingXdmNodeReadTrx;
 import org.sirix.access.trx.node.xdm.InsertPos;
+import org.sirix.access.trx.node.xdm.XdmNodeFactory;
 import org.sirix.access.trx.node.xdm.XdmNodeReadTrxImpl;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeFactory;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadTrx;
@@ -81,8 +81,8 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
   /** Sirix {@link PathSummaryReader}. */
   private final PathSummaryReader mPathSummaryReader;
 
-  /** Sirix {@link NodeFactory} to create new nodes. */
-  private final NodeFactory mNodeFactory;
+  /** Sirix {@link XdmNodeFactory} to create new nodes. */
+  private final XdmNodeFactory mNodeFactory;
 
   /** Sirix {@link XdmNodeReadTrxImpl} shared with the write transaction. */
   private final XdmNodeReadTrxImpl mNodeRtx;
@@ -92,11 +92,11 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
    *
    * @param pageWriteTrx Sirix {@link PageWriteTrx}
    * @param resMgr Sirix {@link ResourceManager}
-   * @param nodeFactory Sirix {@link NodeFactory}
+   * @param nodeFactory Sirix {@link XdmNodeFactory}
    * @param rtx Sirix {@link XdmNodeReadTrxImpl}
    */
   private PathSummaryWriter(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-      final XdmResourceManager resMgr, final NodeFactory nodeFactory, final XdmNodeReadTrxImpl rtx) {
+      final XdmResourceManager resMgr, final XdmNodeFactory nodeFactory, final XdmNodeReadTrxImpl rtx) {
     mPageWriteTrx = pageWriteTrx;
     mPathSummaryReader = PathSummaryReader.getInstance(pageWriteTrx, resMgr);
     mNodeRtx = rtx;
@@ -108,13 +108,13 @@ public final class PathSummaryWriter extends AbstractForwardingXdmNodeReadTrx {
    *
    * @param pageWriteTrx Sirix {@link PageWriteTrx}
    * @param resMgr Sirix {@link ResourceManager}
-   * @param nodeFactory Sirix {@link NodeFactory} to create {@link PathNode} instances if needed
+   * @param nodeFactory Sirix {@link XdmNodeFactory} to create {@link PathNode} instances if needed
    * @param rtx Sirix {@link XdmNodeReadTrx}
    * @return new path summary writer instance
    */
   public static final PathSummaryWriter getInstance(
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final XdmResourceManager resMgr,
-      final NodeFactory nodeFactory, final XdmNodeReadTrxImpl rtx) {
+      final XdmNodeFactory nodeFactory, final XdmNodeReadTrxImpl rtx) {
     // Uses the implementation of XdmNodeReadTrxImpl rather than the interface,
     // otherwise nodes are wrapped in immutable nodes because only getNode() is
     // available
