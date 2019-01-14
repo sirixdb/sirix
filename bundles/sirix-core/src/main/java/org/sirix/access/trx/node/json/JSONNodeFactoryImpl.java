@@ -79,21 +79,37 @@ final class JSONNodeFactoryImpl implements JSONNodeFactory {
 
   @Override
   public JSONArrayNode createJSONArrayNode(long parentKey, long leftSibKey, long rightSibKey, long hash) {
-    // TODO Auto-generated method stub
-    return null;
+    final long revision = mPageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel =
+        new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
+    final StructNodeDelegate structDel =
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    return (JSONArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new JSONArrayNode(structDel),
+        PageKind.RECORDPAGE, -1);
   }
 
   @Override
   public JSONObjectNode createJSONObjectNode(long parentKey, long leftSibKey, long rightSibKey, long hash) {
-    // TODO Auto-generated method stub
-    return null;
+    final long revision = mPageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel =
+        new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
+    final StructNodeDelegate structDel =
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    return (JSONObjectNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new JSONObjectNode(structDel),
+        PageKind.RECORDPAGE, -1);
   }
 
   @Override
   public JSONObjectKeyNode createJSONObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long hash,
       long pathNodeKey, String name) {
-    // TODO Auto-generated method stub
-    return null;
+    final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.JSON_OBJECT_KEY);
+    final long revision = mPageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel =
+        new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
+    final StructNodeDelegate structDel =
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    return (JSONObjectKeyNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+        new JSONObjectKeyNode(structDel, localNameKey, name, pathNodeKey), PageKind.RECORDPAGE, -1);
   }
 
   @Override
