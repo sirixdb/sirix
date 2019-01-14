@@ -150,8 +150,8 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    */
   private final boolean mBuildPathSummary;
 
-  /** {@link NodeFactoryImpl} to be able to create nodes. */
-  private NodeFactoryImpl mNodeFactory;
+  /** {@link XdmNodeFactoryImpl} to be able to create nodes. */
+  private XdmNodeFactoryImpl mNodeFactory;
 
   /** An optional lock for all methods, if an automatic commit is issued. */
   private final Optional<Semaphore> mLock;
@@ -196,7 +196,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     mModificationCount = 0L;
 
     // Node factory.
-    mNodeFactory = new NodeFactoryImpl(pageWriteTrx);
+    mNodeFactory = new XdmNodeFactoryImpl(pageWriteTrx);
 
     // Path summary.
     if (mBuildPathSummary) {
@@ -1669,7 +1669,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
 
       // Reset node factory.
       mNodeFactory = null;
-      mNodeFactory = new NodeFactoryImpl(trx);
+      mNodeFactory = new XdmNodeFactoryImpl(trx);
 
       // New index instances.
       reInstantiateIndexes();
@@ -1750,7 +1750,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
       mNodeReadTrx.mResourceManager.setNodePageWriteTransaction(getId(), trx);
 
       mNodeFactory = null;
-      mNodeFactory = new NodeFactoryImpl(trx);
+      mNodeFactory = new XdmNodeFactoryImpl(trx);
 
       reInstantiateIndexes();
 
@@ -1791,7 +1791,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     mNodeReadTrx.mResourceManager.setNodePageWriteTransaction(getId(), trx);
 
     mNodeFactory = null;
-    mNodeFactory = new NodeFactoryImpl(trx);
+    mNodeFactory = new XdmNodeFactoryImpl(trx);
 
     reInstantiateIndexes();
   }

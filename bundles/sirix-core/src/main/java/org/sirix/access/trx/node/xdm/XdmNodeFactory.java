@@ -1,4 +1,4 @@
-package org.sirix.api;
+package org.sirix.access.trx.node.xdm;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -21,7 +21,7 @@ import org.sirix.node.xdm.TextNode;
  * @author Johannes Lichtenberger
  *
  */
-public interface NodeFactory {
+public interface XdmNodeFactory {
   /**
    * Create a {@link PathNode}.
    *
