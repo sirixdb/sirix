@@ -29,9 +29,8 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.Move;
-import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
@@ -42,7 +41,6 @@ import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
-import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.immutable.xdm.ImmutableAttribute;
@@ -69,7 +67,6 @@ import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Constants;
-import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -82,25 +79,22 @@ import com.google.common.base.Objects;
  * revision.
  * </p>
  */
-public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
-
-  /** ID of transaction. */
-  private final long mId;
+public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx> implements XdmNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
   protected final XdmResourceManagerImpl mResourceManager;
-
-  /** State of transaction including all cached stuff. */
-  private PageReadTrx mPageReadTrx;
-
-  /** Strong reference to currently selected node. */
-  private ImmutableNode mCurrentNode;
 
   /** Tracks whether the transaction is closed. */
   private boolean mClosed;
 
   /** Read-transaction-exclusive item list. */
   private final ItemList<AtomicValue> mItemList;
+
+  /** The transaction-ID. */
+  private final long mTrxId;
+
+  /** The current node. */
+  private ImmutableNode mCurrentNode;
 
   /**
    * Constructor.
@@ -112,22 +106,55 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
    */
   XdmNodeReadTrxImpl(final XdmResourceManagerImpl resourceManager, final @Nonnegative long trxId,
       final PageReadTrx pageReadTransaction, final Node documentNode) {
+    super(trxId, pageReadTransaction);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
-    mId = trxId;
-    mPageReadTrx = checkNotNull(pageReadTransaction);
+    mTrxId = trxId;
     mCurrentNode = checkNotNull(documentNode);
     mClosed = false;
     mItemList = new ItemListImpl();
   }
 
   /**
-   * Get the current node.
+   * Set current node.
    *
-   * @return current node
+   * @param currentNode the current node to set
    */
-  public ImmutableNode getCurrentNode() {
-    return mCurrentNode;
+  public final void setCurrentNode(@Nullable final ImmutableNode currentNode) {
+    assertNotClosed();
+    mCurrentNode = currentNode;
+  }
+
+  @Override
+  public Move<XdmNodeReadTrx> moveTo(final long nodeKey) {
+    assertNotClosed();
+
+    // Remember old node and fetch new one.
+    final ImmutableNode oldNode = getCurrentNode();
+    Optional<? extends Record> newNode;
+    try {
+      // Immediately return node from item list if node key negative.
+      if (nodeKey < 0) {
+        if (mItemList.size() > 0) {
+          newNode = mItemList.getItem(nodeKey);
+        } else {
+          newNode = Optional.empty();
+        }
+      } else {
+        final Optional<? extends Record> node = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+        newNode = node;
+      }
+    } catch (final SirixIOException e) {
+      newNode = Optional.empty();
+    }
+
+    if (newNode.isPresent()) {
+      mCurrentNode = (Node) newNode.get();
+      return Move.moved(this);
+    } else {
+      mCurrentNode = oldNode;
+      return Move.notMoved();
+    }
   }
 
   @Override
@@ -166,78 +193,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public long getId() {
-    assertNotClosed();
-    return mId;
-  }
-
-  @Override
-  public int getRevisionNumber() {
-    assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getRevision();
-  }
-
-  @Override
-  public long getRevisionTimestamp() {
-    assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveTo(final long nodeKey) {
-    assertNotClosed();
-
-    // Remember old node and fetch new one.
-    final ImmutableNode oldNode = mCurrentNode;
-    Optional<? extends Record> newNode;
-    try {
-      // Immediately return node from item list if node key negative.
-      if (nodeKey < 0) {
-        if (mItemList.size() > 0) {
-          newNode = mItemList.getItem(nodeKey);
-        } else {
-          newNode = Optional.empty();
-        }
-      } else {
-        final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
-        newNode = node;
-      }
-    } catch (final SirixIOException e) {
-      newNode = Optional.empty();
-    }
-
-    if (newNode.isPresent()) {
-      mCurrentNode = (Node) newNode.get();
-      return Move.moved(this);
-    } else {
-      mCurrentNode = oldNode;
-      return Move.notMoved();
-    }
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToDocumentRoot() {
-    assertNotClosed();
-    return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToParent() {
-    assertNotClosed();
-    return moveTo(mCurrentNode.getParentKey());
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToFirstChild() {
-    assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasFirstChild()) {
-      return Move.notMoved();
-    }
-    return moveTo(node.getFirstChildKey());
-  }
-
-  @Override
   public Move<? extends XdmNodeReadTrx> moveToLeftSibling() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
@@ -245,16 +200,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       return Move.notMoved();
     }
     return moveTo(node.getLeftSiblingKey());
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToRightSibling() {
-    assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasRightSibling()) {
-      return Move.notMoved();
-    }
-    return moveTo(node.getRightSiblingKey());
   }
 
   @Override
@@ -268,9 +213,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       } else {
         return Move.notMoved();
       }
-    } else {
-      return Move.notMoved();
     }
+
+    return Move.notMoved();
   }
 
   @Override
@@ -284,23 +229,9 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       } else {
         return Move.notMoved();
       }
-    } else {
-      return Move.notMoved();
     }
-  }
 
-  @Override
-  public String getValue() {
-    assertNotClosed();
-    String returnVal;
-    if (mCurrentNode instanceof ValueNode) {
-      returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
-    } else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
-      returnVal = mPageReadTrx.getName(((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
-    } else {
-      returnVal = "";
-    }
-    return returnVal;
+    return Move.notMoved();
   }
 
   @Override
@@ -320,24 +251,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     } else {
       return null;
     }
-  }
-
-  @Override
-  public long getNodeKey() {
-    assertNotClosed();
-    return mCurrentNode.getNodeKey();
-  }
-
-  @Override
-  public boolean isValueNode() {
-    assertNotClosed();
-    return mCurrentNode instanceof ValueNode;
-  }
-
-  @Override
-  public Kind getKind() {
-    assertNotClosed();
-    return mCurrentNode.getKind();
   }
 
   @Override
@@ -371,25 +284,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public void close() {
-    if (!mClosed) {
-      // Callback on session to make sure everything is cleaned up.
-      mResourceManager.closeReadTransaction(mId);
-
-      // Close own state.
-      mPageReadTrx.close();
-      setPageReadTransaction(null);
-
-      // Immediately release all references.
-      mPageReadTrx = null;
-      mCurrentNode = null;
-
-      // Close state.
-      mClosed = true;
-    }
-  }
-
-  @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
@@ -410,89 +304,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     return helper.toString();
   }
 
-  /**
-   * Is the transaction closed?
-   *
-   * @return {@code true} if the transaction was closed, {@code false} otherwise
-   */
-  @Override
-  public boolean isClosed() {
-    return mClosed;
-  }
-
-  /**
-   * Make sure that the transaction is not yet closed when calling this method.
-   */
-  final void assertNotClosed() {
-    if (mClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
-  }
-
-  /**
-   * Get the {@link PageReadTrx}.
-   *
-   * @return current {@link PageReadTrx}
-   */
-  public PageReadTrx getPageTransaction() {
-    assertNotClosed();
-    return mPageReadTrx;
-  }
-
-  /**
-   * Replace the current {@link PageReadTrxImpl}.
-   *
-   * @param pageReadTransaction {@link PageReadTrxImpl} instance
-   */
-  final void setPageReadTransaction(@Nullable final PageReadTrx pageReadTransaction) {
-    assertNotClosed();
-    mPageReadTrx = pageReadTransaction;
-  }
-
-  /**
-   * Set current node.
-   *
-   * @param currentNode the current node to set
-   */
-  final void setCurrentNode(@Nullable final ImmutableNode currentNode) {
-    assertNotClosed();
-    mCurrentNode = currentNode;
-  }
-
-  @Override
-  public final long getMaxNodeKey() {
-    assertNotClosed();
-    return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
-  }
-
-  /**
-   * Retrieve the current node as a structural node.
-   *
-   * @return structural node instance of current node
-   */
-  final StructNode getStructuralNode() {
-    if (mCurrentNode instanceof StructNode) {
-      return (StructNode) mCurrentNode;
-    } else {
-      return new NullNode(mCurrentNode);
-    }
-  }
-
-  @Override
-  public XdmResourceManager getResourceManager() {
-    assertNotClosed();
-    return mResourceManager;
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToNextFollowing() {
-    assertNotClosed();
-    while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
-      moveToParent();
-    }
-    return moveToRightSibling();
-  }
-
   @Override
   public Move<? extends XdmNodeReadTrx> moveToAttributeByName(final QNm name) {
     assertNotClosed();
@@ -506,15 +317,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     }
     return Move.notMoved();
   }
-
-  // @Override
-  // public XdmNodeReadTrx cloneInstance() throws SirixException {
-  // assertNotClosed();
-  // final XdmNodeReadTrx rtx = mResourceTrxManager.createNodeReader(
-  // mPageReadTrx.getActualRevisionRootPage().getRevision());
-  // rtx.moveTo(mCurrentNode.getNodeKey());
-  // return rtx;
-  // }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
@@ -532,74 +334,14 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public final int getNameCount(final String name, final Kind kind) {
-    assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
-    } else {
-      return 0;
-    }
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadTrx> moveToLastChild() {
-    assertNotClosed();
-    if (getStructuralNode().hasFirstChild()) {
-      moveToFirstChild();
-
-      while (getStructuralNode().hasRightSibling()) {
-        moveToRightSibling();
-      }
-
-      return Move.moved(this);
-    }
-    return Move.notMoved();
-  }
-
-  @Override
-  public boolean hasNode(final @Nonnegative long key) {
-    assertNotClosed();
-    final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveTo(key).equals(Move.notMoved())
-        ? false
-        : true;
-    moveTo(nodeKey);
-    return retVal;
-  }
-
-  @Override
-  public boolean hasParent() {
-    assertNotClosed();
-    return mCurrentNode.hasParent();
-  }
-
-  @Override
-  public boolean hasFirstChild() {
-    assertNotClosed();
-    return getStructuralNode().hasFirstChild();
-  }
-
-  @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
     return getStructuralNode().hasLeftSibling();
   }
 
   @Override
-  public boolean hasRightSibling() {
-    assertNotClosed();
-    return getStructuralNode().hasRightSibling();
-  }
-
-  @Override
-  public boolean hasLastChild() {
-    assertNotClosed();
-    final long nodeKey = mCurrentNode.getNodeKey();
-    final boolean retVal = moveToLastChild() == null
-        ? false
-        : true;
-    moveTo(nodeKey);
-    return retVal;
+  protected XdmNodeReadTrx thisInstance() {
+    return this;
   }
 
   @Override
@@ -633,9 +375,8 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
       return ((NameNode) mCurrentNode).getPrefixKey();
-    } else {
-      return -1;
     }
+    return -1;
   }
 
   @Override
@@ -643,9 +384,8 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
       return ((NameNode) mCurrentNode).getLocalNameKey();
-    } else {
-      return -1;
     }
+    return -1;
   }
 
   @Override
@@ -667,47 +407,10 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public long getRightSiblingKey() {
-    assertNotClosed();
-    return getStructuralNode().getRightSiblingKey();
-  }
-
-  @Override
-  public long getFirstChildKey() {
-    assertNotClosed();
-    return getStructuralNode().getFirstChildKey();
-  }
-
-  @Override
-  public long getLastChildKey() {
-    throw new UnsupportedOperationException();
-    // return getStructuralNode(;
-  }
-
-  @Override
-  public long getParentKey() {
-    assertNotClosed();
-    return mCurrentNode.getParentKey();
-  }
-
-  @Override
   public long getAttributeKey(final @Nonnegative int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       return ((ElementNode) mCurrentNode).getAttributeKey(index);
-    } else {
-      return -1;
-    }
-  }
-
-  @Override
-  public long getPathNodeKey() {
-    assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getPathNodeKey();
-    }
-    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
-      return 0;
     }
     return -1;
   }
@@ -752,21 +455,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public long getHash() {
-    assertNotClosed();
-    return mCurrentNode.getHash();
-  }
-
-  @Override
-  public byte[] getRawValue() {
-    assertNotClosed();
-    if (mCurrentNode instanceof ValueNode) {
-      return ((ValueNode) mCurrentNode).getRawValue();
-    }
-    return null;
-  }
-
-  @Override
   public long getChildCount() {
     assertNotClosed();
     return getStructuralNode().getChildCount();
@@ -789,19 +477,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public Kind getRightSiblingKind() {
-    assertNotClosed();
-    if (mCurrentNode instanceof StructNode && hasRightSibling()) {
-      final long nodeKey = mCurrentNode.getNodeKey();
-      moveToRightSibling();
-      final Kind rightSiblKind = mCurrentNode.getKind();
-      moveTo(nodeKey);
-      return rightSiblKind;
-    }
-    return Kind.UNKNOWN;
-  }
-
-  @Override
   public Kind getLeftSiblingKind() {
     assertNotClosed();
     if (mCurrentNode instanceof StructNode && hasLeftSibling()) {
@@ -812,45 +487,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       return leftSiblKind;
     }
     return Kind.UNKNOWN;
-  }
-
-  @Override
-  public Kind getFirstChildKind() {
-    assertNotClosed();
-    if (mCurrentNode instanceof StructNode && hasFirstChild()) {
-      final long nodeKey = mCurrentNode.getNodeKey();
-      moveToFirstChild();
-      final Kind firstChildKind = mCurrentNode.getKind();
-      moveTo(nodeKey);
-      return firstChildKind;
-    }
-    return Kind.UNKNOWN;
-  }
-
-  @Override
-  public Kind getLastChildKind() {
-    assertNotClosed();
-    if (mCurrentNode instanceof StructNode && hasLastChild()) {
-      final long nodeKey = mCurrentNode.getNodeKey();
-      moveToLastChild();
-      final Kind lastChildKind = mCurrentNode.getKind();
-      moveTo(nodeKey);
-      return lastChildKind;
-    }
-    return Kind.UNKNOWN;
-  }
-
-  @Override
-  public Kind getParentKind() {
-    assertNotClosed();
-    if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return Kind.UNKNOWN;
-    }
-    final long nodeKey = mCurrentNode.getNodeKey();
-    moveToParent();
-    final Kind parentKind = mCurrentNode.getKind();
-    moveTo(nodeKey);
-    return parentKind;
   }
 
   @Override
@@ -931,18 +567,6 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToNext() {
-    assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (node.hasRightSibling()) {
-      // Right sibling node.
-      return moveTo(node.getRightSiblingKey());
-    }
-    // Next following node.
-    return moveToNextFollowing();
-  }
-
-  @Override
   public Optional<SirixDeweyID> getDeweyID() {
     assertNotClosed();
     return mCurrentNode.getDeweyID();
@@ -1001,7 +625,7 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
     if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
+      Optional<SirixDeweyID> deweyID = Optional.empty();
       if (node.hasFirstChild()) {
         // Right sibling node.
         deweyID = moveTo(node.getFirstChildKey()).get().getDeweyID();
@@ -1009,16 +633,107 @@ public final class XdmNodeReadTrxImpl implements XdmNodeReadTrx {
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
-  public PageReadTrx getPageTrx() {
-    return mPageReadTrx;
+  public void close() {
+    if (!mClosed) {
+      // Callback on session to make sure everything is cleaned up.
+      mResourceManager.closeReadTransaction(mTrxId);
+
+      // Close own state.
+      mPageReadTrx.close();
+      setPageReadTransaction(null);
+
+      // Immediately release all references.
+      mPageReadTrx = null;
+      mCurrentNode = null;
+
+      // Close state.
+      mClosed = true;
+    }
   }
 
   @Override
-  public CommitCredentials getCommitCredentials() {
-    return mPageReadTrx.getCommitCredentials();
+  public String getValue() {
+    assertNotClosed();
+
+    final String returnVal;
+
+    if (mCurrentNode instanceof ValueNode) {
+      returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+    } else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
+      returnVal = mPageReadTrx.getName(((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+    } else {
+      returnVal = "";
+    }
+
+    return returnVal;
+  }
+
+  @Override
+  public boolean isClosed() {
+    return mClosed;
+  }
+
+  @Override
+  public int getNameCount(String name, Kind kind) {
+    assertNotClosed();
+    if (mCurrentNode instanceof NameNode) {
+      return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
+    }
+    return 0;
+  }
+
+  @Override
+  public long getPathNodeKey() {
+    assertNotClosed();
+    if (mCurrentNode instanceof NameNode) {
+      return ((NameNode) mCurrentNode).getPathNodeKey();
+    }
+    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+      return 0;
+    }
+    return -1;
+  }
+
+  @Override
+  public boolean isValueNode() {
+    assertNotClosed();
+    return mCurrentNode instanceof ValueNode;
+  }
+
+  @Override
+  public long getHash() {
+    assertNotClosed();
+    return mCurrentNode.getHash();
+  }
+
+  @Override
+  public byte[] getRawValue() {
+    assertNotClosed();
+    if (mCurrentNode instanceof ValueNode) {
+      return ((ValueNode) mCurrentNode).getRawValue();
+    }
+    return null;
+  }
+
+  @Override
+  public XdmResourceManager getResourceManager() {
+    assertNotClosed();
+    return mResourceManager;
+  }
+
+  @Override
+  protected void assertNotClosed() {
+    if (mClosed) {
+      throw new IllegalStateException("Transaction is already closed.");
+    }
+  }
+
+  @Override
+  public ImmutableNode getCurrentNode() {
+    return mCurrentNode;
   }
 }

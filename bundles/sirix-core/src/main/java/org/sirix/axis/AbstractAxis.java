@@ -110,8 +110,8 @@ public abstract class AbstractAxis implements Axis {
 
   /**
    * Signals that axis traversal is done, that is {@code hasNext()} must return false. Is callable
-   * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done
-   * and {@link #hasNext()} must return false.
+   * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done and
+   * {@link #hasNext()} must return false.
    *
    * @return null node key to indicate that the travesal is done
    */
@@ -272,8 +272,8 @@ public abstract class AbstractAxis implements Axis {
   }
 
   /**
-   * Make sure the transaction points to the node after the last hasNext(). This must be called
-   * first in hasNext().
+   * Make sure the transaction points to the node after the last hasNext(). This must be called first
+   * in hasNext().
    *
    * @return key of node where transaction was after the last call of {@code hasNext()}
    */
@@ -309,9 +309,11 @@ public abstract class AbstractAxis implements Axis {
   @Override
   public final void foreach(final Visitor visitor) {
     checkNotNull(visitor);
-    while (hasNext()) {
-      next();
-      mNodeCursor.acceptVisitor(visitor);
+    if (mNodeCursor instanceof XdmNodeReadTrx) {
+      while (hasNext()) {
+        next();
+        ((XdmNodeReadTrx) mNodeCursor).acceptVisitor(visitor);
+      }
     }
   }
 

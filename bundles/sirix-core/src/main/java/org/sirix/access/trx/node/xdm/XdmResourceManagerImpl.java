@@ -40,6 +40,7 @@ import org.sirix.access.LocalDatabase;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;

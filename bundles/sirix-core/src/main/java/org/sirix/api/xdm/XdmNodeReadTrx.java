@@ -33,6 +33,9 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -126,6 +129,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return The page reading transaction.
    */
+  @Override
   PageReadTrx getPageTrx();
 
   /** String constants used by XPath. */
@@ -142,6 +146,14 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
 
   // --- Node Selectors
   // --------------------------------------------------------
+
+  /**
+   * Accept a visitor.
+   *
+   * @param visitor {@link Visitor} implementation
+   * @return {@link VisitResultType} value
+   */
+  VisitResult acceptVisitor(Visitor visitor);
 
   /**
    * Move cursor to attribute by its index.
@@ -451,6 +463,9 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    * @return namespace URI
    */
   String getNamespaceURI();
+
+  @Override
+  Move<? extends XdmNodeReadTrx> moveTo(long nodeKey);
 
   @Override
   Move<? extends XdmNodeReadTrx> moveToDocumentRoot();

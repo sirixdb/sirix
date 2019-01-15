@@ -3,36 +3,37 @@ package org.sirix.node.immutable.json;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.JSONObjectNode;
+import org.sirix.node.json.JSONArrayNode;
+import org.sirix.node.xdm.ElementNode;
 
 /**
- * Immutable JSONObject wrapper.
+ * Immutable element wrapper.
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class ImmutableJSONObject extends AbstractImmutableJSONStructuralNode {
+public final class ImmutableJSONArrayNode extends AbstractImmutableJSONStructuralNode {
 
-  /** Mutable {@link JSONObjectNode}. */
-  private final JSONObjectNode mNode;
+  /** Mutable {@link JSONArrayNode}. */
+  private final JSONArrayNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link JSONObjectNode}
+   * @param node mutable {@link ElementNode}
    */
-  private ImmutableJSONObject(final JSONObjectNode node) {
+  private ImmutableJSONArrayNode(final JSONArrayNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
    * Get an immutable JSON-array node instance.
    *
-   * @param node the mutable {@link ImmutableJSONObject} to wrap
+   * @param node the mutable {@link ImmutableJSONArrayNode} to wrap
    * @return immutable JSON-array node instance
    */
-  public static ImmutableJSONObject of(final JSONObjectNode node) {
-    return new ImmutableJSONObject(node);
+  public static ImmutableJSONArrayNode of(final JSONArrayNode node) {
+    return new ImmutableJSONArrayNode(node);
   }
 
   @Override

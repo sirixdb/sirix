@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileInputStream;
@@ -266,7 +266,7 @@ public final class IndexController {
    *
    * @return this {@link IndexController} instance
    */
-  IndexController createIndexListeners(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
+  public IndexController createIndexListeners(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
     checkNotNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {

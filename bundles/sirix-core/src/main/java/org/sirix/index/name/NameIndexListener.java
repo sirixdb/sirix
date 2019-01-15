@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.xdm.IndexController.ChangeType;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.ChangeListener;

@@ -48,7 +48,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.xdm.HashType;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.DiffDepth;

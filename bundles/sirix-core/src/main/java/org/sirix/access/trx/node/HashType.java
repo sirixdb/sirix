@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node;
 
 /**
  * How is the Hash for this storage computed?

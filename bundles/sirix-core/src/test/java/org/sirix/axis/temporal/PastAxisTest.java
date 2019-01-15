@@ -54,7 +54,7 @@ public final class PastAxisTest {
         null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new PastAxis(thirdRtx, IncludeSelf.YES);
+        return new PastAxis<>(thirdRtx, IncludeSelf.YES);
       }
     }.test();
   }
@@ -69,7 +69,7 @@ public final class PastAxisTest {
         null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new PastAxis(thirdRtx);
+        return new PastAxis<>(thirdRtx);
       }
     }.test();
   }
@@ -95,7 +95,7 @@ public final class PastAxisTest {
           ImmutableList.of(fifthReader, fourthReader, thirdReader), null) {
         @Override
         protected Iterator<NodeReadTrx> newTargetIterator() {
-          return new PastAxis(fifthReader, IncludeSelf.YES);
+          return new PastAxis<>(fifthReader, IncludeSelf.YES);
         }
       }.test();
     }

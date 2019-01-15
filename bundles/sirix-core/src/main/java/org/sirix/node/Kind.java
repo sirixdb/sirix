@@ -55,9 +55,10 @@ import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.json.JSONArrayNode;
 import org.sirix.node.json.JSONBooleanNode;
+import org.sirix.node.json.JSONNullNode;
 import org.sirix.node.json.JSONNumberNode;
-import org.sirix.node.json.JSONObjectNode;
 import org.sirix.node.json.JSONObjectKeyNode;
+import org.sirix.node.json.JSONObjectNode;
 import org.sirix.node.json.JSONStringNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
@@ -1039,6 +1040,46 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final JSONNumberNode node = (JSONNumberNode) record;
       sink.writeDouble(node.getValue());
+      serializeDelegate(node.getNodeDelegate(), sink);
+      final StructNodeDelegate del = node.getStructNodeDelegate();
+      final long nodeKey = node.getNodeKey();
+      putVarLong(sink, nodeKey - del.getRightSiblingKey());
+      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+  },
+  /** JSON null node. */
+  JSON_NULL((byte) 29, JSONNullNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
+
+      // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
+      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+
+      // Returning an instance.
+      return new JSONNullNode(structDel);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+        throws IOException {
+      final JSONArrayNode node = (JSONArrayNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
       final long nodeKey = node.getNodeKey();
