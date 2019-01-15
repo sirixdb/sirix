@@ -54,7 +54,7 @@ public final class FutureAxisTest {
         ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new FutureAxis(firstRtx, IncludeSelf.YES);
+        return new FutureAxis<>(firstRtx, IncludeSelf.YES);
       }
     }.test();
   }
@@ -69,7 +69,7 @@ public final class FutureAxisTest {
         null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new FutureAxis(firstRtx);
+        return new FutureAxis<>(firstRtx);
       }
     }.test();
   }
@@ -99,7 +99,7 @@ public final class FutureAxisTest {
           null) {
         @Override
         protected Iterator<NodeReadTrx> newTargetIterator() {
-          return new FutureAxis(thirdReader, IncludeSelf.YES);
+          return new FutureAxis<>(thirdReader, IncludeSelf.YES);
         }
       }.test();
     }

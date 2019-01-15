@@ -54,6 +54,8 @@ public interface NodeReadTrx extends AutoCloseable {
    */
   long getNodeKey();
 
+
+
   /**
    * Get the {@link ResourceManager} this instance is bound to.
    *
@@ -61,13 +63,15 @@ public interface NodeReadTrx extends AutoCloseable {
    */
   ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager();
 
-  Move<? extends XdmNodeReadTrx> moveTo(long key);
-
   /**
    * Get the commit credentials.
    *
    * @return The commit credentials.
    */
   CommitCredentials getCommitCredentials();
+
+  Move<? extends NodeCursor> moveTo(long key);
+
+  PageReadTrx getPageTrx();
 
 }

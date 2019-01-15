@@ -51,7 +51,7 @@ public final class NextAxisTest {
     new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx), null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new NextAxis(firstRtx);
+        return new NextAxis<>(firstRtx);
       }
     }.test();
   }

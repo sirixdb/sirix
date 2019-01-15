@@ -36,7 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.IndexController;
+import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.BufferManager;

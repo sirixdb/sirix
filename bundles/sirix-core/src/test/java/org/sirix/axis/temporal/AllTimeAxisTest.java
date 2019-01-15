@@ -52,7 +52,7 @@ public final class AllTimeAxisTest {
           ImmutableList.of(firstReader, secondReader, thirdReader), null) {
         @Override
         protected Iterator<NodeReadTrx> newTargetIterator() {
-          return new AllTimeAxis(holder.getNodeReadTrx());
+          return new AllTimeAxis<>(holder.getNodeReadTrx());
         }
       }.test();
     }
@@ -88,7 +88,7 @@ public final class AllTimeAxisTest {
           ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
         @Override
         protected Iterator<NodeReadTrx> newTargetIterator() {
-          return new AllTimeAxis(fourthReader);
+          return new AllTimeAxis<>(fourthReader);
         }
       }.test();
     }

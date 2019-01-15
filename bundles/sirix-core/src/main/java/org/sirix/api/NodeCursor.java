@@ -2,9 +2,6 @@ package org.sirix.api;
 
 import org.sirix.access.trx.node.Move;
 import org.sirix.access.trx.node.Moved;
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -31,8 +28,8 @@ public interface NodeCursor extends AutoCloseable {
    * Move to the next following node, that is the next node on the XPath {@code following::-axis},
    * that is the next node which is not a descendant of the current node.
    *
-   * @return {@link Moved} instance if the next following node is selected, {@code NotMoved}
-   *         instance otherwise
+   * @return {@link Moved} instance if the next following node is selected, {@code NotMoved} instance
+   *         otherwise
    */
   Move<? extends NodeCursor> moveToNextFollowing();
 
@@ -98,9 +95,9 @@ public interface NodeCursor extends AutoCloseable {
 
   /**
    * Move cursor to the previous node of the currently selected node in document order. Check the
-   * postcondition with {@code Moved#hasMoved()} or get the current cursor instance
-   * with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()} returns false and
-   * the cursor has not been moved.
+   * postcondition with {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}.
+   * In case the node does not exist {@code Moved#hasMoved()} returns false and the cursor has not
+   * been moved.
    *
    * @return {@link Moved} instance if the previous node is selected, {@code NotMoved} instance
    *         otherwise
@@ -109,12 +106,11 @@ public interface NodeCursor extends AutoCloseable {
 
   /**
    * Move cursor to the next node of the currently selected node in document order. Check the
-   * postcondition with {@code Moved#hasMoved()} or get the current cursor instance
-   * with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()} returns false and
-   * the cursor has not been moved.
+   * postcondition with {@code Moved#hasMoved()} or get the current cursor instance with{Moved#get()}.
+   * In case the node does not exist {@code Moved#hasMoved()} returns false and the cursor has not
+   * been moved.
    *
-   * @return {@link Moved} instance if the next node is selected, {@code NotMoved} instance
-   *         otherwise
+   * @return {@link Moved} instance if the next node is selected, {@code NotMoved} instance otherwise
    */
   Move<? extends NodeCursor> moveToNext();
 
@@ -195,14 +191,6 @@ public interface NodeCursor extends AutoCloseable {
    * @return parent key of the currently selected node
    */
   long getParentKey();
-
-  /**
-   * Accept a visitor.
-   *
-   * @param visitor {@link Visitor} implementation
-   * @return {@link VisitResultType} value
-   */
-  VisitResult acceptVisitor(Visitor visitor);
 
   /**
    * Get the immutable node where the cursor currently is located.

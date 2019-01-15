@@ -35,8 +35,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
-import org.sirix.access.trx.node.xdm.IndexController;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
@@ -338,9 +338,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
 
     mLog.truncate();
 
-    // Delete commit file which denotes that a commit must write the log in the
-    // data file.
-
+    // Delete commit file which denotes that a commit must write the log in the data file.
     try {
       Files.delete(commitFile);
     } catch (final IOException e) {
@@ -348,9 +346,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
     }
 
     final UberPage commitedUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
-
     mPageRtx.mResourceManager.getCommitLock().unlock();
-
     return commitedUberPage;
   }
 
@@ -362,12 +358,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   @Override
   public UberPage rollback() {
     mPageRtx.assertNotClosed();
-
     mLog.truncate();
-
-    final UberPage lastUberPage = (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
-
-    return lastUberPage;
+    return (UberPage) mPageWriter.read(mPageWriter.readUberPageReference(), mPageRtx);
   }
 
   @Override

@@ -51,7 +51,7 @@ public final class LastAxisTest {
     new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx), null) {
       @Override
       protected Iterator<NodeReadTrx> newTargetIterator() {
-        return new LastAxis(firstRtx);
+        return new LastAxis<>(firstRtx);
       }
     }.test();
   }

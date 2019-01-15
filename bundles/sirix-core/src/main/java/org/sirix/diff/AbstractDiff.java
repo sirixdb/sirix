@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
-import org.sirix.access.trx.node.xdm.HashType;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.DescendantAxis;

@@ -11,8 +11,6 @@ import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -39,12 +37,10 @@ import com.google.common.collect.AbstractIterator;
  * @param <K> the key to search for or insert
  * @param <V> the value
  */
-public final class AVLTreeReader<K extends Comparable<? super K>, V extends References>
-    implements NodeCursor {
+public final class AVLTreeReader<K extends Comparable<? super K>, V extends References> implements NodeCursor {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(AVLTreeReader.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AVLTreeReader.class));
 
   /** Determines if tree is closed or not. */
   private boolean mClosed;
@@ -173,8 +169,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param startNodeKey the key of the node to start from
    * @param key key to be found
    * @param mode the search mode
-   * @return {@link Optional} reference (with the found value, or a reference which indicates that
-   *         the value hasn't been found)
+   * @return {@link Optional} reference (with the found value, or a reference which indicates that the
+   *         value hasn't been found)
    */
   public Optional<V> get(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
@@ -206,8 +202,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    *
    * @param key key to be found
    * @param mode the search mode
-   * @return {@link Optional} reference (with the found value, or a reference which indicates that
-   *         the value hasn't been found)
+   * @return {@link Optional} reference (with the found value, or a reference which indicates that the
+   *         value hasn't been found)
    */
   public Optional<V> get(final K key, final SearchMode mode) {
     assertNotClosed();
@@ -242,8 +238,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param mode the search mode
    * @return Optional {@link AVLNode} reference
    */
-  public Optional<AVLNode<K, V>> getAVLNode(final long startNodeKey, final K key,
-      final SearchMode mode) {
+  public Optional<AVLNode<K, V>> getAVLNode(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
     final boolean movedToStartNode = moveTo(startNodeKey).hasMoved();
     if (!movedToStartNode) {
@@ -307,8 +302,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param mode the search mode
    * @return Optional {@link AVLNode} reference
    */
-  public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode,
-      final Comparator<? super K> comp) {
+  public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {
     assertNotClosed();
     moveToDocumentRoot();
     if (!((DocumentRootNode) getNode()).hasFirstChild()) {
@@ -420,11 +414,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public boolean hasRightSibling() {
     assertNotClosed();
     return getStructuralNode().hasRightSibling();
-  }
-
-  @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
