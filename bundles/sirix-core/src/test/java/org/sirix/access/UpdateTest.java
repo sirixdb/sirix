@@ -199,9 +199,7 @@ public class UpdateTest {
     assertEquals("c", rtx.getName().getLocalName());
     rtx = (XdmNodeReadTrxImpl) holder.getResourceManager().beginNodeReadTrx();
     assertEquals(2, rtx.getRevisionNumber());
-    assertEquals(
-        null,
-        rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), Kind.ELEMENT));
+    assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), Kind.ELEMENT));
     assertEquals(0, rtx.getNameCount("blablabla", Kind.ATTRIBUTE));
     rtx.moveTo(5);
     assertEquals(2, rtx.getNameCount("b", Kind.ELEMENT));
@@ -698,7 +696,7 @@ public class UpdateTest {
     while (ids.hasNext()) {
       assertTrue(axis.hasNext());
       axis.next();
-      assertEquals(ids.next(), axis.getTrx().getDeweyID().get());
+      assertEquals(ids.next(), ((XdmNodeReadTrx) axis.asXdmNodeReadTrx()).getDeweyID().get());
     }
   }
 
@@ -862,8 +860,7 @@ public class UpdateTest {
     DocumentCreator.create(wtx);
 
     wtx.moveToDocumentRoot();
-    for (final long nodeKey : new NonStructuralWrapperAxis(
-        new DescendantAxis(wtx, IncludeSelf.YES))) {
+    for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(wtx, IncludeSelf.YES))) {
       System.out.println(nodeKey + ": " + wtx.getDeweyID());
     }
 
@@ -872,16 +869,14 @@ public class UpdateTest {
     testFirstMoveSubtreeToRightSibling(wtx);
 
     wtx.moveToDocumentRoot();
-    for (final long nodeKey : new NonStructuralWrapperAxis(
-        new DescendantAxis(wtx, IncludeSelf.YES))) {
+    for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(wtx, IncludeSelf.YES))) {
       System.out.println(nodeKey + ": " + wtx.getDeweyID());
     }
 
     wtx.commit();
 
     wtx.moveToDocumentRoot();
-    for (final long nodeKey : new NonStructuralWrapperAxis(
-        new DescendantAxis(wtx, IncludeSelf.YES))) {
+    for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(wtx, IncludeSelf.YES))) {
       System.out.println(nodeKey + ": " + wtx.getDeweyID());
     }
 
@@ -911,8 +906,7 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testFirstMoveSubtreeToRightSibling()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testFirstMoveSubtreeToRightSibling()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -967,16 +961,14 @@ public class UpdateTest {
     // test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx,
     // IncludeSelf.YES)));
     rtx.moveToDocumentRoot();
-    for (final long nodeKey : new NonStructuralWrapperAxis(
-        new DescendantAxis(rtx, IncludeSelf.YES))) {
+    for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(rtx, IncludeSelf.YES))) {
       System.out.println(nodeKey + ": " + rtx.getDeweyID());
     }
     rtx.close();
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testSecondMoveSubtreeToRightSibling()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testSecondMoveSubtreeToRightSibling()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -1014,8 +1006,7 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testThirdMoveSubtreeToRightSibling()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testThirdMoveSubtreeToRightSibling()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -1051,8 +1042,7 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testFourthMoveSubtreeToRightSibling()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testFourthMoveSubtreeToRightSibling()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -1179,8 +1169,7 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testFirstCopySubtreeAsRightSibling()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testFirstCopySubtreeAsRightSibling()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -1208,8 +1197,7 @@ public class UpdateTest {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsFirstChild(
-        XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1242,8 +1230,7 @@ public class UpdateTest {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.moveTo(11);
-    wtx.insertSubtreeAsFirstChild(
-        XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildSecond(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1256,8 +1243,7 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testSubtreeInsertAsFirstChildSecond()} for having different
-   * rtx.
+   * Testmethod for {@link UpdateTest#testSubtreeInsertAsFirstChildSecond()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
@@ -1279,8 +1265,7 @@ public class UpdateTest {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     DocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsRightSibling(
-        XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsRightSibling(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsRightSibling(wtx);
     wtx.commit();
     wtx.moveTo(14);

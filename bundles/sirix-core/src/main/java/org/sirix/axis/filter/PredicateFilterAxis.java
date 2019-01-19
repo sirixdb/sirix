@@ -71,7 +71,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
     if (mIsFirst) {
       mIsFirst = false;
 
-      final long currKey = getTrx().getNodeKey();
+      final long currKey = asXdmNodeReadTrx().getNodeKey();
       mPredicate.reset(currKey);
 
       if (mPredicate.hasNext()) {
@@ -91,13 +91,13 @@ public final class PredicateFilterAxis extends AbstractAxis {
    * @return {@code true}, if item is boolean typed atomic value with type "false".
    */
   private boolean isBooleanFalse() {
-    if (getTrx().getNodeKey() >= 0) {
+    if (asXdmNodeReadTrx().getNodeKey() >= 0) {
       return false;
     } else { // is AtomicValue
-      if (getTrx().getTypeKey() == getTrx().keyForName("xs:boolean")) {
+      if (asXdmNodeReadTrx().getTypeKey() == asXdmNodeReadTrx().keyForName("xs:boolean")) {
         // atomic value of type boolean
         // return true, if atomic values's value is false
-        return !(Boolean.parseBoolean(getTrx().getValue()));
+        return !(Boolean.parseBoolean(asXdmNodeReadTrx().getValue()));
       } else {
         return false;
       }

@@ -55,7 +55,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
    * @param parentAxis inner nested axis
    */
   public NonStructuralWrapperAxis(final Axis parentAxis) {
-    super(parentAxis.getTrx());
+    super(parentAxis.asXdmNodeReadTrx());
     mParentAxis = checkNotNull(parentAxis);
   }
 
@@ -72,7 +72,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadTrx trx = (XdmNodeReadTrx) mParentAxis.getTrx();
+    final XdmNodeReadTrx trx = (XdmNodeReadTrx) mParentAxis.asXdmNodeReadTrx();
     if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
       final long nodeKey = nonStructural(trx);
       if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {

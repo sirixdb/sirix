@@ -216,9 +216,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                                                           .includeNonStructuralNodes()
                                                           .build(); axis.hasNext();) {
       axis.next();
-      final long nodeKey = axis.getTrx().getNodeKey();
+      final long nodeKey = axis.asXdmNodeReadTrx().getNodeKey();
       doFirstFSMEStep(wtx, rtx);
-      axis.getTrx().moveTo(nodeKey);
+      axis.asXdmNodeReadTrx().moveTo(nodeKey);
     }
   }
 
@@ -374,7 +374,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private static void markOutOfOrder(final XdmNodeReadTrx rtx, final Map<Long, Boolean> inOrder) {
     for (final AbstractAxis axis = new ChildAxis(rtx); axis.hasNext();) {
       axis.next();
-      inOrder.put(axis.getTrx().getNodeKey(), false);
+      inOrder.put(axis.asXdmNodeReadTrx().getNodeKey(), false);
     }
   }
 
@@ -709,8 +709,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
             oldAxis.next();
             newAxis.next();
-            final XdmNodeReadTrx oldRtx = oldAxis.getTrx();
-            final XdmNodeReadTrx newRtx = newAxis.getTrx();
+            final XdmNodeReadTrx oldRtx = oldAxis.asXdmNodeReadTrx();
+            final XdmNodeReadTrx newRtx = newAxis.asXdmNodeReadTrx();
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
@@ -722,12 +722,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                   for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); i < oldAttCount; j++) {
                     wtx.moveToAttribute(j);
                     if (wtx.getName().equals(rtx.getName())) {
-                      process(oldAxis.getTrx().getNodeKey(), newAxis.getTrx().getNodeKey());
+                      process(oldAxis.asXdmNodeReadTrx().getNodeKey(), newAxis.asXdmNodeReadTrx().getNodeKey());
                       break;
                     }
-                    oldAxis.getTrx().moveTo(oldNodeKey);
+                    oldAxis.asXdmNodeReadTrx().moveTo(oldNodeKey);
                   }
-                  newAxis.getTrx().moveTo(newNodeKey);
+                  newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
                 }
               }
               if (newRtx.getNamespaceCount() > 0) {
@@ -740,14 +740,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                       process(wtx.getNodeKey(), rtx.getNodeKey());
                       break;
                     }
-                    oldAxis.getTrx().moveTo(oldNodeKey);
+                    oldAxis.asXdmNodeReadTrx().moveTo(oldNodeKey);
                   }
-                  newAxis.getTrx().moveTo(newNodeKey);
+                  newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
                 }
               }
             }
 
-            newAxis.getTrx().moveTo(newNodeKey);
+            newAxis.asXdmNodeReadTrx().moveTo(newNodeKey);
           }
       }
     } catch (final SirixException e) {
@@ -1011,10 +1011,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final long nodeKey = rtx.getNodeKey();
     for (final Axis axis = new PostOrderAxis(rtx); axis.hasNext();) {
       axis.next();
-      if (axis.getTrx().getNodeKey() == nodeKey) {
+      if (axis.asXdmNodeReadTrx().getNodeKey() == nodeKey) {
         break;
       }
-      axis.getTrx().acceptVisitor(visitor);
+      axis.asXdmNodeReadTrx().acceptVisitor(visitor);
     }
     rtx.acceptVisitor(visitor);
   }
@@ -1034,10 +1034,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final long nodeKey = rtx.getNodeKey();
     for (final AbstractAxis axis = new PostOrderAxis(rtx); axis.hasNext();) {
       axis.next();
-      if (axis.getTrx().getNodeKey() == nodeKey) {
+      if (axis.asXdmNodeReadTrx().getNodeKey() == nodeKey) {
         break;
       }
-      axis.getTrx().acceptVisitor(visitor);
+      axis.asXdmNodeReadTrx().acceptVisitor(visitor);
     }
     rtx.acceptVisitor(visitor);
   }

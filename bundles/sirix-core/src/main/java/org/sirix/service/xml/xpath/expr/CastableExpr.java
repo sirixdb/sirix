@@ -103,8 +103,8 @@ public class CastableExpr extends AbstractExpression {
     if (mSourceExpr.hasNext()) { // result sequence > 0
       mKey = mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTrx().getTypeKey());
-      final String sourceValue = getTrx().getValue();
+      final Type sourceType = Type.getType(asXdmNodeReadTrx().getTypeKey());
+      final String sourceValue = asXdmNodeReadTrx().getValue();
 
       // determine castability
       isCastable = sourceType.isCastableTo(mTargetType, sourceValue);
@@ -123,9 +123,9 @@ public class CastableExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int mItemKey = getTrx().getItemList().addItem(
+    final int mItemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = mItemKey;
   }
 }

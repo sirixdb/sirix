@@ -62,7 +62,7 @@ public final class ForAxis extends AbstractAxis {
    * @param returnExpr the return expression of the for expression
    */
   public ForAxis(final Axis range, @Nonnull final Axis returnExpr) {
-    super(range.getTrx());
+    super(range.asXdmNodeReadTrx());
     mRange = range;
     mReturn = returnExpr;
     mIsFirst = true;

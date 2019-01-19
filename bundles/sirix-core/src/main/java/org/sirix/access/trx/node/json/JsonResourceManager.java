@@ -1,8 +1,6 @@
 package org.sirix.access.trx.node.json;
 
-/**
- * JSON Node-level transactional stuff.
- */
-public interface JsonResourceManager {
+import org.sirix.api.ResourceManager;
 
+public interface JsonResourceManager extends ResourceManager<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx> {
 }

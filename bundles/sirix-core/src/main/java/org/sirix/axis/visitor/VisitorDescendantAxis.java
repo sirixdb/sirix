@@ -147,7 +147,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Visitor.
     Optional<VisitResult> result = Optional.empty();
     if (mVisitor.isPresent()) {
-      result = Optional.ofNullable(getTrx().acceptVisitor(mVisitor.get()));
+      result = Optional.ofNullable(asXdmNodeReadTrx().acceptVisitor(mVisitor.get()));
     }
 
     // If visitor is present and the return value is EVisitResult.TERMINATE than
@@ -156,7 +156,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
 
-    final NodeCursor cursor = getTrx();
+    final NodeCursor cursor = asXdmNodeReadTrx();
 
     // Determines if first call to hasNext().
     if (mFirst) {
@@ -216,7 +216,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    */
   private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     // Fail if the subtree is finished.
-    final NodeCursor cursor = getTrx();
+    final NodeCursor cursor = asXdmNodeReadTrx();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();

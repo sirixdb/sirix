@@ -75,19 +75,19 @@ public class JSONStringNodeTest {
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JSONStringNode node = new JSONStringNode(valDel, strucDel);
+    final JsonStringNode node = new JsonStringNode(valDel, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JSONStringNode node2 = (JSONStringNode) Kind.JSON_STRING_VALUE.deserialize(new DataInputStream(in),
+    final JsonStringNode node2 = (JsonStringNode) Kind.JSON_STRING_VALUE.deserialize(new DataInputStream(in),
         node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final JSONStringNode node) {
+  private final void check(final JsonStringNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());

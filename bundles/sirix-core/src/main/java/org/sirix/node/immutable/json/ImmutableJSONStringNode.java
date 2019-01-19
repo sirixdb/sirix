@@ -10,7 +10,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.json.JSONStringNode;
+import org.sirix.node.json.JsonStringNode;
 import org.sirix.node.xdm.TextNode;
 
 /**
@@ -20,15 +20,15 @@ import org.sirix.node.xdm.TextNode;
  *
  */
 public final class ImmutableJSONStringNode implements ImmutableValueNode, ImmutableStructNode {
-  /** Mutable {@link JSONStringNode}. */
-  private final JSONStringNode mNode;
+  /** Mutable {@link JsonStringNode}. */
+  private final JsonStringNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node {@link JSONStringNode} to wrap
+   * @param node {@link JsonStringNode} to wrap
    */
-  private ImmutableJSONStringNode(final JSONStringNode node) {
+  private ImmutableJSONStringNode(final JsonStringNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -38,7 +38,7 @@ public final class ImmutableJSONStringNode implements ImmutableValueNode, Immuta
    * @param node the mutable {@link TextNode} to wrap
    * @return immutable text node instance
    */
-  public static ImmutableJSONStringNode of(final JSONStringNode node) {
+  public static ImmutableJSONStringNode of(final JsonStringNode node) {
     return new ImmutableJSONStringNode(node);
   }
 

@@ -207,22 +207,6 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   String getType();
 
   /**
-   * Get key for given name. This is used for efficient name testing.
-   *
-   * @param name name, i.e., local part, URI, or prefix
-   * @return internal key assigned to given name
-   */
-  int keyForName(String name);
-
-  /**
-   * Get name for key. This is used for efficient key testing.
-   *
-   * @param key key, i.e., local part key, URI key, or prefix key.
-   * @return String containing name for given key
-   */
-  String nameForKey(int key);
-
-  /**
    * Get raw name for key. This is used for efficient key testing.
    *
    * @param key key, i.e., local part key, URI key, or prefix key.
@@ -387,6 +371,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return the path node key if the currently selected node is a name node, {@code -1} else
    */
+  @Override
   long getPathNodeKey();
 
   /**

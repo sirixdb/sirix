@@ -3,8 +3,8 @@ package org.sirix.node.immutable.json;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.JSONBooleanNode;
-import org.sirix.node.json.JSONStringNode;
+import org.sirix.node.json.JsonBooleanNode;
+import org.sirix.node.json.JsonStringNode;
 import org.sirix.node.xdm.TextNode;
 
 /**
@@ -14,15 +14,15 @@ import org.sirix.node.xdm.TextNode;
  *
  */
 public final class ImmutableJSONBooleanNode extends AbstractImmutableJSONStructuralNode {
-  /** Mutable {@link JSONStringNode}. */
-  private final JSONBooleanNode mNode;
+  /** Mutable {@link JsonStringNode}. */
+  private final JsonBooleanNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node {@link JSONStringNode} to wrap
+   * @param node {@link JsonStringNode} to wrap
    */
-  private ImmutableJSONBooleanNode(final JSONBooleanNode node) {
+  private ImmutableJSONBooleanNode(final JsonBooleanNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -32,7 +32,7 @@ public final class ImmutableJSONBooleanNode extends AbstractImmutableJSONStructu
    * @param node the mutable {@link TextNode} to wrap
    * @return immutable text node instance
    */
-  public static ImmutableJSONBooleanNode of(final JSONBooleanNode node) {
+  public static ImmutableJSONBooleanNode of(final JsonBooleanNode node) {
     return new ImmutableJSONBooleanNode(node);
   }
 

@@ -60,13 +60,13 @@ public class FNPosition extends AbstractFunction {
   @Override
   protected byte[] computeResult() {
     Integer position = 0;
-    final long currentNode = getTrx().getNodeKey();
-    getTrx().moveToParent();
-    getTrx().moveToFirstChild();
+    final long currentNode = asXdmNodeReadTrx().getNodeKey();
+    asXdmNodeReadTrx().moveToParent();
+    asXdmNodeReadTrx().moveToFirstChild();
     do {
       position++;
-      getTrx().moveToRightSibling();
-    } while (getTrx().getNodeKey() != currentNode);
+      asXdmNodeReadTrx().moveToRightSibling();
+    } while (asXdmNodeReadTrx().getNodeKey() != currentNode);
 
     return TypedValue.getBytes(position.toString());
   }

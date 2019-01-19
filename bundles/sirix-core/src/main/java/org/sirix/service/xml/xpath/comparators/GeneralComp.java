@@ -82,7 +82,7 @@ public class GeneralComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) {
 
-    final XdmNodeReadTrx rtx = getTrx();
+    final XdmNodeReadTrx rtx = asXdmNodeReadTrx();
     final List<AtomicValue> op = new ArrayList<AtomicValue>();
     AtomicValue atomized;
     // cast to double, if compatible with XPath 1.0 and <, >, >=, <=

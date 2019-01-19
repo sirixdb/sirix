@@ -54,7 +54,7 @@ public class NodeComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-    final XdmNodeReadTrx rtx = getTrx();
+    final XdmNodeReadTrx rtx = asXdmNodeReadTrx();
     // store item key as atomic value
     final AtomicValue mAtomized = new AtomicValue(
         TypedValue.getBytes(((Long) rtx.getNodeKey()).toString()), rtx.keyForName("xs:integer"));

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -25,19 +25,19 @@ import org.sirix.api.xdm.XdmNodeReadTrx;
 
 /**
  * <h1>TypeFilter</h1>
- * 
+ *
  * <p>
  * Only match nodes with the specified value type.
  * </p>
  */
-public class TypeFilter extends AbstractFilter {
+public class TypeFilter extends AbstractFilter<XdmNodeReadTrx> {
 
   /** Type information. */
   private final int mType;
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx transaction this filter is bound to
    * @param type type to match
    */
@@ -48,7 +48,7 @@ public class TypeFilter extends AbstractFilter {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx transaction this filter is bound to
    * @param typeName name of the type to match
    */

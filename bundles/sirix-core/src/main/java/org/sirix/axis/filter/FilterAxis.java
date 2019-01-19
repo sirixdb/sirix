@@ -25,7 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
@@ -35,13 +36,13 @@ import org.sirix.axis.AbstractAxis;
  * Perform a test on a given axis.
  * </p>
  */
-public final class FilterAxis extends AbstractAxis {
+public final class FilterAxis<R extends NodeReadTrx & NodeCursor> extends AbstractAxis {
 
   /** Axis to test. */
   private final Axis mAxis;
 
   /** Test to apply to axis. */
-  private final List<Filter<XdmNodeReadTrx>> mAxisFilter;
+  private final List<Filter<R>> mAxisFilter;
 
   /**
    * Constructor initializing internal state.
@@ -50,21 +51,21 @@ public final class FilterAxis extends AbstractAxis {
    * @param firstAxisTest test to perform for each node found with axis
    * @param axisTest tests to perform for each node found with axis
    */
+  @SuppressWarnings("unlikely-arg-type")
   @SafeVarargs
-  public FilterAxis(final Axis axis, final Filter<XdmNodeReadTrx> firstAxisTest,
-      final Filter<XdmNodeReadTrx>... axisTest) {
-    super(axis.getTrx());
+  public FilterAxis(final Axis axis, final Filter<R> firstAxisTest, final Filter<R>... axisTest) {
+    super(axis.getCursor());
     mAxis = axis;
     mAxisFilter = new ArrayList<>();
     mAxisFilter.add(firstAxisTest);
-    if (!mAxis.getTrx().equals(mAxisFilter.get(0).getTrx())) {
+    if (!mAxis.getCursor().equals(mAxisFilter.get(0).getTrx())) {
       throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
     }
 
     if (axisTest != null) {
       for (final var filter : axisTest) {
         mAxisFilter.add(filter);
-        if (!mAxis.getTrx().equals(mAxisFilter.get(mAxisFilter.size() - 1).getTrx())) {
+        if (!mAxis.getCursor().equals(mAxisFilter.get(mAxisFilter.size() - 1).getTrx())) {
           throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
         }
       }
@@ -84,7 +85,7 @@ public final class FilterAxis extends AbstractAxis {
     while (mAxis.hasNext()) {
       final long nodeKey = mAxis.next();
       boolean filterResult = true;
-      for (final Filter<XdmNodeReadTrx> filter : mAxisFilter) {
+      for (final Filter<R> filter : mAxisFilter) {
         filterResult = filterResult && filter.filter();
         if (!filterResult) {
           break;

@@ -40,7 +40,7 @@ import org.sirix.settings.Constants;
  * Node representing a JSON string.
  * </p>
  */
-public final class JSONStringNode extends AbstractStructForwardingNode implements ValueNode {
+public final class JsonStringNode extends AbstractStructForwardingNode implements ValueNode {
 
   /** Delegate for common value node information. */
   private final ValNodeDelegate mValDel;
@@ -54,7 +54,7 @@ public final class JSONStringNode extends AbstractStructForwardingNode implement
    * @param valDel delegate for {@link ValueNode} implementation
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public JSONStringNode(final ValNodeDelegate valDel, final StructNodeDelegate structDel) {
+  public JsonStringNode(final ValNodeDelegate valDel, final StructNodeDelegate structDel) {
     mStructNodeDel = checkNotNull(structDel);
     mValDel = checkNotNull(valDel);
   }

@@ -39,7 +39,7 @@ import com.google.common.base.Objects;
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public final class JSONArrayNode extends AbstractStructForwardingNode {
+public final class JsonObjectNode extends AbstractStructForwardingNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -49,14 +49,14 @@ public final class JSONArrayNode extends AbstractStructForwardingNode {
    *
    * @param structDel {@link StructNodeDelegate} to be set
    */
-  public JSONArrayNode(final StructNodeDelegate structDel) {
+  public JsonObjectNode(final StructNodeDelegate structDel) {
     assert structDel != null;
     mStructNodeDel = structDel;
   }
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_ARRAY;
+    return Kind.JSON_OBJECT;
   }
 
   @Override
@@ -86,10 +86,11 @@ public final class JSONArrayNode extends AbstractStructForwardingNode {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof JSONObjectKeyNode))
+    if (!(obj instanceof JsonObjectKeyNode))
       return false;
 
-    final JSONObjectKeyNode other = (JSONObjectKeyNode) obj;
+    final JsonObjectKeyNode other = (JsonObjectKeyNode) obj;
     return Objects.equal(delegate(), other.delegate());
   }
+
 }

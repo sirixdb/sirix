@@ -185,11 +185,6 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject 
     return delegate().rawNameForKey(pKey);
   }
 
-  // @Override
-  // public XdmNodeReadTrx cloneInstance() throws SirixException {
-  // return delegate().cloneInstance();
-  // }
-
   @Override
   public int getNameCount(final String name, @Nonnull final Kind kind) {
     return delegate().getNameCount(name, kind);

@@ -54,7 +54,7 @@ public class TypeFilterTest {
   public void testFilterConvetions() throws Exception {
 
     final AbstractAxis axis = new XPathAxis(holder.getNodeReadTrx(), "a");
-    final XdmNodeReadTrx xtx = ((XdmNodeReadTrx) axis.getTrx());
+    final XdmNodeReadTrx xtx = ((XdmNodeReadTrx) axis.asXdmNodeReadTrx());
 
     xtx.moveTo(9L);
     FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);

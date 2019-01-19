@@ -40,7 +40,7 @@ import com.google.common.base.Objects;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class JSONObjectKeyNode extends AbstractStructForwardingNode {
+public final class JsonObjectKeyNode extends AbstractStructForwardingNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -57,7 +57,7 @@ public final class JSONObjectKeyNode extends AbstractStructForwardingNode {
    * @param structDel {@link StructNodeDelegate} to be set
    * @param name the key name
    */
-  public JSONObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
+  public JsonObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
     assert structDel != null;
     mStructNodeDel = structDel;
@@ -100,10 +100,10 @@ public final class JSONObjectKeyNode extends AbstractStructForwardingNode {
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof JSONObjectKeyNode))
+    if (!(obj instanceof JsonObjectKeyNode))
       return false;
 
-    final JSONObjectKeyNode other = (JSONObjectKeyNode) obj;
+    final JsonObjectKeyNode other = (JsonObjectKeyNode) obj;
     return Objects.equal(mName, other.mName) && mNameKey == other.mNameKey
         && Objects.equal(delegate(), other.delegate());
   }
@@ -118,7 +118,7 @@ public final class JSONObjectKeyNode extends AbstractStructForwardingNode {
     return mStructNodeDel;
   }
 
-  public JSONObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public JsonObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
     mPathNodeKey = pathNodeKey;
     return this;
   }

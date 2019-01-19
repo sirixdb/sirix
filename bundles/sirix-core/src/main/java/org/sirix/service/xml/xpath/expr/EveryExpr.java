@@ -96,9 +96,9 @@ public class EveryExpr extends AbstractExpression {
         }
       }
     }
-    final int mItemKey = getTrx().getItemList().addItem(
+    final int mItemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = mItemKey;
 
   }

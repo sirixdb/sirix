@@ -195,7 +195,7 @@ public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> 
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return {@link XdmNodeWriteTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
+  W beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.

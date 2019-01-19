@@ -97,8 +97,8 @@ public class CastExpr extends AbstractExpression {
     if (mSourceExpr.hasNext()) {
       mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTrx().getTypeKey());
-      final String sourceValue = getTrx().getValue();
+      final Type sourceType = Type.getType(asXdmNodeReadTrx().getTypeKey());
+      final String sourceValue = asXdmNodeReadTrx().getValue();
 
       // cast source to target type, if possible
       if (sourceType.isCastableTo(mTargetType, sourceValue)) {

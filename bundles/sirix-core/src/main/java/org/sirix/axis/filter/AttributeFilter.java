@@ -31,7 +31,7 @@ import org.sirix.node.Kind;
  * Only match ATTRIBUTE nodes.
  * </p>
  */
-public final class AttributeFilter extends AbstractFilter {
+public final class AttributeFilter extends AbstractFilter<XdmNodeReadTrx> {
 
   /**
    * Default constructor.

@@ -4,8 +4,11 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
 
-public interface NodeWriteTrx extends AutoCloseable {
+public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
@@ -62,10 +65,20 @@ public interface NodeWriteTrx extends AutoCloseable {
   NodeWriteTrx truncateTo(int revision);
 
   /**
+   * Get the {@link PathSummaryReader} associated with the current write transaction -- might be
+   * {@code null} if no path summary index is used.
+   *
+   * @return {@link PathSummaryReader} instance
+   */
+  PathSummaryReader getPathSummary();
+
+  /**
    * Closing current WriteTransaction.
    *
    * @throws SirixIOException if write transaction couldn't be closed
    */
   @Override
   void close();
+
+  PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageWtx();
 }

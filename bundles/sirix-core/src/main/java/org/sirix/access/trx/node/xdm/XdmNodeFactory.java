@@ -2,11 +2,8 @@ package org.sirix.access.trx.node.xdm;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.path.summary.PathNode;
-import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
@@ -21,22 +18,7 @@ import org.sirix.node.xdm.TextNode;
  * @author Johannes Lichtenberger
  *
  */
-public interface XdmNodeFactory {
-  /**
-   * Create a {@link PathNode}.
-   *
-   * @param parentKey parent node key
-   * @param leftSibKey left sibling key
-   * @param rightSibKey right sibling key
-   * @param hash hash value associated with the node
-   * @param name {@link QName} of the node
-   * @param pathNodeKey path node key of node
-   * @return the created node
-   * @throws SirixIOException if an I/O error occurs
-   */
-  PathNode createPathNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey, long hash,
-      QNm name, Kind kind, @Nonnegative int level) throws SirixIOException;
-
+public interface XdmNodeFactory extends NodeFactory {
   /**
    * Create a {@link PINode}.
    *

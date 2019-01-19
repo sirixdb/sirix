@@ -31,6 +31,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
 /**
@@ -198,18 +199,20 @@ public abstract class AbstractAxis implements Axis {
     mHasNext = true;
   }
 
-  /**
-   * Get current {@link XdmNodeReadTrx}.
-   *
-   * @return the {@link XdmNodeReadTrx} used
-   */
   @Override
-  public XdmNodeReadTrx getTrx() {
+  public XdmNodeReadTrx asXdmNodeReadTrx() {
     if (mRtx instanceof NodeReadTrx) {
       return (XdmNodeReadTrx) mRtx;
-    } else {
-      return null;
     }
+    throw new IllegalStateException("Node cursor is no XDM node transaction.");
+  }
+
+  @Override
+  public PathSummaryReader asPathSummary() {
+    if (mRtx instanceof PathSummaryReader) {
+      return (PathSummaryReader) mRtx;
+    }
+    throw new IllegalStateException("Node cursor is no path summary reader.");
   }
 
   @Override

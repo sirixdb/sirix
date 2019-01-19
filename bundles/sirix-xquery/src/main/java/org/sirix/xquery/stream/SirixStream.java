@@ -37,7 +37,7 @@ public final class SirixStream implements Stream<DBNode> {
   public DBNode next() throws DocumentException {
     if (mAxis.hasNext()) {
       mAxis.next();
-      return new DBNode(mAxis.getTrx(), mCollection);
+      return new DBNode(mAxis.asXdmNodeReadTrx(), mCollection);
     }
     return null;
   }

@@ -54,7 +54,7 @@ public final class SelfAxis extends AbstractAxis {
   protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      return getTrx().getNodeKey();
+      return asXdmNodeReadTrx().getNodeKey();
     }
 
     return done();

@@ -337,7 +337,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     mClosed = true;
   }
 

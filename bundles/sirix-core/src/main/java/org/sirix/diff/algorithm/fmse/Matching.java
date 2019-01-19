@@ -160,12 +160,12 @@ public final class Matching {
       if (mRtxOld.getKind() == Kind.ELEMENT) {
         for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
         for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
           mRtxOld.moveToAttribute(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
       }

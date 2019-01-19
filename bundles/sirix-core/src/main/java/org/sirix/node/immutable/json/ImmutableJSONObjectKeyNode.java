@@ -3,8 +3,8 @@ package org.sirix.node.immutable.json;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.JSONObjectNode;
-import org.sirix.node.json.JSONObjectKeyNode;
+import org.sirix.node.json.JsonObjectNode;
+import org.sirix.node.json.JsonObjectKeyNode;
 
 /**
  * Immutable JSONObject wrapper.
@@ -14,15 +14,15 @@ import org.sirix.node.json.JSONObjectKeyNode;
  */
 public final class ImmutableJSONObjectKeyNode extends AbstractImmutableJSONStructuralNode {
 
-  /** Mutable {@link JSONObjectNode}. */
-  private final JSONObjectKeyNode mNode;
+  /** Mutable {@link JsonObjectNode}. */
+  private final JsonObjectKeyNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link JSONObjectNode}
+   * @param node mutable {@link JsonObjectNode}
    */
-  private ImmutableJSONObjectKeyNode(final JSONObjectKeyNode node) {
+  private ImmutableJSONObjectKeyNode(final JsonObjectKeyNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -32,7 +32,7 @@ public final class ImmutableJSONObjectKeyNode extends AbstractImmutableJSONStruc
    * @param node the mutable {@link ImmutableJSONObjectKeyNode} to wrap
    * @return immutable JSON-array node instance
    */
-  public static ImmutableJSONObjectKeyNode of(final JSONObjectKeyNode node) {
+  public static ImmutableJSONObjectKeyNode of(final JsonObjectKeyNode node) {
     return new ImmutableJSONObjectKeyNode(node);
   }
 

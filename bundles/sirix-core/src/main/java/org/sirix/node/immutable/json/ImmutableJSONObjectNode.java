@@ -3,7 +3,7 @@ package org.sirix.node.immutable.json;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.JSONObjectNode;
+import org.sirix.node.json.JsonObjectNode;
 
 /**
  * Immutable JSONObject wrapper.
@@ -13,15 +13,15 @@ import org.sirix.node.json.JSONObjectNode;
  */
 public final class ImmutableJSONObjectNode extends AbstractImmutableJSONStructuralNode {
 
-  /** Mutable {@link JSONObjectNode}. */
-  private final JSONObjectNode mNode;
+  /** Mutable {@link JsonObjectNode}. */
+  private final JsonObjectNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link JSONObjectNode}
+   * @param node mutable {@link JsonObjectNode}
    */
-  private ImmutableJSONObjectNode(final JSONObjectNode node) {
+  private ImmutableJSONObjectNode(final JsonObjectNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -31,7 +31,7 @@ public final class ImmutableJSONObjectNode extends AbstractImmutableJSONStructur
    * @param node the mutable {@link ImmutableJSONObjectNode} to wrap
    * @return immutable JSON-array node instance
    */
-  public static ImmutableJSONObjectNode of(final JSONObjectNode node) {
+  public static ImmutableJSONObjectNode of(final JsonObjectNode node) {
     return new ImmutableJSONObjectNode(node);
   }
 
