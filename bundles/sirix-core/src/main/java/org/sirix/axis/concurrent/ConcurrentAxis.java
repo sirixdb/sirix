@@ -89,7 +89,7 @@ public class ConcurrentAxis extends AbstractAxis {
    */
   public ConcurrentAxis(final XdmNodeReadTrx rtx, final Axis childAxis) {
     super(rtx);
-    if (rtx.equals(childAxis.getTrx()) && rtx.getId() == childAxis.getTrx().getId()) {
+    if (rtx.equals(childAxis.asXdmNodeReadTrx()) && rtx.getId() == childAxis.asXdmNodeReadTrx().getId()) {
       throw new IllegalArgumentException(
           "The filter must be bound to another transaction but on the same revision/node!");
     }

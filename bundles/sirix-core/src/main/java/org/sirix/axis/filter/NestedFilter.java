@@ -33,7 +33,7 @@ import org.sirix.api.xdm.XdmNodeReadTrx;
  * Nests two or more IFilters.
  * </p>
  */
-public final class NestedFilter extends AbstractFilter {
+public final class NestedFilter extends AbstractFilter<XdmNodeReadTrx> {
 
   /** Tests to apply. */
   private final List<Filter<XdmNodeReadTrx>> mFilter;

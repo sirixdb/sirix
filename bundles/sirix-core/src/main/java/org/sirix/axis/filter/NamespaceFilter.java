@@ -30,7 +30,7 @@ import org.sirix.api.xdm.XdmNodeReadTrx;
  * Only match NAMESPACE nodes.
  * </p>
  */
-public final class NamespaceFilter extends AbstractFilter {
+public final class NamespaceFilter extends AbstractFilter<XdmNodeReadTrx> {
 
   /**
    * Default constructor.

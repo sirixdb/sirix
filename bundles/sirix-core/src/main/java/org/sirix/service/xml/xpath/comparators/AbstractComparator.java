@@ -88,12 +88,12 @@ public abstract class AbstractComparator extends AbstractAxis {
 
       // TODO: why?
       if (!(mOperand1 instanceof LiteralExpr)) {
-        mOperand1.reset(getTrx().getNodeKey());
+        mOperand1.reset(asXdmNodeReadTrx().getNodeKey());
       }
 
       // TODO: why?
       if (!(mOperand2 instanceof LiteralExpr)) {
-        mOperand2.reset(getTrx().getNodeKey());
+        mOperand2.reset(asXdmNodeReadTrx().getNodeKey());
       }
 
       /*
@@ -116,7 +116,7 @@ public abstract class AbstractComparator extends AbstractAxis {
               final AtomicValue result = new AtomicValue(resultValue);
 
               // add retrieved AtomicValue to item list
-              final int itemKey = getTrx().getItemList().addItem(result);
+              final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
               mKey = itemKey;
             } catch (SirixXPathException e) {
               throw new RuntimeException(e);

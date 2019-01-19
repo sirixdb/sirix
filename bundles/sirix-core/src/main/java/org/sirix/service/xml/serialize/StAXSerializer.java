@@ -196,13 +196,13 @@ public final class StAXSerializer implements XMLEventReader {
   @Override
   public void close() throws XMLStreamException {
     if (mCloseRtx) {
-      mAxis.getTrx().close();
+      mAxis.asXdmNodeReadTrx().close();
     }
   }
 
   @Override
   public String getElementText() throws XMLStreamException {
-    final XdmNodeReadTrx rtx = mAxis.getTrx();
+    final XdmNodeReadTrx rtx = mAxis.asXdmNodeReadTrx();
     final long nodeKey = rtx.getNodeKey();
 
     /*
@@ -268,7 +268,7 @@ public final class StAXSerializer implements XMLEventReader {
         mKey = mAxis.next();
 
         if (mNextTag) {
-          if (mAxis.getTrx().getKind() != Kind.ELEMENT) {
+          if (mAxis.asXdmNodeReadTrx().getKind() != Kind.ELEMENT) {
             throw new XMLStreamException("The next tag isn't a start- or end-tag!");
           }
           mNextTag = false;
@@ -278,7 +278,7 @@ public final class StAXSerializer implements XMLEventReader {
         mEmitEndDocument = false;
         mEvent = mFac.createEndDocument();
       } else {
-        emit(mAxis.getTrx());
+        emit(mAxis.asXdmNodeReadTrx());
       }
     } catch (final IOException e) {
       throw new IllegalStateException(e);
@@ -296,8 +296,8 @@ public final class StAXSerializer implements XMLEventReader {
 
   @Override
   public XMLEvent peek() throws XMLStreamException {
-    final long currNodeKey = mAxis.getTrx().getNodeKey();
-    final XdmNodeReadTrx rtx = mAxis.getTrx();
+    final long currNodeKey = mAxis.asXdmNodeReadTrx().getNodeKey();
+    final XdmNodeReadTrx rtx = mAxis.asXdmNodeReadTrx();
 
     if (!mHasNext && mEmitEndDocument) {
       mEvent = mFac.createEndDocument();
@@ -369,12 +369,12 @@ public final class StAXSerializer implements XMLEventReader {
     assert nodeKind != null;
     switch (nodeKind) {
       case ELEMENT:
-        emitEndTag(mAxis.getTrx());
+        emitEndTag(mAxis.asXdmNodeReadTrx());
         break;
       case PROCESSING_INSTRUCTION:
       case COMMENT:
       case TEXT:
-        emitNode(mAxis.getTrx());
+        emitNode(mAxis.asXdmNodeReadTrx());
         break;
       // $CASES-OMITTED$
       default:

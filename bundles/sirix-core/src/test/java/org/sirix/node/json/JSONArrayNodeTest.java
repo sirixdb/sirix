@@ -72,19 +72,19 @@ public class JSONArrayNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JSONArrayNode node = new JSONArrayNode(strucDel);
+    final JsonArrayNode node = new JsonArrayNode(strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JSONArrayNode node2 = (JSONArrayNode) Kind.JSON_ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final JsonArrayNode node2 = (JsonArrayNode) Kind.JSON_ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageWriteTrx);
     check(node2);
   }
 
-  private final void check(final JSONArrayNode node) {
+  private final void check(final JsonArrayNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());

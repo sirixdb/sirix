@@ -37,7 +37,7 @@ import org.sirix.node.xdm.AbstractStructForwardingNode;
  * Node representing a JSON boolean.
  * </p>
  */
-public final class JSONBooleanNode extends AbstractStructForwardingNode {
+public final class JsonBooleanNode extends AbstractStructForwardingNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -50,7 +50,7 @@ public final class JSONBooleanNode extends AbstractStructForwardingNode {
    * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public JSONBooleanNode(final boolean boolValue, final StructNodeDelegate structDel) {
+  public JsonBooleanNode(final boolean boolValue, final StructNodeDelegate structDel) {
     mBoolValue = boolValue;
     mStructNodeDel = checkNotNull(structDel);
   }

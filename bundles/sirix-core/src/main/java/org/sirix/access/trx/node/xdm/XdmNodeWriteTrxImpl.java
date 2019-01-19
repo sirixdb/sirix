@@ -39,9 +39,9 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.Movement;
-import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;
@@ -145,7 +145,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
   private final List<PostCommitHook> mPostCommitHooks = new ArrayList<>();
 
   /** {@link PathSummaryWriter} instance. */
-  private PathSummaryWriter mPathSummaryWriter;
+  private PathSummaryWriter<XdmNodeReadTrx> mPathSummaryWriter;
 
   /**
    * Determines if a path summary should be built and kept up-to-date or not.
@@ -202,7 +202,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
 
     // Path summary.
     if (mBuildPathSummary) {
-      mPathSummaryWriter = PathSummaryWriter.getInstance(pageWriteTrx, resourceManager, mNodeFactory, mNodeReadTrx);
+      mPathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, resourceManager, mNodeFactory, mNodeReadTrx);
     }
 
     if (maxTime > 0) {
@@ -305,6 +305,15 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     } finally {
       unLock();
     }
+  }
+
+  /**
+   * Get the current node.
+   *
+   * @return {@link Node} implementation
+   */
+  private ImmutableNode getCurrentNode() {
+    return mNodeReadTrx.getCurrentNode();
   }
 
   /**
@@ -1623,8 +1632,12 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
           return this;
         }
 
+        final long nodeKey = getNodeKey();
+        final long pathNodeKey = moveToParent().get().getPathNodeKey();
+        moveTo(nodeKey);
+
         // Remove old value from indexes.
-        mIndexController.notifyChange(ChangeType.DELETE, getNode(), getPathNodeKey());
+        mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
 
         final long oldHash = mNodeReadTrx.getCurrentNode().hashCode();
         final byte[] byteVal = getBytes(value);
@@ -1638,7 +1651,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
         adaptHashedWithUpdate(oldHash);
 
         // Index new value.
-        mIndexController.notifyChange(ChangeType.INSERT, getNode(), getPathNodeKey());
+        mIndexController.notifyChange(ChangeType.INSERT, getNode(), pathNodeKey);
 
         return this;
       } else {
@@ -1809,9 +1822,9 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     // Get a new path summary instance.
     if (mBuildPathSummary) {
       mPathSummaryWriter = null;
-      mPathSummaryWriter = PathSummaryWriter.getInstance(
-          (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadTrx.getPageTransaction(),
-          mNodeReadTrx.getResourceManager(), mNodeFactory, mNodeReadTrx);
+      mPathSummaryWriter =
+          new PathSummaryWriter<>((PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadTrx.getPageTransaction(),
+              mNodeReadTrx.getResourceManager(), mNodeFactory, mNodeReadTrx);
     }
 
     // Recreate index listeners.
@@ -2618,16 +2631,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     }
 
     removeOldNode(currentNode, key);
-    return mNodeReadTrx.getCurrentNode();
-  }
-
-  /**
-   * Get the current node.
-   *
-   * @return {@link Node} implementation
-   */
-  private ImmutableNode getCurrentNode() {
-    return mNodeReadTrx.getCurrentNode();
+    return mNodeReadTrx.getNode();
   }
 
   private void removeOldNode(final StructNode node, final @Nonnegative long key) {
@@ -2748,5 +2752,12 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     }
 
     return this;
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
+    mNodeReadTrx.assertNotClosed();
+    return (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadTrx.getPageTrx();
   }
 }

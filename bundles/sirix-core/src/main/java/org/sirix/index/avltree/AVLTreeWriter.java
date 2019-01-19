@@ -461,7 +461,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   }
 
   @Override
-  public void close() throws Exception {}
+  public void close() {
+    mAVLTreeReader.close();
+  }
 
   @Override
   protected NodeCursor delegate() {

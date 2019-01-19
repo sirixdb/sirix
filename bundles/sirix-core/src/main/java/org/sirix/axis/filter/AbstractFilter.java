@@ -24,7 +24,8 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.sirix.api.Filter;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import com.google.common.base.Predicate;
 
 /**
@@ -34,27 +35,27 @@ import com.google.common.base.Predicate;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbstractFilter implements Filter<XdmNodeReadTrx>, Predicate<Long> {
+public abstract class AbstractFilter<R extends NodeReadTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
-  private XdmNodeReadTrx mRtx;
+  private R mRtx;
 
   /**
    * Bind axis step to transaction.
    *
    * @param rtx transaction to operate with
    */
-  protected AbstractFilter(final XdmNodeReadTrx rtx) {
+  protected AbstractFilter(final R rtx) {
     mRtx = checkNotNull(rtx);
   }
 
   @Override
-  public final XdmNodeReadTrx getTrx() {
+  public final R getTrx() {
     return mRtx;
   }
 
   @Override
-  public void setTrx(XdmNodeReadTrx rtx) {
+  public void setTrx(R rtx) {
     mRtx = checkNotNull(rtx);
   }
 

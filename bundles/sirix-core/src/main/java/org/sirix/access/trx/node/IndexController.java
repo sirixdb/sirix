@@ -22,6 +22,7 @@ import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Node;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
@@ -266,22 +267,20 @@ public final class IndexController {
    *
    * @return this {@link IndexController} instance
    */
-  public IndexController createIndexListeners(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
+  public IndexController createIndexListeners(final Set<IndexDef> indexDefs, final NodeWriteTrx nodeWriteTrx) {
     checkNotNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
       mIndexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
-          mListeners.add(
-              createPathIndexListener(nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
+          mListeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          mListeners.add(
-              createCASIndexListener(nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(), indexDef));
+          mListeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
-          mListeners.add(createNameIndexListener(nodeWriteTrx.getPageTransaction(), indexDef));
+          mListeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
           break;
         default:
           break;

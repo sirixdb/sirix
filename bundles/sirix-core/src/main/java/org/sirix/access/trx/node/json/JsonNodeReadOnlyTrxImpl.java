@@ -4,10 +4,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.Move;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
-import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
@@ -18,22 +17,23 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.JSONArrayNode;
-import org.sirix.node.json.JSONNullNode;
-import org.sirix.node.json.JSONNumberNode;
-import org.sirix.node.json.JSONObjectKeyNode;
-import org.sirix.node.json.JSONObjectNode;
-import org.sirix.node.json.JSONStringNode;
+import org.sirix.node.json.JsonArrayNode;
+import org.sirix.node.json.JsonNullNode;
+import org.sirix.node.json.JsonNumberNode;
+import org.sirix.node.json.JsonObjectKeyNode;
+import org.sirix.node.json.JsonObjectNode;
+import org.sirix.node.json.JsonStringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 
-public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadOnlyTrx> implements JSONNodeReadOnlyTrx {
+public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
+    implements JsonNodeReadOnlyTrx {
 
   /** ID of transaction. */
   private final long mTrxId;
 
   /** Resource manager this write transaction is bound to. */
-  protected final XdmResourceManagerImpl mResourceManager;
+  protected final JsonResourceManagerImpl mResourceManager;
 
   /** State of transaction including all cached stuff. */
   private PageReadTrx mPageReadTrx;
@@ -52,10 +52,9 @@ public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadO
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  // FIXME: ResourceManager.
-  JSONNodeReadTrxImpl(final XdmResourceManagerImpl resourceManager, final @Nonnegative long trxId,
+  JsonNodeReadOnlyTrxImpl(final JsonResourceManagerImpl resourceManager, final @Nonnegative long trxId,
       final PageReadTrx pageReadTransaction, final Node documentNode) {
-    super(trxId, pageReadTransaction);
+    super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
     mTrxId = trxId;
@@ -65,13 +64,13 @@ public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadO
   }
 
   @Override
-  protected ImmutableNode getCurrentNode() {
+  public int keyForName(String name) {
     assertNotClosed();
-    return mCurrentNode;
+    return 0;
   }
 
   @Override
-  public Move<JSONNodeReadOnlyTrx> moveTo(long nodeKey) {
+  public Move<JsonNodeReadOnlyTrx> moveTo(long nodeKey) {
     assertNotClosed();
 
     // Remember old node and fetch new one.
@@ -124,12 +123,12 @@ public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadO
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToLeftSibling() {
+  public Move<? extends JsonNodeReadOnlyTrx> moveToLeftSibling() {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Move<? extends NodeCursor> moveToPrevious() {
+  public Move<? extends JsonNodeReadOnlyTrx> moveToPrevious() {
     throw new UnsupportedOperationException();
   }
 
@@ -157,37 +156,37 @@ public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadO
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONArrayNode;
+    return mCurrentNode instanceof JsonArrayNode;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONObjectNode;
+    return mCurrentNode instanceof JsonObjectNode;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONObjectKeyNode;
+    return mCurrentNode instanceof JsonObjectKeyNode;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONNumberNode;
+    return mCurrentNode instanceof JsonNumberNode;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONNullNode;
+    return mCurrentNode instanceof JsonNullNode;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JSONStringNode;
+    return mCurrentNode instanceof JsonStringNode;
   }
 
   @Override
@@ -210,7 +209,57 @@ public final class JSONNodeReadTrxImpl extends AbstractNodeReadTrx<JSONNodeReadO
   }
 
   @Override
-  protected JSONNodeReadOnlyTrx thisInstance() {
+  protected JsonNodeReadOnlyTrx thisInstance() {
     return this;
+  }
+
+  public void setCurrentNode(ImmutableNode node) {
+    assertNotClosed();
+    assert node != null : "Node must be given.";
+    mCurrentNode = node;
+  }
+
+  @Override
+  public long getDescendantCount() {
+    // TODO Auto-generated method stub
+    return 0;
+  }
+
+  @Override
+  public long getChildCount() {
+    // TODO Auto-generated method stub
+    return 0;
+  }
+
+  @Override
+  public Kind getPathKind() {
+    return null;
+  }
+
+  @Override
+  public boolean isDocumentRoot() {
+    assertNotClosed();
+    return mCurrentNode.getKind() == Kind.DOCUMENT;
+  }
+
+  @Override
+  public boolean isClosed() {
+    return mClosed;
+  }
+
+  @Override
+  public QNm getName() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public boolean hasChildren() {
+    // TODO Auto-generated method stub
+    return false;
+  }
+
+  public ImmutableNode getCurrentNode() {
+    return mCurrentNode;
   }
 }

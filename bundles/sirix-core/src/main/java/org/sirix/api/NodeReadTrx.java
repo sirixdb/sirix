@@ -1,10 +1,12 @@
 package org.sirix.api;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.node.Kind;
 
 
 public interface NodeReadTrx extends AutoCloseable {
@@ -55,7 +57,6 @@ public interface NodeReadTrx extends AutoCloseable {
   long getNodeKey();
 
 
-
   /**
    * Get the {@link ResourceManager} this instance is bound to.
    *
@@ -74,4 +75,35 @@ public interface NodeReadTrx extends AutoCloseable {
 
   PageReadTrx getPageTrx();
 
+  long getPathNodeKey();
+
+  /**
+   * Get key for given name. This is used for efficient name testing.
+   *
+   * @param name name, i.e., local part, URI, or prefix
+   * @return internal key assigned to given name
+   */
+  int keyForName(String name);
+
+  /**
+   * Get name for key. This is used for efficient key testing.
+   *
+   * @param key key, i.e., local part key, URI key, or prefix key.
+   * @return String containing name for given key
+   */
+  String nameForKey(int key);
+
+  long getDescendantCount();
+
+  long getChildCount();
+
+  Kind getPathKind();
+
+  boolean isDocumentRoot();
+
+  boolean isClosed();
+
+  QNm getName();
+
+  boolean hasChildren();
 }

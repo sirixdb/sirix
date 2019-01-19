@@ -93,7 +93,7 @@ public class SequenceAxis extends AbstractAxis {
       mCurrent = mSeq.get(mNum++);
 
       // mCurrent.getTransaction().moveTo(getTransaction().getKey());
-      mCurrent.reset(getTrx().getNodeKey());
+      mCurrent.reset(asXdmNodeReadTrx().getNodeKey());
       // mCurrent.resetToLastKey();
       if (mCurrent.hasNext()) {
         mKey = mCurrent.next();

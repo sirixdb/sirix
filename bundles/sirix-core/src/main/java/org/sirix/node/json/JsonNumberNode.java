@@ -37,7 +37,7 @@ import org.sirix.node.xdm.AbstractStructForwardingNode;
  * Node representing a JSON number.
  * </p>
  */
-public final class JSONNumberNode extends AbstractStructForwardingNode {
+public final class JsonNumberNode extends AbstractStructForwardingNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -50,7 +50,7 @@ public final class JSONNumberNode extends AbstractStructForwardingNode {
    * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public JSONNumberNode(final double number, final StructNodeDelegate structDel) {
+  public JsonNumberNode(final double number, final StructNodeDelegate structDel) {
     mNumber = number;
     mStructNodeDel = checkNotNull(structDel);
   }

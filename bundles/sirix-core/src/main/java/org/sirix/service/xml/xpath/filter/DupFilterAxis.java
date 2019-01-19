@@ -98,13 +98,13 @@ public class DupFilterAxis extends AbstractAxis {
         // mKey = mAxis.next();
         // } else {
         mAxis.next();
-        mKey = mAxis.getTrx().getNodeKey();
+        mKey = mAxis.asXdmNodeReadTrx().getNodeKey();
         // }
 
         // add current item key to the set. If true is returned the item is
         // no
         // duplicate and can be returned by the duplicate filter.
-        if (mDupSet.add(getTrx().getNodeKey())) {
+        if (mDupSet.add(asXdmNodeReadTrx().getNodeKey())) {
           return true;
         }
       }

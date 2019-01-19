@@ -30,6 +30,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
+import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
@@ -37,6 +38,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
@@ -82,7 +84,7 @@ import com.google.common.base.Objects;
 public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx> implements XdmNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
-  protected final XdmResourceManagerImpl mResourceManager;
+  protected final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> mResourceManager;
 
   /** Tracks whether the transaction is closed. */
   private boolean mClosed;
@@ -93,9 +95,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   /** The transaction-ID. */
   private final long mTrxId;
 
-  /** The current node. */
-  private ImmutableNode mCurrentNode;
-
   /**
    * Constructor.
    *
@@ -104,13 +103,12 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XdmNodeReadTrxImpl(final XdmResourceManagerImpl resourceManager, final @Nonnegative long trxId,
-      final PageReadTrx pageReadTransaction, final Node documentNode) {
-    super(trxId, pageReadTransaction);
+  XdmNodeReadTrxImpl(final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> resourceManager,
+      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final Node documentNode) {
+    super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
     mTrxId = trxId;
-    mCurrentNode = checkNotNull(documentNode);
     mClosed = false;
     mItemList = new ItemListImpl();
   }
@@ -130,7 +128,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableNode oldNode = getCurrentNode();
+    final ImmutableNode oldNode = mCurrentNode;
     Optional<? extends Record> newNode;
     try {
       // Immediately return node from item list if node key negative.
@@ -257,18 +255,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   public String getType() {
     assertNotClosed();
     return mPageReadTrx.getName(mCurrentNode.getTypeKey(), mCurrentNode.getKind());
-  }
-
-  @Override
-  public int keyForName(final String name) {
-    assertNotClosed();
-    return NamePageHash.generateHashForString(name);
-  }
-
-  @Override
-  public String nameForKey(final int key) {
-    assertNotClosed();
-    return mPageReadTrx.getName(key, mCurrentNode.getKind());
   }
 
   @Override
@@ -687,18 +673,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public long getPathNodeKey() {
-    assertNotClosed();
-    if (mCurrentNode instanceof NameNode) {
-      return ((NameNode) mCurrentNode).getPathNodeKey();
-    }
-    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
-      return 0;
-    }
-    return -1;
-  }
-
-  @Override
   public boolean isValueNode() {
     assertNotClosed();
     return mCurrentNode instanceof ValueNode;
@@ -722,7 +696,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   @Override
   public XdmResourceManager getResourceManager() {
     assertNotClosed();
-    return mResourceManager;
+    return (XdmResourceManager) mResourceManager;
   }
 
   @Override
@@ -732,8 +706,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
     }
   }
 
-  @Override
-  public ImmutableNode getCurrentNode() {
+  ImmutableNode getCurrentNode() {
     return mCurrentNode;
   }
 }

@@ -34,7 +34,6 @@ import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.xdm.TextNode;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -546,14 +545,6 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx, NodeWriteTrx {
    */
   @Override
   XdmNodeWriteTrx addPostCommitHook(PostCommitHook hook);
-
-  /**
-   * Get the {@link PathSummaryReader} associated with the current write transaction -- might be
-   * {@code null} if no path summary index is used.
-   *
-   * @return {@link PathSummaryReader} instance
-   */
-  PathSummaryReader getPathSummary();
 
   /**
    * Get the page transaction used within the write transaction.

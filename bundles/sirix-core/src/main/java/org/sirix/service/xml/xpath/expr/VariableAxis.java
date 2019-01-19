@@ -87,7 +87,7 @@ public class VariableAxis extends AbstractAxis {
    */
   private void notifyObs() {
     for (final VarRefExpr varRef : mVarRefs) {
-      varRef.update(getTrx().getNodeKey());
+      varRef.update(asXdmNodeReadTrx().getNodeKey());
     }
   }
 

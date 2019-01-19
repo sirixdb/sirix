@@ -4,6 +4,7 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
+import org.sirix.index.path.summary.PathSummaryReader;
 import com.google.common.collect.PeekingIterator;
 
 /**
@@ -25,7 +26,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    * @return the transaction
    * @throws ClassCastException if the node cursor is no {@link XdmNodeReadTrx}
    */
-  XdmNodeReadTrx getTrx();
+  XdmNodeReadTrx asXdmNodeReadTrx();
 
   /**
    * Foreach-iterator calling a {@link IVistor} for each iteration.
@@ -61,4 +62,6 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    * @return start node key
    */
   long getStartKey();
+
+  PathSummaryReader asPathSummary();
 }

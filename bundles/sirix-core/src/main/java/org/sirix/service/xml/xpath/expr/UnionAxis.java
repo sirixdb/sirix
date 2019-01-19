@@ -79,7 +79,7 @@ public class UnionAxis extends AbstractAxis {
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -90,7 +90,7 @@ public class UnionAxis extends AbstractAxis {
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }

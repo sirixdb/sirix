@@ -32,7 +32,7 @@ import org.sirix.node.Kind;
  * the local name.
  * </p>
  */
-public final class WildcardFilter extends AbstractFilter {
+public final class WildcardFilter extends AbstractFilter<XdmNodeReadTrx> {
 
   /** Type. */
   public enum EType {
