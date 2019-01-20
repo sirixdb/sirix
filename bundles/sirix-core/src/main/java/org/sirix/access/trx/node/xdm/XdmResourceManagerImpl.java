@@ -38,6 +38,7 @@ import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
+import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -79,6 +80,22 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   public XdmNodeWriteTrx createNodeReadWriteTrx(long nodeTrxId,
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
-    return new XdmNodeWriteTrxImpl(nodeTrxId, this, pageWriteTrx, maxNodeCount, timeUnit, maxTime, documentNode);
+    // The node read-only transaction.
+    final InternalXdmNodeReadTrx nodeReadTrx = new XdmNodeReadTrxImpl(this, nodeTrxId, pageWriteTrx, documentNode);
+
+    // Node factory.
+    final XdmNodeFactory nodeFactory = new XdmNodeFactoryImpl(pageWriteTrx);
+
+    // Path summary.
+    final boolean buildPathSummary = getResourceConfig().withPathSummary;
+    final PathSummaryWriter<XdmNodeReadTrx> pathSummaryWriter;
+    if (buildPathSummary) {
+      pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
+    } else {
+      pathSummaryWriter = null;
+    }
+
+    return new XdmNodeWriteTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
+        documentNode, nodeFactory);
   }
 }

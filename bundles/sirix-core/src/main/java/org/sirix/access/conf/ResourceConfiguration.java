@@ -182,7 +182,7 @@ public final class ResourceConfiguration {
   public final boolean useTextCompression;
 
   /** Determines if a path summary should be build and kept up to date or not. */
-  public final boolean pathSummary;
+  public final boolean withPathSummary;
 
   /** Persistents records / commonly nodes. */
   public final RecordPersister recordPersister;
@@ -220,7 +220,7 @@ public final class ResourceConfiguration {
     numberOfRevisionsToRestore = builder.mRevisionsToRestore;
     databaseConfig = builder.mDBConfig;
     useTextCompression = builder.mCompression;
-    pathSummary = builder.mPathSummary;
+    withPathSummary = builder.mPathSummary;
     areDeweyIDsStored = builder.mUseDeweyIDs;
     resourcePath = databaseConfig.getFile()
                                  .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
@@ -334,7 +334,7 @@ public final class ResourceConfiguration {
       // Text compression.
       jsonWriter.name(JSONNAMES[6]).value(config.useTextCompression);
       // Path summary.
-      jsonWriter.name(JSONNAMES[7]).value(config.pathSummary);
+      jsonWriter.name(JSONNAMES[7]).value(config.withPathSummary);
       // ID.
       jsonWriter.name(JSONNAMES[8]).value(config.id);
       // Dewey IDs stored or not.

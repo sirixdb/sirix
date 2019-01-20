@@ -15,7 +15,7 @@ public interface JsonNodeReadWriteTrx extends JsonNodeReadOnlyTrx, NodeWriteTrx 
 
   JsonNodeReadWriteTrx insertArrayAsRightSibling();
 
-  JsonNodeReadWriteTrx setObjectRecordName(String name);
+  JsonNodeReadWriteTrx setObjectKeyName(String name);
 
   JsonNodeReadWriteTrx setStringValue(String value);
 

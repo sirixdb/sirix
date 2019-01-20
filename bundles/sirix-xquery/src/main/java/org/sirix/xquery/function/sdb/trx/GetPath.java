@@ -46,7 +46,7 @@ public final class GetPath extends AbstractFunction {
 
     final XdmNodeReadTrx rtx = doc.getTrx();
 
-    if (rtx.getResourceManager().getResourceConfig().pathSummary) {
+    if (rtx.getResourceManager().getResourceConfig().withPathSummary) {
       try (final PathSummaryReader pathSummaryReader =
           rtx.getResourceManager().openPathSummary(rtx.getRevisionNumber())) {
         pathSummaryReader.moveTo(rtx.getPathNodeKey());

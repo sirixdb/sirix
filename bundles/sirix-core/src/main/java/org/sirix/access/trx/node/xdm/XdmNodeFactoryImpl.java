@@ -57,8 +57,7 @@ final class XdmNodeFactoryImpl implements XdmNodeFactory {
 
   @Override
   public PathNode createPathNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final long rightSibKey, final long hash, @Nonnull final QNm name, @Nonnull final Kind kind,
-      final @Nonnegative int level) {
+      final long rightSibKey, @Nonnull final QNm name, @Nonnull final Kind kind, final @Nonnegative int level) {
     final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? NamePageHash.generateHashForString(name.getPrefix())
@@ -82,8 +81,8 @@ final class XdmNodeFactoryImpl implements XdmNodeFactory {
 
   @Override
   public ElementNode createElementNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final @Nonnegative long rightSibKey, final long hash, @Nonnull final QNm name,
-      final @Nonnegative long pathNodeKey, final SirixDeweyID id) {
+      final @Nonnegative long rightSibKey, @Nonnull final QNm name, final @Nonnegative long pathNodeKey,
+      final SirixDeweyID id) {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
         ? mPageWriteTrx.createNameKey(name.getNamespaceURI(), Kind.NAMESPACE)
         : -1;

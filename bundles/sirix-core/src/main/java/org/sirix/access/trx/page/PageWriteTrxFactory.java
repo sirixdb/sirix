@@ -83,7 +83,7 @@ public final class PageWriteTrxFactory {
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager, final boolean isBoundToNodeTrx) {
-    final boolean usePathSummary = resourceManager.getResourceConfig().pathSummary;
+    final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
     final IndexController indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.

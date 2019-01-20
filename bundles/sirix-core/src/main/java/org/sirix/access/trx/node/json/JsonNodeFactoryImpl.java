@@ -16,6 +16,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.json.JsonArrayNode;
 import org.sirix.node.json.JsonBooleanNode;
+import org.sirix.node.json.JsonNullNode;
 import org.sirix.node.json.JsonNumberNode;
 import org.sirix.node.json.JsonObjectKeyNode;
 import org.sirix.node.json.JsonObjectNode;
@@ -54,8 +55,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   @Override
   public PathNode createPathNode(final @Nonnegative long parentKey, final @Nonnegative long leftSibKey,
-      final long rightSibKey, final long hash, @Nonnull final QNm name, @Nonnull final Kind kind,
-      final @Nonnegative int level) {
+      final long rightSibKey, @Nonnull final QNm name, @Nonnull final Kind kind, final @Nonnegative int level) {
     final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? NamePageHash.generateHashForString(name.getPrefix())
@@ -78,7 +78,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long hash) {
+  public JsonArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
@@ -89,7 +89,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, long hash) {
+  public JsonObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
@@ -100,8 +100,19 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long hash,
-      long pathNodeKey, String name) {
+  public JsonNullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey) {
+    final long revision = mPageWriteTrx.getRevisionNumber();
+    final NodeDelegate nodeDel =
+        new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
+    final StructNodeDelegate structDel =
+        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    return (JsonNullNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new JsonNullNode(structDel),
+        PageKind.RECORDPAGE, -1);
+  }
+
+  @Override
+  public JsonObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      String name) {
     final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.JSON_OBJECT_KEY);
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
@@ -113,7 +124,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonStringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, long hash, byte[] value,
+  public JsonStringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
@@ -130,8 +141,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonBooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, long hash,
-      boolean boolValue) {
+  public JsonBooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean boolValue) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
@@ -142,8 +152,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public JsonNumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, long hash,
-      double dblValue) {
+  public JsonNumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, double dblValue) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
