@@ -1,12 +1,10 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node;
 
-import javax.annotation.Nonnegative;
 import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.Kind;
-
 
 public interface NodeFactory {
 
@@ -22,6 +20,5 @@ public interface NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  PathNode createPathNode(long parentKey, long leftSibKey, long rightSibKey, long hash, QNm name, Kind kind, int level);
-
+  PathNode createPathNode(long parentKey, long leftSibKey, long rightSibKey, QNm name, Kind kind, int level);
 }

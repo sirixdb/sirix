@@ -81,7 +81,7 @@ import com.google.common.base.Objects;
  * revision.
  * </p>
  */
-public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx> implements XdmNodeReadTrx {
+public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx> implements InternalXdmNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
   protected final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> mResourceManager;
@@ -113,12 +113,8 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
     mItemList = new ItemListImpl();
   }
 
-  /**
-   * Set current node.
-   *
-   * @param currentNode the current node to set
-   */
-  public final void setCurrentNode(@Nullable final ImmutableNode currentNode) {
+  @Override
+  public void setCurrentNode(final @Nullable ImmutableNode currentNode) {
     assertNotClosed();
     mCurrentNode = currentNode;
   }
@@ -700,13 +696,14 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  protected void assertNotClosed() {
+  public void assertNotClosed() {
     if (mClosed) {
       throw new IllegalStateException("Transaction is already closed.");
     }
   }
 
-  ImmutableNode getCurrentNode() {
+  @Override
+  public ImmutableNode getCurrentNode() {
     return mCurrentNode;
   }
 }

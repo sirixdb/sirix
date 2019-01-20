@@ -6,7 +6,6 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -36,5 +35,5 @@ public interface InternalResourceManager<R extends NodeReadTrx, W extends NodeWr
 
   void setNodePageWriteTransaction(long transactionID, PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
 
-  void closeNodePageWriteTransaction(long transactionID) throws SirixIOException;
+  void closeNodePageWriteTransaction(long transactionID);
 }

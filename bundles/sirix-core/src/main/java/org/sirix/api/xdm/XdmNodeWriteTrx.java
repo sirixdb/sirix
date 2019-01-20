@@ -29,16 +29,12 @@ import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.Movement;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.interfaces.Record;
 import org.sirix.node.xdm.TextNode;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.shredder.XMLShredder;
-import com.google.common.annotations.Beta;
 
 /**
  * <h1>NodeWriteTrx</h1>
@@ -546,13 +542,13 @@ public interface XdmNodeWriteTrx extends XdmNodeReadTrx, NodeWriteTrx {
   @Override
   XdmNodeWriteTrx addPostCommitHook(PostCommitHook hook);
 
-  /**
-   * Get the page transaction used within the write transaction.
-   *
-   * @return the {@link PageWriteTrx} instance
-   */
-  @Beta
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
+  // /**
+  // * Get the page transaction used within the write transaction.
+  // *
+  // * @return the {@link PageWriteTrx} instance
+  // */
+  // @Beta
+  // PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
 
   @Override
   XdmNodeWriteTrx truncateTo(int revision);

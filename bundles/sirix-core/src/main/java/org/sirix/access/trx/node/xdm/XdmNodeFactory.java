@@ -3,6 +3,7 @@ package org.sirix.access.trx.node.xdm;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.xdm.AttributeNode;
@@ -65,7 +66,7 @@ public interface XdmNodeFactory extends NodeFactory {
    * @throws SirixIOException if an I/O error occurs
    */
   ElementNode createElementNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey,
-      @Nonnegative long rightSibKey, long hash, QNm name, @Nonnegative long pathNodeKey, SirixDeweyID id);
+      @Nonnegative long rightSibKey, QNm name, @Nonnegative long pathNodeKey, SirixDeweyID id);
 
   /**
    * Create a {@link TextNode}.

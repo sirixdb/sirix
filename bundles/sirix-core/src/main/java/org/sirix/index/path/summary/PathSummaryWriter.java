@@ -5,9 +5,9 @@ import javax.annotation.Nonnegative;
 import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
+import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.access.trx.node.json.JsonNodeReadOnlyTrx;
 import org.sirix.access.trx.node.xdm.InsertPos;
-import org.sirix.access.trx.node.xdm.NodeFactory;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
@@ -175,7 +175,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
     final long parentKey = mPathSummaryReader.getNodeKey();
     final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
     final long rightSibKey = mPathSummaryReader.getFirstChildKey();
-    final PathNode node = mNodeFactory.createPathNode(parentKey, leftSibKey, rightSibKey, 0, name, pathKind, level);
+    final PathNode node = mNodeFactory.createPathNode(parentKey, leftSibKey, rightSibKey, name, pathKind, level);
 
     mPathSummaryReader.putMapping(node.getNodeKey(), node);
     mPathSummaryReader.moveTo(node.getNodeKey());

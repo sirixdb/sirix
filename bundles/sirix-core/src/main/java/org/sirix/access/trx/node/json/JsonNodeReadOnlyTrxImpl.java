@@ -7,8 +7,6 @@ import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.Move;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.exception.SirixIOException;
@@ -17,6 +15,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.json.JsonArrayNode;
 import org.sirix.node.json.JsonNullNode;
 import org.sirix.node.json.JsonNumberNode;
@@ -38,9 +37,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   /** State of transaction including all cached stuff. */
   private PageReadTrx mPageReadTrx;
 
-  /** Strong reference to currently selected node. */
-  private ImmutableNode mCurrentNode;
-
   /** Tracks whether the transaction is closed. */
   private boolean mClosed;
 
@@ -59,7 +55,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     checkArgument(trxId >= 0);
     mTrxId = trxId;
     mPageReadTrx = checkNotNull(pageReadTransaction);
-    mCurrentNode = checkNotNull(documentNode);
     mClosed = false;
   }
 
@@ -117,7 +112,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
+  public JsonResourceManager getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }
@@ -259,7 +254,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     return false;
   }
 
-  public ImmutableNode getCurrentNode() {
-    return mCurrentNode;
+  public ImmutableStructNode getCurrentNode() {
+    return (ImmutableStructNode) mCurrentNode;
   }
 }
