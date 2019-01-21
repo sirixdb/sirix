@@ -50,6 +50,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -100,7 +101,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient String mTimestamp;
 
   /** Sirix {@link Database}. */
-  private final Database mDatabase;
+  private final Database<XdmResourceManager> mDatabase;
 
   /** Revision-timespan by date. */
   public enum DateBy {
@@ -138,9 +139,9 @@ public final class WikipediaImport implements Import<StartElement> {
 
     final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
     Databases.createDatabase(config);
-    mDatabase = Databases.openDatabase(sirixDatabase);
+    mDatabase = Databases.openXdmDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    mResourceManager = mDatabase.getXdmResourceManager("shredded");
+    mResourceManager = mDatabase.getResourceManager("shredded");
     mWtx = mResourceManager.beginNodeWriteTrx();
   }
 
@@ -275,9 +276,9 @@ public final class WikipediaImport implements Import<StartElement> {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
     Databases.removeDatabase(path);
     Databases.createDatabase(dbConf);
-    final Database db = Databases.openDatabase(path);
+    final var db = Databases.openXdmDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
-    final XdmResourceManager resourceManager = db.getXdmResourceManager("wiki");
+    final XdmResourceManager resourceManager = db.getResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
       mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));

@@ -96,7 +96,7 @@ public class FileSystemWatcher implements AutoCloseable {
   private final Path mPath;
 
   /** Sirix {@link Database}. */
-  private final Database mDatabase;
+  private final Database<XdmResourceManager> mDatabase;
 
   /** Sirix {@link XdmResourceManager}. */
   private final XdmResourceManager mResource;
@@ -119,14 +119,13 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Private constructor invoked f rom factory.
    *
-   * @param pPath {@link Path} reference which denotes the {@code path/directory} to watch for
-   *        changes.
-   * @param pDatabase {@link Database} to use for importing changed data into sirix
+   * @param path {@link Path} reference which denotes the {@code path/directory} to watch for changes.
+   * @param database {@link Database} to use for importing changed data into sirix
    */
-  private FileSystemWatcher(final Path pPath, final Database pDatabase) throws SirixException {
-    mPath = checkNotNull(pPath);
-    mDatabase = checkNotNull(pDatabase);
-    mResource = mDatabase.getXdmResourceManager("shredded");
+  private FileSystemWatcher(final Path path, final Database<XdmResourceManager> database) throws SirixException {
+    mPath = checkNotNull(path);
+    mDatabase = checkNotNull(database);
+    mResource = mDatabase.getResourceManager("shredded");
     mWtx = mResource.beginNodeWriteTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);
@@ -143,10 +142,10 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws NullPointerException if any of the arguments are {@code null}
    * @throws SirixException if anything while setting up sirix failes
    */
-  public static synchronized FileSystemWatcher getInstance(final Path pPath, final Database pDatabase)
+  public static synchronized FileSystemWatcher getInstance(final Path path, final Database<XdmResourceManager> database)
       throws SirixException {
-    final PathDBContainer container = new PathDBContainer(pPath, pDatabase);
-    FileSystemWatcher watcher = INSTANCES.putIfAbsent(container, new FileSystemWatcher(pPath, pDatabase));
+    final PathDBContainer container = new PathDBContainer(path, database);
+    FileSystemWatcher watcher = INSTANCES.putIfAbsent(container, new FileSystemWatcher(path, database));
     if (watcher == null) {
       watcher = INSTANCES.get(container);
     }
@@ -438,14 +437,14 @@ public class FileSystemWatcher implements AutoCloseable {
     }
 
     Databases.createDatabase(conf);
-    try (final Database database = Databases.openDatabase(databasePath)) {
+    try (final var database = Databases.openXdmDatabase(databasePath)) {
       database.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
       index =
           FileHierarchyWalker.parseDir(Paths.get(args[0]), database, Optional.of(new ProcessFileSystemAttributes()));
       assert index != null;
 
       try (final FileSystemWatcher watcher =
-          FileSystemWatcher.getInstance(Paths.get(args[0]), Databases.openDatabase(databasePath))) {
+          FileSystemWatcher.getInstance(Paths.get(args[0]), Databases.openXdmDatabase(databasePath))) {
         watcher.watch(null, index);
       }
     }

@@ -47,7 +47,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
@@ -317,9 +316,9 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     Databases.removeDatabase(target);
     Databases.createDatabase(config);
 
-    try (final Database db = Databases.openDatabase(target)) {
+    try (final var db = Databases.openXdmDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
           final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);

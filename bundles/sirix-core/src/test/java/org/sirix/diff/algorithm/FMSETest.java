@@ -20,7 +20,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
@@ -209,68 +208,67 @@ public final class FMSETest extends XMLTestCase {
    * @throws Exception if any exception occurs
    */
   private void test(final Path folder) throws Exception {
-    Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    XdmResourceManager resource = database.getXdmResourceManager(TestHelper.RESOURCE);
-    Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-    final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
+    try (var database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      XdmResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
+      Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
-    // Sort files list according to file names.
-    list.sort((first, second) -> {
-      final String firstName = first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-      final String secondName =
-          second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
+      // Sort files list according to file names.
+      list.sort((first, second) -> {
+        final String firstName =
+            first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+        final String secondName =
+            second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
-      if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-        return -1;
-      } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-        return +1;
-      } else {
-        return 0;
-      }
-    });
-
-    boolean first = true;
-
-    // Shredder files.
-    for (final Path file : list) {
-      if (file.getFileName().toString().endsWith(".xml")) {
-        if (first) {
-          first = false;
-          try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
-              final FileInputStream fis = new FileInputStream(file.toFile())) {
-            final XMLShredder shredder =
-                new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
-                                                                                                    .build();
-            shredder.call();
-          }
+        if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
+          return -1;
+        } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
+          return +1;
         } else {
-          FMSEImport.main(
-              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
+          return 0;
         }
+      });
 
-        resource.close();
-        resource = database.getXdmResourceManager(TestHelper.RESOURCE);
+      boolean first = true;
 
-        final OutputStream out = new ByteArrayOutputStream();
-        final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
-        serializer.call();
-        final StringBuilder sBuilder = TestHelper.readFile(file, false);
+      // Shredder files.
+      for (final Path file : list) {
+        if (file.getFileName().toString().endsWith(".xml")) {
+          if (first) {
+            first = false;
+            try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
+                final FileInputStream fis = new FileInputStream(file.toFile())) {
+              final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis),
+                  Insert.ASFIRSTCHILD).commitAfterwards().build();
+              shredder.call();
+            }
+          } else {
+            FMSEImport.main(
+                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
+          }
 
-        final Diff diff = new Diff(sBuilder.toString(), out.toString());
-        final DetailedDiff detDiff = new DetailedDiff(diff);
-        @SuppressWarnings("unchecked")
-        final List<Difference> differences = detDiff.getAllDifferences();
-        for (final Difference difference : differences) {
-          System.err.println("***********************");
-          System.err.println(difference);
-          System.err.println("***********************");
+          resource.close();
+          resource = database.getResourceManager(TestHelper.RESOURCE);
+
+          final OutputStream out = new ByteArrayOutputStream();
+          final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
+          serializer.call();
+          final StringBuilder sBuilder = TestHelper.readFile(file, false);
+
+          final Diff diff = new Diff(sBuilder.toString(), out.toString());
+          final DetailedDiff detDiff = new DetailedDiff(diff);
+          @SuppressWarnings("unchecked")
+          final List<Difference> differences = detDiff.getAllDifferences();
+          for (final Difference difference : differences) {
+            System.err.println("***********************");
+            System.err.println(difference);
+            System.err.println("***********************");
+          }
+
+          assertTrue("pieces of XML are similar " + diff, diff.similar());
+          assertTrue("but are they identical? " + diff, diff.identical());
         }
-
-        assertTrue("pieces of XML are similar " + diff, diff.similar());
-        assertTrue("but are they identical? " + diff, diff.identical());
       }
     }
-
-    database.close();
   }
 }

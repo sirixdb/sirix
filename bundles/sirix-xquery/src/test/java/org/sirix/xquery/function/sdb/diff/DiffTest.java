@@ -44,7 +44,6 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
@@ -86,9 +85,9 @@ public final class DiffTest extends TestCase {
     final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
     Databases.createDatabase(config);
 
-    try (final Database database = Databases.openDatabase(databasePath)) {
+    try (final var database = Databases.openXdmDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(TestHelper.RESOURCE, config).build());
-      try (final XdmResourceManager manager = database.getXdmResourceManager(TestHelper.RESOURCE);
+      try (final XdmResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);

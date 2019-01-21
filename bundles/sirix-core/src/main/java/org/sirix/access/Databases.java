@@ -15,6 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.SirixFiles;
@@ -29,7 +30,7 @@ import org.sirix.utils.SirixFiles;
 public final class Databases {
 
   /** Central repository of all running databases. */
-  private static final ConcurrentMap<Path, Set<Database>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
 
   /** Central repository of all running resource managers. */
   private static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
@@ -137,16 +138,21 @@ public final class Databases {
    * @throws SirixUsageException if Sirix is not used properly
    * @throws NullPointerException if {@code file} is {@code null}
    */
-  public static synchronized Database openDatabase(final Path file) throws SirixUsageException, SirixIOException {
+  @SuppressWarnings("unchecked")
+  public static synchronized Database<XdmResourceManager> openXdmDatabase(final Path file) {
+    return (Database<XdmResourceManager>) openDatabase(file, new XdmResourceStore(), DatabaseType.XDM);
+  }
+
+  private static Database<?> openDatabase(final Path file, final XdmResourceStore store, final DatabaseType type) {
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
-    final DatabaseConfiguration config = DatabaseConfiguration.deserialize(file);
-    if (config == null) {
+    final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file);
+    if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final Database database = new LocalDatabase(config);
+    final Database<?> database = type.createDatabase(dbConfig, store);
     putDatabase(file, database);
     return database;
   }
@@ -169,8 +175,8 @@ public final class Databases {
    * @param file database file to put into the map
    * @param database database handle to put into the map
    */
-  static synchronized void putDatabase(final Path file, final Database database) {
-    final Set<Database> databases = DATABASE_SESSIONS.getOrDefault(file, new HashSet<>());
+  static synchronized void putDatabase(final Path file, final Database<?> database) {
+    final Set<Database<?>> databases = DATABASE_SESSIONS.getOrDefault(file, new HashSet<>());
     databases.add(database);
     DATABASE_SESSIONS.put(file, databases);
   }
@@ -180,8 +186,8 @@ public final class Databases {
    *
    * @param file database file to remove
    */
-  static synchronized void removeDatabase(final Path file, final Database database) {
-    final Set<Database> databases = DATABASE_SESSIONS.get(file);
+  static synchronized void removeDatabase(final Path file, final Database<?> database) {
+    final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
     databases.remove(database);
 
     if (databases.isEmpty())

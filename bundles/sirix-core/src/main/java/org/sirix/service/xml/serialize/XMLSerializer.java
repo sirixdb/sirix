@@ -46,7 +46,6 @@ import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -465,10 +464,10 @@ public final class XMLSerializer extends AbstractSerializer {
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
     Databases.createDatabase(config);
-    try (final Database db = Databases.openDatabase(databaseFile)) {
+    try (final var db = Databases.openXdmDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
 
-      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XMLSerializer serializer = XMLSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();

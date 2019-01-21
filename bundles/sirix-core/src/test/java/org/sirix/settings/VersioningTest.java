@@ -42,13 +42,13 @@ import org.sirix.exception.SirixException;
 public class VersioningTest {
 
   /** {@link Database} instance. */
-  private Database mDatabase;
+  private Database<XdmResourceManager> mDatabase;
 
   @Before
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     Databases.createDatabase(new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile()));
-    mDatabase = Databases.openDatabase(TestHelper.PATHS.PATH1.getFile());
+    mDatabase = Databases.openXdmDatabase(TestHelper.PATHS.PATH1.getFile());
   }
 
   @After
@@ -162,7 +162,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getXdmResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -200,7 +200,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getXdmResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -250,7 +250,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getXdmResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.getResourceManager(TestHelper.RESOURCE)) {
       XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();

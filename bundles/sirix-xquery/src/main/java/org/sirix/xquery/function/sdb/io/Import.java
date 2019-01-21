@@ -15,7 +15,6 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -94,8 +93,8 @@ public final class Import extends AbstractFunction {
           throw new QueryException(new QNm("XML stream exception: " + e.getMessage()), e);
         }
 
-        try (final Database databaseNew = Databases.openDatabase(newRevTarget);
-            final XdmResourceManager resourceNew = databaseNew.getXdmResourceManager("shredded");
+        try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
+            final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
             final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);

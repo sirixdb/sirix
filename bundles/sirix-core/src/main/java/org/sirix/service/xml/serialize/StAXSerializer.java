@@ -154,8 +154,7 @@ public final class StAXSerializer implements XMLEventReader {
   private void emitEndTag(final XdmNodeReadTrx rtx) {
     final long nodeKey = rtx.getNodeKey();
     final QNm qName = rtx.getName();
-    mEvent = mFac.createEndElement(
-        new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
+    mEvent = mFac.createEndElement(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
         new NamespaceIterator(rtx));
     rtx.moveTo(nodeKey);
   }
@@ -173,8 +172,7 @@ public final class StAXSerializer implements XMLEventReader {
       case ELEMENT:
         final long key = rtx.getNodeKey();
         final QNm qName = rtx.getName();
-        mEvent = mFac.createStartElement(
-            new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
+        mEvent = mFac.createStartElement(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
             new AttributeIterator(rtx), new NamespaceIterator(rtx));
         rtx.moveTo(key);
         break;
@@ -206,8 +204,8 @@ public final class StAXSerializer implements XMLEventReader {
     final long nodeKey = rtx.getNodeKey();
 
     /*
-     * The cursor has to move back (once) after determining, that a closing tag would be the next
-     * event (precond: closeElement and either goBack or goUp is true).
+     * The cursor has to move back (once) after determining, that a closing tag would be the next event
+     * (precond: closeElement and either goBack or goUp is true).
      */
     if (mCloseElements && mToLastKey) {
       rtx.moveTo(mLastKey);
@@ -217,7 +215,7 @@ public final class StAXSerializer implements XMLEventReader {
       rtx.moveTo(nodeKey);
       throw new XMLStreamException("getElementText() only can be called on a start element");
     }
-    final FilterAxis textFilterAxis = new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
+    final var textFilterAxis = new FilterAxis<>(new DescendantAxis(rtx), new TextFilter(rtx));
     final StringBuilder strBuilder = new StringBuilder();
 
     while (textFilterAxis.hasNext()) {
@@ -240,8 +238,8 @@ public final class StAXSerializer implements XMLEventReader {
 
     if (!mStack.isEmpty() && (mCloseElements || mCloseElementsEmitted)) {
       /*
-       * mAxis.hasNext() can't be used in this case, because it would iterate to the next node but
-       * at first all end-tags have to be emitted.
+       * mAxis.hasNext() can't be used in this case, because it would iterate to the next node but at
+       * first all end-tags have to be emitted.
        */
       retVal = true;
     } else {
@@ -418,17 +416,15 @@ public final class StAXSerializer implements XMLEventReader {
 
       // Remember to emit all pending end elements from stack if
       // required.
-      if ((!rtx.hasFirstChild() && !rtx.hasRightSibling())
-          || (rtx.getKind() == Kind.ELEMENT && !rtx.hasFirstChild())) {
+      if ((!rtx.hasFirstChild() && !rtx.hasRightSibling()) || (rtx.getKind() == Kind.ELEMENT && !rtx.hasFirstChild())) {
         moveToNextNode();
       }
     }
   }
 
   /**
-   * Move to next node in tree either in case of a right sibling of an empty element or if no
-   * further child and no right sibling can be found, so that the next node is in the following
-   * axis.
+   * Move to next node in tree either in case of a right sibling of an empty element or if no further
+   * child and no right sibling can be found, so that the next node is in the following axis.
    */
   private void moveToNextNode() {
     mToLastKey = true;
@@ -496,8 +492,7 @@ public final class StAXSerializer implements XMLEventReader {
       final QNm qName = mRtx.getName();
       final String value = XMLToken.escapeAttribute(mRtx.getValue());
       mRtx.moveTo(mNodeKey);
-      return mFac.createAttribute(
-          new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
+      return mFac.createAttribute(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
     }
 
     @Override
