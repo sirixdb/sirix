@@ -13,7 +13,10 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.trx.node.json.JsonResourceManager;
 import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
@@ -143,7 +146,25 @@ public final class Databases {
     return (Database<XdmResourceManager>) openDatabase(file, new XdmResourceStore(), DatabaseType.XDM);
   }
 
-  private static Database<?> openDatabase(final Path file, final XdmResourceStore store, final DatabaseType type) {
+  /**
+   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
+   * instance bound to the {@link File} is returned.
+   *
+   * @param file determines where the database is located sessionConf a
+   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @return {@link Database} instance.
+   * @throws SirixIOException if an I/O exception occurs
+   * @throws SirixUsageException if Sirix is not used properly
+   * @throws NullPointerException if {@code file} is {@code null}
+   */
+  @SuppressWarnings("unchecked")
+  public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file) {
+    return (Database<JsonResourceManager>) openDatabase(file, new JsonResourceStore(), DatabaseType.JSON);
+  }
+
+  private static Database<?> openDatabase(final Path file,
+      final ResourceStore<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> store,
+      final DatabaseType type) {
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());

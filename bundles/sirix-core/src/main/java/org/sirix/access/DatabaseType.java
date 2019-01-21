@@ -8,21 +8,25 @@ import org.sirix.api.ResourceManager;
 
 public enum DatabaseType {
   XDM {
+    @SuppressWarnings("unchecked")
     @Override
-    Database<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> createDatabase(
-        DatabaseConfiguration dbConfig, XdmResourceStore store) {
-      return new LocalXdmDatabase(dbConfig, store);
+    <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+        DatabaseConfiguration dbConfig, S store) {
+      return (Database<R>) new LocalXdmDatabase(dbConfig, (XdmResourceStore) store);
     }
+
   },
 
   JSON {
+    @SuppressWarnings("unchecked")
     @Override
-    Database<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> createDatabase(
-        DatabaseConfiguration dbConfig, XdmResourceStore store) {
-      return null;
+    <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+        DatabaseConfiguration dbConfig, S store) {
+      return (Database<R>) new LocalJsonDatabase(dbConfig, (JsonResourceStore) store);
     }
+
   };
 
-  abstract Database<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> createDatabase(
-      DatabaseConfiguration dbConfig, XdmResourceStore store);
+  abstract <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+      DatabaseConfiguration dbConfig, S store);
 }
