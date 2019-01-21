@@ -383,7 +383,7 @@ var config = new DatabaseConfiguration(file);
 Databases.createDatabase(config);
 
 // Open the database.
-try (var database = Databases.openDatabase(file)) {
+try (var database = Databases.openXdmDatabase(file)) {
   /* 
    * Create a resource in the database with the name "resource1".
    * Store deweyIDs (hierarchical node labels), use text node compression,
@@ -541,7 +541,7 @@ For instance after storing one revision in Sirix, we can import only the differe
 var resOldRev = Paths.get("sirix-resource-to-update");
 var resNewRev = Paths.get("new-revision-as-xml-file");
 
-FMSEImport.dataImport(resOldRev, resNewRev);
+FMSEImport.xdmDataImport(resOldRev, resNewRev);
 ```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
