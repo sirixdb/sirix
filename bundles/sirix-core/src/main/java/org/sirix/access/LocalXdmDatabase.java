@@ -45,8 +45,7 @@ import com.google.common.base.MoreObjects;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceManager>
-    implements Database<XdmResourceManager> {
+public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceManager> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXdmDatabase.class));

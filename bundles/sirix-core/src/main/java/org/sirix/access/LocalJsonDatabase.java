@@ -45,8 +45,7 @@ import com.google.common.base.MoreObjects;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceManager>
-    implements Database<JsonResourceManager> {
+public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceManager> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalJsonDatabase.class));
