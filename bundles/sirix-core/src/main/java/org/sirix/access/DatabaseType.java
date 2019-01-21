@@ -14,7 +14,6 @@ public enum DatabaseType {
         DatabaseConfiguration dbConfig, S store) {
       return (Database<R>) new LocalXdmDatabase(dbConfig, (XdmResourceStore) store);
     }
-
   },
 
   JSON {
@@ -24,7 +23,6 @@ public enum DatabaseType {
         DatabaseConfiguration dbConfig, S store) {
       return (Database<R>) new LocalJsonDatabase(dbConfig, (JsonResourceStore) store);
     }
-
   };
 
   abstract <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
