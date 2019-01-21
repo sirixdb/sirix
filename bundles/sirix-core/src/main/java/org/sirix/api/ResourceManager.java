@@ -60,7 +60,7 @@ public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> 
    *
    * @return {@link Database} this session is bound to
    */
-  Database getDatabase();
+  Database<?> getDatabase();
 
   /**
    * Get the resource path.

@@ -17,7 +17,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.LocalDatabase;
+import org.sirix.access.LocalXdmDatabase;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -50,7 +50,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
 
   /** The database. */
-  final LocalDatabase mDatabase;
+  final Database<? extends ResourceManager<R, W>> mDatabase;
 
   /** Write lock to assure only one exclusive write transaction exists. */
   final Lock mWriteLock;
@@ -98,18 +98,19 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
   final BufferManager mBufferManager;
 
   /** The resource store with which this manager has been created. */
-  final ResourceStore mResourceStore;
+  final ResourceStore<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> mResourceStore;
 
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalDatabase} for centralized operations on related sessions
+   * @param database {@link LocalXdmDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  public AbstractResourceManager(final LocalDatabase database, final @Nonnull ResourceStore resourceStore,
+  public AbstractResourceManager(final Database<? extends ResourceManager<R, W>> database,
+      final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
       final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
       final @Nonnull Lock writeLock) {
@@ -530,7 +531,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
   }
 
   @Override
-  public synchronized Database getDatabase() {
+  public synchronized Database<?> getDatabase() {
     return mDatabase;
   }
 

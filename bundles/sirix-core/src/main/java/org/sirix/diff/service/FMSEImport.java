@@ -28,15 +28,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.annotation.Nonnull;
-import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
-import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
@@ -71,18 +66,17 @@ public final class FMSEImport {
       throws SirixException, IOException, XMLStreamException {
     assert resNewRev != null;
     assert newRev != null;
-    final DatabaseConfiguration conf = new DatabaseConfiguration(newRev);
+    final var conf = new DatabaseConfiguration(newRev);
     Databases.removeDatabase(newRev);
     Databases.createDatabase(conf);
 
-    try (final Database db = Databases.openDatabase(newRev)) {
+    try (final var db = Databases.openXdmDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
-      try (final XdmResourceManager resMgr = db.getXdmResourceManager("shredded");
-          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
-          final FileInputStream fis = new FileInputStream(resNewRev.toFile())) {
-        final XMLEventReader fileReader = XMLShredder.createFileReader(fis);
-        final XMLShredder shredder =
-            new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards().build();
+      try (final var resMgr = db.getResourceManager("shredded");
+          final var wtx = resMgr.beginNodeWriteTrx();
+          final var fis = new FileInputStream(resNewRev.toFile())) {
+        final var fileReader = XMLShredder.createFileReader(fis);
+        final var shredder = new XMLShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }
     }
@@ -94,21 +88,21 @@ public final class FMSEImport {
    * @param resOldRev {@link File} for old revision (sirix resource)
    * @param resNewRev {@link File} for new revision (XML resource)
    */
-  private static void dataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
+  private static void xmlDataImport(final Path resOldRev, @Nonnull final Path resNewRev) {
     try {
-      final Path newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
+      final var newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
       if (Files.exists(newRevTarget)) {
         SirixFiles.recursiveRemove(newRevTarget);
       }
       shredder(checkNotNull(resNewRev), newRevTarget);
 
-      try (final Database databaseOld = Databases.openDatabase(resOldRev);
-          final XdmResourceManager resMgrOld = databaseOld.getXdmResourceManager("shredded");
-          final XdmNodeWriteTrx wtx = resMgrOld.beginNodeWriteTrx();
-          final Database databaseNew = Databases.openDatabase(newRevTarget);
-          final XdmResourceManager resourceNew = databaseNew.getXdmResourceManager("shredded");
-          final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
-          final FMSE fmes = new FMSE()) {
+      try (final var databaseOld = Databases.openXdmDatabase(resOldRev);
+          final var resMgrOld = databaseOld.getResourceManager("shredded");
+          final var wtx = resMgrOld.beginNodeWriteTrx();
+          final var databaseNew = Databases.openXdmDatabase(newRevTarget);
+          final var resourceNew = databaseNew.getResourceManager("shredded");
+          final var rtx = resourceNew.beginNodeReadTrx();
+          final var fmes = new FMSE()) {
         fmes.diff(wtx, rtx);
       }
     } catch (final SirixException | IOException | XMLStreamException e) {
@@ -133,9 +127,9 @@ public final class FMSEImport {
       throw new IllegalArgumentException("Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
     }
 
-    final Path resOldRev = Paths.get(args[0]);
-    final Path resNewRev = Paths.get(args[1]);
+    final var resOldRev = Paths.get(args[0]);
+    final var resNewRev = Paths.get(args[1]);
 
-    FMSEImport.dataImport(resOldRev, resNewRev);
+    FMSEImport.xmlDataImport(resOldRev, resNewRev);
   }
 }

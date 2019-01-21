@@ -26,7 +26,6 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -46,7 +45,8 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Database extends AutoCloseable {
+public interface Database<T extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+    extends AutoCloseable {
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be
    * created within this method. This includes the creation of a suitable folder structure as well as
@@ -80,14 +80,14 @@ public interface Database extends AutoCloseable {
    * @return the session
    * @throws SirixException if can't get session
    */
-  XdmResourceManager getXdmResourceManager(String resourceName) throws SirixException;
+  T getResourceManager(String resourceName) throws SirixException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.
    *
    * @param resourceName resource name
    */
-  Database removeResource(String resourceName);
+  Database<T> removeResource(String resourceName);
 
   /**
    * Closing the database for further access.

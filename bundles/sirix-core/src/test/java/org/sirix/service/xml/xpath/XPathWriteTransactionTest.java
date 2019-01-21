@@ -53,7 +53,7 @@ public final class XPathWriteTransactionTest {
 
   private XdmNodeWriteTrx wtx;
 
-  private Database database;
+  private Database<XdmResourceManager> database;
 
   @Before
   public void setUp() throws Exception {
@@ -64,7 +64,7 @@ public final class XPathWriteTransactionTest {
     // Verify.
     database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getXdmResourceManager(TestHelper.RESOURCE);
+    manager = database.getResourceManager(TestHelper.RESOURCE);
     wtx = manager.beginNodeWriteTrx();
   }
 

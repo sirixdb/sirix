@@ -342,9 +342,10 @@ public final class DocumentCreator {
    * @throws XMLStreamException if StAX reader couldn't be created
    * @throws IOException if reading XML string fails
    */
-  public static void createRevisioned(final Database database) throws SirixException, IOException, XMLStreamException {
+  public static void createRevisioned(final Database<XdmResourceManager> database)
+      throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmResourceManager resMgr = database.getXdmResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE)) {
       try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
         final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
             Insert.ASFIRSTCHILD).commitAfterwards().build();

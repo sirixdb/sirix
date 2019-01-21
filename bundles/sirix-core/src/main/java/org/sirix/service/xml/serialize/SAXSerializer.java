@@ -32,7 +32,6 @@ import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -247,9 +246,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
     final Path path = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
     Databases.createDatabase(config);
-    final Database database = Databases.openDatabase(path);
+    final var database = Databases.openXdmDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    try (final XdmResourceManager resource = database.getXdmResourceManager("shredded")) {
+    try (final XdmResourceManager resource = database.getResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();

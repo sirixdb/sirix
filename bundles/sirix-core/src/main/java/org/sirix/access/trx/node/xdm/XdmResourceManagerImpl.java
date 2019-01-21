@@ -25,12 +25,13 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
-import org.sirix.access.LocalDatabase;
-import org.sirix.access.ResourceStore;
+import org.sirix.access.LocalXdmDatabase;
+import org.sirix.access.XdmResourceStore;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.xdm.XdmNodeReadTrx;
@@ -58,16 +59,16 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalDatabase} for centralized operations on related sessions
+   * @param database {@link LocalXdmDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  public XdmResourceManagerImpl(final LocalDatabase database, final @Nonnull ResourceStore resourceStore,
-      final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
-      final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
-      final @Nonnull Lock writeLock) {
+  public XdmResourceManagerImpl(final Database<XdmResourceManager> database,
+      final @Nonnull XdmResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
+      final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
+      final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock);
   }
 

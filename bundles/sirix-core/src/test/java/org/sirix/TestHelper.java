@@ -99,7 +99,7 @@ public final class TestHelper {
   public final static Random random = new Random();
 
   /** Path <=> Database instances. */
-  private final static Map<Path, Database> INSTANCES = new Hashtable<>();
+  private final static Map<Path, Database<XdmResourceManager>> INSTANCES = new Hashtable<>();
 
   @Test
   public void testDummy() {
@@ -114,7 +114,7 @@ public final class TestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database getDatabase(final Path file) {
+  public static final Database<XdmResourceManager> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -123,7 +123,7 @@ public final class TestHelper {
         if (!Files.exists(file)) {
           Databases.createDatabase(config);
         }
-        final Database database = Databases.openDatabase(file);
+        final var database = Databases.openXdmDatabase(file);
         database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
         INSTANCES.put(file, database);
         return database;
@@ -154,82 +154,14 @@ public final class TestHelper {
   @Ignore
   public static final void closeEverything() throws SirixException {
     if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
-      final Database database = INSTANCES.remove(PATHS.PATH1.getFile());
+      final var database = INSTANCES.remove(PATHS.PATH1.getFile());
       database.close();
     }
     if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
-      final Database database = INSTANCES.remove(PATHS.PATH2.getFile());
+      final var database = INSTANCES.remove(PATHS.PATH2.getFile());
       database.close();
     }
   }
-
-  // @Ignore
-  // public static NodePage getNodePage(final int revision, final int offset,
-  // final int length, final long nodePageKey) {
-  // new ResourceConfiguration.Builder(RESOURCE,
-  // config).build();
-  // final NodePage page = new NodePage(nodePageKey, revision);
-  // NodeDelegate nodeDel;
-  // NameNodeDelegate nameDel;
-  // StructNodeDelegate strucDel;
-  // ValNodeDelegate valDel;
-  // int pathNodeKey = 1;
-  // for (int i = offset; i < length; i++) {
-  // switch (random.nextInt(6)) {
-  // case 0:
-  // nodeDel = new NodeDelegate(random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-  // random.nextInt(), pathNodeKey++);
-  // valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
-  // false);
-  // page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
-  // break;
-  // case 1:
-  // page.setNode(new DeletedNode(
-  // new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000))));
-  // break;
-  // case 2:
-  // nodeDel = new NodeDelegate(random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-  // random.nextInt(), pathNodeKey++);
-  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000));
-  // page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-  // HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
-  // break;
-  // case 3:
-  // nodeDel = new NodeDelegate(random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-  // nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-  // random.nextInt(), pathNodeKey++);
-  // page.setNode(new NamespaceNode(nodeDel, nameDel));
-  // break;
-  // case 4:
-  // nodeDel = new NodeDelegate(random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000));
-  // page.setNode(new DocumentRootNode(nodeDel, strucDel));
-  // break;
-  // case 5:
-  // nodeDel = new NodeDelegate(random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-  // valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
-  // strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000),
-  // random.nextInt(10000), random.nextInt(10000));
-  // page.setNode(new TextNode(valDel, strucDel));
-  // break;
-  // }
-  //
-  // }
-  // return page;
-  // }
 
   /**
    * Read a file into a StringBuilder.
@@ -266,9 +198,9 @@ public final class TestHelper {
    * @throws SirixException
    */
   public static void createTestDocument() throws SirixException {
-    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getXdmResourceManager(RESOURCE);
+    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.create(wtx);
       wtx.commit();
@@ -281,9 +213,9 @@ public final class TestHelper {
    * @throws SirixException
    */
   public static void createPICommentTestDocument() throws SirixException {
-    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getXdmResourceManager(RESOURCE);
+    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
       DocumentCreator.createCommentPI(wtx);
       wtx.commit();

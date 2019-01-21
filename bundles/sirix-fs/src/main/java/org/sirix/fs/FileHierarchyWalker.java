@@ -36,11 +36,11 @@ public class FileHierarchyWalker {
    * @throws IOException if an I/O error occurs
    * @throws NullPointerException if one of the arguments is {@code null}
    */
-  public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path, final Database database,
-      Optional<Visitor<XdmNodeWriteTrx>> visitor) throws SirixException, IOException {
+  public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path,
+      final Database<XdmResourceManager> database, Optional<Visitor<XdmNodeWriteTrx>> visitor) throws IOException {
     checkNotNull(visitor);
     checkNotNull(path);
-    try (final XdmResourceManager resource = checkNotNull(database).getXdmResourceManager("shredded");
+    try (final XdmResourceManager resource = checkNotNull(database).getResourceManager("shredded");
         final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {

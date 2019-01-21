@@ -45,7 +45,7 @@ import org.sirix.exception.SirixException;
 public class Holder {
 
   /** {@link Database} implementation. */
-  private Database mDatabase;
+  private Database<XdmResourceManager> mDatabase;
 
   /** {@link XdmResourceManager} implementation. */
   private XdmResourceManager mResMgr;
@@ -70,10 +70,10 @@ public class Holder {
     if (!Files.exists(file)) {
       Databases.createDatabase(config);
     }
-    final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+    final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
-    final XdmResourceManager resourceManager = database.getXdmResourceManager(TestHelper.RESOURCE);
+    final XdmResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -92,10 +92,10 @@ public class Holder {
     if (!Files.exists(file)) {
       Databases.createDatabase(config);
     }
-    final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+    final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
-    final XdmResourceManager resourceManager = database.getXdmResourceManager(TestHelper.RESOURCE);
+    final XdmResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -109,8 +109,8 @@ public class Holder {
    * @throws SirixException if an error occurs
    */
   public static Holder openResourceManager() throws SirixException {
-    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resMgr = database.getXdmResourceManager(TestHelper.RESOURCE);
+    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
@@ -172,7 +172,7 @@ public class Holder {
    *
    * @return {@link Database} handle
    */
-  public Database getDatabase() {
+  public Database<XdmResourceManager> getDatabase() {
     return mDatabase;
   }
 
@@ -239,8 +239,8 @@ public class Holder {
    *
    * @param pRtx {@link Database} instance
    */
-  private void setDatabase(final Database pDatabase) {
-    mDatabase = pDatabase;
+  private void setDatabase(final Database<XdmResourceManager> database) {
+    mDatabase = database;
   }
 
 }

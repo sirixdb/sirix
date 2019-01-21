@@ -34,7 +34,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
@@ -62,14 +61,17 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testSingleton() {
-    final Database database = Holder.openResourceManager().getDatabase();
-    assertEquals(database, holder.getDatabase());
-    final XdmResourceManager manager = database.getXdmResourceManager(TestHelper.RESOURCE);
-    assertEquals(manager, holder.getResourceManager());
-    manager.close();
-    final XdmResourceManager manager2 = database.getXdmResourceManager(TestHelper.RESOURCE);
-    assertNotSame(manager2, holder.getResourceManager());
-    database.close();
+    try (final var database = Holder.openResourceManager().getDatabase()) {
+      assertEquals(database, holder.getDatabase());
+
+      try (final XdmResourceManager manager = database.getResourceManager(TestHelper.RESOURCE)) {
+        assertEquals(manager, holder.getResourceManager());
+      }
+
+      try (final XdmResourceManager manager2 = database.getResourceManager(TestHelper.RESOURCE)) {
+        assertNotSame(manager2, holder.getResourceManager());
+      }
+    }
   }
 
   @Test
@@ -89,8 +91,8 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testNonExisting() throws SirixException, InterruptedException {
-    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
     assertTrue(database == database2);
   }
 
@@ -168,8 +170,8 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testExisting() {
-    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource = database.getXdmResourceManager(TestHelper.RESOURCE);
+    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
 
     final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
     DocumentCreator.create(wtx1);
@@ -178,7 +180,7 @@ public class XdmResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final XdmResourceManager resource2 = database.getXdmResourceManager(TestHelper.RESOURCE);
+    final XdmResourceManager resource2 = database.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -196,8 +198,8 @@ public class XdmResourceManagerTest {
     wtx2.commit();
     wtx2.close();
 
-    final Database database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource3 = database2.getXdmResourceManager(TestHelper.RESOURCE);
+    final var database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resource3 = database2.getResourceManager(TestHelper.RESOURCE);
     final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
