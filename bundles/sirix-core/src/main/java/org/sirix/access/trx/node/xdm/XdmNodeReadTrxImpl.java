@@ -36,31 +36,30 @@ import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.ImmutableDocument;
-import org.sirix.node.immutable.xdm.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.immutable.xdm.ImmutableComment;
+import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
-import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xdm.DocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
@@ -104,7 +103,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
    * @param documentNode the document node
    */
   XdmNodeReadTrxImpl(final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final Node documentNode) {
+      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final ImmutableXdmNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
@@ -114,7 +113,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public void setCurrentNode(final @Nullable ImmutableNode currentNode) {
+  public void setCurrentNode(final @Nullable ImmutableXdmNode currentNode) {
     assertNotClosed();
     mCurrentNode = currentNode;
   }
@@ -124,7 +123,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableNode oldNode = mCurrentNode;
+    final ImmutableXdmNode oldNode = (ImmutableXdmNode) mCurrentNode;
     Optional<? extends Record> newNode;
     try {
       // Immediately return node from item list if node key negative.
@@ -143,7 +142,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = (Node) newNode.get();
+      mCurrentNode = (ImmutableXdmNode) newNode.get();
       return Move.moved(this);
     } else {
       mCurrentNode = oldNode;
@@ -152,7 +151,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public ImmutableNode getNode() {
+  public ImmutableXdmNode getNode() {
     switch (mCurrentNode.getKind()) {
       case ELEMENT:
         return ImmutableElement.of((ElementNode) mCurrentNode);
@@ -163,11 +162,11 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
       case PROCESSING_INSTRUCTION:
         return ImmutablePI.of((PINode) mCurrentNode);
       case ATTRIBUTE:
-        return ImmutableAttribute.of((AttributeNode) mCurrentNode);
+        return ImmutableAttributeNode.of((AttributeNode) mCurrentNode);
       case NAMESPACE:
         return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
       case DOCUMENT:
-        return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
+        return ImmutableDocumentNode.of((DocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");
@@ -250,7 +249,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   @Override
   public String getType() {
     assertNotClosed();
-    return mPageReadTrx.getName(mCurrentNode.getTypeKey(), mCurrentNode.getKind());
+    return mPageReadTrx.getName(((ImmutableXdmNode) mCurrentNode).getTypeKey(), mCurrentNode.getKind());
   }
 
   @Override
@@ -373,13 +372,13 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   @Override
   public int getTypeKey() {
     assertNotClosed();
-    return mCurrentNode.getTypeKey();
+    return ((ImmutableXdmNode) mCurrentNode).getTypeKey();
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     assertNotClosed();
-    return mCurrentNode.acceptVisitor(visitor);
+    return ((ImmutableXdmNode) mCurrentNode).acceptVisitor(visitor);
   }
 
   @Override
@@ -551,7 +550,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   @Override
   public Optional<SirixDeweyID> getDeweyID() {
     assertNotClosed();
-    return mCurrentNode.getDeweyID();
+    return ((ImmutableXdmNode) mCurrentNode).getDeweyID();
   }
 
   @Override
@@ -703,7 +702,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public ImmutableNode getCurrentNode() {
-    return mCurrentNode;
+  public ImmutableXdmNode getCurrentNode() {
+    return (ImmutableXdmNode) mCurrentNode;
   }
 }

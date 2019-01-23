@@ -33,7 +33,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.axis.AbstractAxis;
@@ -145,16 +145,16 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    */
   private Map<Long, Long> mDescendantsNewRev;
 
-  /** {@link Visitor} implementation on old revision. */
-  private Visitor mOldRevVisitor;
+  /** {@link XdmNodeVisitor} implementation on old revision. */
+  private XdmNodeVisitor mOldRevVisitor;
 
-  /** {@link Visitor} implementation on new revision. */
-  private Visitor mNewRevVisitor;
+  /** {@link XdmNodeVisitor} implementation on new revision. */
+  private XdmNodeVisitor mNewRevVisitor;
 
-  /** {@link Visitor} implementation to collect label/nodes on old revision. */
+  /** {@link XdmNodeVisitor} implementation to collect label/nodes on old revision. */
   private LabelFMSEVisitor mLabelOldRevVisitor;
 
-  /** {@link Visitor} implementation to collect label/nodes on new revision. */
+  /** {@link XdmNodeVisitor} implementation to collect label/nodes on new revision. */
   private LabelFMSEVisitor mLabelNewRevVisitor;
 
   /** Sirix {@link XdmNodeWriteTrx}. */
@@ -1002,10 +1002,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * Initialize data structures.
    *
    * @param rtx {@link XdmNodeReadTrx} reference on old revision
-   * @param visitor {@link Visitor} reference
+   * @param visitor {@link XdmNodeVisitor} reference
    * @throws SirixException if anything in sirix fails
    */
-  private static void init(final XdmNodeReadTrx rtx, final Visitor visitor) {
+  private static void init(final XdmNodeReadTrx rtx, final XdmNodeVisitor visitor) {
     assert visitor != null;
 
     final long nodeKey = rtx.getNodeKey();

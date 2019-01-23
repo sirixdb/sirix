@@ -23,8 +23,9 @@ package org.sirix.node.delegates;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
+import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
@@ -118,8 +119,11 @@ public class NodeDelegate implements Node {
     mHash = pHash;
   }
 
-  @Override
-  public VisitResultType acceptVisitor(final Visitor pVisitor) {
+  public VisitResultType acceptVisitor(final XdmNodeVisitor pVisitor) {
+    return VisitResultType.CONTINUE;
+  }
+
+  public VisitResultType acceptVisitor(final JsonNodeVisitor pVisitor) {
     return VisitResultType.CONTINUE;
   }
 
@@ -150,7 +154,6 @@ public class NodeDelegate implements Node {
                       .toString();
   }
 
-  @Override
   public int getTypeKey() {
     return mTypeKey;
   }
@@ -183,7 +186,6 @@ public class NodeDelegate implements Node {
     mID = id;
   }
 
-  @Override
   public Optional<SirixDeweyID> getDeweyID() {
     return Optional.ofNullable(mID);
   }

@@ -1,7 +1,7 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -31,9 +31,9 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
   /**
    * Foreach-iterator calling a {@link IVistor} for each iteration.
    *
-   * @param visitor {@link Visitor} implementation
+   * @param visitor {@link XdmNodeVisitor} implementation
    */
-  void foreach(Visitor visitor);
+  void foreach(XdmNodeVisitor visitor);
 
   /**
    * Thread safe node iterator.

@@ -28,13 +28,15 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import com.google.common.base.MoreObjects;
@@ -50,7 +52,7 @@ import com.google.common.collect.BiMap;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ElementNode extends AbstractStructForwardingNode implements NameNode {
+public final class ElementNode extends AbstractStructForwardingNode implements NameNode, ImmutableXdmNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -80,9 +82,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
    * @param namespaceKeys keys of namespaces to be set
    * @param
    */
-  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
-      final List<Long> attributeKeys, final BiMap<Long, Long> attributes,
-      final List<Long> namespaceKeys, final QNm qNm) {
+  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
+      final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
     assert structDel != null;
     mStructNodeDel = structDel;
     assert nameDel != null;
@@ -250,7 +251,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(ImmutableElement.of(this));
   }
 
@@ -319,5 +320,15 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   @Override
   public QNm getName() {
     return mQNm;
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    return mStructNodeDel.getNodeDelegate().getDeweyID();
+  }
+
+  @Override
+  public int getTypeKey() {
+    return mStructNodeDel.getNodeDelegate().getTypeKey();
   }
 }

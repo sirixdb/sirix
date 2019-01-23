@@ -4,28 +4,29 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.CommentNode;
 
 /**
  * Immutable comment node wrapper.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode {
+public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode, ImmutableXdmNode {
 
   /** Mutable {@link CommentNode}. */
   private final CommentNode mNode;
 
   /**
    * Constructor.
-   * 
+   *
    * @param node mutable {@link CommentNode}
    */
   private ImmutableComment(final CommentNode node) {
@@ -34,7 +35,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
 
   /**
    * Get an immutable comment node instance.
-   * 
+   *
    * @param node the mutable {@link CommentNode} to wrap
    * @return immutable comment node instance
    */
@@ -53,7 +54,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(this);
   }
 

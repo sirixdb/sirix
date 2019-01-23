@@ -22,10 +22,7 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
 import javax.annotation.Nullable;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -74,11 +71,6 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void setHash(final long pHash) {
     throw new UnsupportedOperationException();
   }
@@ -107,11 +99,6 @@ public final class NullNode implements StructNode {
   public Kind getKind() {
     // Node kind is always of type Kind.
     return mNode.getKind();
-  }
-
-  @Override
-  public int getTypeKey() {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -212,11 +199,6 @@ public final class NullNode implements StructNode {
   @Override
   public int hashCode() {
     return Objects.hashCode(mNode);
-  }
-
-  @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    return mNode.getDeweyID();
   }
 
   @Override

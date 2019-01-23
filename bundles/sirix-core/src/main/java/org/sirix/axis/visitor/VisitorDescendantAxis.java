@@ -29,7 +29,7 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
@@ -41,7 +41,7 @@ import org.sirix.settings.Fixed;
  *
  * <p>
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
- * key. The currently located node is optionally included. Furthermore a {@link Visitor} is usable
+ * key. The currently located node is optionally included. Furthermore a {@link XdmNodeVisitor} is usable
  * to guide the traversal and do whatever you like with the node kind, which is selected by the
  * given {@link XdmNodeReadTrx} transaction.
  * </p>
@@ -57,7 +57,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   private Deque<Long> mRightSiblingKeyStack;
 
   /** Optional visitor. */
-  private Optional<? extends Visitor> mVisitor = Optional.empty();
+  private Optional<? extends XdmNodeVisitor> mVisitor = Optional.empty();
 
   /** Determines if it is the first call. */
   private boolean mFirst;
@@ -76,7 +76,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   public static class Builder {
 
     /** Optional visitor. */
-    private Optional<? extends Visitor> mVisitor = Optional.empty();
+    private Optional<? extends XdmNodeVisitor> mVisitor = Optional.empty();
 
     /** Sirix {@link XdmNodeReadTrx}. */
     private final NodeCursor mRtx;
@@ -110,7 +110,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @param visitor the visitor
      * @return this builder instance
      */
-    public Builder visitor(final Optional<? extends Visitor> visitor) {
+    public Builder visitor(final Optional<? extends XdmNodeVisitor> visitor) {
       mVisitor = checkNotNull(visitor);
       return this;
     }

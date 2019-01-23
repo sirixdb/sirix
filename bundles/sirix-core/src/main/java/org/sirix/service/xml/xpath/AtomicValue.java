@@ -25,12 +25,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -45,7 +46,7 @@ import org.sirix.utils.TypedValue;
  * 1.1</a>. (Definition: Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public final class AtomicValue implements Node, ValueNode {
+public final class AtomicValue implements Node, ValueNode, ImmutableXdmNode {
 
   /** Value of the item as byte array. */
   private byte[] mValue;
@@ -236,11 +237,6 @@ public final class AtomicValue implements Node, ValueNode {
   }
 
   @Override
-  public VisitResultType acceptVisitor(final Visitor pVisitor) {
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
   public AtomicValue clone() {
     return this;
   }
@@ -276,11 +272,6 @@ public final class AtomicValue implements Node, ValueNode {
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void setDeweyID(SirixDeweyID id) {
     throw new UnsupportedOperationException();
   }
@@ -288,5 +279,15 @@ public final class AtomicValue implements Node, ValueNode {
   @Override
   public String getValue() {
     return new String(mValue, Constants.DEFAULT_ENCODING);
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public VisitResult acceptVisitor(XdmNodeVisitor visitor) {
+    throw new UnsupportedOperationException();
   }
 }

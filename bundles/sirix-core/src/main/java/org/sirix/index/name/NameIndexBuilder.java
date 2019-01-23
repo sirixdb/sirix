@@ -1,46 +1,33 @@
 package org.sirix.index.name;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.xdm.AbstractVisitor;
-import org.sirix.api.PageWriteTrx;
-import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import org.sirix.node.immutable.xdm.ImmutableElement;
-import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-final class NameIndexBuilder extends AbstractVisitor {
-
+public final class NameIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(NameIndexBuilder.class));
 
-  private final Set<QNm> mIncludes;
-  private final Set<QNm> mExcludes;
-  private final AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
+  public Set<QNm> mIncludes;
+  public Set<QNm> mExcludes;
+  public AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
 
-  public NameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-      final IndexDef indexDefinition) {
-    mIncludes = checkNotNull(indexDefinition.getIncluded());
-    mExcludes = checkNotNull(indexDefinition.getExcluded());
-    assert indexDefinition.getType() == IndexType.NAME;
-    mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
+  public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
+      final AVLTreeWriter<QNm, NodeReferences> avlTreeWriter) {
+    mIncludes = includes;
+    mExcludes = excludes;
+    mAVLTreeWriter = avlTreeWriter;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableElement node) {
-    final QNm name = node.getName();
+  public VisitResultType build(QNm name, ImmutableNode node) {
     final boolean included = (mIncludes.isEmpty() || mIncludes.contains(name));
     final boolean excluded = (!mExcludes.isEmpty() && mExcludes.contains(name));
 
@@ -60,9 +47,7 @@ final class NameIndexBuilder extends AbstractVisitor {
     return VisitResultType.CONTINUE;
   }
 
-  private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final QNm name)
-      throws SirixIOException {
+  private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final QNm name) {
     mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }
-
 }

@@ -28,7 +28,7 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
@@ -319,7 +319,7 @@ public abstract class AbstractAxis implements Axis {
    * @param visitor {@link IVisitor} implementation
    */
   @Override
-  public final void foreach(final Visitor visitor) {
+  public final void foreach(final XdmNodeVisitor visitor) {
     checkNotNull(visitor);
     if (mNodeCursor instanceof XdmNodeReadTrx) {
       while (hasNext()) {

@@ -35,15 +35,16 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
-import org.sirix.node.DocumentRootNode;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xdm.DocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
@@ -150,10 +151,18 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   /**
    * Accept a visitor.
    *
-   * @param visitor {@link Visitor} implementation
+   * @param visitor {@link XdmNodeVisitor} implementation
    * @return {@link VisitResultType} value
    */
-  VisitResult acceptVisitor(Visitor visitor);
+  VisitResult acceptVisitor(XdmNodeVisitor visitor);
+
+  /**
+   * Get the immutable node where the cursor currently is located.
+   *
+   * @return the immutable node instance
+   */
+  @Override
+  ImmutableXdmNode getNode();
 
   /**
    * Move cursor to attribute by its index.
@@ -197,6 +206,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return the {@link QNm} of the node
    */
+  @Override
   QNm getName();
 
   /**
@@ -226,6 +236,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return {@code true} if closed, {@code false} otherwise
    */
+  @Override
   boolean isClosed();
 
   @Override
@@ -349,6 +360,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return {@code true} if it has children, {@code false} otherwise
    */
+  @Override
   boolean hasChildren();
 
   /**
@@ -381,6 +393,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    * @return the path kind of the currently selected node or {@code null} if the node isn't a node
    *         with a name
    */
+  @Override
   Kind getPathKind();
 
   /**
@@ -433,6 +446,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return number of children of current node
    */
+  @Override
   long getChildCount();
 
   /**
@@ -440,6 +454,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return number of descendants of current node
    */
+  @Override
   long getDescendantCount();
 
   /**
@@ -495,6 +510,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    *
    * @return {@code true}, if it is the document root node, {@code false} otherwise
    */
+  @Override
   boolean isDocumentRoot();
 
   /**

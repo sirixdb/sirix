@@ -5,28 +5,29 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.ElementNode;
 
 /**
  * Immutable element wrapper.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode {
+public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode, ImmutableXdmNode {
 
   /** Mutable {@link ElementNode}. */
   private final ElementNode mNode;
 
   /**
    * Private constructor.
-   * 
+   *
    * @param node mutable {@link ElementNode}
    */
   private ImmutableElement(final ElementNode node) {
@@ -35,7 +36,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 
   /**
    * Get an immutable element node instance.
-   * 
+   *
    * @param node the mutable {@link ElementNode} to wrap
    * @return immutable element instance
    */
@@ -94,7 +95,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(this);
   }
 
@@ -170,7 +171,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 
   /**
    * Get the namespace count.
-   * 
+   *
    * @return namespace count
    */
   public int getNamespaceCount() {
@@ -179,7 +180,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 
   /**
    * Get the attribute count.
-   * 
+   *
    * @return attribute count
    */
   public int getAttributeCount() {

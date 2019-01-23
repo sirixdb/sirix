@@ -3,8 +3,6 @@ package org.sirix.index.avltree;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
@@ -123,11 +121,6 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   @Override
   public void setRightChildKey(final long right) {
     mRight = right;
-  }
-
-  @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    return VisitResultType.CONTINUE;
   }
 
   @Override

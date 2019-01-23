@@ -46,6 +46,8 @@ import org.sirix.api.Axis;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadWriteTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
@@ -63,13 +65,13 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
-import org.sirix.node.json.JsonArrayNode;
-import org.sirix.node.json.JsonBooleanNode;
-import org.sirix.node.json.JsonNullNode;
-import org.sirix.node.json.JsonNumberNode;
-import org.sirix.node.json.JsonObjectKeyNode;
-import org.sirix.node.json.JsonObjectNode;
-import org.sirix.node.json.JsonStringNode;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.StringNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
@@ -247,7 +249,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = ((StructNode) mNodeReadTrx.getCurrentNode()).getFirstChildKey();
 
-      final JsonObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
+      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -273,7 +275,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
 
-      final JsonObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
+      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -302,7 +304,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long pathNodeKey = mBuildPathSummary
           ? mPathSummaryWriter.getPathNodeKey(new QNm(name), Kind.JSON_OBJECT_KEY)
           : 0;
-      final JsonObjectKeyNode node =
+      final ObjectKeyNode node =
           mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
@@ -336,7 +338,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long leftSibKey = getCurrentNode().getNodeKey();
       final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
 
-      final JsonObjectKeyNode node =
+      final ObjectKeyNode node =
           mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
 
       mNodeReadTrx.setCurrentNode(node);
@@ -367,7 +369,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currNode.getFirstChildKey();
 
-      final JsonArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -398,7 +400,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
 
-      final JsonArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -427,7 +429,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
 
       // Insert new text node if no adjacent text nodes are found.
       final byte[] textValue = getBytes(value);
-      final JsonStringNode node =
+      final StringNode node =
           mNodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, mCompression);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
@@ -469,7 +471,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       moveTo(leftSibKey);
       final byte[] textValue = getBytes(value);
 
-      final JsonStringNode node =
+      final StringNode node =
           mNodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, mCompression);
 
       insertAsRightSibling(node);
@@ -499,7 +501,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long rightSibKey = currentNode.getFirstChildKey();
 
       // Insert new text node if no adjacent text nodes are found.
-      final JsonBooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
+      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -532,7 +534,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
 
-      final JsonBooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
+      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
 
       insertAsRightSibling(node);
 
@@ -551,7 +553,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
 
     // Get the path node key.
     final long pathNodeKey = moveToParent().get().isObjectKey()
-        ? ((JsonObjectKeyNode) getNode()).getPathNodeKey()
+        ? ((ObjectKeyNode) getNode()).getPathNodeKey()
         : -1;
     mNodeReadTrx.setCurrentNode(node);
 
@@ -578,7 +580,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long rightSibKey = currentNode.getFirstChildKey();
 
       // Insert new text node if no adjacent text nodes are found.
-      final JsonNumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
+      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -610,7 +612,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
 
-      final JsonNumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
+      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
 
       insertAsRightSibling(node);
 
@@ -638,7 +640,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       // Insert new text node if no adjacent text nodes are found.
       moveTo(leftSibKey);
 
-      final JsonNullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
+      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -665,7 +667,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      final JsonNullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
+      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -741,7 +743,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
       final long pathNodeKey = moveToParent().hasMoved()
-          ? ((JsonObjectKeyNode) getNode()).getPathNodeKey()
+          ? ((ObjectKeyNode) getNode()).getPathNodeKey()
           : -1;
       moveTo(nodeKey);
       mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
@@ -873,8 +875,8 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
 
       final long oldHash = mNodeReadTrx.getCurrentNode().hashCode();
 
-      final JsonBooleanNode node =
-          (JsonBooleanNode) getPageTransaction().prepareEntryForModification(mNodeReadTrx.getCurrentNode().getNodeKey(),
+      final BooleanNode node =
+          (BooleanNode) getPageTransaction().prepareEntryForModification(mNodeReadTrx.getCurrentNode().getNodeKey(),
               PageKind.RECORDPAGE, -1);
       node.setValue(value);
 
@@ -907,7 +909,7 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
 
         final long oldHash = mNodeReadTrx.getCurrentNode().hashCode();
 
-        final JsonNumberNode node = (JsonNumberNode) getPageTransaction().prepareEntryForModification(
+        final NumberNode node = (NumberNode) getPageTransaction().prepareEntryForModification(
             mNodeReadTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
         node.setValue(value);
 

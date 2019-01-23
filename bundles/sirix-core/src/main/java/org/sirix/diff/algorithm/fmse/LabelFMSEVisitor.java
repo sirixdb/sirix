@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.sirix.access.trx.node.xdm.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xdm.XdmNodeReadTrx;
@@ -40,7 +40,7 @@ import org.sirix.node.immutable.xdm.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class LabelFMSEVisitor extends AbstractVisitor {
+public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
 
   /** {@link XdmNodeReadTrx} implementation. */
   private final XdmNodeReadTrx mRtx;

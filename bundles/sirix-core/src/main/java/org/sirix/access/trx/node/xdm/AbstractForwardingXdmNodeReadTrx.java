@@ -10,14 +10,14 @@ import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
-import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import com.google.common.collect.ForwardingObject;
 
@@ -311,7 +311,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject 
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return delegate().acceptVisitor(visitor);
   }
 
@@ -336,7 +336,7 @@ public abstract class AbstractForwardingXdmNodeReadTrx extends ForwardingObject 
   }
 
   @Override
-  public ImmutableNode getNode() {
+  public ImmutableXdmNode getNode() {
     return delegate().getNode();
   }
 

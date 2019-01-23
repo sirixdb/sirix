@@ -28,7 +28,7 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -285,10 +285,10 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Implements a simple foreach-method.
    *
-   * @param pVisitor {@link Visitor} implementation
+   * @param pVisitor {@link XdmNodeVisitor} implementation
    */
   @Override
-  public final void foreach(final Visitor pVisitor) {
+  public final void foreach(final XdmNodeVisitor pVisitor) {
     checkNotNull(pVisitor);
     for (; hasNext(); next()) {
       ((XdmNodeReadTrx) mRtx).acceptVisitor(pVisitor);

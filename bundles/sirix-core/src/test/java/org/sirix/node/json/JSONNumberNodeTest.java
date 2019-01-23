@@ -39,7 +39,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.NamePageHash;
 
 /**
  * Text node test.
@@ -73,26 +72,25 @@ public class JSONNumberNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JsonNumberNode node = new JsonNumberNode(value, strucDel);
+    final NumberNode node = new NumberNode(value, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JsonNumberNode node2 = (JsonNumberNode) Kind.JSON_NUMBER_VALUE.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
+    final NumberNode node2 =
+        (NumberNode) Kind.JSON_NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final JsonNumberNode node) {
+  private final void check(final NumberNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(10.87463D, node.getValue(), 0);
     assertEquals(Kind.JSON_NUMBER_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());

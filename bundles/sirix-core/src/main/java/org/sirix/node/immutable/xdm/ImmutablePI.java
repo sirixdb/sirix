@@ -5,28 +5,29 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.PINode;
 
 /**
  * Immutable processing instruction node wrapper.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode {
+public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode, ImmutableXdmNode {
   /** Mutable {@link PINode}. */
   private final PINode mNode;
 
   /**
    * Private constructor.
-   * 
+   *
    * @param node {@link PINode} to wrap
    */
   private ImmutablePI(final PINode node) {
@@ -35,7 +36,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 
   /**
    * Get an immutable processing instruction node instance.
-   * 
+   *
    * @param node the mutable {@link PINode} to wrap
    * @return immutable processing instruction node instance
    */
@@ -54,7 +55,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor pVisitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 

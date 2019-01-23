@@ -40,7 +40,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.NamePageHash;
 
 /**
  * Text node test.
@@ -75,26 +74,25 @@ public class JSONStringNodeTest {
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JsonStringNode node = new JsonStringNode(valDel, strucDel);
+    final StringNode node = new StringNode(valDel, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JsonStringNode node2 = (JsonStringNode) Kind.JSON_STRING_VALUE.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
+    final StringNode node2 =
+        (StringNode) Kind.JSON_STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final JsonStringNode node) {
+  private final void check(final StringNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
     assertEquals(Kind.JSON_STRING_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
