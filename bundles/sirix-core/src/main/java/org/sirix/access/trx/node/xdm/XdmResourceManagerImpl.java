@@ -43,6 +43,7 @@ import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -74,7 +75,7 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
 
   @Override
   public XdmNodeReadTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
-    return new XdmNodeReadTrxImpl(this, nodeTrxId, pageReadTrx, documentNode);
+    return new XdmNodeReadTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXdmNode) documentNode);
   }
 
   @Override
@@ -82,7 +83,8 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     // The node read-only transaction.
-    final InternalXdmNodeReadTrx nodeReadTrx = new XdmNodeReadTrxImpl(this, nodeTrxId, pageWriteTrx, documentNode);
+    final InternalXdmNodeReadTrx nodeReadTrx =
+        new XdmNodeReadTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXdmNode) documentNode);
 
     // Node factory.
     final XdmNodeFactory nodeFactory = new XdmNodeFactoryImpl(pageWriteTrx);

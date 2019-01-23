@@ -26,14 +26,14 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
-import org.sirix.node.immutable.ImmutableDocument;
+import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.xdm.DocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
@@ -244,7 +244,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   public ImmutableNode getNode() {
     assertNotClosed();
     if (mCurrentNode instanceof DocumentRootNode) {
-      return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
+      return ImmutableDocumentNode.of((DocumentRootNode) mCurrentNode);
     }
     return ImmutablePathNode.of((PathNode) mCurrentNode);
   }

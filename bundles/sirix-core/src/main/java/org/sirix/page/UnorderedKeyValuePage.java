@@ -48,10 +48,10 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -388,9 +388,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           reference.setPage(new OverflowPage(data));
           mReferences.put(recordID, reference);
         } else {
-          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter && record instanceof Node
-              && ((Node) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
-            mDeweyIDs.put(((Node) record).getDeweyID().get(), record.getNodeKey());
+          if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter && record instanceof ImmutableXdmNode
+              && ((ImmutableXdmNode) record).getDeweyID().isPresent() && record.getNodeKey() != 0)
+            mDeweyIDs.put(((ImmutableXdmNode) record).getDeweyID().get(), record.getNodeKey());
           mSlots.put(recordID, data);
         }
       }
@@ -405,9 +405,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
     if (storeDeweyIDs && mRecordPersister instanceof NodePersistenter) {
       entries.sort((a, b) -> {
-        if (a.getValue() instanceof Node && b.getValue() instanceof Node) {
-          final Optional<SirixDeweyID> first = ((Node) a.getValue()).getDeweyID();
-          final Optional<SirixDeweyID> second = ((Node) b.getValue()).getDeweyID();
+        if (a.getValue() instanceof ImmutableXdmNode && b.getValue() instanceof ImmutableXdmNode) {
+          final Optional<SirixDeweyID> first = ((ImmutableXdmNode) a.getValue()).getDeweyID();
+          final Optional<SirixDeweyID> second = ((ImmutableXdmNode) b.getValue()).getDeweyID();
 
           // Document node has no DeweyID.
           if (!first.isPresent() && second.isPresent())

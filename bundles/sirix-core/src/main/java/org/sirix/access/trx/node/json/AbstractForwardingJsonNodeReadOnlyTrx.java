@@ -7,6 +7,9 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import com.google.common.collect.ForwardingObject;
@@ -18,6 +21,11 @@ public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingOb
   @Override
   public CommitCredentials getCommitCredentials() {
     return delegate().getCommitCredentials();
+  }
+
+  @Override
+  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+    return delegate().acceptVisitor(visitor);
   }
 
   @Override

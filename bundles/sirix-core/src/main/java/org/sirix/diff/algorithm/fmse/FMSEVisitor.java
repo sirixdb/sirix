@@ -22,7 +22,7 @@ package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Map;
-import org.sirix.access.trx.node.xdm.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xdm.XdmNodeReadTrx;
@@ -40,7 +40,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class FMSEVisitor extends AbstractVisitor {
+public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
   /** {@link XdmNodeReadTrx} reference. */
   private final XdmNodeReadTrx mRtx;

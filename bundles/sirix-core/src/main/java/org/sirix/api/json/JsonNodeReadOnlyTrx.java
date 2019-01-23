@@ -1,0 +1,62 @@
+package org.sirix.api.json;
+
+import org.sirix.access.trx.node.Move;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.VisitResultType;
+
+public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
+  public String getValue();
+
+  public boolean isObject();
+
+  public boolean isObjectKey();
+
+  public boolean isArray();
+
+  public boolean isStringValue();
+
+  public boolean isNumberValue();
+
+  public boolean isNullValue();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveTo(long nodeKey);
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToDocumentRoot();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToFirstChild();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToLastChild();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToLeftSibling();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToParent();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToRightSibling();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToPrevious();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToNext();
+
+  @Override
+  Move<? extends JsonNodeReadOnlyTrx> moveToNextFollowing();
+
+  /**
+   * Accept a visitor.
+   *
+   * @param visitor {@link JsonNodeVisitor} implementation
+   * @return {@link VisitResultType} value
+   */
+  VisitResult acceptVisitor(JsonNodeVisitor visitor);
+}

@@ -1,7 +1,5 @@
 package org.sirix.index.avltree;
 
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.index.avltree.interfaces.ImmutableAVLNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
@@ -9,21 +7,21 @@ import org.sirix.node.delegates.NodeDelegate;
 
 /**
  * Immutable AVLNode.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  * @param <K> key which has to be comparable (implement Comparable interface)
  * @param <V> value
  */
-public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
-    extends AbstractForwardingNode implements ImmutableAVLNode<K, V> {
+public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V> extends AbstractForwardingNode
+    implements ImmutableAVLNode<K, V> {
 
   /** {@link AVLNode} to wrap. */
   private final AVLNode<K, V> mNode;
 
   /**
    * Constructor.
-   * 
+   *
    * @param node {@link AVLNode} to wrap.
    */
   public ImmutableAVLNodeImpl(final AVLNode<K, V> node) {
@@ -34,11 +32,6 @@ public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
   @Override
   public Kind getKind() {
     return mNode.getKind();
-  }
-
-  @Override
-  public VisitResult acceptVisitor(Visitor visitor) {
-    return mNode.acceptVisitor(visitor);
   }
 
   @Override

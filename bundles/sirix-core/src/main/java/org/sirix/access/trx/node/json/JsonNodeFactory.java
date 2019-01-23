@@ -2,13 +2,13 @@ package org.sirix.access.trx.node.json;
 
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.NodeFactory;
-import org.sirix.node.json.JsonArrayNode;
-import org.sirix.node.json.JsonBooleanNode;
-import org.sirix.node.json.JsonNullNode;
-import org.sirix.node.json.JsonNumberNode;
-import org.sirix.node.json.JsonObjectKeyNode;
-import org.sirix.node.json.JsonObjectNode;
-import org.sirix.node.json.JsonStringNode;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.StringNode;
 
 /**
  * Node factory for creating nodes.
@@ -18,25 +18,25 @@ import org.sirix.node.json.JsonStringNode;
  */
 public interface JsonNodeFactory extends NodeFactory {
   /**
-   * Create a {@link JsonArrayNode}.
+   * Create a {@link ArrayNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  JsonArrayNode createJsonArrayNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
+  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
 
   /**
-   * Create a {@link JsonObjectNode}.
+   * Create a {@link ObjectNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  JsonObjectNode createJsonObjectNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
+  ObjectNode createJsonObjectNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
 
   /**
-   * Create a {@link JsonObjectKeyNode}.
+   * Create a {@link ObjectKeyNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
@@ -44,11 +44,11 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param pathNodeKey path node key of node
    * @param name the name of the key
    */
-  JsonObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
+  ObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
       long pathNodeKey, String name);
 
   /**
-   * Create a {@link JsonStringNode}.
+   * Create a {@link StringNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
@@ -57,37 +57,37 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  JsonStringNode createJsonStringNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
+  StringNode createJsonStringNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
       byte[] value, boolean isCompressed);
 
   /**
-   * Create a {@link JsonBooleanNode}.
+   * Create a {@link BooleanNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param boolValue the boolean value
    */
-  JsonBooleanNode createJsonBooleanNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
+  BooleanNode createJsonBooleanNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
       boolean boolValue);
 
   /**
-   * Create a {@link JsonNumberNode}.
+   * Create a {@link NumberNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param dblValue the number value
    */
-  JsonNumberNode createJsonNumberNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
+  NumberNode createJsonNumberNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey,
       double dblValue);
 
   /**
-   * Create a {@link JsonNullNode}.
+   * Create a {@link NullNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  JsonNullNode createJsonNullNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
+  NullNode createJsonNullNode(@Nonnegative long parentKey, @Nonnegative long leftSibKey, long rightSibKey);
 }

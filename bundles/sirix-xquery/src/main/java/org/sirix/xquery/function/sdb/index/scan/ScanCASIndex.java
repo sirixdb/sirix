@@ -27,7 +27,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilter;
-import org.sirix.index.path.PCRCollectorImpl;
+import org.sirix.index.path.xdm.XdmPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -127,8 +127,8 @@ public final class ScanCASIndex extends AbstractFunction {
 
     final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
-        ? controller.createCASFilter(paths.split(";"), key, mode, new PCRCollectorImpl(rtx))
-        : controller.createCASFilter(new String[] {}, key, mode, new PCRCollectorImpl(rtx));
+        ? controller.createCASFilter(paths.split(";"), key, mode, new XdmPCRCollector(rtx))
+        : controller.createCASFilter(new String[] {}, key, mode, new XdmPCRCollector(rtx));
 
     final IndexController ic = controller;
     final DBNode node = doc;

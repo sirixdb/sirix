@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.xdm.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
@@ -28,7 +28,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class DeleteFMSEVisitor extends AbstractVisitor {
+public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER =

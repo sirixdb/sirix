@@ -4,27 +4,28 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.TextNode;
 
 /**
  * Immutable text node wrapper.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
+public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, ImmutableXdmNode {
   /** Mutable {@link TextNode}. */
   private final TextNode mNode;
 
   /**
    * Private constructor.
-   * 
+   *
    * @param node {@link TextNode} to wrap
    */
   private ImmutableText(final TextNode node) {
@@ -33,7 +34,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 
   /**
    * Get an immutable text node instance.
-   * 
+   *
    * @param node the mutable {@link TextNode} to wrap
    * @return immutable text node instance
    */
@@ -52,7 +53,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(this);
   }
 

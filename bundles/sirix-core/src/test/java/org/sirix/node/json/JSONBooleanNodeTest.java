@@ -40,7 +40,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.NamePageHash;
 
 /**
  * Text node test.
@@ -74,26 +73,25 @@ public class JSONBooleanNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JsonBooleanNode node = new JsonBooleanNode(boolValue, strucDel);
+    final BooleanNode node = new BooleanNode(boolValue, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JsonBooleanNode node2 = (JsonBooleanNode) Kind.JSON_BOOLEAN_VALUE.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
+    final BooleanNode node2 = (BooleanNode) Kind.JSON_BOOLEAN_VALUE.deserialize(new DataInputStream(in),
+        node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final JsonBooleanNode node) {
+  private final void check(final BooleanNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertTrue(node.getValue());
     assertEquals(Kind.JSON_BOOLEAN_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());

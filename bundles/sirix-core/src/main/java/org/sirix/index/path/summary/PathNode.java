@@ -7,8 +7,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -55,8 +53,8 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
    * @param level level of this path node
    */
   public PathNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
-      @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind,
-      @Nonnegative final int references, @Nonnegative final int level) {
+      @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind, @Nonnegative final int references,
+      @Nonnegative final int level) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structNodeDel);
     mNameNodeDel = checkNotNull(nameNodeDel);
@@ -185,11 +183,6 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
   }
 
   @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   protected StructNodeDelegate structDelegate() {
     return mStructNodeDel;
   }
@@ -217,8 +210,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof PathNode) {
       final PathNode other = (PathNode) obj;
-      return Objects.equal(mNodeDel, other.mNodeDel)
-          && Objects.equal(mNameNodeDel, other.mNameNodeDel);
+      return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameNodeDel, other.mNameNodeDel);
     }
     return false;
   }

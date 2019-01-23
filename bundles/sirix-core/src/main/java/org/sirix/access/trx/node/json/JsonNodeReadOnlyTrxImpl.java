@@ -9,19 +9,24 @@ import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
-import org.sirix.node.json.JsonArrayNode;
-import org.sirix.node.json.JsonNullNode;
-import org.sirix.node.json.JsonNumberNode;
-import org.sirix.node.json.JsonObjectKeyNode;
-import org.sirix.node.json.JsonObjectNode;
-import org.sirix.node.json.JsonStringNode;
+import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.NullNode;
+import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 
@@ -151,37 +156,37 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonArrayNode;
+    return mCurrentNode instanceof ArrayNode;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonObjectNode;
+    return mCurrentNode instanceof ObjectNode;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonObjectKeyNode;
+    return mCurrentNode instanceof ObjectKeyNode;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonNumberNode;
+    return mCurrentNode instanceof NumberNode;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonNullNode;
+    return mCurrentNode instanceof NullNode;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    return mCurrentNode instanceof JsonStringNode;
+    return mCurrentNode instanceof StringNode;
   }
 
   @Override
@@ -256,5 +261,11 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   public ImmutableStructNode getCurrentNode() {
     return (ImmutableStructNode) mCurrentNode;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+    assertNotClosed();
+    return ((ImmutableJsonNode) mCurrentNode).acceptVisitor(visitor);
   }
 }

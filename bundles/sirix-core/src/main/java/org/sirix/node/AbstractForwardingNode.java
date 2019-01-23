@@ -1,6 +1,5 @@
 package org.sirix.node;
 
-import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
@@ -29,11 +28,6 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   @Nonnull
   public NodeDelegate getNodeDelegate() {
     return delegate();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return delegate().getTypeKey();
   }
 
   @Override
@@ -91,8 +85,4 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
     delegate().setDeweyID(id);
   }
 
-  @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    return delegate().getDeweyID();
-  }
 }

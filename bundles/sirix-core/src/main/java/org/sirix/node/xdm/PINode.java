@@ -1,12 +1,14 @@
 package org.sirix.node.xdm;
 
+import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -14,6 +16,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -25,7 +28,7 @@ import com.google.common.base.Objects;
  * Node representing a processing instruction.
  * </p>
  */
-public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode {
+public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode, ImmutableXdmNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -34,7 +37,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   private final ValNodeDelegate mValDel;
 
   /** Delegate for structural node information. */
-  private final StructNodeDelegate mStructDel;
+  private final StructNodeDelegate mStructNodeDel;
 
   /** {@link PageReadTrx} reference. */
   private final PageReadTrx mPageReadTrx;
@@ -50,7 +53,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
       final PageReadTrx pageReadTrx) {
     assert structDel != null : "structDel must not be null!";
-    mStructDel = structDel;
+    mStructNodeDel = structDel;
     assert nameDel != null : "nameDel must not be null!";
     mNameDel = nameDel;
     assert valDel != null : "valDel must not be null!";
@@ -65,14 +68,14 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(ImmutablePI.of(this));
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("structDel", mStructDel)
+                      .add("structDel", mStructNodeDel)
                       .add("nameDel", mNameDel)
                       .add("valDel", mValDel)
                       .toString();
@@ -162,12 +165,12 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructDel.getNodeDelegate();
+    return mStructNodeDel.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructDel;
+    return mStructNodeDel;
   }
 
   @Override
@@ -187,5 +190,15 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   @Override
   public String getValue() {
     return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    return mStructNodeDel.getNodeDelegate().getDeweyID();
+  }
+
+  @Override
+  public int getTypeKey() {
+    return mStructNodeDel.getNodeDelegate().getTypeKey();
   }
 }

@@ -5,27 +5,28 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.NamespaceNode;
 
 /**
  * Immutable namespace node wrapper.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public class ImmutableNamespace implements ImmutableNameNode {
+public class ImmutableNamespace implements ImmutableNameNode, ImmutableXdmNode {
 
   /** Mutable {@link NamespaceNode}. */
   private final NamespaceNode mNode;
 
   /**
    * Private constructor.
-   * 
+   *
    * @param node {@link NamespaceNode} to wrap
    */
   private ImmutableNamespace(final NamespaceNode node) {
@@ -34,7 +35,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 
   /**
    * Get an immutable namespace node instance.
-   * 
+   *
    * @param node the mutable {@link NamespaceNode} to wrap
    * @return immutable namespace node instance
    */
@@ -53,7 +54,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor pVisitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 

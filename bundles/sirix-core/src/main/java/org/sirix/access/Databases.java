@@ -13,11 +13,11 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.trx.node.json.JsonResourceManager;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
@@ -164,7 +164,7 @@ public final class Databases {
 
   private static Database<?> openDatabase(final Path file,
       final ResourceStore<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> store,
-      final DatabaseType type) {
+      final DatabaseType databaseType) {
     checkNotNull(file);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
@@ -173,7 +173,7 @@ public final class Databases {
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
-    final Database<?> database = type.createDatabase(dbConfig, store);
+    final Database<?> database = databaseType.createDatabase(dbConfig, store);
     putDatabase(file, database);
     return database;
   }

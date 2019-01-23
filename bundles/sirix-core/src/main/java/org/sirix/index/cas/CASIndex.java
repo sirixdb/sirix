@@ -12,7 +12,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public interface CASIndex<K extends Comparable<? super K>, V extends References> {
 
-  CASIndexBuilder createBuilder(XdmNodeReadTrx rtx,
+  XdmCASIndexBuilder createBuilder(XdmNodeReadTrx rtx,
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef);
 

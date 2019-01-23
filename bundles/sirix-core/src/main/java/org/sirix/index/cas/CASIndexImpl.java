@@ -25,10 +25,10 @@ import com.google.common.collect.Iterators;
 public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 
   @Override
-  public CASIndexBuilder createBuilder(XdmNodeReadTrx rtx,
+  public XdmCASIndexBuilder createBuilder(XdmNodeReadTrx rtx,
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
-    return new CASIndexBuilder(rtx, pageWriteTrx, pathSummaryReader, indexDef);
+    return new XdmCASIndexBuilder(rtx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   @Override

@@ -26,7 +26,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -46,14 +46,14 @@ import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASIndex;
 import org.sirix.index.cas.CASIndexImpl;
 import org.sirix.index.name.NameFilter;
-import org.sirix.index.name.NameIndex;
-import org.sirix.index.name.NameIndexImpl;
+import org.sirix.index.name.xdm.XdmNameIndex;
+import org.sirix.index.name.xdm.XdmNameIndexImpl;
 import org.sirix.index.path.PCRCollector;
-import org.sirix.index.path.PCRCollectorImpl;
 import org.sirix.index.path.PathFilter;
-import org.sirix.index.path.PathIndex;
-import org.sirix.index.path.PathIndexImpl;
 import org.sirix.index.path.summary.PathSummaryReader;
+import org.sirix.index.path.xdm.XdmPCRCollector;
+import org.sirix.index.path.xdm.XdmPathIndex;
+import org.sirix.index.path.xdm.XdmPathIndexImpl;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -81,14 +81,14 @@ public final class IndexController {
   /** Set of {@link ChangeListener}. */
   private final Set<ChangeListener> mListeners;
 
-  /** The {@link PathIndex} implementation used to provide path indexes. */
-  private final PathIndex<Long, NodeReferences> mPathIndex;
+  /** The {@link XdmPathIndex} implementation used to provide path indexes. */
+  private final XdmPathIndex<Long, NodeReferences> mPathIndex;
 
   /** The {@link CASIndex} implementation used to provide CAS indexes. */
   private final CASIndex<CASValue, NodeReferences> mCASIndex;
 
-  /** The {@link NameIndex} implementation used to provide Name indexes. */
-  private final NameIndex<QNm, NodeReferences> mNameIndex;
+  /** The {@link XdmNameIndex} implementation used to provide Name indexes. */
+  private final XdmNameIndex<QNm, NodeReferences> mNameIndex;
 
   /**
    * Constructor.
@@ -98,9 +98,9 @@ public final class IndexController {
   public IndexController() {
     mIndexes = new Indexes();
     mListeners = new HashSet<>();
-    mPathIndex = new PathIndexImpl();
+    mPathIndex = new XdmPathIndexImpl();
     mCASIndex = new CASIndexImpl();
-    mNameIndex = new NameIndexImpl();
+    mNameIndex = new XdmNameIndexImpl();
   }
 
   /**
@@ -236,9 +236,9 @@ public final class IndexController {
    *
    * @return the created index builder instances
    */
-  Set<Visitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
+  Set<XdmNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
     // Index builders for all index definitions.
-    final Set<Visitor> indexBuilders = new HashSet<>(indexDefs.size());
+    final Set<XdmNodeVisitor> indexBuilders = new HashSet<>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
       switch (indexDef.getType()) {
         case PATH:
@@ -303,18 +303,18 @@ public final class IndexController {
     return mNameIndex.createListener(pageWriteTrx, indexDef);
   }
 
-  private Visitor createPathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XdmNodeVisitor createPathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private Visitor createCASIndexBuilder(final XdmNodeReadTrx nodeReadTrx,
+  private XdmNodeVisitor createCASIndexBuilder(final XdmNodeReadTrx nodeReadTrx,
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private Visitor createNameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XdmNodeVisitor createNameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }
@@ -332,7 +332,7 @@ public final class IndexController {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
       paths.add(Path.parse(path));
-    return new PathFilter(paths, new PCRCollectorImpl(rtx));
+    return new PathFilter(paths, new XdmPCRCollector(rtx));
   }
 
   public CASFilter createCASFilter(final String[] pathArray, final Atomic key, final SearchMode mode,

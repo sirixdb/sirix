@@ -34,7 +34,6 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;

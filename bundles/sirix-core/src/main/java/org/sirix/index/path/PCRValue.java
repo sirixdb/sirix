@@ -13,11 +13,11 @@ public class PCRValue {
     mPCRs = pcrs;
   }
 
-  static final PCRValue getInstance(final long maxPCR, final Set<Long> pcrs) {
+  public static final PCRValue getInstance(final long maxPCR, final Set<Long> pcrs) {
     return new PCRValue(maxPCR, pcrs);
   }
 
-  static final PCRValue getEmptyInstance() {
+  public static final PCRValue getEmptyInstance() {
     return new PCRValue(0, Collections.emptySet());
   }
 

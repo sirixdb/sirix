@@ -14,7 +14,6 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
@@ -31,7 +30,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   protected ImmutableNode mCurrentNode;
 
   public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadTrx pageReadTransaction,
-      final Node documentNode) {
+      final ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     mId = trxId;
     mPageReadTrx = checkNotNull(pageReadTransaction);

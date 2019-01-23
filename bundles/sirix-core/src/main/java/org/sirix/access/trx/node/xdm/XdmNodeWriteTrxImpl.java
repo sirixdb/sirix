@@ -63,7 +63,7 @@ import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.immutable.xdm.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
@@ -71,6 +71,8 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
 import org.sirix.node.xdm.ElementNode;
@@ -307,7 +309,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    *
    * @return {@link Node} implementation
    */
-  private ImmutableNode getCurrentNode() {
+  private ImmutableXdmNode getCurrentNode() {
     return mNodeReadTrx.getCurrentNode();
   }
 
@@ -328,7 +330,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
       axis.next();
       for (int i = 0, attCount = getAttributeCount(); i < attCount; i++) {
         moveToAttribute(i);
-        final ImmutableAttribute att = (ImmutableAttribute) getNode();
+        final ImmutableAttributeNode att = (ImmutableAttributeNode) getNode();
         mIndexController.notifyChange(type, att, att.getPathNodeKey());
         moveToParent();
       }
@@ -519,7 +521,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    */
   private void adaptHashesForMove(final StructNode nodeToMove) throws SirixIOException {
     assert nodeToMove != null;
-    mNodeReadTrx.setCurrentNode(nodeToMove);
+    mNodeReadTrx.setCurrentNode((ImmutableXdmNode) nodeToMove);
     adaptHashesWithRemove();
   }
 
@@ -1440,10 +1442,11 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
-        mNodeReadTrx.setCurrentNode(node);
+        final ImmutableXdmNode xdmNode = (ImmutableXdmNode) node;
+        mNodeReadTrx.setCurrentNode(xdmNode);
         adaptHashesWithRemove();
         adaptForRemove(node, PageKind.RECORDPAGE);
-        mNodeReadTrx.setCurrentNode(node);
+        mNodeReadTrx.setCurrentNode(xdmNode);
 
         // Remove the name of subtree-root.
         if (node.getKind() == Kind.ELEMENT) {
@@ -1593,7 +1596,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
               ? mPathSummaryWriter.getNodeKey()
               : 0);
 
-          mNodeReadTrx.setCurrentNode(node);
+          mNodeReadTrx.setCurrentNode((ImmutableXdmNode) node);
           adaptHashedWithUpdate(oldHash);
         }
 
@@ -1636,7 +1639,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
                 PageKind.RECORDPAGE, -1);
         node.setValue(byteVal);
 
-        mNodeReadTrx.setCurrentNode(node);
+        mNodeReadTrx.setCurrentNode((ImmutableXdmNode) node);
         adaptHashedWithUpdate(oldHash);
 
         // Index new value.
@@ -1849,7 +1852,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     switch (mHashKind) {
       case ROLLING:
         // Setup.
-        final ImmutableNode startNode = getCurrentNode();
+        final ImmutableXdmNode startNode = getCurrentNode();
         final long oldDescendantCount = mNodeReadTrx.getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0
             ? 1
@@ -2125,11 +2128,11 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    */
   private void postorderAdd() {
     // start with hash to add
-    final ImmutableNode startNode = getCurrentNode();
+    final ImmutableXdmNode startNode = getCurrentNode();
     // long for adapting the hash of the parent
     long hashCodeForParent = 0;
     // adapting the parent if the current node is no structural one.
-    if (!(startNode instanceof StructNode)) {
+    if (!(startNode instanceof ImmutableStructNode)) {
       final Node node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadTrx.getCurrentNode().getNodeKey(),
           PageKind.RECORDPAGE, -1);
       node.setHash(mHash.hashLong(mNodeReadTrx.getCurrentNode().hashCode()).asLong());
@@ -2181,7 +2184,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    * @throws SirixIOException if anything weird happened
    */
   private void rollingUpdate(final long oldHash) {
-    final ImmutableNode newNode = getCurrentNode();
+    final ImmutableXdmNode newNode = getCurrentNode();
     final long hash = newNode.hashCode();
     final long newNodeHash = hash;
     long resultNew = hash;
@@ -2209,7 +2212,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    * @throws SirixIOException if anything weird happened
    */
   private void rollingRemove() {
-    final ImmutableNode startNode = getCurrentNode();
+    final ImmutableXdmNode startNode = getCurrentNode();
     long hashToRemove = startNode.getHash();
     long hashToAdd = 0;
     long newHash = 0;
@@ -2259,7 +2262,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
    */
   private void rollingAdd() throws SirixIOException {
     // start with hash to add
-    final ImmutableNode startNode = mNodeReadTrx.getCurrentNode();
+    final ImmutableXdmNode startNode = mNodeReadTrx.getCurrentNode();
     final long oldDescendantCount = mNodeReadTrx.getStructuralNode().getDescendantCount();
     final long descendantCount = oldDescendantCount == 0
         ? 1

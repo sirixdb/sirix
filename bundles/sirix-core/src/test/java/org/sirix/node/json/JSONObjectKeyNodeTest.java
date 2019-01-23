@@ -79,19 +79,19 @@ public class JSONObjectKeyNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final JsonObjectKeyNode node = new JsonObjectKeyNode(strucDel, mNameKey, name, pathNodeKey);
+    final ObjectKeyNode node = new ObjectKeyNode(strucDel, mNameKey, name, pathNodeKey);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final JsonObjectKeyNode node2 = (JsonObjectKeyNode) Kind.JSON_OBJECT_KEY.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID().orElse(null), mPageWriteTrx);
+    final ObjectKeyNode node2 = (ObjectKeyNode) Kind.JSON_OBJECT_KEY.deserialize(new DataInputStream(in),
+        node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
-  private final void check(final JsonObjectKeyNode node) {
+  private final void check(final ObjectKeyNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());

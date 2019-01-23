@@ -21,17 +21,20 @@
 
 package org.sirix.node.xdm;
 
+import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
@@ -42,7 +45,7 @@ import com.google.common.base.Objects;
  * Node representing a namespace.
  * </p>
  */
-public final class NamespaceNode extends AbstractForwardingNode implements NameNode {
+public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXdmNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -105,7 +108,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
     return visitor.visit(ImmutableNamespace.of(this));
   }
 
@@ -155,5 +158,15 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   @Override
   public QNm getName() {
     return mQNm;
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    return mNodeDel.getDeweyID();
+  }
+
+  @Override
+  public int getTypeKey() {
+    return mNodeDel.getTypeKey();
   }
 }

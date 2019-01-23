@@ -21,20 +21,23 @@
 
 package org.sirix.node.xdm;
 
+import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.immutable.xdm.ImmutableAttribute;
+import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -46,7 +49,7 @@ import com.google.common.base.Objects;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode {
+public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode, ImmutableXdmNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -55,7 +58,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   private final ValNodeDelegate mValDel;
 
   /** Node delegate. */
-  private final NodeDelegate mDel;
+  private final NodeDelegate mNodeDel;
 
   /** The qualified name. */
   private final QNm mQNm;
@@ -71,7 +74,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
       final QNm qNm) {
     assert nodeDel != null : "nodeDel must not be null!";
-    mDel = nodeDel;
+    mNodeDel = nodeDel;
     assert nameDel != null : "nameDel must not be null!";
     mNameDel = nameDel;
     assert valDel != null : "valDel must not be null!";
@@ -86,8 +89,8 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
-    return visitor.visit(ImmutableAttribute.of(this));
+  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+    return visitor.visit(ImmutableAttributeNode.of(this));
   }
 
   @Override
@@ -179,7 +182,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
   @Override
   protected NodeDelegate delegate() {
-    return mDel;
+    return mNodeDel;
   }
 
   @Override
@@ -190,5 +193,15 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   @Override
   public String getValue() {
     return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    return mNodeDel.getDeweyID();
+  }
+
+  @Override
+  public int getTypeKey() {
+    return mNodeDel.getTypeKey();
   }
 }
