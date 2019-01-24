@@ -1,21 +1,16 @@
 package org.sirix.index.name.xdm;
 
-import java.util.Iterator;
-import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.avltree.interfaces.References;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
-import org.sirix.index.name.NameFilter;
+import org.sirix.index.name.NameIndex;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public interface XdmNameIndex<K extends Comparable<? super K>, V extends References> {
+public interface XdmNameIndex<K extends Comparable<? super K>, V extends References> extends NameIndex<V> {
 
   XdmNameIndexBuilder createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
 
   XdmNameIndexListener createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       IndexDef indexDef);
-
-  Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef, NameFilter filter);
 }
