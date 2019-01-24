@@ -1,15 +1,13 @@
 package org.sirix.index.name.json;
 
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.index.IndexDef;
-import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.name.NameIndexBuilderFactory;
 import org.sirix.index.name.NameIndexListenerFactory;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public final class JsonNameIndexImpl implements JsonNameIndex<QNm, NodeReferences> {
+public final class JsonNameIndexImpl implements JsonNameIndex {
 
   private final NameIndexBuilderFactory mNameIndexBuilderFactory;
 
