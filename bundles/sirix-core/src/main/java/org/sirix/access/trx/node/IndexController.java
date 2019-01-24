@@ -82,13 +82,13 @@ public final class IndexController {
   private final Set<ChangeListener> mListeners;
 
   /** The {@link XdmPathIndex} implementation used to provide path indexes. */
-  private final XdmPathIndex<Long, NodeReferences> mPathIndex;
+  private final XdmPathIndex mPathIndex;
 
   /** The {@link CASIndex} implementation used to provide CAS indexes. */
   private final CASIndex<CASValue, NodeReferences> mCASIndex;
 
   /** The {@link XdmNameIndex} implementation used to provide Name indexes. */
-  private final XdmNameIndex<QNm, NodeReferences> mNameIndex;
+  private final XdmNameIndex mNameIndex;
 
   /**
    * Constructor.
@@ -367,7 +367,7 @@ public final class IndexController {
   public Iterator<NodeReferences> openNameIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
       final NameFilter filter) {
     if (mNameIndex == null) {
-      throw new IllegalStateException("This document does not support path indexes.");
+      throw new IllegalStateException("This document does not support name indexes.");
     }
 
     return mNameIndex.openIndex(pageRtx, indexDef, filter);
@@ -376,7 +376,7 @@ public final class IndexController {
   public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
       final CASFilter filter) {
     if (mCASIndex == null) {
-      throw new IllegalStateException("This document does not support path indexes.");
+      throw new IllegalStateException("This document does not support CAS indexes.");
     }
 
     return mCASIndex.openIndex(pageRtx, indexDef, filter);
