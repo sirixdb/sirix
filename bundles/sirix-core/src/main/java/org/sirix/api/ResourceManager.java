@@ -29,6 +29,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
@@ -53,7 +54,8 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Marc Kramis, Seabix GmbH
  * @author Johannes Lichtenberger
  */
-public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> extends AutoCloseable {
+public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+    extends AutoCloseable {
 
   /**
    * Get the {@link Database} this session is bound to.
@@ -256,16 +258,16 @@ public interface ResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> 
   /**
    * Get the index controller.
    *
-   * @return the {@link IndexController} instance
+   * @return the {@link XdmIndexController} instance
    */
-  IndexController getRtxIndexController(int revision);
+  <C extends IndexController<R, W>> C getRtxIndexController(int revision);
 
   /**
    * Get the index controller.
    *
-   * @return the {@link IndexController} instance
+   * @return the {@link XdmIndexController} instance
    */
-  IndexController getWtxIndexController(int revision);
+  <C extends IndexController<R, W>> C getWtxIndexController(int revision);
 
   /**
    * Get the node reader with the given ID wrapped in an optional.

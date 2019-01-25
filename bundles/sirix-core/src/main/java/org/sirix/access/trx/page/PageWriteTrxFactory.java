@@ -84,7 +84,7 @@ public final class PageWriteTrxFactory {
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager, final boolean isBoundToNodeTrx) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
-    final IndexController indexController = resourceManager.getWtxIndexController(representRev);
+    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
     final Path indexes =

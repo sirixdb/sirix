@@ -21,7 +21,7 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
@@ -63,7 +63,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
       throws QueryException {
     final DBNode doc = (DBNode) args[0];
     final XdmNodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
+    final XdmIndexController controller =
         rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -107,7 +107,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
     final CASFilterRange filter = controller.createCASFilterRange(
         pathArray, min, max, incMin, incMax, new XdmPCRCollector(rtx));
 
-    final IndexController ic = controller;
+    final XdmIndexController ic = controller;
     final DBNode node = doc;
 
     return new LazySequence() {

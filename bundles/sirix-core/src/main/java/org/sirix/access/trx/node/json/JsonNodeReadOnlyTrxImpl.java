@@ -64,12 +64,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  public int keyForName(String name) {
-    assertNotClosed();
-    return 0;
-  }
-
-  @Override
   public Move<JsonNodeReadOnlyTrx> moveTo(long nodeKey) {
     assertNotClosed();
 
@@ -220,23 +214,6 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  public long getDescendantCount() {
-    // TODO Auto-generated method stub
-    return 0;
-  }
-
-  @Override
-  public long getChildCount() {
-    // TODO Auto-generated method stub
-    return 0;
-  }
-
-  @Override
-  public Kind getPathKind() {
-    return null;
-  }
-
-  @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
     return mCurrentNode.getKind() == Kind.DOCUMENT;
@@ -249,14 +226,17 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public QNm getName() {
-    // TODO Auto-generated method stub
-    return null;
-  }
+    assertNotClosed();
 
-  @Override
-  public boolean hasChildren() {
-    // TODO Auto-generated method stub
-    return false;
+    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
+      final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
+      final String localName = nameKey == -1
+          ? ""
+          : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
+      return new QNm(localName);
+    }
+
+    return null;
   }
 
   public ImmutableStructNode getCurrentNode() {

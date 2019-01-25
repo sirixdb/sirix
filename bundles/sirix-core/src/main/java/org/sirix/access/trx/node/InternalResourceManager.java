@@ -2,6 +2,7 @@ package org.sirix.access.trx.node;
 
 import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageWriteTrx;
@@ -10,7 +11,8 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public interface InternalResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx> extends ResourceManager<R, W> {
+public interface InternalResourceManager<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+    extends ResourceManager<R, W> {
   /** Abort a write transaction. */
   enum Abort {
     /** Yes, abort. */

@@ -39,11 +39,10 @@ import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.Movement;
+import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;
@@ -163,9 +162,9 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
   private final boolean mCompression;
 
   /**
-   * The {@link IndexController} used within the session this {@link XdmNodeWriteTrx} is bound to.
+   * The {@link XdmIndexController} used within the session this {@link XdmNodeWriteTrx} is bound to.
    */
-  private final IndexController mIndexController;
+  private final XdmIndexController mIndexController;
 
   /** The resource manager. */
   private final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> mResourceManager;

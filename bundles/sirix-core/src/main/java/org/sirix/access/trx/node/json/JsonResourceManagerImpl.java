@@ -21,6 +21,8 @@
 
 package org.sirix.access.trx.node.json;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -30,6 +32,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -54,8 +57,14 @@ import org.sirix.page.UnorderedKeyValuePage;
 public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx>
     implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx> {
 
+  /** {@link XdmIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, JsonIndexController> mRtxIndexControllers;
+
+  /** {@link XdmIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, JsonIndexController> mWtxIndexControllers;
+
   /**
-   * Package private constructor.
+   * Constructor.
    *
    * @param database {@link Database} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
@@ -68,6 +77,9 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
       final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock);
+
+    mRtxIndexControllers = new ConcurrentHashMap<>();
+    mWtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -80,5 +92,29 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     return new JsonNodeReadWriteTrxImpl(nodeTrxId, this, pageWriteTrx, maxNodeCount, timeUnit, maxTime, documentNode);
+  }
+
+  // TODO: Change for Java9 and above.
+  @SuppressWarnings("unchecked")
+  @Override
+  public synchronized JsonIndexController getRtxIndexController(final int revision) {
+    JsonIndexController controller = mRtxIndexControllers.get(revision);
+    if (controller == null) {
+      controller = new JsonIndexController();
+      mRtxIndexControllers.put(revision, controller);
+    }
+    return controller;
+  }
+
+  // TODO: Change for Java9 and above.
+  @SuppressWarnings("unchecked")
+  @Override
+  public synchronized JsonIndexController getWtxIndexController(final int revision) {
+    JsonIndexController controller = mWtxIndexControllers.get(revision);
+    if (controller == null) {
+      controller = new JsonIndexController();
+      mWtxIndexControllers.put(revision, controller);
+    }
+    return controller;
   }
 }

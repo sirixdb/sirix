@@ -41,6 +41,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
@@ -109,7 +110,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
   private final LoadingCache<PageReference, Page> mPageCache;
 
   /** {@link XdmResourceManagerImpl} reference. */
-  protected final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
+  protected final InternalResourceManager<?, ?> mResourceManager;
 
   /** {@link NamePage} reference. */
   private final NamePage mNamePage;
@@ -120,8 +121,8 @@ public final class PageReadTrxImpl implements PageReadTrx {
   /** {@link ResourceConfiguration} instance. */
   final ResourceConfiguration mResourceConfig;
 
-  /** {@link IndexController} instance. */
-  private final IndexController mIndexController;
+  /** {@link XdmIndexController} instance. */
+  private final IndexController<?, ?> mIndexController;
 
   /** Caches in-memory reconstructed pages of a specific resource. */
   private final BufferManager mResourceBufferManager;
@@ -148,7 +149,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
   public PageReadTrxImpl(final long trxId,
       final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager,
       final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
-      final @Nullable TransactionIntentLog trxIntentLog, final @Nullable IndexController indexController,
+      final @Nullable TransactionIntentLog trxIntentLog, final @Nullable IndexController<?, ?> indexController,
       final @Nonnull BufferManager bufferManager) {
     checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");

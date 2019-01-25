@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageWriteTrx;
+import org.sirix.index.ChangeListener;
 import org.sirix.index.Filter;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexFilterAxis;
@@ -12,11 +14,17 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
-public interface NameIndex {
+public interface NameIndex<B, L extends ChangeListener> {
+  B createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+
+  L createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+
   default Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final AVLTreeReader<QNm, NodeReferences> reader =
         AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
