@@ -37,6 +37,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
@@ -97,8 +98,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   /** Determines if transaction is closed. */
   private boolean mIsClosed;
 
-  /** {@link IndexController} instance. */
-  private final IndexController mIndexController;
+  /** {@link XdmIndexController} instance. */
+  private final IndexController<?, ?> mIndexController;
 
   /** The tree modifier. */
   private final TreeModifier mTreeModifier;
@@ -118,8 +119,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    *        {@code false} otherwise
    */
   PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx, final IndexController indexController,
-      final boolean isBoundToNodeTrx) {
+      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx,
+      final IndexController<?, ?> indexController, final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
     mLog = checkNotNull(log);

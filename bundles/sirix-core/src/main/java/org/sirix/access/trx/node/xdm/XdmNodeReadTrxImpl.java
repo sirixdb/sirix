@@ -241,9 +241,9 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
           ? ""
           : mPageReadTrx.getName(localNameKey, mCurrentNode.getKind());
       return new QNm(uri, prefix, localName);
-    } else {
-      return null;
     }
+
+    return null;
   }
 
   @Override
@@ -397,12 +397,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Kind getPathKind() {
-    assertNotClosed();
-    return Kind.UNKNOWN;
-  }
-
-  @Override
   public boolean isStructuralNode() {
     assertNotClosed();
     return mCurrentNode instanceof StructNode;
@@ -433,18 +427,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
       return ((ElementNode) mCurrentNode).getNamespaceKeys();
     }
     return Collections.emptyList();
-  }
-
-  @Override
-  public long getChildCount() {
-    assertNotClosed();
-    return getStructuralNode().getChildCount();
-  }
-
-  @Override
-  public long getDescendantCount() {
-    assertNotClosed();
-    return getStructuralNode().getDescendantCount();
   }
 
   @Override
@@ -510,12 +492,6 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   public boolean isPI() {
     assertNotClosed();
     return mCurrentNode.getKind() == Kind.PROCESSING_INSTRUCTION;
-  }
-
-  @Override
-  public boolean hasChildren() {
-    assertNotClosed();
-    return getStructuralNode().hasFirstChild();
   }
 
   @Override

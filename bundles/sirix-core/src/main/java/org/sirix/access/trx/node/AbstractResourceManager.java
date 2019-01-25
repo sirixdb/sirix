@@ -25,6 +25,7 @@ import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
@@ -46,7 +47,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
-public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends NodeWriteTrx>
+public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
 
   /** The database. */
@@ -85,12 +86,6 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
   /** Atomic counter for concurrent generation of page transaction id. */
   final AtomicLong mPageTrxIDCounter;
 
-  /** {@link IndexController}s used for this session. */
-  final ConcurrentMap<Integer, IndexController> mRtxIndexControllers;
-
-  /** {@link IndexController}s used for this session. */
-  final ConcurrentMap<Integer, IndexController> mWtxIndexControllers;
-
   /** Determines if session was closed. */
   volatile boolean mClosed;
 
@@ -123,8 +118,6 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
     mNodeReaderMap = new ConcurrentHashMap<>();
     mPageTrxMap = new ConcurrentHashMap<>();
     mNodePageTrxMap = new ConcurrentHashMap<>();
-    mRtxIndexControllers = new ConcurrentHashMap<>();
-    mWtxIndexControllers = new ConcurrentHashMap<>();
 
     mNodeTrxIDCounter = new AtomicLong();
     mPageTrxIDCounter = new AtomicLong();
@@ -533,26 +526,6 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx, W extends N
   @Override
   public synchronized Database<?> getDatabase() {
     return mDatabase;
-  }
-
-  @Override
-  public synchronized IndexController getRtxIndexController(final int revision) {
-    IndexController controller = mRtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new IndexController();
-      mRtxIndexControllers.put(revision, controller);
-    }
-    return controller;
-  }
-
-  @Override
-  public synchronized IndexController getWtxIndexController(final int revision) {
-    IndexController controller = mWtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new IndexController();
-      mWtxIndexControllers.put(revision, controller);
-    }
-    return controller;
   }
 
   @Override

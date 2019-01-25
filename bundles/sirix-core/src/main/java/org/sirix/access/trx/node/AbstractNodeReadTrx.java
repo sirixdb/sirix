@@ -325,6 +325,30 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
+  public long getChildCount() {
+    assertNotClosed();
+    return getStructuralNode().getChildCount();
+  }
+
+  @Override
+  public boolean hasChildren() {
+    assertNotClosed();
+    return getStructuralNode().hasFirstChild();
+  }
+
+  @Override
+  public long getDescendantCount() {
+    assertNotClosed();
+    return getStructuralNode().getDescendantCount();
+  }
+
+  @Override
+  public Kind getPathKind() {
+    assertNotClosed();
+    return Kind.UNKNOWN;
+  }
+
+  @Override
   public Kind getRightSiblingKind() {
     assertNotClosed();
     final ImmutableNode node = mCurrentNode;

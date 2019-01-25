@@ -12,7 +12,7 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixIOException;
@@ -40,8 +40,7 @@ import com.google.common.collect.ImmutableSet;
 public final class CreateNameIndex extends AbstractFunction {
 
   /** Path index function name. */
-  public final static QNm CREATE_NAME_INDEX =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-name-index");
+  public final static QNm CREATE_NAME_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-name-index");
 
   /**
    * Constructor.
@@ -62,8 +61,8 @@ public final class CreateNameIndex extends AbstractFunction {
 
     final DBNode doc = ((DBNode) args[0]);
     final NodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
-        rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
+    final XdmIndexController controller =
+        (XdmIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
 
     if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
       throw new QueryException(new QNm("Collection must be updatable!"));
@@ -83,8 +82,8 @@ public final class CreateNameIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(
-        include, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+    final IndexDef idxDef =
+        IndexDefs.createSelectiveNameIdxDef(include, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeWriteTrx) doc.getTrx());
     } catch (final SirixIOException e) {

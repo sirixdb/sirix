@@ -16,7 +16,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixIOException;
@@ -47,8 +47,7 @@ import com.google.common.collect.ImmutableSet;
 public final class CreateCASIndex extends AbstractFunction {
 
   /** CAS index function name. */
-  public final static QNm CREATE_CAS_INDEX =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-cas-index");
+  public final static QNm CREATE_CAS_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-cas-index");
 
   /**
    * Constructor.
@@ -61,16 +60,15 @@ public final class CreateCASIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-      throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     if (args.length != 2 && args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
     final DBNode doc = ((DBNode) args[0]);
     final NodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
-        rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
+    final XdmIndexController controller =
+        (XdmIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
 
     if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
       throw new QueryException(new QNm("Collection must be updatable!"));
@@ -96,8 +94,7 @@ public final class CreateCASIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(
-        false, Optional.ofNullable(type), paths,
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Optional.ofNullable(type), paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS));
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeWriteTrx) doc.getTrx());

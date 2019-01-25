@@ -37,10 +37,9 @@ import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.IndexController.ChangeType;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.xdm.InsertPos;
+import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.access.trx.node.xdm.XdmNodeReadTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.PageWriteTrx;
@@ -48,7 +47,6 @@ import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadWriteTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -156,9 +154,10 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
   private final boolean mCompression;
 
   /**
-   * The {@link IndexController} used within the session this {@link XdmNodeWriteTrx} is bound to.
+   * The {@link JsonIndexController} used within the resource manager this
+   * {@link JsonNodeReadWriteTrx} is bound to.
    */
-  private final IndexController mIndexController;
+  private final JsonIndexController mIndexController;
 
   /**
    * Constructor.
@@ -909,8 +908,9 @@ final class JsonNodeReadWriteTrxImpl extends AbstractForwardingJsonNodeReadOnlyT
 
         final long oldHash = mNodeReadTrx.getCurrentNode().hashCode();
 
-        final NumberNode node = (NumberNode) getPageTransaction().prepareEntryForModification(
-            mNodeReadTrx.getCurrentNode().getNodeKey(), PageKind.RECORDPAGE, -1);
+        final NumberNode node =
+            (NumberNode) getPageTransaction().prepareEntryForModification(mNodeReadTrx.getCurrentNode().getNodeKey(),
+                PageKind.RECORDPAGE, -1);
         node.setValue(value);
 
         mNodeReadTrx.setCurrentNode(node);

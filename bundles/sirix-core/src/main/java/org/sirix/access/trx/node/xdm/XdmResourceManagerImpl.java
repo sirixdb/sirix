@@ -21,6 +21,8 @@
 
 package org.sirix.access.trx.node.xdm;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -57,6 +59,12 @@ import org.sirix.page.UnorderedKeyValuePage;
 public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx>
     implements XdmResourceManager, InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> {
 
+  /** {@link XdmIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, XdmIndexController> mRtxIndexControllers;
+
+  /** {@link XdmIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, XdmIndexController> mWtxIndexControllers;
+
   /**
    * Package private constructor.
    *
@@ -71,6 +79,9 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
       final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock);
+
+    mRtxIndexControllers = new ConcurrentHashMap<>();
+    mWtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -100,5 +111,29 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
 
     return new XdmNodeWriteTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
         documentNode, nodeFactory);
+  }
+
+  // TODO: Change for Java9 and above.
+  @SuppressWarnings("unchecked")
+  @Override
+  public synchronized XdmIndexController getRtxIndexController(final int revision) {
+    XdmIndexController controller = mRtxIndexControllers.get(revision);
+    if (controller == null) {
+      controller = new XdmIndexController();
+      mRtxIndexControllers.put(revision, controller);
+    }
+    return controller;
+  }
+
+  // TODO: Change for Java9 and above.
+  @SuppressWarnings("unchecked")
+  @Override
+  public synchronized XdmIndexController getWtxIndexController(final int revision) {
+    XdmIndexController controller = mWtxIndexControllers.get(revision);
+    if (controller == null) {
+      controller = new XdmIndexController();
+      mWtxIndexControllers.put(revision, controller);
+    }
+    return controller;
   }
 }
