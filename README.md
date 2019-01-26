@@ -380,7 +380,7 @@ var file = Paths.get("sirix-database");
 
 // Create the database.
 var config = new DatabaseConfiguration(file);
-Databases.createDatabase(config);
+Databases.createXdmDatabase(config);
 
 // Open the database.
 try (var database = Databases.openXdmDatabase(file)) {
@@ -401,7 +401,7 @@ try (var database = Databases.openXdmDatabase(file)) {
       // Start a resource manager on the given resource.
       var manager = database.getXdmResourceManager("resource1");
       // Start the single read/write transaction.
-      var wtx = manager.beginNodeWriteTrx()) {
+      var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
     
