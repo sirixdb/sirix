@@ -22,9 +22,13 @@
 package org.sirix.node.json;
 
 import javax.annotation.Nonnegative;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -38,7 +42,7 @@ import com.google.common.base.Objects;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ObjectKeyNode extends AbstractStructForwardingNode {
+public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -70,6 +74,11 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode {
 
   public void setLocalNameKey(final int nameKey) {
     mNameKey = nameKey;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableObjectKeyNode.of(this));
   }
 
   @Override

@@ -22,42 +22,35 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Hashtable;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
-import org.sirix.node.Kind.DumbNode;
-import org.sirix.node.interfaces.Record;
-import org.sirix.settings.CharsForSerializing;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.JsonDocumentCreator;
 
 /**
  *
- * Helper class for offering convenient usage of {@link XdmResourceManagerImpl}s for test cases.
+ * Helper class for offering convenient usage of the {@link JsonResourceManager} for test cases.
  *
  * This includes instantiation of databases plus resources.
  *
- * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  *
  */
-public final class TestHelper {
+public final class JsonTestHelper {
 
   /** Temporary directory path. */
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
@@ -82,7 +75,7 @@ public final class TestHelper {
 
     PATHS(final Path file) {
       this.file = file;
-      config = new DatabaseConfiguration(file);
+      config = new DatabaseConfiguration(file).setDatabaseType(DatabaseType.JSON);
     }
 
     public Path getFile() {
@@ -99,7 +92,7 @@ public final class TestHelper {
   public final static Random random = new Random();
 
   /** Path <=> Database instances. */
-  private final static Map<Path, Database<XdmResourceManager>> INSTANCES = new Hashtable<>();
+  private final static Map<Path, Database<JsonResourceManager>> INSTANCES = new HashMap<>();
 
   @Test
   public void testDummy() {
@@ -114,16 +107,16 @@ public final class TestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XdmResourceManager> getDatabase(final Path file) {
+  public static final Database<JsonResourceManager> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
       try {
         final DatabaseConfiguration config = new DatabaseConfiguration(file);
         if (!Files.exists(file)) {
-          Databases.createDatabase(config);
+          Databases.createJsonDatabase(config);
         }
-        final var database = Databases.openXdmDatabase(file);
+        final var database = Databases.openJsonDatabase(file);
         database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
         INSTANCES.put(file, database);
         return database;
@@ -137,10 +130,10 @@ public final class TestHelper {
   /**
    * Deleting all resources as defined in the enum {@link PATHS}.
    *
-   * @throws SirixException
+   * @throws SirixException if anything went wrong
    */
   @Ignore
-  public static final void deleteEverything() throws SirixException {
+  public static final void deleteEverything() {
     closeEverything();
     Databases.removeDatabase(PATHS.PATH1.getFile());
     Databases.removeDatabase(PATHS.PATH2.getFile());
@@ -149,10 +142,10 @@ public final class TestHelper {
   /**
    * Closing all resources as defined in the enum {@link PATHS}.
    *
-   * @throws SirixException
+   * @throws SirixException if anything went wrong
    */
   @Ignore
-  public static final void closeEverything() throws SirixException {
+  public static final void closeEverything() {
     if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
       final var database = INSTANCES.remove(PATHS.PATH1.getFile());
       database.close();
@@ -164,81 +157,17 @@ public final class TestHelper {
   }
 
   /**
-   * Read a file into a StringBuilder.
-   *
-   * @param file the file to read
-   * @param whitespaces retrieve file and don't remove any whitespaces
-   * @return StringBuilder instance, which has the string representation of the document
-   * @throws IOException if an I/O operation fails
-   */
-  @Ignore("Not a test, utility method only")
-  public static StringBuilder readFile(final Path file, final boolean whitespaces) throws IOException {
-    final BufferedReader in = new BufferedReader(new FileReader(file.toFile()));
-    final StringBuilder sBuilder = new StringBuilder();
-    for (String line = in.readLine(); line != null; line = in.readLine()) {
-      if (whitespaces) {
-        sBuilder.append(line + CharsForSerializing.NEWLINE);
-      } else {
-        sBuilder.append(line.trim());
-      }
-    }
-
-    // Remove last newline.
-    if (whitespaces) {
-      sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
-    }
-    in.close();
-
-    return sBuilder;
-  }
-
-  /**
    * Creating a test document at {@link PATHS#PATH1}.
    *
-   * @throws SirixException
+   * @throws SirixException if anything went wrong
    */
-  public static void createTestDocument() throws SirixException {
-    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+  public static void createTestDocument() {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-      DocumentCreator.create(wtx);
+    try (final JsonResourceManager manager = database.getResourceManager(RESOURCE);
+        final JsonNodeTrx wtx = manager.beginNodeWriteTrx()) {
+      JsonDocumentCreator.create(wtx);
       wtx.commit();
     }
-  }
-
-  /**
-   * Creating a test document with comments and processing instructions at {@link PATHS#PATH1}.
-   *
-   * @throws SirixException
-   */
-  public static void createPICommentTestDocument() throws SirixException {
-    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
-      DocumentCreator.createCommentPI(wtx);
-      wtx.commit();
-    }
-  }
-
-  /**
-   * Generating random bytes.
-   *
-   * @return the random bytes
-   */
-  public static final @Nonnull byte[] generateRandomBytes(final int size) {
-    final byte[] returnVal = new byte[size];
-    random.nextBytes(returnVal);
-    return returnVal;
-  }
-
-  /**
-   * Generating a single {@link DumbNode} with random values.
-   *
-   * @return a {@link DumbNode} with random values
-   */
-  public static final Record generateOne() {
-    return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
   }
 }

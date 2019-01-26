@@ -24,7 +24,7 @@ package org.sirix.io;
 import static org.testng.AssertJUnit.assertEquals;
 import java.io.IOException;
 import java.nio.file.Files;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
@@ -49,24 +49,24 @@ public final class StorageTest {
 
   @BeforeClass
   public void setUp() throws SirixException, IOException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
-    Files.createDirectories(TestHelper.PATHS.PATH1.getFile());
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
+    Files.createDirectories(XdmTestHelper.PATHS.PATH1.getFile());
     Files.createDirectories(
-        TestHelper.PATHS.PATH1.getFile()
+        XdmTestHelper.PATHS.PATH1.getFile()
                               .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
     Files.createFile(
-        TestHelper.PATHS.PATH1.getFile()
+        XdmTestHelper.PATHS.PATH1.getFile()
                               .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                               .resolve("data.sirix"));
     mResourceConfig = new ResourceConfiguration.Builder("shredded",
-        new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
+        new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile())).build();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   /**

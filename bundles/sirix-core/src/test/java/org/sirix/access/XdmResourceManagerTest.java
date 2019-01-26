@@ -32,8 +32,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
@@ -41,7 +41,7 @@ import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Constants;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 
 public class XdmResourceManagerTest {
 
@@ -49,14 +49,14 @@ public class XdmResourceManagerTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -64,11 +64,11 @@ public class XdmResourceManagerTest {
     try (final var database = Holder.openResourceManager().getDatabase()) {
       assertEquals(database, holder.getDatabase());
 
-      try (final XdmResourceManager manager = database.getResourceManager(TestHelper.RESOURCE)) {
+      try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE)) {
         assertEquals(manager, holder.getResourceManager());
       }
 
-      try (final XdmResourceManager manager2 = database.getResourceManager(TestHelper.RESOURCE)) {
+      try (final XdmResourceManager manager2 = database.getResourceManager(XdmTestHelper.RESOURCE)) {
         assertNotSame(manager2, holder.getResourceManager());
       }
     }
@@ -91,17 +91,17 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testNonExisting() throws SirixException, InterruptedException {
-    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final var database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     assertTrue(database == database2);
   }
 
   @Test
   public void testInsertChild() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-      DocumentCreator.create(wtx);
+      XdmDocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
-      assertEquals(Kind.DOCUMENT, wtx.getKind());
+      assertEquals(Kind.XDM_DOCUMENT, wtx.getKind());
 
       assertNotNull(wtx.moveToFirstChild());
       assertEquals(Kind.ELEMENT, wtx.getKind());
@@ -140,7 +140,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testShreddedRevision() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-      DocumentCreator.create(wtx);
+      XdmDocumentCreator.create(wtx);
       assertEquals(1L, wtx.getRevisionNumber());
       wtx.commit();
     }
@@ -170,17 +170,17 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testExisting() {
-    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
+    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
 
     final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
-    DocumentCreator.create(wtx1);
+    XdmDocumentCreator.create(wtx1);
     assertEquals(1L, wtx1.getRevisionNumber());
     wtx1.commit();
     wtx1.close();
     resource.close();
 
-    final XdmResourceManager resource2 = database.getResourceManager(TestHelper.RESOURCE);
+    final XdmResourceManager resource2 = database.getResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -198,8 +198,8 @@ public class XdmResourceManagerTest {
     wtx2.commit();
     wtx2.close();
 
-    final var database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource3 = database2.getResourceManager(TestHelper.RESOURCE);
+    final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resource3 = database2.getResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
@@ -212,7 +212,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testIdempotentClose() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     wtx.close();
@@ -228,7 +228,7 @@ public class XdmResourceManagerTest {
   public void testAutoCommitWithNodeThreshold() {
     // After each bunch of 5 nodes commit.
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(5)) {
-      DocumentCreator.create(wtx);
+      XdmDocumentCreator.create(wtx);
       wtx.commit();
       assertEquals(4, wtx.getRevisionNumber());
     }

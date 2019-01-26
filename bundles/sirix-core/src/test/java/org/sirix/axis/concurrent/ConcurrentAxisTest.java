@@ -28,8 +28,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.Axis;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.axis.ChildAxis;
@@ -63,7 +63,7 @@ public final class ConcurrentAxisTest {
   @Before
   public void setUp() throws Exception {
     try {
-      TestHelper.deleteEverything();
+      XdmTestHelper.deleteEverything();
       XMLShredder.main(
           XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
       holder = Holder.generateRtx();
@@ -81,7 +81,7 @@ public final class ConcurrentAxisTest {
   public void tearDown() throws Exception {
     try {
       holder.close();
-      TestHelper.closeEverything();
+      XdmTestHelper.closeEverything();
     } catch (final Exception e) {
       e.printStackTrace();
     }

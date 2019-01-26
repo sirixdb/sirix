@@ -47,10 +47,6 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    */
   JsonNodeFactoryImpl(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
-    mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
-    mPageWriteTrx.createNameKey("xs:untyped", Kind.NAMESPACE);
-    mPageWriteTrx.createNameKey("xs:untyped", Kind.ELEMENT);
-    mPageWriteTrx.createNameKey("xs:untyped", Kind.PROCESSING_INSTRUCTION);
   }
 
   @Override
@@ -84,8 +80,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel),
-        PageKind.RECORDPAGE, -1);
+    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel), PageKind.RECORDPAGE,
+        -1);
   }
 
   @Override
@@ -95,8 +91,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (ObjectNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectNode(structDel),
-        PageKind.RECORDPAGE, -1);
+    return (ObjectNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ObjectNode(structDel), PageKind.RECORDPAGE,
+        -1);
   }
 
   @Override
@@ -106,8 +102,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (NullNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new NullNode(structDel),
-        PageKind.RECORDPAGE, -1);
+    return (NullNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new NullNode(structDel), PageKind.RECORDPAGE, -1);
   }
 
   @Override

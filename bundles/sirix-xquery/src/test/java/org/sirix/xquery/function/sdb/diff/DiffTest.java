@@ -39,8 +39,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -48,7 +48,7 @@ import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicDBStore;
@@ -65,9 +65,9 @@ public final class DiffTest extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateWtx();
-    DocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
   }
 
@@ -75,7 +75,7 @@ public final class DiffTest extends TestCase {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -83,11 +83,11 @@ public final class DiffTest extends TestCase {
     final Path databasePath = PATHS.PATH2.getFile();
 
     final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
 
     try (final var database = Databases.openXdmDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(TestHelper.RESOURCE, config).build());
-      try (final XdmResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+      database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE, config).build());
+      try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
           final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
@@ -100,7 +100,7 @@ public final class DiffTest extends TestCase {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = databasePath.getFileName().toString();
-      final String resName = TestHelper.RESOURCE;
+      final String resName = XdmTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
@@ -138,7 +138,7 @@ public final class DiffTest extends TestCase {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();
-      final String resName = TestHelper.RESOURCE;
+      final String resName = XdmTestHelper.RESOURCE;
 
       final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "',1,5)";
 

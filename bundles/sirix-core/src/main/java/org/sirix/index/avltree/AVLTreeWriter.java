@@ -17,7 +17,7 @@ import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageReference;
@@ -120,15 +120,15 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     }
     final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
     if (mAVLTreeReader.getAVLNode() == null
-        && ((DocumentRootNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        && ((XdmDocumentRootNode) getNode()).getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       // Index is empty.. create root node.
       final long nodeKey = getNewNodeKey(root);
       final AVLNode<K, V> treeRoot = (AVLNode<K, V>) mPageWriteTrx.createEntry(nodeKey,
           new AVLNode<>(key, value,
               new NodeDelegate(nodeKey, Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 0, 0, null)),
           mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
-      final DocumentRootNode document =
-          (DocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final XdmDocumentRootNode document =
+          (XdmDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       document.setFirstChildKey(treeRoot.getNodeKey());
       document.incrementChildCount();
@@ -173,8 +173,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
         node.setRightChildKey(child.getNodeKey());
         adjust(child);
       }
-      final DocumentRootNode document =
-          (DocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final XdmDocumentRootNode document =
+          (XdmDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       document.incrementDescendantCount();
       return value;
@@ -288,7 +288,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 
     final long nodeKey = getNodeKey();
     moveToDocumentRoot();
-    if (((DocumentRootNode) getNode()).hasFirstChild()) {
+    if (((XdmDocumentRootNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
       setChanged(mAVLTreeReader.getAVLNode(), false);
     }
@@ -382,8 +382,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     right.setParentKey(node.getParentKey());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      final DocumentRootNode parent =
-          (DocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final XdmDocumentRootNode parent =
+          (XdmDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       parent.setFirstChildKey(right.getNodeKey());
     } else if (moveTo(node.getParentKey()).hasMoved()
@@ -434,8 +434,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
     leftChild.setParentKey(node.getParentKey());
 
     if (node.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      final DocumentRootNode parent =
-          (DocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+      final XdmDocumentRootNode parent =
+          (XdmDocumentRootNode) mPageWriteTrx.prepareEntryForModification(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
               mAVLTreeReader.mPageKind, mAVLTreeReader.mIndex);
       parent.setFirstChildKey(leftChild.getNodeKey());
     } else if (moveTo(node.getParentKey()).hasMoved()

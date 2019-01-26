@@ -30,7 +30,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.access.trx.node.xdm.XdmNodeReadTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.xdm.XdmNodeReadTrx;
@@ -44,7 +44,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
@@ -57,14 +57,14 @@ public class UpdateTest {
 
   @Before
   public void setUp() {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceMgr();
   }
 
   @After
   public void tearDown() {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -77,7 +77,7 @@ public class UpdateTest {
   @Test
   public void testDelete() {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-      DocumentCreator.create(wtx);
+      XdmDocumentCreator.create(wtx);
       wtx.moveTo(4);
       wtx.insertElementAsRightSibling(new QNm("blabla"));
       wtx.moveTo(5);
@@ -106,7 +106,7 @@ public class UpdateTest {
   @Test
   public void testInsert() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     testInsert(wtx);
     wtx.commit();
     testInsert(wtx);
@@ -182,7 +182,7 @@ public class UpdateTest {
   @Test
   public void testNamePage() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(7);
     wtx.remove();
@@ -212,7 +212,7 @@ public class UpdateTest {
   @Test
   public void testInsertAsFirstChildUpdateText() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(1L);
     wtx.insertTextAsFirstChild("foo");
@@ -234,7 +234,7 @@ public class UpdateTest {
   @Test
   public void testInsertAsRightSiblingUpdateTextFirst() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(4L);
     wtx.insertTextAsRightSibling("foo");
@@ -256,7 +256,7 @@ public class UpdateTest {
   @Test
   public void testInsertAsRightSiblingUpdateTextSecond() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(5L);
     wtx.insertTextAsRightSibling("foo");
@@ -276,7 +276,7 @@ public class UpdateTest {
   @Test
   public void testRemoveDescendantFirst() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(4L);
     wtx.remove();
@@ -401,7 +401,7 @@ public class UpdateTest {
   @Test(expected = SirixUsageException.class)
   public void testRemoveDocument() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveToDocumentRoot();
     try {
       wtx.remove();
@@ -415,7 +415,7 @@ public class UpdateTest {
   @Test
   public void testRemoveDescendant() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(0L);
     // assertEquals(10L, wtx.getDescendantCount());
     wtx.commit();
@@ -459,7 +459,7 @@ public class UpdateTest {
   @Test
   public void testRemoveDescendantTextConcat2() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(9L);
     wtx.remove();
@@ -498,7 +498,7 @@ public class UpdateTest {
   @Test
   public void testReplaceElementWithTwoSiblingTextNodesWithTextNode() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
     rtx.moveTo(12);
@@ -531,7 +531,7 @@ public class UpdateTest {
   @Test
   public void testReplaceTextNodeWithTextNode() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
     rtx.moveTo(12);
@@ -555,7 +555,7 @@ public class UpdateTest {
   @Test
   public void testReplaceElementNode() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
     rtx.moveTo(11);
@@ -588,7 +588,7 @@ public class UpdateTest {
   @Test
   public void testReplaceElement() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.replaceNode(XMLShredder.createStringReader("<d>foobar</d>"));
     testReplaceElement(wtx);
@@ -662,7 +662,7 @@ public class UpdateTest {
   @Test
   public void testFirstMoveToFirstChild() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(7);
     wtx.moveSubtreeToFirstChild(6);
     testFirstMoveToFirstChild(wtx);
@@ -729,7 +729,7 @@ public class UpdateTest {
   @Test
   public void testSecondMoveToFirstChild() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(4);
     testSecondMoveToFirstChild(wtx);
@@ -787,7 +787,7 @@ public class UpdateTest {
   @Test
   public void testThirdMoveToFirstChild() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(11);
     testThirdMoveToFirstChild(wtx);
@@ -847,7 +847,7 @@ public class UpdateTest {
   @Test(expected = SirixUsageException.class)
   public void testFourthMoveToFirstChild() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(4);
     wtx.moveSubtreeToFirstChild(11);
     wtx.commit();
@@ -857,7 +857,7 @@ public class UpdateTest {
   @Test
   public void testFirstMoveSubtreeToRightSibling() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
 
     wtx.moveToDocumentRoot();
     for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(wtx, IncludeSelf.YES))) {
@@ -930,7 +930,7 @@ public class UpdateTest {
   @Test
   public void testSecondMoveSubtreeToRightSibling() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(9);
     wtx.moveSubtreeToRightSibling(5);
     // wtx.moveTo(5);
@@ -993,7 +993,7 @@ public class UpdateTest {
   @Test
   public void testThirdMoveSubtreeToRightSibling() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(9);
     wtx.moveSubtreeToRightSibling(4);
     testThirdMoveSubtreeToRightSibling(wtx);
@@ -1029,7 +1029,7 @@ public class UpdateTest {
   @Test
   public void testFourthMoveSubtreeToRightSibling() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(8);
     wtx.moveSubtreeToRightSibling(4);
     testFourthMoveSubtreeToRightSibling(wtx);
@@ -1065,7 +1065,7 @@ public class UpdateTest {
   public void testFirstCopySubtreeAsFirstChild() {
     // Test for one node.
     XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
@@ -1104,7 +1104,7 @@ public class UpdateTest {
   public void testSecondCopySubtreeAsFirstChild() {
     // Test for more than one node.
     XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
@@ -1152,7 +1152,7 @@ public class UpdateTest {
   public void testFirstCopySubtreeAsRightSibling() {
     // Test for more than one node.
     XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
@@ -1195,9 +1195,9 @@ public class UpdateTest {
   @Test
   public void testSubtreeInsertAsFirstChildFirst() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1228,9 +1228,9 @@ public class UpdateTest {
   @Test
   public void testSubtreeInsertAsFirstChildSecond() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(11);
-    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildSecond(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1263,9 +1263,9 @@ public class UpdateTest {
   @Test
   public void testSubtreeInsertAsRightSibling() {
     final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsRightSibling(XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsRightSibling(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsRightSibling(wtx);
     wtx.commit();
     wtx.moveTo(14);

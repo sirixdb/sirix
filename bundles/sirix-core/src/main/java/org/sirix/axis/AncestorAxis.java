@@ -76,7 +76,7 @@ public final class AncestorAxis extends AbstractAxis {
       return cursor.getNodeKey();
     }
 
-    if (cursor.getKind() != Kind.DOCUMENT && cursor.hasParent()
+    if (cursor.getKind() != Kind.XDM_DOCUMENT && cursor.hasParent()
         && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       return cursor.getParentKey();
     }

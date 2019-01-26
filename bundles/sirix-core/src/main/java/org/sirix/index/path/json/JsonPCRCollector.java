@@ -6,7 +6,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeReadWriteTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PCRValue;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -26,8 +26,8 @@ public final class JsonPCRCollector implements PCRCollector {
 
   @Override
   public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
-    try (final PathSummaryReader reader = mRtx instanceof JsonNodeReadWriteTrx
-        ? ((JsonNodeReadWriteTrx) mRtx).getPathSummary()
+    try (final PathSummaryReader reader = mRtx instanceof JsonNodeTrx
+        ? ((JsonNodeTrx) mRtx).getPathSummary()
         : mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber())) {
       final long maxPCR = reader.getMaxNodeKey();
       final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths, true);

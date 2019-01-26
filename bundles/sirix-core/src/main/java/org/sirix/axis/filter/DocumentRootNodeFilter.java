@@ -44,7 +44,7 @@ public final class DocumentRootNodeFilter extends AbstractFilter<XdmNodeReadTrx>
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.DOCUMENT;
+    return getTrx().getKind() == Kind.XDM_DOCUMENT;
   }
 
 }

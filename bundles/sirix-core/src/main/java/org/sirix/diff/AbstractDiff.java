@@ -131,10 +131,10 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     }
     mNewRtxMoved = mNewRtx.moveTo(builder.mNewStartKey).hasMoved();
     mOldRtxMoved = mOldRtx.moveTo(builder.mOldStartKey).hasMoved();
-    if (mNewRtx.getKind() == Kind.DOCUMENT) {
+    if (mNewRtx.getKind() == Kind.XDM_DOCUMENT) {
       mNewRtx.moveToFirstChild();
     }
-    if (mOldRtx.getKind() == Kind.DOCUMENT) {
+    if (mOldRtx.getKind() == Kind.XDM_DOCUMENT) {
       mOldRtx.moveToFirstChild();
     }
     mRootKey = builder.mNewStartKey;
@@ -194,13 +194,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     // Iterate over new revision (order of operators significant -- regarding
     // the OR).
     if (mDiff != DiffType.SAMEHASH) {
-      while ((mOldRtx.getKind() != Kind.DOCUMENT && mDiff == DiffType.DELETED)
+      while ((mOldRtx.getKind() != Kind.XDM_DOCUMENT && mDiff == DiffType.DELETED)
           || moveCursor(mNewRtx, Revision.NEW, Move.FOLLOWING)) {
         if (mDiff != DiffType.INSERTED) {
           moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
         }
 
-        if (mNewRtx.getKind() != Kind.DOCUMENT || mOldRtx.getKind() != Kind.DOCUMENT) {
+        if (mNewRtx.getKind() != Kind.XDM_DOCUMENT || mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
           if (mHashKind == HashType.NONE || mDiffKind == DiffOptimized.NO) {
             mDiff = diff(mNewRtx, mOldRtx, mDepth);
           } else {
@@ -210,7 +210,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       }
 
       // Nodes deleted in old rev at the end of the tree.
-      if (mOldRtx.getKind() != Kind.DOCUMENT) {
+      if (mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
         mRootKey = mOldRootKey;
         // First time it might be EDiff.INSERTED where the cursor doesn't move.
         if (mDiff == DiffType.INSERTED) {
@@ -310,7 +310,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
     boolean moved = false;
 
-    if (rtx.getKind() != Kind.DOCUMENT) {
+    if (rtx.getKind() != Kind.XDM_DOCUMENT) {
       switch (mDiff) {
         case SAME:
         case SAMEHASH:
@@ -323,7 +323,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
         case INSERTED:
         case DELETED:
           if (move == Move.FOLLOWING && (mDiff == DiffType.INSERTED || mDiff == DiffType.DELETED)) {
-            if (rtx.getKind() == Kind.DOCUMENT) {
+            if (rtx.getKind() == Kind.XDM_DOCUMENT) {
               moved = false;
             } else {
               moved = true;
@@ -346,7 +346,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   private boolean moveToNext(final XdmNodeReadTrx rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
-      if (rtx.getKind() != Kind.DOCUMENT && mDiffKind == DiffOptimized.HASHED
+      if (rtx.getKind() != Kind.XDM_DOCUMENT && mDiffKind == DiffOptimized.HASHED
           && mDiff == DiffType.SAMEHASH) {
         moved = rtx.moveToRightSibling().hasMoved();
 
@@ -433,7 +433,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
     // Check for modifications.
     switch (newRtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
       case TEXT:
       case ELEMENT:
         if (checkNodes(newRtx, oldRtx)) {
@@ -471,7 +471,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
     // Check for modifications.
     switch (newRtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
       case TEXT:
       case ELEMENT:
         if (newRtx.getNodeKey() != oldRtx.getNodeKey() || newRtx.getHash() != oldRtx.getHash()) {

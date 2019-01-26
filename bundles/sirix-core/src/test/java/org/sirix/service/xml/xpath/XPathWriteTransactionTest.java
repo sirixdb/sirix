@@ -27,8 +27,8 @@ import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
@@ -57,14 +57,14 @@ public final class XPathWriteTransactionTest {
 
   @Before
   public void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // Build simple test tree.
     XMLShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
     // Verify.
-    database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getResourceManager(TestHelper.RESOURCE);
+    manager = database.getResourceManager(XdmTestHelper.RESOURCE);
     wtx = manager.beginNodeWriteTrx();
   }
 
@@ -87,7 +87,7 @@ public final class XPathWriteTransactionTest {
     // wtx.abort();
     wtx.close();
     manager.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
 }

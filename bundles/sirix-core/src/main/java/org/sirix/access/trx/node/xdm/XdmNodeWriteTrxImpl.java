@@ -641,7 +641,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     acquireLock();
     try {
       final Kind kind = mNodeReadTrx.getCurrentNode().getKind();
-      if (kind == Kind.ELEMENT || kind == Kind.DOCUMENT) {
+      if (kind == Kind.ELEMENT || kind == Kind.XDM_DOCUMENT) {
         checkAccessAndCommit();
 
         final long parentKey = mNodeReadTrx.getCurrentNode().getNodeKey();
@@ -676,7 +676,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     }
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.DOCUMENT) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT) {
         checkAccessAndCommit();
 
         final long key = getCurrentNode().getNodeKey();
@@ -929,8 +929,8 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     }
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != Kind.DOCUMENT
-          || (getCurrentNode().getKind() == Kind.DOCUMENT && insert == Insert.ASFIRSTCHILD))) {
+      if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != Kind.XDM_DOCUMENT
+          || (getCurrentNode().getKind() == Kind.XDM_DOCUMENT && insert == Insert.ASFIRSTCHILD))) {
         checkAccessAndCommit();
 
         // Insert new comment node.
@@ -1038,7 +1038,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.DOCUMENT && !value.isEmpty()) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1104,7 +1104,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.DOCUMENT && !value.isEmpty()) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1417,7 +1417,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     checkAccessAndCommit();
     acquireLock();
     try {
-      if (getCurrentNode().getKind() == Kind.DOCUMENT) {
+      if (getCurrentNode().getKind() == Kind.XDM_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       } else if (getCurrentNode() instanceof StructNode) {
         final StructNode node = (StructNode) mNodeReadTrx.getCurrentNode();
@@ -1539,7 +1539,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
       page.removeName(node.getLocalNameKey(), nodeKind);
       page.removeName(node.getURIKey(), Kind.NAMESPACE);
 
-      assert nodeKind != Kind.DOCUMENT;
+      assert nodeKind != Kind.XDM_DOCUMENT;
       if (mBuildPathSummary) {
         mPathSummaryWriter.remove(node, nodeKind, page);
       }
@@ -2379,7 +2379,7 @@ final class XdmNodeWriteTrxImpl extends AbstractForwardingXdmNodeReadTrx impleme
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();
-    if (rtx.getKind() == Kind.DOCUMENT) {
+    if (rtx.getKind() == Kind.XDM_DOCUMENT) {
       rtx.moveToFirstChild();
     }
     if (!(rtx.isStructuralNode())) {

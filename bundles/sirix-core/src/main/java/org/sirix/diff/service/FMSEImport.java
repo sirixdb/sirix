@@ -68,7 +68,7 @@ public final class FMSEImport {
     assert newRev != null;
     final var conf = new DatabaseConfiguration(newRev);
     Databases.removeDatabase(newRev);
-    Databases.createDatabase(conf);
+    Databases.createXdmDatabase(conf);
 
     try (final var db = Databases.openXdmDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());

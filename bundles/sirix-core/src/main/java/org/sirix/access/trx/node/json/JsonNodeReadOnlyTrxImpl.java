@@ -6,10 +6,12 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
+import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -20,7 +22,6 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
@@ -31,13 +32,13 @@ import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 
 public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
-    implements JsonNodeReadOnlyTrx {
+    implements InternalJsonNodeReadOnlyTrx {
 
   /** ID of transaction. */
   private final long mTrxId;
 
   /** Resource manager this write transaction is bound to. */
-  protected final JsonResourceManagerImpl mResourceManager;
+  protected final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> mResourceManager;
 
   /** State of transaction including all cached stuff. */
   private PageReadTrx mPageReadTrx;
@@ -53,8 +54,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  JsonNodeReadOnlyTrxImpl(final JsonResourceManagerImpl resourceManager, final @Nonnegative long trxId,
-      final PageReadTrx pageReadTransaction, final Node documentNode) {
+  JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
@@ -104,7 +105,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  protected void assertNotClosed() {
+  public void assertNotClosed() {
     if (mClosed) {
       throw new IllegalStateException("Transaction is already closed.");
     }
@@ -113,7 +114,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public JsonResourceManager getResourceManager() {
     assertNotClosed();
-    return mResourceManager;
+    return (JsonResourceManager) mResourceManager;
   }
 
   @Override
@@ -216,7 +217,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.DOCUMENT;
+    return mCurrentNode.getKind() == Kind.XDM_DOCUMENT;
   }
 
   @Override
@@ -239,13 +240,19 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     return null;
   }
 
-  public ImmutableStructNode getCurrentNode() {
-    return (ImmutableStructNode) mCurrentNode;
-  }
-
   @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
     assertNotClosed();
     return ((ImmutableJsonNode) mCurrentNode).acceptVisitor(visitor);
+  }
+
+  @Override
+  public ImmutableJsonNode getCurrentNode() {
+    return (ImmutableJsonNode) mCurrentNode;
+  }
+
+  @Override
+  public void setCurrentNode(ImmutableJsonNode node) {
+    mCurrentNode = node;
   }
 }

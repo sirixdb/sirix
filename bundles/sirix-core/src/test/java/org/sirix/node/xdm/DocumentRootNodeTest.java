@@ -31,7 +31,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -53,8 +53,8 @@ public class DocumentRootNodeTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
     mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }
@@ -74,19 +74,19 @@ public class DocumentRootNodeTest {
             Fixed.NULL_NODE_KEY.getStandardProperty(), 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-    final DocumentRootNode node = new DocumentRootNode(nodeDel, strucDel);
+    final XdmDocumentRootNode node = new XdmDocumentRootNode(nodeDel, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT.deserialize(new DataInputStream(in),
+    final XdmDocumentRootNode node2 = (XdmDocumentRootNode) Kind.XDM_DOCUMENT.deserialize(new DataInputStream(in),
         node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final DocumentRootNode node) {
+  private final void check(final XdmDocumentRootNode node) {
     // Now compare.
     assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
@@ -94,7 +94,7 @@ public class DocumentRootNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(0L, node.getChildCount());
-    assertEquals(Kind.DOCUMENT, node.getKind());
+    assertEquals(Kind.XDM_DOCUMENT, node.getKind());
   }
 
 }

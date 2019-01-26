@@ -27,9 +27,13 @@
  */
 package org.sirix.node.json;
 
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableArrayNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -37,7 +41,7 @@ import com.google.common.base.Objects;
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public final class ArrayNode extends AbstractStructForwardingNode {
+public final class ArrayNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -84,5 +88,10 @@ public final class ArrayNode extends AbstractStructForwardingNode {
 
     final ObjectKeyNode other = (ObjectKeyNode) obj;
     return Objects.equal(delegate(), other.delegate());
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableArrayNode.of(this));
   }
 }

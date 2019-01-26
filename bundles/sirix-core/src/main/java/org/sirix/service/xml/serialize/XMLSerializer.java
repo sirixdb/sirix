@@ -141,7 +141,7 @@ public final class XMLSerializer extends AbstractSerializer {
   protected void emitNode(final XdmNodeReadTrx rtx) {
     try {
       switch (rtx.getKind()) {
-        case DOCUMENT:
+        case XDM_DOCUMENT:
           break;
         case ELEMENT:
           // Emit start element.
@@ -463,7 +463,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
     try (final var db = Databases.openXdmDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
 

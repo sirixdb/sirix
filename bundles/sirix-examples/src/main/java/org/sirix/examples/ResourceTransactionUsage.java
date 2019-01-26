@@ -28,7 +28,7 @@ public final class ResourceTransactionUsage {
     if (Files.exists(file)) {
       Databases.removeDatabase(file);
     }
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
 
     try (var database = Databases.openXdmDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource", config).build());

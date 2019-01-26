@@ -31,7 +31,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
@@ -40,7 +40,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -59,16 +59,16 @@ public class PathSummaryTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
     wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   /**

@@ -33,7 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
@@ -59,9 +59,9 @@ public final class NodePageTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
     mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }
@@ -70,8 +70,8 @@ public final class NodePageTest {
   public void tearDown() throws SirixException {
     mPageReadTrx.close();
     mHolder.close();
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Test

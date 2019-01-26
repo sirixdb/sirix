@@ -436,7 +436,7 @@ public class FileSystemWatcher implements AutoCloseable {
       Databases.removeDatabase(databasePath);
     }
 
-    Databases.createDatabase(conf);
+    Databases.createXdmDatabase(conf);
     try (final var database = Databases.openXdmDatabase(databasePath)) {
       database.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
       index =

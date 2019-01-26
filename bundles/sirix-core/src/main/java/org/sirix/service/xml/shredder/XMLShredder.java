@@ -314,7 +314,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     final Path target = Paths.get(args[1]);
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
     Databases.removeDatabase(target);
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
 
     try (final var db = Databases.openXdmDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());

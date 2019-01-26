@@ -123,7 +123,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
   public long getPathNodeKey(final QNm name, final Kind pathKind) {
     final Kind kind = mNodeRtx.getNode().getKind();
     int level = 0;
-    if (kind == Kind.DOCUMENT) {
+    if (kind == Kind.XDM_DOCUMENT) {
       mPathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     } else {
       movePathSummary();
@@ -258,7 +258,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
         processFoundPathNode(oldPathNodeKey, mPathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
             localNameKey, RemoveSubtreePath.YES, type);
       } else {
-        if (mPathSummaryReader.getKind() != Kind.DOCUMENT) {
+        if (mPathSummaryReader.getKind() != Kind.XDM_DOCUMENT) {
           /* The path summary just needs to be updated for the new renamed node. */
           mPathSummaryReader.moveTo(oldPathNodeKey);
           final PathNode pathNode =
@@ -560,7 +560,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
     // Get parent path node and level.
     mNodeRtx.moveToParent();
     int level = 0;
-    if (mNodeRtx.getKind() == Kind.DOCUMENT) {
+    if (mNodeRtx.getKind() == Kind.XDM_DOCUMENT) {
       mPathSummaryReader.moveToDocumentRoot();
     } else {
       movePathSummary();

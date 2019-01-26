@@ -22,10 +22,14 @@
 package org.sirix.node.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 
 /**
@@ -35,7 +39,7 @@ import org.sirix.node.xdm.AbstractStructForwardingNode;
  * Node representing a JSON boolean.
  * </p>
  */
-public final class BooleanNode extends AbstractStructForwardingNode {
+public final class BooleanNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -59,6 +63,11 @@ public final class BooleanNode extends AbstractStructForwardingNode {
 
   public boolean getValue() {
     return mBoolValue;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableBooleanNode.of(this));
   }
 
   @Override

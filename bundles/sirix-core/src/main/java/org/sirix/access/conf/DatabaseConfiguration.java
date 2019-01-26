@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.annotation.Nullable;
+import org.sirix.access.DatabaseType;
 import org.sirix.exception.SirixIOException;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -49,8 +50,8 @@ import com.google.gson.stream.JsonWriter;
 public final class DatabaseConfiguration {
 
   /**
-   * Paths for a {@link org.Database.Database}. Each {@link org.Database.Database} has the same
-   * folder layout.
+   * Paths for a {@link org.Database.Database}. Each {@link org.Database.Database} has the same folder
+   * layout.
    */
   public enum DatabasePaths {
 
@@ -102,8 +103,8 @@ public final class DatabaseConfiguration {
      * Checking a structure in a folder to be equal with the data in this enum.
      *
      * @param file to be checked
-     * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
-     *         the structure has more folders
+     * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
+     *         structure has more folders
      */
     public static int compareStructure(final Path file) {
       checkNotNull(file);
@@ -137,6 +138,9 @@ public final class DatabaseConfiguration {
   /** Maximum of open resource read transactions. */
   private int mMaxResourceReadTrx;
 
+  /** The database type. */
+  private DatabaseType mDatabaseType;
+
   /**
    * Constructor with the path to be set.
    *
@@ -158,6 +162,26 @@ public final class DatabaseConfiguration {
     checkArgument(max > 0);
     mMaxResourceReadTrx = max;
     return this;
+  }
+
+  /**
+   * Set the database type.
+   *
+   * @param type the database type.
+   * @return this {@link DatabaseConfiguration} instance
+   */
+  public DatabaseConfiguration setDatabaseType(final DatabaseType type) {
+    mDatabaseType = checkNotNull(type);
+    return this;
+  }
+
+  /**
+   * Get the database type.
+   *
+   * @return the database type
+   */
+  public DatabaseType getDatabaseType() {
+    return mDatabaseType;
   }
 
   /**
@@ -201,10 +225,7 @@ public final class DatabaseConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("File", mFile)
-                      .add("Binary Version", mBinaryVersion)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("File", mFile).add("Binary Version", mBinaryVersion).toString();
   }
 
   @Override
@@ -244,6 +265,7 @@ public final class DatabaseConfiguration {
       jsonWriter.name("file").value(filePath);
       jsonWriter.name("ID").value(config.mMaxResourceID);
       jsonWriter.name("max-resource-read-trx").value(config.mMaxResourceReadTrx);
+      jsonWriter.name("databaseType").value(config.mDatabaseType.toString());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -258,9 +280,7 @@ public final class DatabaseConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static DatabaseConfiguration deserialize(final Path file) throws SirixIOException {
-    try (
-        final FileReader fileReader =
-            new FileReader(file.resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
+    try (final FileReader fileReader = new FileReader(file.resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
         final JsonReader jsonReader = new JsonReader(fileReader);) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
@@ -272,9 +292,15 @@ public final class DatabaseConfiguration {
       final String maxResourceRtxName = jsonReader.nextName();
       assert maxResourceRtxName.equals("max-resource-read-trx");
       final int maxResourceRtx = jsonReader.nextInt();
+      final String databaseType = jsonReader.nextName();
+      assert databaseType.equals("databaseType");
+      final String type = jsonReader.nextString();
       jsonReader.endObject();
+      final DatabaseType dbType =
+          DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
       return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
-                                              .setMaxResourceReadTrx(maxResourceRtx);
+                                              .setMaxResourceReadTrx(maxResourceRtx)
+                                              .setDatabaseType(dbType);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
