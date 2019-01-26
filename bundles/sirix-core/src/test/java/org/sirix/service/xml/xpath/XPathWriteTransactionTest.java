@@ -65,7 +65,7 @@ public final class XPathWriteTransactionTest {
     database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
     manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-    wtx = manager.beginNodeWriteTrx();
+    wtx = manager.beginNodeTrx();
   }
 
   @Test

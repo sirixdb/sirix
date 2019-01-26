@@ -50,7 +50,7 @@ public final class RevertTest {
 
   @Test
   public void test() throws SirixException {
-    XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(1L, wtx.getRevisionNumber());
     XdmDocumentCreator.create(wtx);
     assertEquals(1L, wtx.getRevisionNumber());
@@ -58,7 +58,7 @@ public final class RevertTest {
     assertEquals(2L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(2L, wtx.getRevisionNumber());
     wtx.moveToFirstChild();
     wtx.insertElementAsFirstChild(new QNm("bla"));
@@ -66,19 +66,19 @@ public final class RevertTest {
     assertEquals(3L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(3L, wtx.getRevisionNumber());
     wtx.revertTo(1);
     wtx.commit();
     assertEquals(4L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(4L, wtx.getRevisionNumber());
     final long rev3MaxNodeKey = wtx.getMaxNodeKey();
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(4L, wtx.getRevisionNumber());
     wtx.revertTo(1);
     wtx.moveToFirstChild();

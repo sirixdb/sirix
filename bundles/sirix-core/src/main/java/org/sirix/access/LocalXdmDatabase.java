@@ -124,7 +124,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
     try (
         final XdmResourceManager resourceTrxManager =
             getResourceManager(resConfig.getResource().getFileName().toString());
-        final XdmNodeTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

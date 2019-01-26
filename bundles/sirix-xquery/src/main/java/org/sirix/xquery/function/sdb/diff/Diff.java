@@ -153,8 +153,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       mBuf.append("return (");
       mBuf.append(System.getProperty("line.separator"));
 
-      try (final XdmNodeReadOnlyTrx oldRtx = resMrg.beginNodeReadTrx(rev1);
-          final XdmNodeReadOnlyTrx newRtx = resMrg.beginNodeReadTrx(rev2)) {
+      try (final XdmNodeReadOnlyTrx oldRtx = resMrg.beginReadOnlyTrx(rev1);
+          final XdmNodeReadOnlyTrx newRtx = resMrg.beginReadOnlyTrx(rev2)) {
         // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a
         // collection).
         for (int i = 0, length = mDiffs.size(); i < length; i++) {

@@ -61,9 +61,9 @@ public class ThreadTest {
     final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
     long newKey = 10L;
     for (int i = 0; i < WORKER_COUNT; i++) {
-      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadTrx(i)));
+      taskExecutor.submit(new Task(holder.getResourceManager().beginReadOnlyTrx(i)));
 
-      try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
         wtx.moveTo(newKey);
         wtx.setValue("value" + i);
         newKey = wtx.getNodeKey();

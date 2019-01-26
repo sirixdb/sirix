@@ -33,6 +33,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -123,7 +124,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
   public long getPathNodeKey(final QNm name, final Kind pathKind) {
     final Kind kind = mNodeRtx.getNode().getKind();
     int level = 0;
-    if (kind == Kind.XDM_DOCUMENT) {
+    if (kind == Kind.XDM_DOCUMENT || kind == Kind.JSON_DOCUMENT) {
       mPathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     } else {
       movePathSummary();
@@ -157,6 +158,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
   private void movePathSummary() {
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
+      mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
     }

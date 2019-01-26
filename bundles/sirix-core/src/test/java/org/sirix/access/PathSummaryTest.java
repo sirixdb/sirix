@@ -61,7 +61,7 @@ public class PathSummaryTest {
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
+    wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
   }
 

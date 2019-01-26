@@ -202,7 +202,7 @@ public final class XdmTestHelper {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -217,7 +217,7 @@ public final class XdmTestHelper {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }

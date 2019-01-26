@@ -221,7 +221,7 @@ public class HashTest {
     final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
     final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeTrx wTrx = manager.beginNodeWriteTrx();
+    final XdmNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }
 

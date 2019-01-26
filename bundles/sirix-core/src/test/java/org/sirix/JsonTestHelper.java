@@ -165,7 +165,7 @@ public final class JsonTestHelper {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
     try (final JsonResourceManager manager = database.getResourceManager(RESOURCE);
-        final JsonNodeTrx wtx = manager.beginNodeWriteTrx()) {
+        final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }

@@ -53,7 +53,7 @@ public class AVLTreeTest {
 
   @Test
   public void testAttributeIndex() throws SirixException, PathException {
-    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
     final XdmIndexController indexController =
         holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);

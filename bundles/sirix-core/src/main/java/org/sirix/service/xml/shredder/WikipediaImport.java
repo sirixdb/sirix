@@ -142,7 +142,7 @@ public final class WikipediaImport implements Import<StartElement> {
     mDatabase = Databases.openXdmDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
     mResourceManager = mDatabase.getResourceManager("shredded");
-    mWtx = mResourceManager.beginNodeWriteTrx();
+    mWtx = mResourceManager.beginNodeTrx();
   }
 
   /**
@@ -284,14 +284,14 @@ public final class WikipediaImport implements Import<StartElement> {
       mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
-    final XdmNodeTrx wtx = resourceManager.beginNodeWriteTrx();
+    final XdmNodeTrx wtx = resourceManager.beginNodeTrx();
     final XMLShredder shredder =
         new XMLShredder.Builder(wtx, XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                      .build();
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
-    final XdmNodeReadOnlyTrx rtx = resourceManager.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = resourceManager.beginReadOnlyTrx();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     final long nodeKey = mWtx.getNodeKey();
@@ -353,7 +353,7 @@ public final class WikipediaImport implements Import<StartElement> {
         mTimestamp = parseTimestamp(dateRange, currTimestamp);
         mWtx.commit();
         mWtx.close();
-        mWtx = mResourceManager.beginNodeWriteTrx();
+        mWtx = mResourceManager.beginNodeTrx();
       }
 
       assert mIdText != null;

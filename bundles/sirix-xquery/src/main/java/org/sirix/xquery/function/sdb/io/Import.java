@@ -82,7 +82,7 @@ public final class Import extends AbstractFunction {
       try (final XdmNodeTrx wtx = doc.getTrx()
                                           .getResourceManager()
                                           .getNodeWriteTrx()
-                                          .orElse(doc.getTrx().getResourceManager().beginNodeWriteTrx())) {
+                                          .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
         final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
@@ -95,7 +95,7 @@ public final class Import extends AbstractFunction {
 
         try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
             final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
-            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadTrx();
+            final XdmNodeReadOnlyTrx rtx = resourceNew.beginReadOnlyTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);
         }
@@ -103,7 +103,7 @@ public final class Import extends AbstractFunction {
         throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
       }
     } finally {
-      trx = doc.getTrx().getResourceManager().beginNodeReadTrx();
+      trx = doc.getTrx().getResourceManager().beginReadOnlyTrx();
       doc.getTrx().close();
     }
 

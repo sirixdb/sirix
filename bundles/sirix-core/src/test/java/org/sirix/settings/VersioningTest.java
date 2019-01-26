@@ -163,7 +163,7 @@ public class VersioningTest {
    */
   public void test() throws SirixException {
     try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
-      try (final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
         }
@@ -181,7 +181,7 @@ public class VersioningTest {
         fillNodePage(wtx);
         wtx.commit();
         assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
-        try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadTrx()) {
+        try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild().hasMoved());
           }
@@ -201,14 +201,14 @@ public class VersioningTest {
    */
   public void test1() throws SirixException {
     try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
-      XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+      XdmNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
       }
       wtx.commit();
       assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
       wtx.close();
-      wtx = manager.beginNodeWriteTrx();
+      wtx = manager.beginNodeTrx();
       setBaaaz(wtx);
       setFooBar(wtx);
       setFoooo(wtx);
@@ -216,22 +216,22 @@ public class VersioningTest {
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      wtx = manager.beginNodeWriteTrx();
+      wtx = manager.beginNodeTrx();
       wtx.moveTo((Constants.NDP_NODE_COUNT << 1) - 1);
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      wtx = manager.beginNodeWriteTrx();
+      wtx = manager.beginNodeTrx();
       wtx.moveTo((Constants.NDP_NODE_COUNT * 3) - 1);
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      wtx = manager.beginNodeWriteTrx();
+      wtx = manager.beginNodeTrx();
       wtx.moveTo((Constants.NDP_NODE_COUNT << 2) - 1);
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertEquals(new QNm("foobar"), rtx.getName());
         assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -251,7 +251,7 @@ public class VersioningTest {
    */
   public void test2() throws SirixException {
     try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
-      XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+      XdmNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();
       wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -263,7 +263,7 @@ public class VersioningTest {
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());

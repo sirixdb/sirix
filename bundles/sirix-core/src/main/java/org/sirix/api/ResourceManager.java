@@ -117,9 +117,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * Begin a read-only transaction on the latest committed revision.
    *
    * @throws SirixException if can't begin Read Transaction
-   * @return {@link R} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  R beginNodeReadTrx() throws SirixException;
+  R beginReadOnlyTrx() throws SirixException;
 
   /**
    * Begin a read-only transaction on the given revision number.
@@ -128,9 +128,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadOnlyTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  R beginNodeReadTrx(@Nonnegative int revision);
+  R beginReadOnlyTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction with the revision, which is closest to the given point in time.
@@ -139,9 +139,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadOnlyTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  R beginNodeReadTrx(@Nonnull Instant pointInTime);
+  R beginNodeReadOnlyTrx(@Nonnull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -149,17 +149,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @param trx the transaction to use
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return {@link XdmNodeTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  W beginNodeWriteTrx();
-
-  /**
-   * Get the revision number, which was committed at the closest time to the given point in time.
-   *
-   * @param pointInTime the point in time
-   * @return the revision number, which was committed at the closest time to the given point in time.
-   */
-  int getRevisionNumber(@Nonnull Instant pointInTime);
+  W beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -168,9 +160,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return {@link XdmNodeTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  W beginNodeWriteTrx(final @Nonnegative int maxNodes);
+  W beginNodeTrx(final @Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -181,9 +173,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  W beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+  W beginNodeTrx(final TimeUnit timeUnit, final int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -195,9 +187,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  W beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
+  W beginNodeTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
@@ -215,6 +207,14 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixException if can't open path summary
    */
   PathSummaryReader openPathSummary();
+
+  /**
+   * Get the revision number, which was committed at the closest time to the given point in time.
+   *
+   * @param pointInTime the point in time
+   * @return the revision number, which was committed at the closest time to the given point in time.
+   */
+  int getRevisionNumber(@Nonnull Instant pointInTime);
 
   /**
    * Safely close resource manager and immediately release all resources. If there are running

@@ -49,7 +49,7 @@ public final class AllTimeAxis<R extends NodeReadTrx> extends AbstractTemporalAx
   @Override
   protected R computeNext() {
     while (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      mRtx = (R) mResourceManager.beginNodeReadTrx(mRevision++);
+      mRtx = (R) mResourceManager.beginReadOnlyTrx(mRevision++);
 
       if (mRtx.moveTo(mNodeKey).hasMoved()) {
         mHasMoved = true;

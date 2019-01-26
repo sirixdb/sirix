@@ -56,7 +56,7 @@ public final class Commit extends AbstractFunction {
       if (manager.hasRunningNodeWriteTrx()) {
         wtx = manager.getNodeWriteTrx().get();
       } else {
-        wtx = manager.beginNodeWriteTrx();
+        wtx = manager.beginNodeTrx();
       }
       final int revision = doc.getTrx().getRevisionNumber();
       if (revision < manager.getMostRecentRevisionNumber()) {

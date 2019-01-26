@@ -51,7 +51,7 @@ public class XMLSerializerTest {
   public void testXMLSerializerWithInitialIndent() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -70,7 +70,7 @@ public class XMLSerializerTest {
   public void testXMLSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -86,7 +86,7 @@ public class XMLSerializerTest {
   public void testRestSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -109,7 +109,7 @@ public class XMLSerializerTest {
   public void testIDSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -126,7 +126,7 @@ public class XMLSerializerTest {
   public void testSampleCompleteSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
@@ -153,7 +153,7 @@ public class XMLSerializerTest {
   public void testKeyStart() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
