@@ -27,7 +27,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.json.JsonNodeReadWriteTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
@@ -124,7 +124,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
     try (
         final JsonResourceManager resourceTrxManager =
             getResourceManager(resConfig.getResource().getFileName().toString());
-        final JsonNodeReadWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        final JsonNodeTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

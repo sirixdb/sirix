@@ -33,7 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -57,8 +57,8 @@ public class ElementNodeTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceMgr();
     mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }

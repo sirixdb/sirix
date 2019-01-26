@@ -1,13 +1,11 @@
 package org.sirix.page;
 
 import javax.annotation.Nonnull;
+import org.sirix.access.DatabaseType;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.xdm.DocumentRootNode;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -47,11 +45,12 @@ public final class PageUtils {
     final SirixDeweyID id = pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
         ? SirixDeweyID.newRootID()
         : null;
-    final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
-    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-    ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
+
+    // TODO: Should be passed from the method... chaining up.
+    final DatabaseType dbType = pageReadTrx.getResourceManager().getDatabase().getDatabaseConfig().getDatabaseType();
+
+    ndp.setEntry(0L, dbType.getDocumentNode(id));
+
     log.put(reference, PageContainer.getInstance(ndp, ndp));
   }
 }

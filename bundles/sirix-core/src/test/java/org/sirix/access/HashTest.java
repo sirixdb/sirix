@@ -28,8 +28,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
@@ -44,7 +44,7 @@ public class HashTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Test
@@ -218,16 +218,16 @@ public class HashTest {
   }
 
   private XdmNodeWriteTrx createWtx(final HashType kind) throws SirixException {
-    final var database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final XdmResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
+    final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
     return wTrx;
   }
 
   @After
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
 }

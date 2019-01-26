@@ -37,13 +37,15 @@ import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeReadWriteTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
+import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -54,8 +56,8 @@ import org.sirix.page.UnorderedKeyValuePage;
  * Makes sure that there only is a single resource manager instance per thread bound to a resource.
  * </p>
  */
-public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx>
-    implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx> {
+public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx>
+    implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /** {@link XdmIndexController}s used for this session. */
   private final ConcurrentMap<Integer, JsonIndexController> mRtxIndexControllers;
@@ -84,14 +86,31 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
 
   @Override
   public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
-    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, documentNode);
+    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
   }
 
   @Override
-  public JsonNodeReadWriteTrx createNodeReadWriteTrx(long nodeTrxId,
+  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
-    return new JsonNodeReadWriteTrxImpl(nodeTrxId, this, pageWriteTrx, maxNodeCount, timeUnit, maxTime, documentNode);
+    // The node read-only transaction.
+    final InternalJsonNodeReadOnlyTrx nodeReadTrx =
+        new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableJsonNode) documentNode);
+
+    // Node factory.
+    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(pageWriteTrx);
+
+    // Path summary.
+    final boolean buildPathSummary = getResourceConfig().withPathSummary;
+    final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
+    if (buildPathSummary) {
+      pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
+    } else {
+      pathSummaryWriter = null;
+    }
+
+    return new JsonNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit,
+        maxTime, documentNode, nodeFactory);
   }
 
   // TODO: Change for Java9 and above.

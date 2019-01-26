@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -30,84 +30,84 @@ public interface StructNode extends Node {
 
   /**
    * Declares, whether the item has a first child.
-   * 
+   *
    * @return true, if item has a first child, otherwise false
    */
   boolean hasFirstChild();
 
   /**
    * Declares, whether the item has a left sibling.
-   * 
+   *
    * @return true, if item has a left sibling, otherwise false
    */
   boolean hasLeftSibling();
 
   /**
    * Declares, whether the item has a right sibling.
-   * 
+   *
    * @return true, if item has a right sibling, otherwise false
    */
   boolean hasRightSibling();
 
   /**
    * Get the number of children of the node.
-   * 
+   *
    * @return node's number of children
    */
   long getChildCount();
 
   /**
    * Get the number of descendants of the node.
-   * 
+   *
    * @return node's number of descendants
    */
   long getDescendantCount();
 
   /**
    * Gets key of the context item's first child.
-   * 
+   *
    * @return first child's key
    */
   long getFirstChildKey();
 
   /**
    * Gets key of the context item's left sibling.
-   * 
+   *
    * @return left sibling key
    */
   long getLeftSiblingKey();
 
   /**
    * Gets key of the context item's right sibling.
-   * 
+   *
    * @return right sibling key
    */
   long getRightSiblingKey();
 
   /**
    * Setting the right sibling key to this node.
-   * 
+   *
    * @param nodeKey the new key to be set.
    */
   void setRightSiblingKey(long nodeKey);
 
   /**
    * Setting the left sibling key to this node.
-   * 
+   *
    * @param nodeKey the new key to be set.
    */
   void setLeftSiblingKey(long nodeKey);
 
   /**
    * Setting the first child sibling key to this node.
-   * 
+   *
    * @param nodeKey the new key to be set.
    */
   void setFirstChildKey(long nodeKey);
 
   /**
    * Decrementing the child count.
-   * 
+   *
    */
   void decrementChildCount();
 
@@ -128,7 +128,7 @@ public interface StructNode extends Node {
 
   /**
    * Set the descendant count.
-   * 
+   *
    * @param pDescendantCount new descendant count
    */
   void setDescendantCount(long descendantCount);

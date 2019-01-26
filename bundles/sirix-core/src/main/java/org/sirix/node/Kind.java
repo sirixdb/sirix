@@ -55,6 +55,7 @@ import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
+import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectKeyNode;
@@ -62,11 +63,11 @@ import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.DocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
 import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
@@ -342,7 +343,7 @@ public enum Kind implements NodePersistenter {
 
   /** Node kind is document root. */
   // Virtualize document root node?
-  DOCUMENT((byte) 9, DocumentRootNode.class) {
+  XDM_DOCUMENT((byte) 9, XdmDocumentRootNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) throws IOException {
@@ -354,13 +355,13 @@ public enum Kind implements NodePersistenter {
                   ? 0
                   : 1,
               source.readLong());
-      return new DocumentRootNode(nodeDel, structDel);
+      return new XdmDocumentRootNode(nodeDel, structDel);
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
-      final DocumentRootNode node = (DocumentRootNode) record;
+      final XdmDocumentRootNode node = (XdmDocumentRootNode) record;
       sink.writeLong(node.getHash());
       putVarLong(sink, node.getRevision());
       putVarLong(sink, node.getFirstChildKey());
@@ -1099,6 +1100,46 @@ public enum Kind implements NodePersistenter {
         ResourceConfiguration resourceConfig) throws IOException {
       throw new UnsupportedOperationException();
     }
+  },
+  /** Node kind is document root. */
+  // Virtualize document root node?
+  JSON_DOCUMENT((byte) 31, JsonDocumentRootNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadTrx pageReadTrx) throws IOException {
+      final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(), source.readLong(), getVarLong(source), null);
+      final StructNodeDelegate structDel =
+          new StructNodeDelegate(nodeDel, getVarLong(source), Fixed.NULL_NODE_KEY.getStandardProperty(),
+              Fixed.NULL_NODE_KEY.getStandardProperty(), source.readByte() == ((byte) 0)
+                  ? 0
+                  : 1,
+              source.readLong());
+      return new JsonDocumentRootNode(nodeDel, structDel);
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
+        throws IOException {
+      final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
+      sink.writeLong(node.getHash());
+      putVarLong(sink, node.getRevision());
+      putVarLong(sink, node.getFirstChildKey());
+      sink.writeByte(node.hasFirstChild()
+          ? (byte) 1
+          : (byte) 0);
+      sink.writeLong(node.getDescendantCount());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      return null;
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
   },
 
   /** Node type not known. */

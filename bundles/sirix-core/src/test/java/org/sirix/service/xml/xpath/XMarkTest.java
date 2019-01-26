@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.perfidix.annotation.BenchClass;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -48,7 +48,7 @@ public class XMarkTest {
 
   @Before
   public void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // Build simple test tree.
     XMLShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
@@ -59,7 +59,7 @@ public class XMarkTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test

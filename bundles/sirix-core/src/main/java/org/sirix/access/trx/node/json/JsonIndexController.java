@@ -8,7 +8,7 @@ import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeReadWriteTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.index.IndexBuilder;
@@ -29,7 +29,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Johannes Lichtenberger
  *
  */
-public final class JsonIndexController extends AbstractIndexController<JsonNodeReadOnlyTrx, JsonNodeReadWriteTrx> {
+public final class JsonIndexController extends AbstractIndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /** Type of change. */
   public enum ChangeType {
@@ -48,7 +48,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   }
 
   @Override
-  public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeReadWriteTrx nodeWriteTrx) {
+  public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -66,7 +66,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    *
    * @return the created index builder instances
    */
-  Set<JsonNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final JsonNodeReadWriteTrx nodeWriteTrx) {
+  Set<JsonNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<JsonNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {

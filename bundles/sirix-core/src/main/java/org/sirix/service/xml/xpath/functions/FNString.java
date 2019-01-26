@@ -107,7 +107,7 @@ public class FNString extends AbstractFunction {
     if (asXdmNodeReadTrx().getNodeKey() >= 0) { // is node
       if (asXdmNodeReadTrx().getKind() == Kind.ATTRIBUTE || asXdmNodeReadTrx().getKind() == Kind.TEXT) {
         value.append(asXdmNodeReadTrx().getValue());
-      } else if (asXdmNodeReadTrx().getKind() == Kind.DOCUMENT || asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
+      } else if (asXdmNodeReadTrx().getKind() == Kind.XDM_DOCUMENT || asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
         final Axis axis = new FilterAxis(new DescendantAxis(asXdmNodeReadTrx()), new TextFilter(asXdmNodeReadTrx()));
         while (axis.hasNext()) {
           axis.next();

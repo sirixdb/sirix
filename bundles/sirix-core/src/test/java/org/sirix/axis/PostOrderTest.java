@@ -29,12 +29,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -54,15 +54,15 @@ public class PostOrderTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -122,7 +122,7 @@ public class PostOrderTest {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtreeAsFirstChild(
-          XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+          XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       final long key = wtx.getNodeKey();
       AbsAxisTest.testIAxisConventions(
@@ -185,7 +185,7 @@ public class PostOrderTest {
     try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtreeAsFirstChild(
-          XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+          XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();

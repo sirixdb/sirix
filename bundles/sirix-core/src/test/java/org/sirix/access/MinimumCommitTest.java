@@ -27,11 +27,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 
 public final class MinimumCommitTest {
 
@@ -39,14 +39,14 @@ public final class MinimumCommitTest {
 
   @Before
   public void setUp() {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @After
   public void tearDown() {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -57,7 +57,7 @@ public final class MinimumCommitTest {
 
     holder = Holder.generateWtx();
     assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     holder.getXdmNodeWriteTrx().close();
 

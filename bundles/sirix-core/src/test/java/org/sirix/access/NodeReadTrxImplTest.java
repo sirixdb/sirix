@@ -28,12 +28,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmResourceManager;
-import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 
 public final class NodeReadTrxImplTest {
@@ -41,26 +40,26 @@ public final class NodeReadTrxImplTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+  public void setUp() {
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
-  public void testEmptyRtx() throws SirixException {
+  public void testEmptyRtx() {
     assertFalse(Files.exists(PATHS.PATH2.getFile()));
-    Databases.createDatabase(PATHS.PATH2.getConfig());
+    Databases.createXdmDatabase(PATHS.PATH2.getConfig());
 
     try (final var db = Databases.openXdmDatabase(PATHS.PATH2.getFile())) {
-      db.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
-      try (final XdmResourceManager resMgr = db.getResourceManager(TestHelper.RESOURCE);
+      db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
+      try (final XdmResourceManager resMgr = db.getResourceManager(XdmTestHelper.RESOURCE);
           final XdmNodeReadTrx rtx = resMgr.beginNodeReadTrx()) {
         assertEquals(0, rtx.getRevisionNumber());
       }
@@ -68,9 +67,9 @@ public final class NodeReadTrxImplTest {
   }
 
   @Test
-  public void testDocumentRoot() throws SirixException {
+  public void testDocumentRoot() {
     assertEquals(true, holder.getNodeReadTrx().moveToDocumentRoot().hasMoved());
-    assertEquals(Kind.DOCUMENT, holder.getNodeReadTrx().getKind());
+    assertEquals(Kind.XDM_DOCUMENT, holder.getNodeReadTrx().getKind());
     assertEquals(false, holder.getNodeReadTrx().hasParent());
     assertEquals(false, holder.getNodeReadTrx().hasLeftSibling());
     assertEquals(false, holder.getNodeReadTrx().hasRightSibling());
@@ -78,7 +77,7 @@ public final class NodeReadTrxImplTest {
   }
 
   @Test
-  public void testConventions() throws SirixException {
+  public void testConventions() {
 
     // ReadTransaction Convention 1.
     assertEquals(true, holder.getNodeReadTrx().moveToDocumentRoot().hasMoved());

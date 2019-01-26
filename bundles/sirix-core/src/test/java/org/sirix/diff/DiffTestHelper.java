@@ -32,7 +32,7 @@ import java.nio.file.Paths;
 import javax.xml.stream.XMLStreamException;
 import org.mockito.InOrder;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.diff.DiffFactory.DiffOptimized;
@@ -42,7 +42,7 @@ import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableSet;
 
 public final class DiffTestHelper {
@@ -51,11 +51,11 @@ public final class DiffTestHelper {
   protected static final long TIMEOUT_S = 5;
 
   static void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   static void setUpFirst(final Holder holder) throws SirixException {
-    DocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
   }
 
   static void setUpSecond(final Holder holder)
@@ -108,7 +108,7 @@ public final class DiffTestHelper {
   static void setUpSeventh(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
     final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
     rtx.moveTo(1);
@@ -121,7 +121,7 @@ public final class DiffTestHelper {
   static void setUpEighth(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
     final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
     final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
     rtx.moveTo(11);

@@ -3,11 +3,9 @@ package org.sirix.access.trx.node.json;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
@@ -154,7 +152,7 @@ public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingOb
   }
 
   @Override
-  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
+  public JsonResourceManager getResourceManager() {
     return delegate().getResourceManager();
   }
 

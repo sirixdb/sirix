@@ -450,7 +450,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     try {
       if (pos == 0) {
-        assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.DOCUMENT;
+        assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.XDM_DOCUMENT;
         if (wtx.getFirstChildKey() == child) {
           LOGWRAPPER.error("Something went wrong: First child and child may never be the same!");
         } else {
@@ -473,7 +473,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               }
             }
 
-            if (wtx.getKind() == Kind.DOCUMENT) {
+            if (wtx.getKind() == Kind.XDM_DOCUMENT) {
               rtx.moveTo(child);
               wtx.moveTo(wtx.copySubtreeAsFirstChild(rtx).getNodeKey());
             } else {
@@ -904,8 +904,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     // Remove roots ('/') from labels and append them to mapping.
     final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
     final Map<Kind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
-    oldLabels.remove(Kind.DOCUMENT);
-    newLabels.remove(Kind.DOCUMENT);
+    oldLabels.remove(Kind.XDM_DOCUMENT);
+    newLabels.remove(Kind.XDM_DOCUMENT);
 
     wtx.moveTo(mOldStartKey);
     rtx.moveTo(mNewStartKey);

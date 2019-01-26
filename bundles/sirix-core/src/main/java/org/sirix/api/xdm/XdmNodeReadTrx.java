@@ -44,7 +44,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
@@ -506,7 +506,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   boolean isText();
 
   /**
-   * Determines if current node is the {@link DocumentRootNode}.
+   * Determines if current node is the {@link XdmDocumentRootNode}.
    *
    * @return {@code true}, if it is the document root node, {@code false} otherwise
    */

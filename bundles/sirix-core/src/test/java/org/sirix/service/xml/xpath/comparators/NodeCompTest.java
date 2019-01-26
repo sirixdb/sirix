@@ -27,7 +27,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
@@ -43,8 +43,8 @@ public class NodeCompTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
     comparator = new NodeComp(holder.getNodeReadTrx(), new LiteralExpr(holder.getNodeReadTrx(), -2),
         new LiteralExpr(holder.getNodeReadTrx(), -1), CompKind.IS);
@@ -53,7 +53,7 @@ public class NodeCompTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test

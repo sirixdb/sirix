@@ -34,19 +34,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 
 public class XMLSerializerPropertiesTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @After
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test

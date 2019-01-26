@@ -35,7 +35,6 @@ import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
@@ -64,7 +63,7 @@ import com.google.gson.stream.JsonWriter;
 public final class ResourceConfiguration {
 
   /**
-   * Paths for a {@link XdmResourceManagerImpl}. Each resource has the same folder layout.
+   * Paths in a resource. Each resource has the same folder layout.
    */
   public enum ResourcePaths {
 
@@ -122,8 +121,8 @@ public final class ResourceConfiguration {
      * Checking a structure in a folder to be equal with the data in this enum.
      *
      * @param file to be checked
-     * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if
-     *         the structure has more folders
+     * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
+     *         structure has more folders
      * @throws NullPointerException if {@code file} is {@code null}
      */
     public static int compareStructure(final Path file) {
@@ -222,9 +221,8 @@ public final class ResourceConfiguration {
     useTextCompression = builder.mCompression;
     withPathSummary = builder.mPathSummary;
     areDeweyIDsStored = builder.mUseDeweyIDs;
-    resourcePath = databaseConfig.getFile()
-                                 .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                                 .resolve(builder.mResource);
+    resourcePath =
+        databaseConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(builder.mResource);
     recordPersister = builder.mPersistenter;
   }
 
@@ -260,10 +258,8 @@ public final class ResourceConfiguration {
       return false;
 
     final ResourceConfiguration other = (ResourceConfiguration) obj;
-    return Objects.equals(storageType, other.storageType)
-        && Objects.equals(revisioningType, other.revisioningType)
-        && Objects.equals(hashType, other.hashType)
-        && Objects.equals(resourcePath, other.resourcePath)
+    return Objects.equals(storageType, other.storageType) && Objects.equals(revisioningType, other.revisioningType)
+        && Objects.equals(hashType, other.hashType) && Objects.equals(resourcePath, other.resourcePath)
         && Objects.equals(databaseConfig, other.databaseConfig);
   }
 
@@ -298,9 +294,9 @@ public final class ResourceConfiguration {
   /**
    * JSON names.
    */
-  private static final String[] JSONNAMES = {"revisioning", "revisioningClass",
-      "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "compression",
-      "pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
+  private static final String[] JSONNAMES =
+      {"revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind",
+          "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
 
   /**
    * Serialize the configuration.
@@ -382,8 +378,7 @@ public final class ResourceConfiguration {
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
         @SuppressWarnings("unchecked")
-        final Class<ByteHandler> clazzName =
-            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }
@@ -423,8 +418,7 @@ public final class ResourceConfiguration {
       fileReader.close();
 
       // Deserialize database config.
-      final DatabaseConfiguration dbConfig =
-          DatabaseConfiguration.deserialize(file.getParent().getParent());
+      final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
 
       // Builder.
       final ResourceConfiguration.Builder builder =
@@ -442,8 +436,8 @@ public final class ResourceConfiguration {
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
       return config.setID(ID);
-    } catch (IOException | ClassNotFoundException | IllegalArgumentException
-        | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
+        | IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
     }
   }
@@ -499,8 +493,7 @@ public final class ResourceConfiguration {
       mPathSummary = true;
 
       final Path path =
-          mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(
-              mResource);
+          mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
 
       mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
     }

@@ -18,8 +18,8 @@ import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
@@ -87,13 +87,13 @@ public final class FMSETest extends XMLTestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Override
   @After
   public void tearDown() throws SirixException, IOException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -208,8 +208,8 @@ public final class FMSETest extends XMLTestCase {
    * @throws Exception if any exception occurs
    */
   private void test(final Path folder) throws Exception {
-    try (var database = TestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XdmResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
+    try (var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -248,12 +248,12 @@ public final class FMSETest extends XMLTestCase {
           }
 
           resource.close();
-          resource = database.getResourceManager(TestHelper.RESOURCE);
+          resource = database.getResourceManager(XdmTestHelper.RESOURCE);
 
           final OutputStream out = new ByteArrayOutputStream();
           final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
           serializer.call();
-          final StringBuilder sBuilder = TestHelper.readFile(file, false);
+          final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);

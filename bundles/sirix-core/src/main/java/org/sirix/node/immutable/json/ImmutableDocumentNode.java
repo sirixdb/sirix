@@ -5,7 +5,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.json.JsonDocumentRootNode;
 
 /**
  * Immutable document root node wrapper.
@@ -14,25 +14,25 @@ import org.sirix.node.xdm.DocumentRootNode;
  */
 public final class ImmutableDocumentNode extends AbstractImmutableJsonStructuralNode {
 
-  /** Mutable {@link DocumentRootNode} instance. */
-  private final DocumentRootNode mNode;
+  /** Mutable {@link JsonDocumentRootNode} instance. */
+  private final JsonDocumentRootNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link DocumentRootNode}
+   * @param node mutable {@link JsonDocumentRootNode}
    */
-  private ImmutableDocumentNode(final DocumentRootNode node) {
+  private ImmutableDocumentNode(final JsonDocumentRootNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
    * Get an immutable document root node instance.
    *
-   * @param node the mutable {@link DocumentRootNode} to wrap
+   * @param node the mutable {@link JsonDocumentRootNode} to wrap
    * @return immutable document root node instance
    */
-  public static ImmutableDocumentNode of(final DocumentRootNode node) {
+  public static ImmutableDocumentNode of(final JsonDocumentRootNode node) {
     return new ImmutableDocumentNode(node);
   }
 
@@ -48,6 +48,6 @@ public final class ImmutableDocumentNode extends AbstractImmutableJsonStructural
 
   @Override
   public Kind getKind() {
-    return Kind.DOCUMENT;
+    return Kind.XDM_DOCUMENT;
   }
 }

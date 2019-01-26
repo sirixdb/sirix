@@ -22,8 +22,8 @@
 package org.sirix.io;
 
 import static org.junit.Assert.assertEquals;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
@@ -50,7 +50,7 @@ public final class IOTestHelper {
    */
   public static ResourceConfiguration registerIO(final StorageType type) throws SirixException {
     final ResourceConfiguration.Builder resourceConfig =
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig());
+        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig());
     resourceConfig.storageType(type);
     return resourceConfig.build();
   }
@@ -59,7 +59,7 @@ public final class IOTestHelper {
    * Tear down for all tests related to the io layer.
    */
   public static void clean() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   /**

@@ -422,7 +422,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public Kind getKind() {
     moveRtx();
     switch (mRtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
         return Kind.DOCUMENT;
       case ELEMENT:
         return Kind.ELEMENT;
@@ -480,7 +480,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
     final String value;
     switch (mKind) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
       case ELEMENT:
         value = expandString();
         break;

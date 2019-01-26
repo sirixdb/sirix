@@ -33,7 +33,7 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
@@ -243,8 +243,8 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   @Override
   public ImmutableNode getNode() {
     assertNotClosed();
-    if (mCurrentNode instanceof DocumentRootNode) {
-      return ImmutableDocumentNode.of((DocumentRootNode) mCurrentNode);
+    if (mCurrentNode instanceof XdmDocumentRootNode) {
+      return ImmutableDocumentNode.of((XdmDocumentRootNode) mCurrentNode);
     }
     return ImmutablePathNode.of((PathNode) mCurrentNode);
   }
@@ -718,7 +718,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   public Kind getParentKind() {
     assertNotClosed();
     if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      return Kind.DOCUMENT;
+      return Kind.XDM_DOCUMENT;
     }
     if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return Kind.UNKNOWN;
@@ -739,7 +739,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
    */
   public int getReferences() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+    if (mCurrentNode.getKind() == Kind.XDM_DOCUMENT) {
       return 1;
     } else {
       return getPathNode().getReferences();
@@ -749,7 +749,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+    if (mCurrentNode.getKind() == Kind.XDM_DOCUMENT) {
       return true;
     }
     return false;

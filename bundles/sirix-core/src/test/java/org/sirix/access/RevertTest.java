@@ -27,10 +27,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 
 public final class RevertTest {
 
@@ -38,21 +38,21 @@ public final class RevertTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.openResourceManager();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void test() throws SirixException {
     XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     assertEquals(1L, wtx.getRevisionNumber());
-    DocumentCreator.create(wtx);
+    XdmDocumentCreator.create(wtx);
     assertEquals(1L, wtx.getRevisionNumber());
     wtx.commit();
     assertEquals(2L, wtx.getRevisionNumber());

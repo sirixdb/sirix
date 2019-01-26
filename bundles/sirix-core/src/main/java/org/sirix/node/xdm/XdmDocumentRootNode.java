@@ -44,7 +44,7 @@ import com.google.common.base.Objects;
  * not be removed.
  * </p>
  */
-public final class DocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXdmNode {
+public final class XdmDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXdmNode {
 
   /** {@link NodeDelegate} reference. */
   private final NodeDelegate mNodeDel;
@@ -58,14 +58,14 @@ public final class DocumentRootNode extends AbstractStructForwardingNode impleme
    * @param nodeDel {@link NodeDelegate} reference
    * @param structDel {@link StructNodeDelegate} reference
    */
-  public DocumentRootNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
+  public XdmDocumentRootNode(final @Nonnull NodeDelegate nodeDel, final @Nonnull StructNodeDelegate structDel) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structDel);
   }
 
   @Override
   public Kind getKind() {
-    return Kind.DOCUMENT;
+    return Kind.XDM_DOCUMENT;
   }
 
   @Override
@@ -80,8 +80,8 @@ public final class DocumentRootNode extends AbstractStructForwardingNode impleme
 
   @Override
   public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof DocumentRootNode) {
-      final DocumentRootNode other = (DocumentRootNode) obj;
+    if (obj instanceof XdmDocumentRootNode) {
+      final XdmDocumentRootNode other = (XdmDocumentRootNode) obj;
       return Objects.equal(mNodeDel, other.mNodeDel);
     }
     return false;

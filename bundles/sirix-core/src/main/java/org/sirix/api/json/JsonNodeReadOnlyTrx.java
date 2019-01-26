@@ -3,6 +3,7 @@ package org.sirix.api.json;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -59,4 +60,12 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
    * @return {@link VisitResultType} value
    */
   VisitResult acceptVisitor(JsonNodeVisitor visitor);
+
+  /**
+   * Get the {@link ResourceManager} this instance is bound to.
+   *
+   * @return the resource manager
+   */
+  @Override
+  JsonResourceManager getResourceManager();
 }

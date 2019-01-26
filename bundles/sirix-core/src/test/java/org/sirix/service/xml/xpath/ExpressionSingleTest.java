@@ -27,7 +27,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
@@ -45,15 +45,15 @@ public class ExpressionSingleTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test

@@ -86,7 +86,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   @Override
   protected void emitNode(final XdmNodeReadTrx rtx) {
     switch (rtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
         break;
       case ELEMENT:
         generateElement(rtx);
@@ -245,7 +245,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   public static void main(final String... args) {
     final Path path = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
     final var database = Databases.openXdmDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
     try (final XdmResourceManager resource = database.getResourceManager("shredded")) {

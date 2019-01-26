@@ -250,7 +250,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // If no content is in the XML, a normal insertNewContent is executed.
         new XMLShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
-        if (mWtx.getKind() == Kind.DOCUMENT) {
+        if (mWtx.getKind() == Kind.XDM_DOCUMENT) {
           // Find the start key for the update operation.
           long startkey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey).hasMoved()) {
@@ -1150,7 +1150,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final Path target = Paths.get(args[1]);
 
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
-    Databases.createDatabase(config);
+    Databases.createXdmDatabase(config);
     final var db = Databases.openXdmDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
     try (final XdmResourceManager resMgr = db.getResourceManager("shredded");

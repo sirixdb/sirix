@@ -9,7 +9,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 /**
@@ -19,25 +19,25 @@ import org.sirix.settings.Fixed;
  */
 public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXdmNode {
 
-  /** Mutable {@link DocumentRootNode} instance. */
-  private final DocumentRootNode mNode;
+  /** Mutable {@link XdmDocumentRootNode} instance. */
+  private final XdmDocumentRootNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link DocumentRootNode}
+   * @param node mutable {@link XdmDocumentRootNode}
    */
-  private ImmutableDocumentNode(final DocumentRootNode node) {
+  private ImmutableDocumentNode(final XdmDocumentRootNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
    * Get an immutable document root node instance.
    *
-   * @param node the mutable {@link DocumentRootNode} to wrap
+   * @param node the mutable {@link XdmDocumentRootNode} to wrap
    * @return immutable document root node instance
    */
-  public static ImmutableDocumentNode of(final DocumentRootNode node) {
+  public static ImmutableDocumentNode of(final XdmDocumentRootNode node) {
     return new ImmutableDocumentNode(node);
   }
 

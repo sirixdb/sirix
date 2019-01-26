@@ -27,7 +27,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeWriteTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -93,7 +93,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  *
  * </p>
  */
-public final class DocumentCreator {
+public final class XdmDocumentCreator {
 
   /** String representation of revisioned xml file. */
   public static final String REVXML =
@@ -116,7 +116,7 @@ public final class DocumentCreator {
 
   /** String representation of test document. */
   public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-      + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\">" + "<c/>bar</b>oops3</p:a>";
+      + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a>";
 
   /** String representation of test document. */
   public static final String COMMENTPIXML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -149,7 +149,7 @@ public final class DocumentCreator {
   /**
    * Private Constructor, not used.
    */
-  private DocumentCreator() {
+  private XdmDocumentCreator() {
     throw new AssertionError("Not permitted to call constructor!");
   }
 
@@ -345,7 +345,7 @@ public final class DocumentCreator {
   public static void createRevisioned(final Database<XdmResourceManager> database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE)) {
+    try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
         final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
             Insert.ASFIRSTCHILD).commitAfterwards().build();

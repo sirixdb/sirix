@@ -59,7 +59,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.DocumentRootNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
@@ -165,8 +165,8 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
         return ImmutableAttributeNode.of((AttributeNode) mCurrentNode);
       case NAMESPACE:
         return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
-      case DOCUMENT:
-        return ImmutableDocumentNode.of((DocumentRootNode) mCurrentNode);
+      case XDM_DOCUMENT:
+        return ImmutableDocumentNode.of((XdmDocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");
@@ -277,7 +277,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
       helper.add("Value of Node", getValue());
     }
 
-    if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+    if (mCurrentNode.getKind() == Kind.XDM_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
     helper.add("node", mCurrentNode.toString());
@@ -467,7 +467,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.DOCUMENT;
+    return mCurrentNode.getKind() == Kind.XDM_DOCUMENT;
   }
 
   @Override

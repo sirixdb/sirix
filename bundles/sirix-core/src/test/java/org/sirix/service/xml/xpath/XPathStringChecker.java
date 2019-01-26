@@ -26,7 +26,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 import org.junit.After;
 import org.junit.Before;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xdm.XdmNodeReadTrx;
 import org.sirix.exception.SirixException;
@@ -35,12 +35,12 @@ public class XPathStringChecker {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @After
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   public static void testIAxisConventions(final Axis axis, final String[] expectedValues) {

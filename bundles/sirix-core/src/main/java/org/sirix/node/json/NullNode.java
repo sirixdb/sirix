@@ -27,9 +27,13 @@
  */
 package org.sirix.node.json;
 
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableNullNode;
+import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -37,7 +41,7 @@ import com.google.common.base.Objects;
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public final class NullNode extends AbstractStructForwardingNode {
+public final class NullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -50,6 +54,11 @@ public final class NullNode extends AbstractStructForwardingNode {
   public NullNode(final StructNodeDelegate structDel) {
     assert structDel != null;
     mStructNodeDel = structDel;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableNullNode.of(this));
   }
 
   @Override

@@ -22,7 +22,7 @@ package org.sirix;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -36,7 +36,7 @@ import org.sirix.exception.SirixException;
 
 /**
  * Generating a standard resource within the {@link PATHS#PATH1} path. It also generates a standard
- * resource defined within {@link TestHelper#RESOURCE}.
+ * resource defined within {@link XdmTestHelper#RESOURCE}.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
@@ -68,12 +68,12 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createDatabase(config);
+      Databases.createXdmDatabase(config);
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
+        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -90,12 +90,12 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createDatabase(config);
+      Databases.createXdmDatabase(config);
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(TestHelper.RESOURCE);
+        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
+    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -109,8 +109,8 @@ public class Holder {
    * @throws SirixException if an error occurs
    */
   public static Holder openResourceManager() throws SirixException {
-    final var database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resMgr = database.getResourceManager(TestHelper.RESOURCE);
+    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
