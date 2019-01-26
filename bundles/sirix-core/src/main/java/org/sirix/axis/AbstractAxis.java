@@ -29,7 +29,7 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -251,9 +251,9 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public XdmNodeReadTrx asXdmNodeReadTrx() {
-    if (mNodeCursor instanceof XdmNodeReadTrx) {
-      return (XdmNodeReadTrx) mNodeCursor;
+  public XdmNodeReadOnlyTrx asXdmNodeReadTrx() {
+    if (mNodeCursor instanceof XdmNodeReadOnlyTrx) {
+      return (XdmNodeReadOnlyTrx) mNodeCursor;
     }
     throw new IllegalStateException("Node cursor is no XDM node transaction.");
   }
@@ -321,10 +321,10 @@ public abstract class AbstractAxis implements Axis {
   @Override
   public final void foreach(final XdmNodeVisitor visitor) {
     checkNotNull(visitor);
-    if (mNodeCursor instanceof XdmNodeReadTrx) {
+    if (mNodeCursor instanceof XdmNodeReadOnlyTrx) {
       while (hasNext()) {
         next();
-        ((XdmNodeReadTrx) mNodeCursor).acceptVisitor(visitor);
+        ((XdmNodeReadOnlyTrx) mNodeCursor).acceptVisitor(visitor);
       }
     }
   }

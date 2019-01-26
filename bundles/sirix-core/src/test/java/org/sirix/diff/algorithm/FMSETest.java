@@ -20,7 +20,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
@@ -236,7 +236,7 @@ public final class FMSETest extends XMLTestCase {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
+            try (final XdmNodeTrx wtx = resource.beginNodeWriteTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis),
                   Insert.ASFIRSTCHILD).commitAfterwards().build();

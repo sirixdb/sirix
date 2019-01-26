@@ -51,8 +51,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
@@ -83,7 +83,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private final XdmResourceManager mResourceManager;
 
   /** sirix {@link NodeWriteTrx}. */
-  private transient XdmNodeWriteTrx mWtx;
+  private transient XdmNodeTrx mWtx;
 
   /** {@link XMLEvent}s which specify the page metadata. */
   private transient Deque<XMLEvent> mPageEvents;
@@ -284,14 +284,14 @@ public final class WikipediaImport implements Import<StartElement> {
       mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
-    final XdmNodeWriteTrx wtx = resourceManager.beginNodeWriteTrx();
+    final XdmNodeTrx wtx = resourceManager.beginNodeWriteTrx();
     final XMLShredder shredder =
         new XMLShredder.Builder(wtx, XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                      .build();
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
-    final XdmNodeReadTrx rtx = resourceManager.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = resourceManager.beginNodeReadTrx();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     final long nodeKey = mWtx.getNodeKey();

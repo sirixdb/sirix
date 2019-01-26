@@ -14,7 +14,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -307,8 +307,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
             }
             resetPathNodeKey(mNodeRtx.getNodeKey());
 
-            if (mNodeRtx instanceof XdmNodeReadTrx) {
-              final XdmNodeReadTrx rtx = (XdmNodeReadTrx) mNodeRtx;
+            if (mNodeRtx instanceof XdmNodeReadOnlyTrx) {
+              final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
 
               // Namespaces.
               for (int i = 0, nsps = rtx.getNamespaceCount(); i < nsps; i++) {
@@ -366,7 +366,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
       descendants.next();
 
       if (mNodeRtx.getKind() == Kind.ELEMENT) {
-        final XdmNodeReadTrx rtx = (XdmNodeReadTrx) mNodeRtx;
+        final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
         final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
         // Namespaces.
@@ -458,7 +458,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
     if (mNodeRtx.getNode().getKind() == Kind.ELEMENT) {
-      final XdmNodeReadTrx rtx = (XdmNodeReadTrx) mNodeRtx;
+      final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
       final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
       for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
@@ -510,8 +510,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
 
     final long pathNodeKey;
 
-    if (mNodeRtx instanceof XdmNodeReadTrx)
-      pathNodeKey = ((XdmNodeReadTrx) mNodeRtx.moveToParent().get()).getPathNodeKey();
+    if (mNodeRtx instanceof XdmNodeReadOnlyTrx)
+      pathNodeKey = ((XdmNodeReadOnlyTrx) mNodeRtx.moveToParent().get()).getPathNodeKey();
     else if (mNodeRtx instanceof JsonNodeReadOnlyTrx)
       pathNodeKey = ((JsonNodeReadOnlyTrx) mNodeRtx.moveToParent().get()).getPathNodeKey();
     else

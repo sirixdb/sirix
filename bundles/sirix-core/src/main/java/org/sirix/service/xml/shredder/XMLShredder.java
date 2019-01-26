@@ -47,7 +47,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -57,7 +57,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeWriteTrx} . The content of
+ * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeTrx} . The content of
  * the stream is added as a subtree. Based on an enum which identifies the point of insertion, the
  * subtree is either added as first child or as right sibling.
  *
@@ -71,8 +71,8 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
 
-  /** {@link XdmNodeWriteTrx}. */
-  protected final XdmNodeWriteTrx mWtx;
+  /** {@link XdmNodeTrx}. */
+  protected final XdmNodeTrx mWtx;
 
   /** {@link XMLEventReader}. */
   protected final XMLEventReader mReader;
@@ -94,8 +94,8 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
    */
   public static class Builder {
 
-    /** {@link XdmNodeWriteTrx} implementation. */
-    private final XdmNodeWriteTrx mWtx;
+    /** {@link XdmNodeTrx} implementation. */
+    private final XdmNodeTrx mWtx;
 
     /** {@link XMLEventReader} implementation. */
     private final XMLEventReader mReader;
@@ -117,11 +117,11 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     /**
      * Constructor.
      *
-     * @param wtx {@link XdmNodeWriteTrx} implementation
+     * @param wtx {@link XdmNodeTrx} implementation
      * @param reader {@link XMLEventReader} implementation
      * @param insert insertion position
      */
-    public Builder(final XdmNodeWriteTrx wtx, final XMLEventReader reader, final Insert insert) {
+    public Builder(final XdmNodeTrx wtx, final XMLEventReader reader, final Insert insert) {
       mWtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
       mInsert = checkNotNull(insert);
@@ -319,7 +319,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     try (final var db = Databases.openXdmDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
       try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
-          final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
+          final XdmNodeTrx wtx = resMgr.beginNodeWriteTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3

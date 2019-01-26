@@ -27,7 +27,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
@@ -52,7 +52,7 @@ public class ElementFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(0L);
     FilterTest.testFilterConventions(new ElementFilter(rtx), false);
@@ -86,7 +86,7 @@ public class ElementFilterTest {
 
   @Test
   public void testFluentIterable() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx))
                                                  .filter(new ElementFilter(rtx))

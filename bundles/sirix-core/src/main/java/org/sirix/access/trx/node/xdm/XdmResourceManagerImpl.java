@@ -36,8 +36,8 @@ import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
@@ -56,8 +56,8 @@ import org.sirix.page.UnorderedKeyValuePage;
  * Makes sure that there only is a single resource manager instance per thread bound to a resource.
  * </p>
  */
-public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx>
-    implements XdmResourceManager, InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> {
+public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx>
+    implements XdmResourceManager, InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> {
 
   /** {@link XdmIndexController}s used for this session. */
   private final ConcurrentMap<Integer, XdmIndexController> mRtxIndexControllers;
@@ -85,31 +85,31 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   }
 
   @Override
-  public XdmNodeReadTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
-    return new XdmNodeReadTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXdmNode) documentNode);
+  public XdmNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
+    return new XdmNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXdmNode) documentNode);
   }
 
   @Override
-  public XdmNodeWriteTrx createNodeReadWriteTrx(long nodeTrxId,
+  public XdmNodeTrx createNodeReadWriteTrx(long nodeTrxId,
       PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     // The node read-only transaction.
     final InternalXdmNodeReadTrx nodeReadTrx =
-        new XdmNodeReadTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXdmNode) documentNode);
+        new XdmNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXdmNode) documentNode);
 
     // Node factory.
     final XdmNodeFactory nodeFactory = new XdmNodeFactoryImpl(pageWriteTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
-    final PathSummaryWriter<XdmNodeReadTrx> pathSummaryWriter;
+    final PathSummaryWriter<XdmNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
       pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
     } else {
       pathSummaryWriter = null;
     }
 
-    return new XdmNodeWriteTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
+    return new XdmNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
         documentNode, nodeFactory);
   }
 

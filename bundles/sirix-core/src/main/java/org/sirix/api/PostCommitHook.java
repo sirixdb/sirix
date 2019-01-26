@@ -1,6 +1,6 @@
 package org.sirix.api;
 
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 
 /**
  * Post commit hook.
@@ -14,7 +14,7 @@ public interface PostCommitHook {
   /**
    * Post commit hook. Called after a revision has been commited.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   void postCommit(NodeReadTrx rtx);

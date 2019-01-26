@@ -30,8 +30,8 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -128,7 +128,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadTrx} instance
+   * @return {@link XdmNodeReadOnlyTrx} instance
    */
   R beginNodeReadTrx(@Nonnegative int revision);
 
@@ -139,7 +139,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadTrx} instance
+   * @return {@link XdmNodeReadOnlyTrx} instance
    */
   R beginNodeReadTrx(@Nonnull Instant pointInTime);
 
@@ -149,7 +149,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @param trx the transaction to use
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return {@link XdmNodeTrx} instance
    */
   W beginNodeWriteTrx();
 
@@ -168,7 +168,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return {@link XdmNodeTrx} instance
    */
   W beginNodeWriteTrx(final @Nonnegative int maxNodes);
 
@@ -181,7 +181,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return {@link XdmNodeTrx} instance
    */
   W beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
 
@@ -195,12 +195,12 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return {@link XdmNodeTrx} instance
    */
   W beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
    *
    * @param revision revision key to read from
    * @return {@link PathSummaryReader} instance
@@ -209,7 +209,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
   PathSummaryReader openPathSummary(@Nonnegative int revision);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
    *
    * @return {@link PathSummaryReader} instance
    * @throws SirixException if can't open path summary
@@ -249,9 +249,9 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
   int getMostRecentRevisionNumber();
 
   /**
-   * Get available number of {@link XdmNodeReadTrx}s.
+   * Get available number of {@link XdmNodeReadOnlyTrx}s.
    *
-   * @return available number of {@link XdmNodeReadTrx}s
+   * @return available number of {@link XdmNodeReadOnlyTrx}s
    */
   int getAvailableNodeReadTrx();
 

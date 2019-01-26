@@ -4,14 +4,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
 
 /**
- * Retrieve a node by node key in all future revisions. In each revision a {@link XdmNodeReadTrx} is
+ * Retrieve a node by node key in all future revisions. In each revision a {@link XdmNodeReadOnlyTrx} is
  * opened which is moved to the node with the given node key if it exists. Otherwise the iterator
- * has no more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
+ * has no more elements (the {@link XdmNodeReadOnlyTrx} moved to the node by it's node key).
  *
  * @author Johannes Lichtenberger
  *
@@ -33,7 +33,7 @@ public final class FutureAxis<R extends NodeReadTrx> extends AbstractTemporalAxi
   /**
    * Constructor.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
   public FutureAxis(final R rtx) {
     // Using telescope pattern instead of builder (only one optional parameter).
@@ -43,7 +43,7 @@ public final class FutureAxis<R extends NodeReadTrx> extends AbstractTemporalAxi
   /**
    * Constructor.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    * @param includeSelf determines if current revision must be included or not
    */
   public FutureAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {

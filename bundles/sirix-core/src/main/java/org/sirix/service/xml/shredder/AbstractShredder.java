@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
@@ -22,8 +22,8 @@ import org.sirix.settings.Fixed;
  */
 public abstract class AbstractShredder implements Shredder<String, QNm> {
 
-  /** Sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** Sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Keeps track of visited keys. */
   private final Deque<Long> mParents;
@@ -36,7 +36,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
    *
    * @throws NullPointerException if {@code pWtx} is {@code null}
    */
-  public AbstractShredder(final XdmNodeWriteTrx wtx, final Insert insertLocation) {
+  public AbstractShredder(final XdmNodeTrx wtx, final Insert insertLocation) {
     mWtx = checkNotNull(wtx);
     mInsertLocation = checkNotNull(insertLocation);
     mParents = new ArrayDeque<>();

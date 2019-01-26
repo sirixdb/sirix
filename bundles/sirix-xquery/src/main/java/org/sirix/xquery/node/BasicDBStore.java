@@ -23,7 +23,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
@@ -206,7 +206,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       mCollections.put(database, collection);
 
       try (final XdmResourceManager manager = database.getResourceManager(resName);
-          final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+          final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
         parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));
 
         wtx.commit();
@@ -248,7 +248,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                                                            .buildPathSummary(true)
                                                            .build());
               try (final XdmResourceManager manager = database.getResourceManager(resourceName);
-                  final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+                  final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
                 nextParser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD, Collections.emptyList()));

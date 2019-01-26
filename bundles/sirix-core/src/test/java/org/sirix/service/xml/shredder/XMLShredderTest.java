@@ -36,8 +36,8 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
@@ -72,13 +72,13 @@ public class XMLShredderTest extends XMLTestCase {
   public void testSTAXShredder() throws Exception {
     // Setup parsed session.
     XMLShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
-    final XdmNodeReadTrx expectedTrx = holder.getXdmNodeWriteTrx();
+    final XdmNodeReadOnlyTrx expectedTrx = holder.getXdmNodeWriteTrx();
 
     // Verify.
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH2.getFile());
     database2.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
     final XdmResourceManager manager = database2.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeReadTrx rtx = manager.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadTrx();
     rtx.moveToDocumentRoot();
     final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
     final Iterator<Long> descendants = new DescendantAxis(rtx);
@@ -108,7 +108,7 @@ public class XMLShredderTest extends XMLTestCase {
 
   @Test
   public void testShredIntoExisting() throws Exception {
-    try (final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
+    try (final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
         final FileInputStream fis1 = new FileInputStream(XML.toFile());
         final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
       final XMLShredder shredder =
@@ -132,13 +132,13 @@ public class XMLShredderTest extends XMLTestCase {
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH2.getFile());
 
     try (final XdmResourceManager manager = database2.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeWriteTrx expectedTrx = manager.beginNodeWriteTrx()) {
+        final XdmNodeTrx expectedTrx = manager.beginNodeWriteTrx()) {
       XdmDocumentCreator.create(expectedTrx);
       expectedTrx.commit();
       expectedTrx.moveToDocumentRoot();
 
       // Verify.
-      try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
 
         final Iterator<Long> descendants = new DescendantAxis(rtx);
         final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -157,7 +157,7 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testAttributesNSPrefix() throws Exception {
     // Setup expected.
-    final XdmNodeWriteTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
+    final XdmNodeTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
     XdmDocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 
@@ -165,7 +165,7 @@ public class XMLShredderTest extends XMLTestCase {
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH2.getFile());
 
     try (final var manager2 = database2.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeWriteTrx wtx = manager2.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = manager2.beginNodeWriteTrx();
         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
       final XMLShredder shredder =
           new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
@@ -174,7 +174,7 @@ public class XMLShredderTest extends XMLTestCase {
       wtx.commit();
 
       // Verify.
-      try (final XdmNodeReadTrx rtx = manager2.beginNodeReadTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager2.beginNodeReadTrx()) {
         rtx.moveToDocumentRoot();
         final Iterator<Long> expectedAttributes = new DescendantAxis(expectedTrx2);
         final Iterator<Long> attributes = new DescendantAxis(rtx);
@@ -205,7 +205,7 @@ public class XMLShredderTest extends XMLTestCase {
     try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
         final FileInputStream fis1 = new FileInputStream(XML3.toFile());
         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
-      try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
         final XMLShredder shredder =
             new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                  .build();
@@ -214,7 +214,7 @@ public class XMLShredderTest extends XMLTestCase {
 
       final StringBuilder tnkBuilder = new StringBuilder();
 
-      try (final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());
 

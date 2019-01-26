@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
@@ -55,7 +55,7 @@ public class SchemaAttributeFilter extends AbstractFilter {
    * 
    * @param rtx Transaction this filter is bound to.
    */
-  public SchemaAttributeFilter(final XdmNodeReadTrx rtx) {
+  public SchemaAttributeFilter(final XdmNodeReadOnlyTrx rtx) {
 
     super(rtx);
     // attributeName = declaration;

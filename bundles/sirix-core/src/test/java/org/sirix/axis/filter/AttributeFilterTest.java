@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 public class AttributeFilterTest {
@@ -48,7 +48,7 @@ public class AttributeFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadTrx wtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx wtx = holder.getNodeReadTrx();
     wtx.moveTo(9L);
     FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 

@@ -22,7 +22,7 @@
 package org.sirix.axis.concurrent;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
@@ -60,7 +60,7 @@ public final class ConcurrentIntersectAxis extends AbstractAxis {
    * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
    *         {@code null}
    */
-  public ConcurrentIntersectAxis(final XdmNodeReadTrx rtx, final Axis operand1,
+  public ConcurrentIntersectAxis(final XdmNodeReadOnlyTrx rtx, final Axis operand1,
       final Axis operand2) {
     super(rtx);
     mOp1 = new ConcurrentAxis(rtx, operand1);

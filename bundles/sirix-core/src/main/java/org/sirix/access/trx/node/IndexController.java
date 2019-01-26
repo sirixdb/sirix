@@ -21,7 +21,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
@@ -124,7 +124,7 @@ public interface IndexController<R extends NodeReadTrx & NodeCursor, W extends N
    * Create index listeners.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XdmNodeWriteTrx}
+   * @param nodeWriteTrx the {@link XdmNodeTrx}
    *
    * @return this {@link XdmIndexController} instance
    */

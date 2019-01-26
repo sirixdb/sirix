@@ -6,8 +6,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PCRValue;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -22,14 +22,14 @@ public final class XdmPCRCollector implements PCRCollector {
 
   private final NodeReadTrx mRtx;
 
-  public XdmPCRCollector(final XdmNodeReadTrx rtx) {
+  public XdmPCRCollector(final XdmNodeReadOnlyTrx rtx) {
     mRtx = Objects.requireNonNull(rtx, "The transaction must not be null.");
   }
 
   @Override
   public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
-    try (final PathSummaryReader reader = mRtx instanceof XdmNodeWriteTrx
-        ? ((XdmNodeWriteTrx) mRtx).getPathSummary()
+    try (final PathSummaryReader reader = mRtx instanceof XdmNodeTrx
+        ? ((XdmNodeTrx) mRtx).getPathSummary()
         : mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber())) {
       final long maxPCR = reader.getMaxNodeKey();
       final Set<Long> pathClassRecords = reader.getPCRsForPaths(paths, true);

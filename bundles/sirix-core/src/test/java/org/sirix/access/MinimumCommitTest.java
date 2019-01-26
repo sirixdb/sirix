@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
 
@@ -72,28 +72,28 @@ public final class MinimumCommitTest {
 
   @Test
   public void testTimestamp() throws SirixException {
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
       assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
     }
   }
 
   @Test
   public void testCommitMessage() {
-    try (final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx()) {
       wtx.commit("foo");
       wtx.commit("bar");
       wtx.commit("baz");
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(1)) {
       assertEquals("foo", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(2)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(2)) {
       assertEquals("bar", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(3)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(3)) {
       assertEquals("baz", rtx.getCommitCredentials().getMessage());
     }
   }

@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
@@ -78,7 +78,7 @@ import org.sirix.utils.TypedValue;
 public final class XPathParser {
 
   /** IReadTransaction to access the nodes. Is needed for filters and axes. */
-  private final XdmNodeReadTrx mRTX;
+  private final XdmNodeReadOnlyTrx mRTX;
 
   /** Scanner that scans the symbols of the query and returns them as tokens. */
   private final XPathScanner mScanner;
@@ -97,7 +97,7 @@ public final class XPathParser {
    * @param rtx The transaction.
    * @param mQuery The query to process.
    */
-  public XPathParser(final XdmNodeReadTrx rtx, final String mQuery) {
+  public XPathParser(final XdmNodeReadOnlyTrx rtx, final String mQuery) {
 
     mRTX = rtx;
     mScanner = new XPathScanner(mQuery);
@@ -800,7 +800,7 @@ public final class XPathParser {
   private void parseForwardStep() throws SirixXPathException {
 
     Axis axis;
-    Filter<XdmNodeReadTrx> filter;
+    Filter<XdmNodeReadOnlyTrx> filter;
     if (isForwardAxis()) {
       axis = parseForwardAxis();
       filter = parseNodeTest(axis.getClass() == AttributeAxis.class);
@@ -990,9 +990,9 @@ public final class XPathParser {
    *
    * @return filter
    */
-  private Filter<XdmNodeReadTrx> parseNodeTest(final boolean mIsAtt) {
+  private Filter<XdmNodeReadOnlyTrx> parseNodeTest(final boolean mIsAtt) {
 
-    Filter<XdmNodeReadTrx> filter;
+    Filter<XdmNodeReadOnlyTrx> filter;
     if (isKindTest()) {
       filter = parseKindTest();
     } else {
@@ -1386,9 +1386,9 @@ public final class XPathParser {
    *
    * @return filter
    */
-  private Filter<XdmNodeReadTrx> parseKindTest() {
+  private Filter<XdmNodeReadOnlyTrx> parseKindTest() {
 
-    Filter<XdmNodeReadTrx> filter;
+    Filter<XdmNodeReadOnlyTrx> filter;
     final String test = mToken.getContent();
 
     if ("document-node".equals(test)) {
@@ -1456,13 +1456,13 @@ public final class XPathParser {
    *
    * @return filter
    */
-  private Filter<XdmNodeReadTrx> parseDocumentTest() {
+  private Filter<XdmNodeReadOnlyTrx> parseDocumentTest() {
 
     consume("document-node", true);
     consume(TokenType.OPEN_BR, true);
-    Filter<XdmNodeReadTrx> filter = new DocumentRootNodeFilter(getTransaction());
+    Filter<XdmNodeReadOnlyTrx> filter = new DocumentRootNodeFilter(getTransaction());
 
-    Filter<XdmNodeReadTrx> innerFilter;
+    Filter<XdmNodeReadOnlyTrx> innerFilter;
     if (mToken.getContent().equals("element")) {
       innerFilter = parseElementTest();
       filter = new NestedFilter(getTransaction(), List.of(filter, innerFilter));
@@ -1650,7 +1650,7 @@ public final class XPathParser {
    *
    * @return filter
    */
-  private Filter<XdmNodeReadTrx> parseElementTest() {
+  private Filter<XdmNodeReadOnlyTrx> parseElementTest() {
 
     consume("element", true);
     consume(TokenType.OPEN_BR, true);
@@ -2115,7 +2115,7 @@ public final class XPathParser {
    *
    * @return the current transaction
    */
-  private XdmNodeReadTrx getTransaction() {
+  private XdmNodeReadOnlyTrx getTransaction() {
     return mRTX;
   }
 }

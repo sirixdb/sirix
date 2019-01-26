@@ -30,7 +30,7 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -43,7 +43,7 @@ import org.sirix.settings.Fixed;
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
  * key. The currently located node is optionally included. Furthermore a {@link XdmNodeVisitor} is usable
  * to guide the traversal and do whatever you like with the node kind, which is selected by the
- * given {@link XdmNodeReadTrx} transaction.
+ * given {@link XdmNodeReadOnlyTrx} transaction.
  * </p>
  * <p>
  * Note that it is faster to use the standard {@link DescendantAxis} if no visitor is specified.
@@ -78,7 +78,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     /** Optional visitor. */
     private Optional<? extends XdmNodeVisitor> mVisitor = Optional.empty();
 
-    /** Sirix {@link XdmNodeReadTrx}. */
+    /** Sirix {@link XdmNodeReadOnlyTrx}. */
     private final NodeCursor mRtx;
 
     /** Determines if current node should be included or not. */

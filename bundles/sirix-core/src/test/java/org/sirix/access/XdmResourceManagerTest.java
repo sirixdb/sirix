@@ -35,8 +35,8 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -76,7 +76,7 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testClosed() {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
     rtx.close();
 
     try {
@@ -98,7 +98,7 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testInsertChild() {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       XdmDocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
       assertEquals(Kind.XDM_DOCUMENT, wtx.getKind());
@@ -114,10 +114,10 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testRevision() {
-    XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
     assertEquals(0L, rtx.getRevisionNumber());
 
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       assertEquals(1L, wtx.getRevisionNumber());
 
       // Commit and check.
@@ -132,25 +132,25 @@ public class XdmResourceManagerTest {
       rtx.close();
     }
 
-    try (final XdmNodeReadTrx rtx2 = holder.getResourceManager().beginNodeReadTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx2 = holder.getResourceManager().beginNodeReadTrx()) {
       assertEquals(1L, rtx2.getRevisionNumber());
     }
   }
 
   @Test
   public void testShreddedRevision() {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       XdmDocumentCreator.create(wtx);
       assertEquals(1L, wtx.getRevisionNumber());
       wtx.commit();
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
       assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
 
-      try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
         assertEquals(2L, wtx.getRevisionNumber());
         wtx.moveTo(12L);
         wtx.setValue("bar2");
@@ -161,7 +161,7 @@ public class XdmResourceManagerTest {
       }
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
       assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
@@ -173,7 +173,7 @@ public class XdmResourceManagerTest {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     final XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
 
-    final XdmNodeWriteTrx wtx1 = resource.beginNodeWriteTrx();
+    final XdmNodeTrx wtx1 = resource.beginNodeWriteTrx();
     XdmDocumentCreator.create(wtx1);
     assertEquals(1L, wtx1.getRevisionNumber());
     wtx1.commit();
@@ -181,12 +181,12 @@ public class XdmResourceManagerTest {
     resource.close();
 
     final XdmResourceManager resource2 = database.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeReadTrx rtx1 = resource2.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx1 = resource2.beginNodeReadTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
     assertEquals("bar", rtx1.getValue());
 
-    final XdmNodeWriteTrx wtx2 = resource2.beginNodeWriteTrx();
+    final XdmNodeTrx wtx2 = resource2.beginNodeWriteTrx();
     assertEquals(2L, wtx2.getRevisionNumber());
     wtx2.moveTo(12L);
     wtx2.setValue("bar2");
@@ -200,7 +200,7 @@ public class XdmResourceManagerTest {
 
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     final XdmResourceManager resource3 = database2.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeReadTrx rtx2 = resource3.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx2 = resource3.beginNodeReadTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
     assertEquals("bar2", rtx2.getValue());
@@ -211,7 +211,7 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testIdempotentClose() {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
@@ -227,7 +227,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testAutoCommitWithNodeThreshold() {
     // After each bunch of 5 nodes commit.
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(5)) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx(5)) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
       assertEquals(4, wtx.getRevisionNumber());
@@ -237,7 +237,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
     // After 500 milliseconds commit.
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 500)) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 500)) {
       TimeUnit.MILLISECONDS.sleep(1500);
       assertTrue(wtx.getRevisionNumber() >= 3);
     }
@@ -249,7 +249,7 @@ public class XdmResourceManagerTest {
     final Instant afterAllCommits;
     final Instant afterFirstCommit;
     final Instant afterSecondCommit;
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 1000)) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx(TimeUnit.MILLISECONDS, 1000)) {
       TimeUnit.MILLISECONDS.sleep(1100);
       afterFirstCommit = Instant.now();
       TimeUnit.MILLISECONDS.sleep(1100);
@@ -259,19 +259,19 @@ public class XdmResourceManagerTest {
       afterAllCommits = Instant.now();
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(start)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(start)) {
       assertEquals(0, rtx.getRevisionNumber());
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterFirstCommit)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterFirstCommit)) {
       assertEquals(1, rtx.getRevisionNumber());
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterSecondCommit)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterSecondCommit)) {
       assertEquals(2, rtx.getRevisionNumber());
     }
 
-    try (final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterAllCommits)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(afterAllCommits)) {
       assertEquals(holder.getResourceManager().getMostRecentRevisionNumber(), rtx.getRevisionNumber());
     }
   }

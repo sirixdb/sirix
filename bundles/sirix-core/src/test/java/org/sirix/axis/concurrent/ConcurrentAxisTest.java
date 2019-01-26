@@ -31,7 +31,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -144,12 +144,12 @@ public final class ConcurrentAxisTest {
   public void testConcurrent() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx thirdRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx thirdRtx = holder.getResourceManager().beginNodeReadTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
@@ -177,7 +177,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis1() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
@@ -205,7 +205,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis2() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
     final Axis axis = new NestedAxis(new NestedAxis(
         new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
             new NameFilter(firstConcurrRtx, "regions")),

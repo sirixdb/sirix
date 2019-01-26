@@ -155,7 +155,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
+    return mPageReadTrx.getActualRevisionRootPage().getMaxNodeKey();
   }
 
   /**

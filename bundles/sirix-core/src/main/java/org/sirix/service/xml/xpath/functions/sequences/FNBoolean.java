@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.functions.AbstractFunction;
@@ -54,7 +54,7 @@ public class FNBoolean extends AbstractFunction {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if function check fails
    */
-  public FNBoolean(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+  public FNBoolean(final XdmNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
       final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
@@ -73,7 +73,7 @@ public class FNBoolean extends AbstractFunction {
     if (axis.hasNext()) {
       mKey = axis.next();
 
-      final XdmNodeReadTrx rtx = axis.asXdmNodeReadTrx();
+      final XdmNodeReadOnlyTrx rtx = axis.asXdmNodeReadTrx();
 
       if (rtx.getNodeKey() >= 0) { // first item is a real node
                                    // ->

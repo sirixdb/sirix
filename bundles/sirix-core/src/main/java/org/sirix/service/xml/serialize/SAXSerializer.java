@@ -33,7 +33,7 @@ import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
@@ -84,7 +84,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitNode(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case XDM_DOCUMENT:
         break;
@@ -107,7 +107,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndTag(final XdmNodeReadTrx rtx) {
+  protected void emitEndTag(final XdmNodeReadOnlyTrx rtx) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -119,7 +119,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -136,7 +136,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -153,9 +153,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generates a comment event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateComment(final XdmNodeReadTrx rtx) {
+  private void generateComment(final XdmNodeReadOnlyTrx rtx) {
     try {
       final char[] content = rtx.getValue().toCharArray();
       mContHandler.characters(content, 0, content.length);
@@ -167,9 +167,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a processing instruction event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generatePI(final XdmNodeReadTrx rtx) {
+  private void generatePI(final XdmNodeReadOnlyTrx rtx) {
     try {
       mContHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
     } catch (final SAXException e) {
@@ -180,9 +180,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a start element event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateElement(final XdmNodeReadTrx rtx) {
+  private void generateElement(final XdmNodeReadOnlyTrx rtx) {
     final AttributesImpl atts = new AttributesImpl();
     final long key = rtx.getNodeKey();
 
@@ -226,9 +226,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a text event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateText(final XdmNodeReadTrx rtx) {
+  private void generateText(final XdmNodeReadOnlyTrx rtx) {
     try {
       mContHandler.characters(XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
     } catch (final SAXException e) {

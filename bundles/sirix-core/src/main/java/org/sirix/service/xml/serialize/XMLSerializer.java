@@ -47,7 +47,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
@@ -135,10 +135,10 @@ public final class XMLSerializer extends AbstractSerializer {
   /**
    * Emit node (start element or characters).
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
   @Override
-  protected void emitNode(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadOnlyTrx rtx) {
     try {
       switch (rtx.getKind()) {
         case XDM_DOCUMENT:
@@ -237,10 +237,10 @@ public final class XMLSerializer extends AbstractSerializer {
   /**
    * Emit end element.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
   @Override
-  protected void emitEndTag(final XdmNodeReadTrx rtx) {
+  protected void emitEndTag(final XdmNodeReadOnlyTrx rtx) {
     try {
       indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
@@ -255,7 +255,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   // Write a QName.
-  private void writeQName(final XdmNodeReadTrx rtx) throws IOException {
+  private void writeQName(final XdmNodeReadOnlyTrx rtx) throws IOException {
     if (rtx.getPrefixKey() != -1) {
       mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
       mOut.write(CharsForSerializing.COLON.getBytes());
@@ -321,7 +321,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()
@@ -374,7 +374,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()

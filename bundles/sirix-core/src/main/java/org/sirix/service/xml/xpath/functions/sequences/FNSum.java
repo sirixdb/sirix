@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.utils.TypedValue;
@@ -53,7 +53,7 @@ public class FNSum extends AbstractFunction {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if function check fails
    */
-  public FNSum(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+  public FNSum(final XdmNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
       final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);

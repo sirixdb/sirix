@@ -28,7 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
@@ -87,7 +87,7 @@ public class ConcurrentAxis extends AbstractAxis {
    * @param rtx exclusive (immutable) trx to iterate with
    * @param childAxis producer axis
    */
-  public ConcurrentAxis(final XdmNodeReadTrx rtx, final Axis childAxis) {
+  public ConcurrentAxis(final XdmNodeReadOnlyTrx rtx, final Axis childAxis) {
     super(rtx);
     if (rtx.equals(childAxis.asXdmNodeReadTrx()) && rtx.getId() == childAxis.asXdmNodeReadTrx().getId()) {
       throw new IllegalArgumentException(

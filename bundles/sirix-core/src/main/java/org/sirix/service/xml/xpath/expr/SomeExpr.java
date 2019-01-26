@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.List;
 import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
 
@@ -55,7 +55,7 @@ public class SomeExpr extends AbstractExpression {
    * @param pSatisfy condition that must be satisfied by at least one item of the variable results
    *        in order to evaluate expression to true
    */
-  public SomeExpr(final XdmNodeReadTrx pRtx, @Nonnull final List<Axis> pVars,
+  public SomeExpr(final XdmNodeReadOnlyTrx pRtx, @Nonnull final List<Axis> pVars,
       @Nonnull final Axis pSatisfy) {
     super(pRtx);
     mVars = checkNotNull(pVars);

@@ -25,7 +25,7 @@ import java.util.Map;
 import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.immutable.xdm.ImmutableComment;
@@ -42,8 +42,8 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  */
 public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
-  /** {@link XdmNodeReadTrx} reference. */
-  private final XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadOnlyTrx} reference. */
+  private final XdmNodeReadOnlyTrx mRtx;
 
   /** Determines if nodes are in order. */
   private final Map<Long, Boolean> mInOrder;
@@ -60,7 +60,7 @@ public final class FMSEVisitor extends AbstractXdmNodeVisitor {
    * @throws SirixException if setting up sirix fails
    * @throws NullPointerException if one of the arguments is {@code null}
    */
-  public FMSEVisitor(final XdmNodeReadTrx readTransaction, final Map<Long, Boolean> inOrder,
+  public FMSEVisitor(final XdmNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
       final Map<Long, Long> descendants) throws SirixException {
     mRtx = checkNotNull(readTransaction);
     mInOrder = checkNotNull(inOrder);

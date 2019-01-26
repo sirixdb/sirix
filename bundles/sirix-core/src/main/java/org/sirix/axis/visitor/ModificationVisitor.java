@@ -7,7 +7,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -33,8 +33,8 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
   /** Determines the modify rate. */
   private static final int MODIFY_EVERY = 1111;
 
-  /** Sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** Sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Random number generator. */
   private final Random mRandom = new Random();
@@ -48,10 +48,10 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
   /**
    * Constructor.
    *
-   * @param wtx sirix {@link XdmNodeWriteTrx}
+   * @param wtx sirix {@link XdmNodeTrx}
    * @param startKey start key
    */
-  public ModificationVisitor(final XdmNodeWriteTrx wtx, final long startKey) {
+  public ModificationVisitor(final XdmNodeTrx wtx, final long startKey) {
     mWtx = checkNotNull(wtx);
     checkArgument(startKey >= 0, "start key must be >= 0!");
     mStartKey = startKey;

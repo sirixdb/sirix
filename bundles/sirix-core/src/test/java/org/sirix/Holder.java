@@ -29,8 +29,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 
@@ -50,11 +50,11 @@ public class Holder {
   /** {@link XdmResourceManager} implementation. */
   private XdmResourceManager mResMgr;
 
-  /** {@link XdmNodeReadTrx} implementation. */
-  private XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadOnlyTrx} implementation. */
+  private XdmNodeReadOnlyTrx mRtx;
 
-  /** {@link XdmNodeWriteTrx} implementation. */
-  private XdmNodeWriteTrx mWtx;
+  /** {@link XdmNodeTrx} implementation. */
+  private XdmNodeTrx mWtx;
 
   private Transaction mTrx;
 
@@ -125,20 +125,20 @@ public class Holder {
    */
   public static Holder generateWtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeWriteTrx writer = holder.mResMgr.beginNodeWriteTrx();
+    final XdmNodeTrx writer = holder.mResMgr.beginNodeWriteTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
 
   /**
-   * Generate a {@link XdmNodeReadTrx}.
+   * Generate a {@link XdmNodeReadOnlyTrx}.
    *
    * @return this holder instance
    * @throws SirixException if an error occurs
    */
   public static Holder generateRtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeReadTrx reader = holder.mResMgr.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadTrx();
     holder.setXdmNodeReadTrx(reader);
     return holder;
   }
@@ -186,11 +186,11 @@ public class Holder {
   }
 
   /**
-   * Get the {@link XdmNodeReadTrx} handle.
+   * Get the {@link XdmNodeReadOnlyTrx} handle.
    *
-   * @return {@link XdmNodeReadTrx} handle
+   * @return {@link XdmNodeReadOnlyTrx} handle
    */
-  public XdmNodeReadTrx getNodeReadTrx() {
+  public XdmNodeReadOnlyTrx getNodeReadTrx() {
     return mRtx;
   }
 
@@ -199,11 +199,11 @@ public class Holder {
   }
 
   /**
-   * Get the {@link XdmNodeWriteTrx} handle.
+   * Get the {@link XdmNodeTrx} handle.
    *
-   * @return {@link XdmNodeWriteTrx} handle
+   * @return {@link XdmNodeTrx} handle
    */
-  public XdmNodeWriteTrx getXdmNodeWriteTrx() {
+  public XdmNodeTrx getXdmNodeWriteTrx() {
     return mWtx;
   }
 
@@ -212,23 +212,23 @@ public class Holder {
    *
    * @param wtx {@link XdmNodeReaderWriter} instance
    */
-  private void setXdmNodeWriteTrx(final XdmNodeWriteTrx wtx) {
+  private void setXdmNodeWriteTrx(final XdmNodeTrx wtx) {
     mWtx = wtx;
   }
 
   /**
-   * Set the working {@link XdmNodeReadTrx}.
+   * Set the working {@link XdmNodeReadOnlyTrx}.
    *
-   * @param rtx {@link XdmNodeReadTrx} instance
+   * @param rtx {@link XdmNodeReadOnlyTrx} instance
    */
-  private void setXdmNodeReadTrx(final XdmNodeReadTrx rtx) {
+  private void setXdmNodeReadTrx(final XdmNodeReadOnlyTrx rtx) {
     mRtx = rtx;
   }
 
   /**
    * Set the working {@link ResourceManager}.
    *
-   * @param pRtx {@link XdmNodeReadTrx} instance
+   * @param pRtx {@link XdmNodeReadOnlyTrx} instance
    */
   private void setResourceManager(final XdmResourceManager resourceManager) {
     mResMgr = resourceManager;

@@ -3,7 +3,7 @@ package org.sirix.api;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -44,7 +44,7 @@ public interface NodeReadTrx extends AutoCloseable {
    *
    * This is an idempotent operation and does nothing if the transaction is already closed.
    *
-   * @throws SirixException if can't close {@link XdmNodeReadTrx}
+   * @throws SirixException if can't close {@link XdmNodeReadOnlyTrx}
    */
   @Override
   void close();
