@@ -10,7 +10,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
@@ -62,7 +62,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * Create index builders.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XdmNodeWriteTrx}
+   * @param nodeWriteTrx the {@link XdmNodeTrx}
    *
    * @return the created index builder instances
    */

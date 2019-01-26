@@ -31,7 +31,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
@@ -51,7 +51,7 @@ public final class XPathWriteTransactionTest {
 
   private XdmResourceManager manager;
 
-  private XdmNodeWriteTrx wtx;
+  private XdmNodeTrx wtx;
 
   private Database<XdmResourceManager> database;
 

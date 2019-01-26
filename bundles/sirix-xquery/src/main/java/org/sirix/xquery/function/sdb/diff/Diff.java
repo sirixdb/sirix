@@ -49,7 +49,7 @@ import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -153,8 +153,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       mBuf.append("return (");
       mBuf.append(System.getProperty("line.separator"));
 
-      try (final XdmNodeReadTrx oldRtx = resMrg.beginNodeReadTrx(rev1);
-          final XdmNodeReadTrx newRtx = resMrg.beginNodeReadTrx(rev2)) {
+      try (final XdmNodeReadOnlyTrx oldRtx = resMrg.beginNodeReadTrx(rev1);
+          final XdmNodeReadOnlyTrx newRtx = resMrg.beginNodeReadTrx(rev2)) {
         // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a
         // collection).
         for (int i = 0, length = mDiffs.size(); i < length; i++) {
@@ -241,7 +241,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     return new Str(mBuf.toString());
   }
 
-  private void buildUpdateStatement(final XdmNodeReadTrx rtx) {
+  private void buildUpdateStatement(final XdmNodeReadOnlyTrx rtx) {
     if (rtx.hasLeftSibling()) {
       mBuf.append(" before into sdb:select-node($doc");
     } else {
@@ -255,14 +255,14 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   private Optional<DiffTuple> determineIfAnotherTupleToEmitExists(int i, final Set<Long> nodeKeysOfInserts,
-      final XdmNodeReadTrx newRtx) {
+      final XdmNodeReadOnlyTrx newRtx) {
     final Predicate<DiffTuple> filter = diffTuplePredicate(nodeKeysOfInserts, newRtx);
 
     final Optional<DiffTuple> anotherTupleToEmit = mDiffs.subList(i, mDiffs.size()).stream().filter(filter).findFirst();
     return anotherTupleToEmit;
   }
 
-  private Predicate<DiffTuple> diffTuplePredicate(final Set<Long> nodeKeysOfInserts, final XdmNodeReadTrx newRtx) {
+  private Predicate<DiffTuple> diffTuplePredicate(final Set<Long> nodeKeysOfInserts, final XdmNodeReadOnlyTrx newRtx) {
     final Predicate<DiffTuple> filter = tuple -> {
       if ((tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
           && newRtx.moveTo(tuple.getNewNodeKey()).hasMoved() && newRtx.getKind() == Kind.ATTRIBUTE
@@ -298,7 +298,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mLatch.countDown();
   }
 
-  private static String printSubtreeNode(final XdmNodeReadTrx rtx) {
+  private static String printSubtreeNode(final XdmNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case ELEMENT:
         final OutputStream out = new ByteArrayOutputStream();
@@ -314,7 +314,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     }
   }
 
-  private static String printNode(final XdmNodeReadTrx rtx) {
+  private static String printNode(final XdmNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case ELEMENT:
         return "<" + rtx.getName() + "/>";

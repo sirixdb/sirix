@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SequenceType;
 import org.sirix.utils.TypedValue;
@@ -50,7 +50,7 @@ public class InstanceOfExpr extends AbstractExpression {
    * @param mInputExpr input expression, to test
    * @param mSequenceType sequence type to test whether the input sequence matches to.
    */
-  public InstanceOfExpr(final XdmNodeReadTrx mRtx, final Axis mInputExpr,
+  public InstanceOfExpr(final XdmNodeReadOnlyTrx mRtx, final Axis mInputExpr,
       final SequenceType mSequenceType) {
 
     super(mRtx);

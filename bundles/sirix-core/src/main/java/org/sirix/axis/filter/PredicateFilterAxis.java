@@ -23,7 +23,7 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
@@ -50,7 +50,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
    * @param rtx exclusive (immutable) trx to iterate with
    * @param predicate predicate expression
    */
-  public PredicateFilterAxis(final XdmNodeReadTrx rtx, final Axis predicate) {
+  public PredicateFilterAxis(final XdmNodeReadOnlyTrx rtx, final Axis predicate) {
     super(rtx);
     mIsFirst = true;
     mPredicate = checkNotNull(predicate);

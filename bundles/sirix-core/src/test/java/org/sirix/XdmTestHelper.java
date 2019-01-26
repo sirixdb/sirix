@@ -40,7 +40,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
@@ -202,7 +202,7 @@ public final class XdmTestHelper {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -217,7 +217,7 @@ public final class XdmTestHelper {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
       XdmDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }

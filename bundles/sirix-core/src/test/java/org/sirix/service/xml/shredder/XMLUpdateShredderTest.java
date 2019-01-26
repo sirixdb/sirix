@@ -40,7 +40,7 @@ import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -224,7 +224,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     // Shredder files.
     for (final Path file : files) {
       if (file.getFileName().toString().endsWith(".xml")) {
-        try (final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx();
+        try (final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
             final XMLShredder shredder =

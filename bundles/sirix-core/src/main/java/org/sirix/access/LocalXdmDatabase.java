@@ -27,7 +27,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
@@ -124,7 +124,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
     try (
         final XdmResourceManager resourceTrxManager =
             getResourceManager(resConfig.getResource().getFileName().toString());
-        final XdmNodeWriteTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

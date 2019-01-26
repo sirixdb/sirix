@@ -40,7 +40,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
@@ -75,7 +75,7 @@ public class StAXSerializerTest {
           new XMLSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
       xmlSerializer.call();
 
-      final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+      final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx();
       StAXSerializer serializer = new StAXSerializer(rtx);
       final StringBuilder strBuilder = new StringBuilder();
       boolean isEmptyElement = false;

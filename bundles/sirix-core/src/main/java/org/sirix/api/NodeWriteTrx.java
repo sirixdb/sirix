@@ -1,7 +1,7 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -36,7 +36,7 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
 
   /**
    * Reverting all changes to the revision defined. This command has to be finalized with a commit. A
-   * revert is always bound to a {@link XdmNodeReadTrx#moveToDocumentRoot()}.
+   * revert is always bound to a {@link XdmNodeReadOnlyTrx#moveToDocumentRoot()}.
    *
    * @param revision revert to the revision
    */

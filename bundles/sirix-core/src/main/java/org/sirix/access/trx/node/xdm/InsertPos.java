@@ -21,8 +21,8 @@
 package org.sirix.access.trx.node.xdm;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
@@ -41,7 +41,7 @@ public enum InsertPos {
   /** Insert as first child. */
   ASFIRSTCHILD {
     @Override
-    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx) {
+    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeTrx wtx) {
       assert fromNode != null;
       assert toNode != null;
       assert wtx != null;
@@ -111,7 +111,7 @@ public enum InsertPos {
     }
 
     @Override
-    void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) {
+    void insertNode(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
       assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.XDM_DOCUMENT;
@@ -133,7 +133,7 @@ public enum InsertPos {
   /** Insert as right sibling. */
   ASRIGHTSIBLING {
     @Override
-    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx) {
+    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeTrx wtx) {
       assert fromNode != null;
       assert toNode != null;
       assert wtx != null;
@@ -237,7 +237,7 @@ public enum InsertPos {
     }
 
     @Override
-    void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) {
+    void insertNode(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
       assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
@@ -257,13 +257,13 @@ public enum InsertPos {
   /** Insert as a non structural node. */
   ASNONSTRUCTURAL {
     @Override
-    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx) {
+    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeTrx wtx) {
       // Not allowed.
       throw new AssertionError("May never be invoked!");
     }
 
     @Override
-    void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) {
+    void insertNode(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
       assert wtx.getKind() == Kind.ELEMENT;
@@ -286,12 +286,12 @@ public enum InsertPos {
 
   ASLEFTSIBLING {
     @Override
-    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx) {
+    void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeTrx wtx) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) {
+    void insertNode(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
       assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
@@ -314,18 +314,18 @@ public enum InsertPos {
    *
    * @param fromNode root of subtree to move
    * @param toNode determines where the subtree has to be inserted
-   * @param wtx write-transaction which implements the {@link XdmNodeWriteTrx} interface
+   * @param wtx write-transaction which implements the {@link XdmNodeTrx} interface
    * @throws SirixException if an I/O error occurs
    */
-  abstract void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeWriteTrx wtx)
+  abstract void processMove(final StructNode fromNode, final StructNode toNode, final XdmNodeTrx wtx)
       throws SirixException;
 
   /**
    * Insert a node (copy operation).
    *
-   * @param rtx read-transaction which implements the {@link XdmNodeReadTrx} interface
-   * @param wtx write-transaction which implements the {@link XdmNodeWriteTrx} interface
+   * @param rtx read-transaction which implements the {@link XdmNodeReadOnlyTrx} interface
+   * @param wtx write-transaction which implements the {@link XdmNodeTrx} interface
    * @throws SirixException if insertion of node fails
    */
-  abstract void insertNode(final XdmNodeWriteTrx wtx, final XdmNodeReadTrx rtx) throws SirixException;
+  abstract void insertNode(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) throws SirixException;
 }

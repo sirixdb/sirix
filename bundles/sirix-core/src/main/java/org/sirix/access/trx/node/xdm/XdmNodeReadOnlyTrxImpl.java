@@ -37,8 +37,8 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -80,10 +80,10 @@ import com.google.common.base.Objects;
  * revision.
  * </p>
  */
-public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx> implements InternalXdmNodeReadTrx {
+public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeReadOnlyTrx> implements InternalXdmNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
-  protected final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> mResourceManager;
+  protected final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> mResourceManager;
 
   /** Tracks whether the transaction is closed. */
   private boolean mClosed;
@@ -102,7 +102,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
    * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XdmNodeReadTrxImpl(final InternalResourceManager<XdmNodeReadTrx, XdmNodeWriteTrx> resourceManager,
+  XdmNodeReadOnlyTrxImpl(final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> resourceManager,
       final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final ImmutableXdmNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
@@ -119,7 +119,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<XdmNodeReadTrx> moveTo(final long nodeKey) {
+  public Move<XdmNodeReadOnlyTrx> moveTo(final long nodeKey) {
     assertNotClosed();
 
     // Remember old node and fetch new one.
@@ -186,7 +186,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToLeftSibling() {
+  public Move<? extends XdmNodeReadOnlyTrx> moveToLeftSibling() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (!node.hasLeftSibling()) {
@@ -196,12 +196,12 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToAttribute(final int index) {
+  public Move<? extends XdmNodeReadOnlyTrx> moveToAttribute(final int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getAttributeCount() > index) {
-        final Move<? extends XdmNodeReadTrx> moved = moveTo(element.getAttributeKey(index));
+        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(element.getAttributeKey(index));
         return moved;
       } else {
         return Move.notMoved();
@@ -212,12 +212,12 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToNamespace(final int index) {
+  public Move<? extends XdmNodeReadOnlyTrx> moveToNamespace(final int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getNamespaceCount() > index) {
-        final Move<? extends XdmNodeReadTrx> moved = moveTo(element.getNamespaceKey(index));
+        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(element.getNamespaceKey(index));
         return moved;
       } else {
         return Move.notMoved();
@@ -286,13 +286,13 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToAttributeByName(final QNm name) {
+  public Move<? extends XdmNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       final Optional<Long> attrKey = element.getAttributeKeyByName(name);
       if (attrKey.isPresent()) {
-        final Move<? extends XdmNodeReadTrx> moved = moveTo(attrKey.get());
+        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(attrKey.get());
         return moved;
       }
     }
@@ -301,8 +301,8 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XdmNodeReadTrxImpl) {
-      final XdmNodeReadTrxImpl rtx = (XdmNodeReadTrxImpl) obj;
+    if (obj instanceof XdmNodeReadOnlyTrxImpl) {
+      final XdmNodeReadOnlyTrxImpl rtx = (XdmNodeReadOnlyTrxImpl) obj;
       return mCurrentNode.getNodeKey() == rtx.mCurrentNode.getNodeKey()
           && mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx.getRevisionNumber();
     }
@@ -321,7 +321,7 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  protected XdmNodeReadTrx thisInstance() {
+  protected XdmNodeReadOnlyTrx thisInstance() {
     return this;
   }
 
@@ -507,12 +507,12 @@ public final class XdmNodeReadTrxImpl extends AbstractNodeReadTrx<XdmNodeReadTrx
   }
 
   @Override
-  public Move<? extends XdmNodeReadTrx> moveToPrevious() {
+  public Move<? extends XdmNodeReadOnlyTrx> moveToPrevious() {
     assertNotClosed();
     final StructNode node = getStructuralNode();
     if (node.hasLeftSibling()) {
       // Left sibling node.
-      Move<? extends XdmNodeReadTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
+      Move<? extends XdmNodeReadOnlyTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
       while (leftSiblMove.get().hasFirstChild()) {
         leftSiblMove = leftSiblMove.get().moveToLastChild();

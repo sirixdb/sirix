@@ -22,7 +22,7 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -32,7 +32,7 @@ import org.sirix.node.Kind;
  * the local name.
  * </p>
  */
-public final class WildcardFilter extends AbstractFilter<XdmNodeReadTrx> {
+public final class WildcardFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
 
   /** Type. */
   public enum EType {
@@ -58,7 +58,7 @@ public final class WildcardFilter extends AbstractFilter<XdmNodeReadTrx> {
    * @param pIsName defines, if the specified part is the prefix, or the local name (true, if it is
    *        the local name)
    */
-  public WildcardFilter(final XdmNodeReadTrx rtx, final String knownPart, final EType type) {
+  public WildcardFilter(final XdmNodeReadOnlyTrx rtx, final String knownPart, final EType type) {
     super(rtx);
     mType = checkNotNull(type);
     mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));

@@ -29,7 +29,7 @@ import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
@@ -156,10 +156,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds.
    *
-   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @param wtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything weird happens
    */
-  public static void createCommentPI(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void createCommentPI(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
@@ -199,10 +199,10 @@ public final class XdmDocumentCreator {
    * Create simple test document containing all supported node kinds except comment- and processing
    * instructions.
    *
-   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @param wtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything weird happens
    */
-  public static void create(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void create(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
@@ -238,10 +238,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple revision test in current database.
    *
-   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @param wtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersioned(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void createVersioned(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -257,10 +257,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple revision test in current database.
    *
-   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @param wtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -285,10 +285,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds except the attributes.
    *
-   * @param paramWtx {@link XdmNodeWriteTrx} to write to
+   * @param paramWtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createWithoutAttributes(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void createWithoutAttributes(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     wtx.moveToDocumentRoot();
     wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
@@ -310,10 +310,10 @@ public final class XdmDocumentCreator {
    * Create simple test document containing all supported node kinds, but ignoring their namespace
    * prefixes.
    *
-   * @param wtx {@link XdmNodeWriteTrx} to write to
+   * @param wtx {@link XdmNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createWithoutNamespace(final XdmNodeWriteTrx wtx) throws SirixException {
+  public static void createWithoutNamespace(final XdmNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     wtx.moveToDocumentRoot();
     wtx.insertElementAsFirstChild(new QNm("a"));
@@ -346,13 +346,13 @@ public final class XdmDocumentCreator {
       throws SirixException, IOException, XMLStreamException {
 
     try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
-      try (final XdmNodeWriteTrx firstWtx = resMgr.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx firstWtx = resMgr.beginNodeWriteTrx()) {
         final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
             Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }
 
-      try (final XdmNodeWriteTrx secondWtx = resMgr.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx secondWtx = resMgr.beginNodeWriteTrx()) {
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();

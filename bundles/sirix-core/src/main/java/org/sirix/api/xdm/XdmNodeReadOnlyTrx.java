@@ -124,7 +124,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *
  * </p>
  */
-public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
+public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
   /**
    * Get the page reading transaction.
    *
@@ -171,7 +171,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadTrx> moveToAttribute(@Nonnegative int index);
+  Move<? extends XdmNodeReadOnlyTrx> moveToAttribute(@Nonnegative int index);
 
   /**
    * Move cursor to attribute by its name key.
@@ -180,7 +180,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadTrx> moveToAttributeByName(QNm name);
+  Move<? extends XdmNodeReadOnlyTrx> moveToAttributeByName(QNm name);
 
   /**
    * Move cursor to namespace declaration by its index.
@@ -189,7 +189,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
    * @return {@link Moved} instance if the namespace node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadTrx> moveToNamespace(@Nonnegative int index);
+  Move<? extends XdmNodeReadOnlyTrx> moveToNamespace(@Nonnegative int index);
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -240,7 +240,7 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   boolean isClosed();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToNextFollowing();
+  Move<? extends XdmNodeReadOnlyTrx> moveToNextFollowing();
 
   /**
    * Get the left {@link SirixDeweyID} of the currently selected node.
@@ -465,31 +465,31 @@ public interface XdmNodeReadTrx extends NodeCursor, NodeReadTrx {
   String getNamespaceURI();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveTo(long nodeKey);
+  Move<? extends XdmNodeReadOnlyTrx> moveTo(long nodeKey);
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToDocumentRoot();
+  Move<? extends XdmNodeReadOnlyTrx> moveToDocumentRoot();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToFirstChild();
+  Move<? extends XdmNodeReadOnlyTrx> moveToFirstChild();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToLastChild();
+  Move<? extends XdmNodeReadOnlyTrx> moveToLastChild();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToLeftSibling();
+  Move<? extends XdmNodeReadOnlyTrx> moveToLeftSibling();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToParent();
+  Move<? extends XdmNodeReadOnlyTrx> moveToParent();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToRightSibling();
+  Move<? extends XdmNodeReadOnlyTrx> moveToRightSibling();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToPrevious();
+  Move<? extends XdmNodeReadOnlyTrx> moveToPrevious();
 
   @Override
-  Move<? extends XdmNodeReadTrx> moveToNext();
+  Move<? extends XdmNodeReadOnlyTrx> moveToNext();
 
   /**
    * Determines if current node is an {@link ElementNode}.

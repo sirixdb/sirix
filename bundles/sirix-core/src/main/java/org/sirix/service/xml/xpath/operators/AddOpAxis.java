@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.operators;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -45,7 +45,7 @@ public class AddOpAxis extends AbstractObAxis {
    * @param mOp1 First value of the operation
    * @param mOp2 Second value of the operation
    */
-  public AddOpAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
+  public AddOpAxis(final XdmNodeReadOnlyTrx rtx, final Axis mOp1, final Axis mOp2) {
 
     super(rtx, mOp1, mOp2);
   }

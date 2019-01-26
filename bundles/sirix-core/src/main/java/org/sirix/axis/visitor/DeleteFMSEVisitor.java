@@ -8,7 +8,7 @@ import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
@@ -37,8 +37,8 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
   /** {@link Matching} reference. */
   private final Matching mMatching;
 
-  /** sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Start key. */
   private final long mStartKey;
@@ -46,11 +46,11 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
   /**
    * Constructor. pStartKey
    * 
-   * @param wtx sirix {@link XdmNodeWriteTrx}
+   * @param wtx sirix {@link XdmNodeTrx}
    * @param matching {@link Matching} reference
    * @param startKey start key
    */
-  public DeleteFMSEVisitor(final XdmNodeWriteTrx wtx, final Matching matching,
+  public DeleteFMSEVisitor(final XdmNodeTrx wtx, final Matching matching,
       @Nonnegative final long startKey) {
     mWtx = checkNotNull(wtx);
     mMatching = checkNotNull(matching);

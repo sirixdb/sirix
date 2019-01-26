@@ -49,7 +49,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
@@ -104,8 +104,8 @@ public class FileSystemWatcher implements AutoCloseable {
   /** Determines the state. */
   private State mState;
 
-  /** Sirix {@link XdmNodeWriteTrx}. */
-  private XdmNodeWriteTrx mWtx;
+  /** Sirix {@link XdmNodeTrx}. */
+  private XdmNodeTrx mWtx;
 
   /** Possible states. */
   public enum State {
@@ -160,7 +160,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws IOException if an I/O error occurs
    * @throws NullPointerException if {@code pIndex} is {@code null}
    */
-  public void watch(final Visitor<XdmNodeWriteTrx> visitor, final Map<Path, FileSystemPath> index) throws IOException {
+  public void watch(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> index) throws IOException {
     final WatchService watcher = FileSystems.getDefault().newWatchService();
     final WatchRecursivelyVisitor fileVisitor = WatchRecursivelyVisitor.getInstance(watcher);
     Files.walkFileTree(mPath, fileVisitor);
@@ -265,7 +265,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param index simple path index
    * @throws IOException if an I/O error occurs
    */
-  private void processEvent(final WatchEvent<?> event, final Visitor<XdmNodeWriteTrx> visitor,
+  private void processEvent(final WatchEvent<?> event, final Visitor<XdmNodeTrx> visitor,
       final Map<Path, FileSystemPath> index, final WatchService watcher, final Path path) throws IOException {
     assert event != null;
     final Kind<?> type = event.kind();
@@ -285,7 +285,7 @@ public class FileSystemWatcher implements AutoCloseable {
   }
 
   /**
-   * Find node corresponding to the path. The {@link XdmNodeWriteTrx} globally used is moved to the
+   * Find node corresponding to the path. The {@link XdmNodeTrx} globally used is moved to the
    * found node.
    *
    * @param query xpath expression
@@ -307,7 +307,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_MODIFY ENTRY_MODIFY} event.
    */
-  private void entryModified(final Visitor<XdmNodeWriteTrx> visitor, final Map<Path, FileSystemPath> pIndex,
+  private void entryModified(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
       final Path pPath) {
     try {
       execute(OperationType.UPDATE, visitor, pIndex, pPath);
@@ -319,7 +319,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_DELETE ENTRY_DELETE} event.
    */
-  private void entryDeletes(final Visitor<XdmNodeWriteTrx> visitor, final Map<Path, FileSystemPath> index,
+  private void entryDeletes(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> index,
       final Path pPath) {
     try {
       execute(OperationType.DELETE, visitor, index, pPath);
@@ -331,7 +331,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_CREATE ENTRY_CREATE} event.
    */
-  private void entryCreated(final Visitor<XdmNodeWriteTrx> visitor, final Map<Path, FileSystemPath> pIndex,
+  private void entryCreated(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
       final Path pPath) {
     try {
       execute(OperationType.INSERT, visitor, pIndex, pPath);
@@ -348,7 +348,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param index simple path index
    * @throws SirixException if operation in sirix fails
    */
-  private void execute(final Operation<XdmNodeWriteTrx> operation, final Visitor<XdmNodeWriteTrx> visitor,
+  private void execute(final Operation<XdmNodeTrx> operation, final Visitor<XdmNodeTrx> visitor,
       final Map<Path, FileSystemPath> index, final Path pathToWatch) throws SirixException {
     assert operation != null;
     assert index != null;

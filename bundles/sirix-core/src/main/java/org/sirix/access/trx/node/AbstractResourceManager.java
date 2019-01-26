@@ -31,7 +31,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -230,7 +230,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   }
 
   /**
-   * A commit file which is used by a {@link XdmNodeWriteTrx} to denote if it's currently commiting or
+   * A commit file which is used by a {@link XdmNodeTrx} to denote if it's currently commiting or
    * not.
    */
   @Override
@@ -298,8 +298,8 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
     if (!mClosed) {
       // Close all open node transactions.
       for (NodeReadTrx rtx : mNodeReaderMap.values()) {
-        if (rtx instanceof XdmNodeWriteTrx) {
-          ((XdmNodeWriteTrx) rtx).rollback();
+        if (rtx instanceof XdmNodeTrx) {
+          ((XdmNodeTrx) rtx).rollback();
         }
         rtx.close();
         rtx = null;

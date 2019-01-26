@@ -40,11 +40,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   /** Resource manager this write transaction is bound to. */
   protected final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> mResourceManager;
 
-  /** State of transaction including all cached stuff. */
-  private PageReadTrx mPageReadTrx;
-
   /** Tracks whether the transaction is closed. */
-  private boolean mClosed;
+  private boolean mIsClosed;
 
   /**
    * Constructor.
@@ -60,8 +57,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
     mTrxId = trxId;
-    mPageReadTrx = checkNotNull(pageReadTransaction);
-    mClosed = false;
+    mIsClosed = false;
   }
 
   @Override
@@ -106,7 +102,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public void assertNotClosed() {
-    if (mClosed) {
+    if (mIsClosed) {
       throw new IllegalStateException("Transaction is already closed.");
     }
   }
@@ -186,7 +182,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public void close() {
-    if (!mClosed) {
+    if (!mIsClosed) {
       // Callback on session to make sure everything is cleaned up.
       mResourceManager.closeReadTransaction(mTrxId);
 
@@ -199,7 +195,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
       mCurrentNode = null;
 
       // Close state.
-      mClosed = true;
+      mIsClosed = true;
     }
   }
 
@@ -222,7 +218,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public boolean isClosed() {
-    return mClosed;
+    return mIsClosed;
   }
 
   @Override

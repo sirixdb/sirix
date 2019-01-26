@@ -17,7 +17,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.access.trx.node.Movement;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -53,7 +53,7 @@ public class AVLTreeTest {
 
   @Test
   public void testAttributeIndex() throws SirixException, PathException {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
 
     final XdmIndexController indexController =
         holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);

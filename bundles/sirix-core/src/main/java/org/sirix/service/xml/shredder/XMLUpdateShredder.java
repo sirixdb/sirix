@@ -46,7 +46,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -175,16 +175,16 @@ public final class XMLUpdateShredder implements Callable<Long> {
    */
   private transient boolean mEmptyElement;
 
-  private final XdmNodeWriteTrx mWtx;
+  private final XdmNodeTrx mWtx;
 
   private final XMLEventReader mReader;
 
   private Insert mInsert;
 
   /**
-   * Normal constructor to invoke a shredding process on a existing {@link XdmNodeWriteTrx}.
+   * Normal constructor to invoke a shredding process on a existing {@link XdmNodeTrx}.
    *
-   * @param paramWtx {@link XdmNodeWriteTrx} where the new XML Fragment should be placed
+   * @param paramWtx {@link XdmNodeTrx} where the new XML Fragment should be placed
    * @param paramReader {@link XMLEventReader} (StAX parser) of the XML Fragment
    * @param paramAddAsFirstChild if the insert is occuring on a node in an existing tree.
    *        <code>false</code> is not possible when wtx is on root node
@@ -197,7 +197,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
    *
    */
   @SuppressWarnings("unchecked")
-  public XMLUpdateShredder(final XdmNodeWriteTrx paramWtx, final XMLEventReader paramReader,
+  public XMLUpdateShredder(final XdmNodeTrx paramWtx, final XMLEventReader paramReader,
       final Insert paramAddAsFirstChild, final Object paramData, final ShredderCommit paramCommit)
       throws SirixIOException {
     mInsert = paramAddAsFirstChild;
@@ -1154,7 +1154,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final var db = Databases.openXdmDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
     try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
-        final XdmNodeWriteTrx wtx = resMgr.beginNodeWriteTrx();
+        final XdmNodeTrx wtx = resMgr.beginNodeWriteTrx();
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XMLShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =

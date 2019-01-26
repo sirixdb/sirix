@@ -8,8 +8,8 @@ import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
@@ -28,7 +28,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Johannes Lichtenberger
  *
  */
-public final class XdmIndexController extends AbstractIndexController<XdmNodeReadTrx, XdmNodeWriteTrx> {
+public final class XdmIndexController extends AbstractIndexController<XdmNodeReadOnlyTrx, XdmNodeTrx> {
 
   /** Type of change. */
   public enum ChangeType {
@@ -47,7 +47,7 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
   }
 
   @Override
-  public XdmIndexController createIndexes(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
+  public XdmIndexController createIndexes(final Set<IndexDef> indexDefs, final XdmNodeTrx nodeWriteTrx) {
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -61,11 +61,11 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
    * Create index builders.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XdmNodeWriteTrx}
+   * @param nodeWriteTrx the {@link XdmNodeTrx}
    *
    * @return the created index builder instances
    */
-  Set<XdmNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeWriteTrx nodeWriteTrx) {
+  Set<XdmNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeTrx nodeWriteTrx) {
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<XdmNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
@@ -88,7 +88,7 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
   }
 
   @Override
-  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadTrx rtx) throws PathException {
+  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadOnlyTrx rtx) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
       paths.add(Path.parse(path));
@@ -100,7 +100,7 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
     return (XdmNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private XdmNodeVisitor createCASIndexBuilder(final XdmNodeReadTrx nodeReadTrx,
+  private XdmNodeVisitor createCASIndexBuilder(final XdmNodeReadOnlyTrx nodeReadTrx,
       final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (XdmNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);

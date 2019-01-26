@@ -8,7 +8,7 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -45,14 +45,14 @@ public final class Commit extends AbstractFunction {
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 
-    if (doc.getTrx() instanceof XdmNodeWriteTrx) {
-      final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
+    if (doc.getTrx() instanceof XdmNodeTrx) {
+      final XdmNodeTrx wtx = (XdmNodeTrx) doc.getTrx();
       final long revision = wtx.getRevisionNumber();
       wtx.commit();
       return new Int64(revision);
     } else {
       final XdmResourceManager manager = doc.getTrx().getResourceManager();
-      final XdmNodeWriteTrx wtx;
+      final XdmNodeTrx wtx;
       if (manager.hasRunningNodeWriteTrx()) {
         wtx = manager.getNodeWriteTrx().get();
       } else {

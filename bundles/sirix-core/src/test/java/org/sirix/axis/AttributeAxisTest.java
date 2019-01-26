@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 
 public class AttributeAxisTest {
@@ -51,7 +51,7 @@ public class AttributeAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {});
@@ -71,7 +71,7 @@ public class AttributeAxisTest {
 
   @Test
   public void testMultipleAttributes() throws SirixException {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
     final long nodeKey = wtx.insertElementAsFirstChild(new QNm("foo")).getNodeKey();
     wtx.insertAttribute(new QNm("foo0"), "0");
     wtx.moveTo(nodeKey);

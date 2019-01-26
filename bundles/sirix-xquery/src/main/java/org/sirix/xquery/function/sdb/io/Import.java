@@ -15,8 +15,8 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.xdm.XdmNodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
@@ -74,12 +74,12 @@ public final class Import extends AbstractFunction {
     final String resToImport = ((Str) args[2]).stringValue();
 
     DBNode doc = null;
-    final XdmNodeReadTrx trx;
+    final XdmNodeReadOnlyTrx trx;
 
     try {
       doc = coll.getDocument(resName);
 
-      try (final XdmNodeWriteTrx wtx = doc.getTrx()
+      try (final XdmNodeTrx wtx = doc.getTrx()
                                           .getResourceManager()
                                           .getNodeWriteTrx()
                                           .orElse(doc.getTrx().getResourceManager().beginNodeWriteTrx())) {
@@ -95,7 +95,7 @@ public final class Import extends AbstractFunction {
 
         try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
             final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
-            final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
+            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);
         }

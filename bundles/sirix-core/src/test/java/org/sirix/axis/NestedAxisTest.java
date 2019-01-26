@@ -27,7 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NodeFilter;
@@ -53,7 +53,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
@@ -73,7 +73,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest2() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
@@ -94,7 +94,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest3() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     // Find desceFndants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();

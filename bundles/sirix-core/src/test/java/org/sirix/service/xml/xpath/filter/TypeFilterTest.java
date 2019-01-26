@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.TypeFilter;
 import org.sirix.exception.SirixException;
@@ -54,7 +54,7 @@ public class TypeFilterTest {
   public void testFilterConvetions() throws Exception {
 
     final AbstractAxis axis = new XPathAxis(holder.getNodeReadTrx(), "a");
-    final XdmNodeReadTrx xtx = ((XdmNodeReadTrx) axis.asXdmNodeReadTrx());
+    final XdmNodeReadOnlyTrx xtx = ((XdmNodeReadOnlyTrx) axis.asXdmNodeReadTrx());
 
     xtx.moveTo(9L);
     FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);

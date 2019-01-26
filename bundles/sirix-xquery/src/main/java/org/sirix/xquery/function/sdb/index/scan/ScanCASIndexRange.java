@@ -22,7 +22,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.cas.CASFilterRange;
@@ -62,7 +62,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
       throws QueryException {
     final DBNode doc = (DBNode) args[0];
-    final XdmNodeReadTrx rtx = doc.getTrx();
+    final XdmNodeReadOnlyTrx rtx = doc.getTrx();
     final XdmIndexController controller =
         rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 

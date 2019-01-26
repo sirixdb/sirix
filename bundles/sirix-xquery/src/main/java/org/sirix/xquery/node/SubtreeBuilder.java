@@ -10,7 +10,7 @@ import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.Insert;
@@ -27,8 +27,8 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   /** {@link SubtreeProcessor} for listeners. */
   private final SubtreeProcessor<AbstractTemporalNode<DBNode>> mSubtreeProcessor;
 
-  /** Sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** Sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Stack for saving the parent nodes. */
   private final Deque<DBNode> mParents;
@@ -54,7 +54,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    * @throws SirixException if constructor couldn't be fully constructed because building a new
    *         reading transaction failed (might indicate that a few
    */
-  public SubtreeBuilder(final DBCollection collection, final XdmNodeWriteTrx wtx,
+  public SubtreeBuilder(final DBCollection collection, final XdmNodeTrx wtx,
       final Insert insertPos,
       final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
       throws SirixException {

@@ -7,7 +7,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.xdm.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
@@ -32,7 +32,7 @@ public final class PastAxisTest {
   @Before
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
-    try (final XdmNodeWriteTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XdmDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
@@ -76,7 +76,7 @@ public final class PastAxisTest {
 
   @Test
   public void testPastAxisWithRemovedNode() throws SirixException {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
       // Revision 4.
       wtx.commit();
 
