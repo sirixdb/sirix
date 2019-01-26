@@ -102,7 +102,7 @@ public final class JsonDocumentCreator {
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectAsRightSibling().insertStringValueAsFirstChild("hello");
+    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello");
 
     wtx.moveToDocumentRoot();
   }
