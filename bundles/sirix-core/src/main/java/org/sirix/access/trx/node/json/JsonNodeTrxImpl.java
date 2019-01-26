@@ -63,7 +63,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
@@ -77,7 +76,6 @@ import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
-import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -251,11 +249,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long parentKey = mNodeReadOnlyTrx.getCurrentNode().getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long rightSibKey = ((StructNode) mNodeReadOnlyTrx.getCurrentNode()).getFirstChildKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
+      final long parentKey = structNode.getNodeKey();
+      final long rightSibKey = structNode.getFirstChildKey();
+
+      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, rightSibKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -274,14 +273,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long parentKey = getCurrentNode().getParentKey();
-      final long leftSibKey = getCurrentNode().getNodeKey();
-      final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
+      final long parentKey = structNode.getParentKey();
+      final long rightSibKey = structNode.getRightSiblingKey();
 
-      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
+      final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -303,15 +300,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long parentKey = mNodeReadOnlyTrx.getCurrentNode().getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long rightSibKey = ((StructNode) mNodeReadOnlyTrx.getCurrentNode()).getFirstChildKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final long pathNodeKey = mBuildPathSummary
-          ? mPathSummaryWriter.getPathNodeKey(new QNm(name), Kind.JSON_OBJECT_KEY)
-          : 0;
-      final ObjectKeyNode node =
-          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
+      final long parentKey = structNode.getNodeKey();
+      final long rightSibKey = structNode.getFirstChildKey();
+
+      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name);
+
+      final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, rightSibKey, pathNodeKey, name);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -319,6 +315,24 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     } finally {
       unLock();
     }
+  }
+
+  private long getPathNodeKey(final long nodeKey, final String name) {
+    moveToAncestorObjectKeyOrDocumentRoot();
+
+    final long pathNodeKey = mBuildPathSummary
+        ? mPathSummaryWriter.getPathNodeKey(new QNm(name), Kind.JSON_OBJECT_KEY)
+        : 0;
+
+    mNodeReadOnlyTrx.moveTo(nodeKey);
+
+    return pathNodeKey;
+  }
+
+  private void moveToAncestorObjectKeyOrDocumentRoot() {
+    do {
+      mNodeReadOnlyTrx.moveToParent();
+    } while (mNodeReadOnlyTrx.getKind() != Kind.JSON_OBJECT_KEY && mNodeReadOnlyTrx.getKind() != Kind.JSON_DOCUMENT);
   }
 
   @Override
@@ -333,19 +347,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long key = getCurrentNode().getNodeKey();
-      moveToParent();
-      final long pathNodeKey = mBuildPathSummary
-          ? mPathSummaryWriter.getPathNodeKey(new QNm(name), Kind.JSON_OBJECT_KEY)
-          : 0;
-      moveTo(key);
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final long parentKey = getCurrentNode().getParentKey();
-      final long leftSibKey = getCurrentNode().getNodeKey();
-      final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+      final long parentKey = structNode.getParentKey();
+      final long rightSibKey = structNode.getRightSiblingKey();
 
-      final ObjectKeyNode node =
-          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
+      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name);
+
+      final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, rightSibKey, pathNodeKey, name);
 
       mNodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASRIGHTSIBLING, PageKind.RECORDPAGE);
@@ -369,13 +378,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final ImmutableStructNode currNode = (ImmutableStructNode) getCurrentNode();
+      final StructNode currNode = mNodeReadOnlyTrx.getStructuralNode();
 
       final long parentKey = currNode.getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currNode.getFirstChildKey();
 
-      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -400,13 +408,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final StructNode currentNode = (StructNode) getCurrentNode();
 
       final long parentKey = currentNode.getParentKey();
-      final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
-
-      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey);
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -423,20 +427,20 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY)
-        throw new SirixUsageException("Insert is not allowed if current node is not an object key!");
+      if (kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+        throw new SirixUsageException("Insert is not allowed if current node is not an object key or an arry node!");
 
       checkAccessAndCommit();
 
-      final long pathNodeKey = getCurrentNode().getNodeKey();
-      final long parentKey = getCurrentNode().getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
+
+      final long pathNodeKey = structNode.getNodeKey();
+      final long parentKey = structNode.getNodeKey();
+      final long rightSibKey = structNode.getFirstChildKey();
 
       // Insert new text node if no adjacent text nodes are found.
       final byte[] textValue = getBytes(value);
-      final StringNode node =
-          mNodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, mCompression);
+      final StringNode node = mNodeFactory.createJsonStringNode(parentKey, rightSibKey, textValue, mCompression);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -470,15 +474,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long parentKey = currentNode.getParentKey();
-      final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
       final byte[] textValue = getBytes(value);
 
-      final StringNode node =
-          mNodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey, textValue, mCompression);
+      final StringNode node = mNodeFactory.createJsonStringNode(parentKey, rightSibKey, textValue, mCompression);
 
       insertAsRightSibling(node);
 
@@ -503,11 +503,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long pathNodeKey = currentNode.getNodeKey();
       final long parentKey = currentNode.getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
 
       // Insert new text node if no adjacent text nodes are found.
-      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
+      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, rightSibKey, value);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -534,13 +533,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long parentKey = currentNode.getParentKey();
-      final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
-
-      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, value);
+      final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, rightSibKey, value);
 
       insertAsRightSibling(node);
 
@@ -558,9 +553,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     adaptHashesWithAdd();
 
     // Get the path node key.
-    final long pathNodeKey = moveToParent().get().isObjectKey()
+    moveToAncestorObjectKeyOrDocumentRoot();
+    final long pathNodeKey = isObjectKey()
         ? ((ObjectKeyNode) getNode()).getPathNodeKey()
         : -1;
+    moveTo(node.getNodeKey());
+
     mNodeReadOnlyTrx.setCurrentNode(node);
 
     // Index text value.
@@ -582,11 +580,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long pathNodeKey = currentNode.getNodeKey();
       final long parentKey = currentNode.getNodeKey();
-      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
 
       // Insert new text node if no adjacent text nodes are found.
-      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
+      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, rightSibKey, value);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -611,14 +608,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long parentKey = getCurrentNode().getParentKey();
-      final long leftSibKey = getCurrentNode().getNodeKey();
-      final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
+      final long parentKey = structNode.getParentKey();
+      final long rightSibKey = structNode.getRightSiblingKey();
 
-      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, value);
+      final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, rightSibKey, value);
 
       insertAsRightSibling(node);
 
@@ -639,14 +634,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final long parentKey = getCurrentNode().getParentKey();
-      final long leftSibKey = getCurrentNode().getNodeKey();
-      final long rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
+      final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      // Insert new text node if no adjacent text nodes are found.
-      moveTo(leftSibKey);
+      final long parentKey = structNode.getParentKey();
+      final long rightSibKey = structNode.getRightSiblingKey();
 
-      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
+      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -668,12 +661,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
+
       final long parentKey = currentNode.getParentKey();
-      final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey);
+      final NullNode node = mNodeFactory.createJsonNullNode(parentKey, rightSibKey);
 
       insertAsRightSibling(node);
 
@@ -1217,11 +1210,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
             (StructNode) mPageWriteTrx.prepareEntryForModification(strucNode.getRightSiblingKey(), pageKind, -1);
         rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
       }
-      if (strucNode.hasLeftSibling()) {
-        final StructNode leftSiblingNode =
-            (StructNode) mPageWriteTrx.prepareEntryForModification(strucNode.getLeftSiblingKey(), pageKind, -1);
-        leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
-      }
+      // if (strucNode.hasLeftSibling()) {
+      // final StructNode leftSiblingNode =
+      // (StructNode) mPageWriteTrx.prepareEntryForModification(strucNode.getLeftSiblingKey(), pageKind,
+      // -1);
+      // leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
+      // }
     }
   }
 

@@ -927,7 +927,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON string value node. */
-  JSON_STRING_VALUE((byte) 26, StringNode.class) {
+  JSON_STRING_VALUE((byte) 30, StringNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) throws IOException {
@@ -1081,7 +1081,7 @@ public enum Kind implements NodePersistenter {
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
-      final ArrayNode node = (ArrayNode) record;
+      final NullNode node = (NullNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
       final long nodeKey = node.getNodeKey();

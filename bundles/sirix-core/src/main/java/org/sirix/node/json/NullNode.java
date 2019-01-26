@@ -63,7 +63,7 @@ public final class NullNode extends AbstractStructForwardingNode implements Immu
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_ARRAY;
+    return Kind.JSON_NULL_VALUE;
   }
 
   @Override
