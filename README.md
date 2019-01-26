@@ -468,9 +468,9 @@ There are also several ways to start the single write-transaction:
    *
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx();
+  XdmNodeTrx beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -479,9 +479,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes);
+  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -492,9 +492,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(TimeUnit timeUnit, int maxTime);
+  XdmNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -506,9 +506,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
+  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 ```
 
 With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
