@@ -126,7 +126,7 @@ public class FileSystemWatcher implements AutoCloseable {
     mPath = checkNotNull(path);
     mDatabase = checkNotNull(database);
     mResource = mDatabase.getResourceManager("shredded");
-    mWtx = mResource.beginNodeWriteTrx();
+    mWtx = mResource.beginNodeTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);
   }

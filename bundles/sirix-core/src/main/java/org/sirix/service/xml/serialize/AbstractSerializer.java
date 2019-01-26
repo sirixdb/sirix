@@ -123,7 +123,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final XdmNodeReadOnlyTrx rtx = mResMgr.beginNodeReadTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
+      try (final XdmNodeReadOnlyTrx rtx = mResMgr.beginReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
           ? i
           : mRevisions[i - 1])) {
         emitRevisionStartTag(rtx);

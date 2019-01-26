@@ -224,7 +224,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     // Shredder files.
     for (final Path file : files) {
       if (file.getFileName().toString().endsWith(".xml")) {
-        try (final XdmNodeTrx wtx = manager.beginNodeWriteTrx();
+        try (final XdmNodeTrx wtx = manager.beginNodeTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
             final XMLShredder shredder =

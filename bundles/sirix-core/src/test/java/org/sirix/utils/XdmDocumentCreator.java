@@ -346,13 +346,13 @@ public final class XdmDocumentCreator {
       throws SirixException, IOException, XMLStreamException {
 
     try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
-      try (final XdmNodeTrx firstWtx = resMgr.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
             Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }
 
-      try (final XdmNodeTrx secondWtx = resMgr.beginNodeWriteTrx()) {
+      try (final XdmNodeTrx secondWtx = resMgr.beginNodeTrx()) {
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();

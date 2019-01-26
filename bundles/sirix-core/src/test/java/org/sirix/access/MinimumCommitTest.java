@@ -72,7 +72,7 @@ public final class MinimumCommitTest {
 
   @Test
   public void testTimestamp() throws SirixException {
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx()) {
       assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
     }
   }
@@ -85,15 +85,15 @@ public final class MinimumCommitTest {
       wtx.commit("baz");
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(1)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx(1)) {
       assertEquals("foo", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(2)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx(2)) {
       assertEquals("bar", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadTrx(3)) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx(3)) {
       assertEquals("baz", rtx.getCommitCredentials().getMessage());
     }
   }

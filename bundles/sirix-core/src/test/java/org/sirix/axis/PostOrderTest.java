@@ -119,7 +119,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentFirst() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtreeAsFirstChild(
           XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
@@ -182,7 +182,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentSecond() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtreeAsFirstChild(
           XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));

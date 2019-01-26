@@ -1507,7 +1507,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     if (resource.hasRunningNodeWriteTrx() && resource.getNodeWriteTrx().isPresent()) {
       wtx = resource.getNodeWriteTrx().get();
     } else {
-      wtx = resource.beginNodeWriteTrx();
+      wtx = resource.beginNodeTrx();
 
       if (mRtx.getRevisionNumber() < resource.getMostRecentRevisionNumber())
         wtx.revertTo(mRtx.getRevisionNumber());

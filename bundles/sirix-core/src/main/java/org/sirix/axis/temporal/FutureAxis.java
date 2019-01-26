@@ -59,7 +59,7 @@ public final class FutureAxis<R extends NodeReadTrx> extends AbstractTemporalAxi
   protected R computeNext() {
     // != a little bit faster?
     if (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      mRtx = (R) mResourceManager.beginNodeReadTrx(mRevision++);
+      mRtx = (R) mResourceManager.beginReadOnlyTrx(mRevision++);
       return mRtx.moveTo(mNodeKey).hasMoved()
           ? mRtx
           : endOfData();

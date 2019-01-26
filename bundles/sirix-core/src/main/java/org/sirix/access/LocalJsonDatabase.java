@@ -124,7 +124,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
     try (
         final JsonResourceManager resourceTrxManager =
             getResourceManager(resConfig.getResource().getFileName().toString());
-        final JsonNodeTrx wtx = resourceTrxManager.beginNodeWriteTrx()) {
+        final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

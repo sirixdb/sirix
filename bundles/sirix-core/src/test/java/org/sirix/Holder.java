@@ -125,7 +125,7 @@ public class Holder {
    */
   public static Holder generateWtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeTrx writer = holder.mResMgr.beginNodeWriteTrx();
+    final XdmNodeTrx writer = holder.mResMgr.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
@@ -138,7 +138,7 @@ public class Holder {
    */
   public static Holder generateRtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx reader = holder.mResMgr.beginReadOnlyTrx();
     holder.setXdmNodeReadTrx(reader);
     return holder;
   }

@@ -236,7 +236,7 @@ public final class FMSETest extends XMLTestCase {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XdmNodeTrx wtx = resource.beginNodeWriteTrx();
+            try (final XdmNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis),
                   Insert.ASFIRSTCHILD).commitAfterwards().build();

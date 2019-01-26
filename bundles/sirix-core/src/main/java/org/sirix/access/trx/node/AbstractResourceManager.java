@@ -173,12 +173,12 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public R beginNodeReadTrx() {
-    return beginNodeReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
+  public R beginReadOnlyTrx() {
+    return beginReadOnlyTrx(mLastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
-  public synchronized R beginNodeReadTrx(@Nonnegative final int revisionKey) {
+  public synchronized R beginReadOnlyTrx(@Nonnegative final int revisionKey) {
     assertAccess(revisionKey);
 
     // Make sure not to exceed available number of read transactions.
@@ -240,23 +240,23 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public W beginNodeWriteTrx() {
-    return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
+  public W beginNodeTrx() {
+    return beginNodeTrx(0, TimeUnit.MINUTES, 0);
   }
 
   @Override
-  public W beginNodeWriteTrx(final @Nonnegative int maxNodeCount) {
-    return beginNodeWriteTrx(maxNodeCount, TimeUnit.MINUTES, 0);
+  public W beginNodeTrx(final @Nonnegative int maxNodeCount) {
+    return beginNodeTrx(maxNodeCount, TimeUnit.MINUTES, 0);
   }
 
   @Override
-  public W beginNodeWriteTrx(final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
-    return beginNodeWriteTrx(0, timeUnit, maxTime);
+  public W beginNodeTrx(final @Nonnull TimeUnit timeUnit, final @Nonnegative int maxTime) {
+    return beginNodeTrx(0, timeUnit, maxTime);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized W beginNodeWriteTrx(final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
+  public synchronized W beginNodeTrx(final @Nonnegative int maxNodeCount, final @Nonnull TimeUnit timeUnit,
       final @Nonnegative int maxTime) {
     // Checks.
     assertAccess(mLastCommittedUberPage.get().getRevision());
@@ -540,7 +540,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public R beginNodeReadTrx(final Instant pointInTime) {
+  public R beginNodeReadOnlyTrx(final Instant pointInTime) {
     checkNotNull(pointInTime);
 
     final long timestamp = pointInTime.toEpochMilli();
@@ -552,12 +552,12 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
     }
 
     if (revision == 0)
-      return beginNodeReadTrx(0);
+      return beginReadOnlyTrx(0);
     else if (revision == getMostRecentRevisionNumber() + 1)
-      return beginNodeReadTrx();
+      return beginReadOnlyTrx();
 
-    final R rtxRevisionMinus1 = beginNodeReadTrx(revision - 1);
-    final R rtxRevision = beginNodeReadTrx(revision);
+    final R rtxRevisionMinus1 = beginReadOnlyTrx(revision - 1);
+    final R rtxRevision = beginReadOnlyTrx(revision);
 
     if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
         rtxRevision.getRevisionTimestamp())) {
@@ -609,7 +609,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
     else if (revision == getMostRecentRevisionNumber() + 1)
       return getMostRecentRevisionNumber();
 
-    try (final R rtxRevisionMinus1 = beginNodeReadTrx(revision - 1); final R rtxRevision = beginNodeReadTrx(revision)) {
+    try (final R rtxRevisionMinus1 = beginReadOnlyTrx(revision - 1); final R rtxRevision = beginReadOnlyTrx(revision)) {
       final int revisionNumber;
 
       if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,

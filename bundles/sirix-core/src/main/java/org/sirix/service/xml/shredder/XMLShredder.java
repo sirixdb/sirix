@@ -319,7 +319,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     try (final var db = Databases.openXdmDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
       try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
-          final XdmNodeTrx wtx = resMgr.beginNodeWriteTrx();
+          final XdmNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3

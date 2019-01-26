@@ -88,7 +88,7 @@ public final class DiffTest extends TestCase {
     try (final var database = Databases.openXdmDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE, config).build());
       try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-          final XdmNodeTrx wtx = manager.beginNodeWriteTrx()) {
+          final XdmNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
         wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));

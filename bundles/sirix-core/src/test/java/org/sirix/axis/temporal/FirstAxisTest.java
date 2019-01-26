@@ -45,7 +45,7 @@ public final class FirstAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    final NodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
+    final NodeReadTrx firstRtx = holder.getResourceManager().beginReadOnlyTrx(1);
 
     new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override

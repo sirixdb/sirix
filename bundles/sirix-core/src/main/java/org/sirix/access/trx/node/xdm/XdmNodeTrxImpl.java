@@ -2375,7 +2375,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   private void copy(final XdmNodeReadOnlyTrx trx, final Insert insert) {
     assert trx != null;
     assert insert != null;
-    final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadTrx(trx.getRevisionNumber());
+    final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginReadOnlyTrx(trx.getRevisionNumber());
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();

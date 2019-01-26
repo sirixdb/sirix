@@ -72,7 +72,7 @@ public class MultipleCommitTest {
     XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
 
-    final NodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    final NodeReadTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
     rtx.close();
   }
 

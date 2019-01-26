@@ -41,7 +41,7 @@ public class FileHierarchyWalker {
     checkNotNull(visitor);
     checkNotNull(path);
     try (final XdmResourceManager resource = checkNotNull(database).getResourceManager("shredded");
-        final XdmNodeTrx wtx = resource.beginNodeWriteTrx()) {
+        final XdmNodeTrx wtx = resource.beginNodeTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {
         builder.setVisitor(visitor.get());
