@@ -305,7 +305,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long parentKey = structNode.getNodeKey();
       final long rightSibKey = structNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name);
+      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name, Kind.JSON_OBJECT_KEY);
 
       final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, rightSibKey, pathNodeKey, name);
 
@@ -317,11 +317,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private long getPathNodeKey(final long nodeKey, final String name) {
-    moveToAncestorObjectKeyOrDocumentRoot();
+  private long getPathNodeKey(final long nodeKey, final String name, final Kind kind) {
+    moveToParentObjectKeyArrayOrDocumentRoot();
 
     final long pathNodeKey = mBuildPathSummary
-        ? mPathSummaryWriter.getPathNodeKey(new QNm(name), Kind.JSON_OBJECT_KEY)
+        ? mPathSummaryWriter.getPathNodeKey(new QNm(name), kind)
         : 0;
 
     mNodeReadOnlyTrx.moveTo(nodeKey);
@@ -329,10 +329,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     return pathNodeKey;
   }
 
-  private void moveToAncestorObjectKeyOrDocumentRoot() {
-    do {
+  private void moveToParentObjectKeyArrayOrDocumentRoot() {
+    while (mNodeReadOnlyTrx.getKind() != Kind.JSON_OBJECT_KEY && mNodeReadOnlyTrx.getKind() != Kind.JSON_ARRAY
+        && mNodeReadOnlyTrx.getKind() != Kind.JSON_DOCUMENT) {
       mNodeReadOnlyTrx.moveToParent();
-    } while (mNodeReadOnlyTrx.getKind() != Kind.JSON_OBJECT_KEY && mNodeReadOnlyTrx.getKind() != Kind.JSON_DOCUMENT);
+    }
   }
 
   @Override
@@ -352,7 +353,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long parentKey = structNode.getParentKey();
       final long rightSibKey = structNode.getRightSiblingKey();
 
-      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name);
+      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name, Kind.JSON_OBJECT_KEY);
 
       final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, rightSibKey, pathNodeKey, name);
 
@@ -378,12 +379,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       checkAccessAndCommit();
 
-      final StructNode currNode = mNodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final long parentKey = currNode.getNodeKey();
-      final long rightSibKey = currNode.getFirstChildKey();
+      final long parentKey = currentNode.getNodeKey();
+      final long rightSibKey = currentNode.getFirstChildKey();
 
-      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.JSON_ARRAY);
+
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey, pathNodeKey);
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -410,7 +413,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long parentKey = currentNode.getParentKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.JSON_ARRAY);
+
+      final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey, pathNodeKey);
 
       insertAsRightSibling(node);
 
@@ -553,7 +558,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     adaptHashesWithAdd();
 
     // Get the path node key.
-    moveToAncestorObjectKeyOrDocumentRoot();
+    moveToParentObjectKeyArrayOrDocumentRoot();
     final long pathNodeKey = isObjectKey()
         ? ((ObjectKeyNode) getNode()).getPathNodeKey()
         : -1;

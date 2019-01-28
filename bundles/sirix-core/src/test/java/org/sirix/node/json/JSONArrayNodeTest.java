@@ -72,7 +72,7 @@ public class JSONArrayNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final ArrayNode node = new ArrayNode(strucDel);
+    final ArrayNode node = new ArrayNode(strucDel, 18);
     check(node);
 
     // Serialize and deserialize node.
@@ -91,6 +91,7 @@ public class JSONArrayNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
+    assertEquals(18L, node.getPathNodeKey());
 
     assertEquals(Kind.JSON_ARRAY, node.getKind());
     assertEquals(false, node.hasFirstChild());

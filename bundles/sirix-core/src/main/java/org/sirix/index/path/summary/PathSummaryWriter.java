@@ -33,6 +33,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
@@ -160,6 +161,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
       mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getKind() == Kind.JSON_ARRAY) {
+      mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
     }

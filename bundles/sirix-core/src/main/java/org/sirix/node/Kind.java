@@ -841,6 +841,8 @@ public enum Kind implements NodePersistenter {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadTrx pageReadTrx) throws IOException {
+      final long pathNodeKey = source.readLong();
+
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -850,13 +852,14 @@ public enum Kind implements NodePersistenter {
           nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
 
       // Returning an instance.
-      return new ArrayNode(structDel);
+      return new ArrayNode(structDel, pathNodeKey);
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
         throws IOException {
       final ArrayNode node = (ArrayNode) record;
+      sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
       final long nodeKey = node.getNodeKey();

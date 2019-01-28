@@ -63,6 +63,9 @@ public final class NamePage extends AbstractForwardingPage {
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
 
+  /** The number of arrays stored. */
+  private int mNumberOfArrays;
+
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
 
@@ -81,6 +84,7 @@ public final class NamePage extends AbstractForwardingPage {
     mPIs = Names.getInstance();
     mJSONObjectKeys = Names.getInstance();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
+    mNumberOfArrays = 0;
   }
 
   /**
@@ -100,6 +104,7 @@ public final class NamePage extends AbstractForwardingPage {
     mAttributes = Names.clone(in);
     mPIs = Names.clone(in);
     mJSONObjectKeys = Names.clone(in);
+    mNumberOfArrays = in.readInt();
     final int currentMaxLevelOfIndirectPages = in.readInt();
     mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
@@ -162,6 +167,9 @@ public final class NamePage extends AbstractForwardingPage {
       case JSON_OBJECT_KEY:
         name = mJSONObjectKeys.getName(key);
         break;
+      case JSON_ARRAY:
+        name = "array";
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -192,6 +200,9 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case JSON_OBJECT_KEY:
         count = mJSONObjectKeys.getCount(key);
+        break;
+      case JSON_ARRAY:
+        count = mNumberOfArrays;
         break;
       // $CASES-OMITTED$
       default:
@@ -224,6 +235,8 @@ public final class NamePage extends AbstractForwardingPage {
       case JSON_OBJECT_KEY:
         mJSONObjectKeys.setName(key, name);
         break;
+      case JSON_ARRAY:
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -244,6 +257,7 @@ public final class NamePage extends AbstractForwardingPage {
     mAttributes.serialize(out);
     mPIs.serialize(out);
     mJSONObjectKeys.serialize(out);
+    out.writeInt(mNumberOfArrays);
     final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
     out.writeInt(currentMaxLevelOfIndirectPages);
     for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
