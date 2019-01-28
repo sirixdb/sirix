@@ -399,7 +399,7 @@ try (var database = Databases.openXdmDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      var manager = database.getXdmResourceManager("resource1");
+      var manager = database.getResourceManager("resource1");
       // Start the single read/write transaction.
       var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
