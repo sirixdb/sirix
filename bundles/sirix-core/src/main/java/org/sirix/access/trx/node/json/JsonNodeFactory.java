@@ -22,8 +22,9 @@ public interface JsonNodeFactory extends NodeFactory {
    *
    * @param parentKey parent node key
    * @param rightSibKey right sibling key
+   * @param pathNodeKey the path node key
    */
-  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, long rightSibKey);
+  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, long rightSibKey, long pathNodeKey);
 
   /**
    * Create a {@link ObjectNode}.

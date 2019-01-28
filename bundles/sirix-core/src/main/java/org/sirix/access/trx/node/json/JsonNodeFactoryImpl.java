@@ -47,6 +47,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    */
   JsonNodeFactoryImpl(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
+    pageWriteTrx.createNameKey("array", Kind.JSON_ARRAY);
   }
 
   @Override
@@ -74,14 +75,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ArrayNode createJsonArrayNode(long parentKey, long rightSibKey) {
+  public ArrayNode createJsonArrayNode(long parentKey, long rightSibKey, long pathNodeKey) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
         rightSibKey, Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel), PageKind.RECORDPAGE,
-        -1);
+    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel, pathNodeKey),
+        PageKind.RECORDPAGE, -1);
   }
 
   @Override
