@@ -6,7 +6,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
@@ -96,18 +96,18 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private JsonNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (JsonNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private JsonNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return (JsonNodeVisitor) mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }

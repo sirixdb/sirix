@@ -10,7 +10,7 @@ import javax.annotation.Nullable;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.NameNode;
@@ -25,11 +25,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   private final long mId;
 
   /** State of transaction including all cached stuff. */
-  protected PageReadTrx mPageReadTrx;
+  protected PageReadOnlyTrx mPageReadTrx;
 
   protected ImmutableNode mCurrentNode;
 
-  public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadTrx pageReadTransaction,
+  public AbstractNodeReadTrx(final @Nonnegative long trxId, final @Nonnull PageReadOnlyTrx pageReadTransaction,
       final ImmutableNode documentNode) {
     checkArgument(trxId >= 0);
     mId = trxId;
@@ -133,11 +133,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   protected abstract void assertNotClosed();
 
   /**
-   * Get the {@link PageReadTrx}.
+   * Get the {@link PageReadOnlyTrx}.
    *
-   * @return current {@link PageReadTrx}
+   * @return current {@link PageReadOnlyTrx}
    */
-  public PageReadTrx getPageTransaction() {
+  public PageReadOnlyTrx getPageTransaction() {
     assertNotClosed();
     return mPageReadTrx;
   }
@@ -147,7 +147,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
    *
    * @param pageReadTransaction {@link PageReadTrxImpl} instance
    */
-  public final void setPageReadTransaction(@Nullable final PageReadTrx pageReadTransaction) {
+  public final void setPageReadTransaction(@Nullable final PageReadOnlyTrx pageReadTransaction) {
     assertNotClosed();
     mPageReadTrx = pageReadTransaction;
   }
@@ -363,7 +363,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public PageReadTrx getPageTrx() {
+  public PageReadOnlyTrx getPageTrx() {
     return mPageReadTrx;
   }
 

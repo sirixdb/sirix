@@ -2,7 +2,7 @@ package org.sirix.page;
 
 import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseType;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.SirixDeweyID;
@@ -32,7 +32,7 @@ public final class PageUtils {
    * @param pageKind the page kind
    */
   public static void createTree(@Nonnull PageReference reference, final PageKind pageKind, final int index,
-      final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
+      final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final Page page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getReference(0);

@@ -3,7 +3,7 @@ package org.sirix.access.trx.page;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.Restore;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
@@ -19,7 +19,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  *
  */
 public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
-    extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V, S> {
+    extends AbstractForwardingPageReadOnlyTrx implements PageTrx<K, V, S> {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingPageWriteTrx() {}
@@ -78,6 +78,6 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
   }
 
   @Override
-  protected abstract PageWriteTrx<K, V, S> delegate();
+  protected abstract PageTrx<K, V, S> delegate();
 
 }

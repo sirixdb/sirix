@@ -28,7 +28,7 @@
 package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.IndirectPage;
@@ -74,7 +74,7 @@ public interface TreeModifier {
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(PageReadTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+  PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
       PageReference startReference, @Nonnegative long pageKey, @Nonnegative long maxPageKey, int indexNumber,
       PageKind pageKind, RevisionRootPage revisionRootPage);
 
@@ -88,5 +88,5 @@ public interface TreeModifier {
    * @return {@link IndirectPage} reference
    * @throws SirixIOException if an I/O error occurs
    */
-  IndirectPage prepareIndirectPage(PageReadTrx pageRtx, TransactionIntentLog log, PageReference reference);
+  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
 }

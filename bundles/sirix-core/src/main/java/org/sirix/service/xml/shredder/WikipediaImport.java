@@ -291,7 +291,7 @@ public final class WikipediaImport implements Import<StartElement> {
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
-    final XdmNodeReadOnlyTrx rtx = resourceManager.beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     final long nodeKey = mWtx.getNodeKey();

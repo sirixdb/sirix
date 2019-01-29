@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
 import org.sirix.node.Kind;
@@ -314,11 +314,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Initialize name index tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index, final TransactionIntentLog log) {
+  public void createNameIndexTree(final PageReadOnlyTrx pageReadTrx, final int index, final TransactionIntentLog log) {
     final PageReference reference = getReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT

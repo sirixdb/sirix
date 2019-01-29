@@ -4,7 +4,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
@@ -39,8 +39,8 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   /** Delegate for structural node information. */
   private final StructNodeDelegate mStructNodeDel;
 
-  /** {@link PageReadTrx} reference. */
-  private final PageReadTrx mPageReadTrx;
+  /** {@link PageReadOnlyTrx} reference. */
+  private final PageReadOnlyTrx mPageReadTrx;
 
   /**
    * Creating an attribute.
@@ -51,7 +51,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
    *
    */
   public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
-      final PageReadTrx pageReadTrx) {
+      final PageReadOnlyTrx pageReadTrx) {
     assert structDel != null : "structDel must not be null!";
     mStructNodeDel = structDel;
     assert nameDel != null : "nameDel must not be null!";

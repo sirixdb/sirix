@@ -6,7 +6,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -95,18 +95,18 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
     return new PathFilter(paths, new XdmPCRCollector(rtx));
   }
 
-  private XdmNodeVisitor createPathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XdmNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (XdmNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
   private XdmNodeVisitor createCASIndexBuilder(final XdmNodeReadOnlyTrx nodeReadTrx,
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
+      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (XdmNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private XdmNodeVisitor createNameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XdmNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return (XdmNodeVisitor) mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }

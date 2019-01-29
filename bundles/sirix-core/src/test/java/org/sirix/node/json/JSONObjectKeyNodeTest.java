@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -50,8 +50,8 @@ public class JSONObjectKeyNodeTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageWriteTrxImpl} instance. */
-  private PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  /** Sirix {@link PageTrxImpl} instance. */
+  private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   private int mNameKey;
 
@@ -60,7 +60,7 @@ public class JSONObjectKeyNodeTest {
     XdmTestHelper.closeEverything();
     XdmTestHelper.deleteEverything();
     mHolder = Holder.openResourceManager();
-    mPageWriteTrx = mHolder.getResourceManager().beginPageWriteTrx();
+    mPageWriteTrx = mHolder.getResourceManager().beginPageTrx();
   }
 
   @After
@@ -96,7 +96,6 @@ public class JSONObjectKeyNodeTest {
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
 
     assertEquals(mNameKey, node.getNameKey());
@@ -104,7 +103,6 @@ public class JSONObjectKeyNodeTest {
     assertEquals(Kind.JSON_OBJECT_KEY, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
     assertEquals(true, node.hasRightSibling());
   }
 

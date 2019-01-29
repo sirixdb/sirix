@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AbstractForwardingPage;
 import org.sirix.page.PageKind;
@@ -39,8 +39,8 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
   /** Key/Value records. */
   private final Map<K, V> mRecords;
 
-  /** Sirix {@link PageReadTrx}. */
-  private final PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadOnlyTrx}. */
+  private final PageReadOnlyTrx mPageReadTrx;
 
   /** Optional left page reference (leaf page). */
   private Optional<PageReference> mLeftPage;
@@ -69,7 +69,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
    * @param kind determines if it's a leaf or inner node page
    */
   public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
-      final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+      final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
     assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -88,7 +88,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
    * @param in input bytes to read page from
    * @param pageReadTrx {@link
    */
-  protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadTrx pageReadTrx) {
+  protected BPlusInnerNodePage(final ByteArrayDataInput in, final PageReadOnlyTrx pageReadTrx) {
     mDelegate = null;
     // mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
     mRecordPageKey = in.readLong();
@@ -163,13 +163,13 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
   @SuppressWarnings("unchecked")
   @Override
   public <C extends KeyValuePage<K, V>> C newInstance(final @Nonnegative long recordPageKey,
-      final PageKind pageKind, final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+      final PageKind pageKind, final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
     return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, previousPageRefKey,
         pageReadTrx);
   }
 
   @Override
-  public PageReadTrx getPageReadTrx() {
+  public PageReadOnlyTrx getPageReadTrx() {
     return mPageReadTrx;
   }
 

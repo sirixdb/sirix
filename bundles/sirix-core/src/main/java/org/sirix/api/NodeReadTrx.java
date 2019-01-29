@@ -73,7 +73,7 @@ public interface NodeReadTrx extends AutoCloseable {
 
   Move<? extends NodeCursor> moveTo(long key);
 
-  PageReadTrx getPageTrx();
+  PageReadOnlyTrx getPageTrx();
 
   long getPathNodeKey();
 

@@ -11,7 +11,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
@@ -77,8 +77,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
     NO
   }
 
-  /** Sirix {@link PageWriteTrx}. */
-  private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  /** Sirix {@link PageTrx}. */
+  private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   /** Sirix {@link PathSummaryReader}. */
   private final PathSummaryReader mPathSummaryReader;
@@ -92,12 +92,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
   /**
    * Constructor.
    *
-   * @param pageWriteTrx Sirix {@link PageWriteTrx}
+   * @param pageWriteTrx Sirix {@link PageTrx}
    * @param resMgr The resource manager
    * @param nodeFactory The node factory to create path nodes
    * @param rtx the read-only trx
    */
-  public PathSummaryWriter(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public PathSummaryWriter(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final ResourceManager<R, ? extends NodeWriteTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
     mPathSummaryReader = PathSummaryReader.getInstance(pageWriteTrx, resMgr);

@@ -79,39 +79,39 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
   Optional<W> getNodeWriteTrx();
 
   /**
-   * Begin a new {@link PageReadTrx}.
+   * Begin a new {@link PageReadOnlyTrx}.
    *
-   * @return new {@link PageReadTrx} instance
+   * @return new {@link PageReadOnlyTrx} instance
    */
-  PageReadTrx beginPageReadTrx();
+  PageReadOnlyTrx beginPageReadTrx();
 
   /**
-   * Begin a new {@link PageReadTrx}.
+   * Begin a new {@link PageReadOnlyTrx}.
    *
    * @param revision revision number
-   * @return new {@link PageReadTrx} instance
+   * @return new {@link PageReadOnlyTrx} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageReadTrx beginPageReadTrx(@Nonnegative int revision);
+  PageReadOnlyTrx beginPageReadOnlyTrx(@Nonnegative int revision);
 
   /**
-   * Begin a new {@link PageWriteTrx}.
+   * Begin a new {@link PageTrx}.
    *
    * @param pRevision revision number
-   * @return new {@link PageWriteTrx} instance
+   * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx();
+  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx();
 
   /**
-   * Begin a new {@link PageWriteTrx}.
+   * Begin a new {@link PageTrx}.
    *
    * @param revision revision number
-   * @return new {@link PageWriteTrx} instance
+   * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision);
+  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
@@ -119,7 +119,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixException if can't begin Read Transaction
    * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  R beginReadOnlyTrx() throws SirixException;
+  R beginNodeReadOnlyTrx();
 
   /**
    * Begin a read-only transaction on the given revision number.
@@ -130,7 +130,7 @@ public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends N
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
    * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  R beginReadOnlyTrx(@Nonnegative int revision);
+  R beginNodeReadOnlyTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction with the revision, which is closest to the given point in time.

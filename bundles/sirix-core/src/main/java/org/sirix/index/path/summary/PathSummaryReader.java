@@ -18,7 +18,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -57,7 +57,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   private StructNode mCurrentNode;
 
   /** Page reader. */
-  private final PageReadTrx mPageReadTrx;
+  private final PageReadOnlyTrx mPageReadTrx;
 
   /** {@link ResourceManager} reference. */
   private final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
@@ -80,7 +80,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
    * @param pageReadTrx page reader
    * @param resourceManager {@link ResourceManager} reference
    */
-  private PathSummaryReader(final PageReadTrx pageReadTrx,
+  private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
       final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager) {
     mPathCache = new HashMap<>();
     mPageReadTrx = pageReadTrx;
@@ -118,7 +118,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   }
 
   @Override
-  public PageReadTrx getPageTrx() {
+  public PageReadOnlyTrx getPageTrx() {
     return mPageReadTrx;
   }
 
@@ -129,7 +129,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
    * @param resourceManager Sirix {@link ResourceManager}
    * @return new path summary reader instance
    */
-  public static final PathSummaryReader getInstance(final PageReadTrx pageReadTrx,
+  public static final PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
       final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager) {
     return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
   }

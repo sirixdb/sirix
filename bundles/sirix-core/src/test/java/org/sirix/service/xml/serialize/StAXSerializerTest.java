@@ -75,7 +75,7 @@ public class StAXSerializerTest {
           new XMLSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
       xmlSerializer.call();
 
-      final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+      final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
       StAXSerializer serializer = new StAXSerializer(rtx);
       final StringBuilder strBuilder = new StringBuilder();
       boolean isEmptyElement = false;

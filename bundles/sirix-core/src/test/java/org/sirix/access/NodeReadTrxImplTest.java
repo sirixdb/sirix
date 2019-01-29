@@ -60,7 +60,7 @@ public final class NodeReadTrxImplTest {
     try (final var db = Databases.openXdmDatabase(PATHS.PATH2.getFile())) {
       db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
       try (final XdmResourceManager resMgr = db.getResourceManager(XdmTestHelper.RESOURCE);
-          final XdmNodeReadOnlyTrx rtx = resMgr.beginReadOnlyTrx()) {
+          final XdmNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
         assertEquals(0, rtx.getRevisionNumber());
       }
     }

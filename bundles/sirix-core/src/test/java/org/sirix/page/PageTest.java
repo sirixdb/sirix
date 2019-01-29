@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -37,8 +37,8 @@ public class PageTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadTrx} instance. */
-  private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadOnlyTrx} instance. */
+  private PageReadOnlyTrx mPageReadTrx;
 
   @BeforeClass
   public void setUp() throws SirixException {

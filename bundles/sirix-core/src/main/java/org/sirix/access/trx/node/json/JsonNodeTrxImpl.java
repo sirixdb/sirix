@@ -42,7 +42,7 @@ import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.xdm.InsertPos;
 import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.Axis;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -155,7 +155,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> mResourceManager;
 
   /** The page write trx. */
-  private PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   /** Collection holding pre-commit hooks. */
   private final List<PreCommitHook> mPreCommitHooks = new ArrayList<>();
@@ -168,7 +168,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    *
    * @param transactionID ID of transaction
    * @param resourceManager the {@link session} instance this transaction is bound to
-   * @param pageWriteTrx {@link PageWriteTrx} to interact with the page layer
+   * @param pageWriteTrx {@link PageTrx} to interact with the page layer
    * @param maxNodeCount maximum number of node modifications before auto commit
    * @param timeUnit unit of the number of the next param {@code pMaxTime}
    * @param maxTime maximum number of seconds before auto commit
@@ -192,7 +192,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     mPathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
 
     mIndexController = resourceManager.getWtxIndexController(mNodeReadOnlyTrx.getPageTrx().getRevisionNumber());
-    mPageWriteTrx = (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();
+    mPageWriteTrx = (PageTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();
 
     mNodeFactory = Preconditions.checkNotNull(nodeFactory);
 
@@ -280,7 +280,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, rightSibKey);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, structNode);
 
       return this;
     } finally {
@@ -357,10 +357,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, rightSibKey, pathNodeKey, name);
 
-      mNodeReadOnlyTrx.setCurrentNode(node);
-      adaptForInsert(node, InsertPos.ASRIGHTSIBLING, PageKind.RECORDPAGE);
-      mNodeReadOnlyTrx.setCurrentNode(node);
-      adaptHashesWithAdd();
+      insertAsRightSibling(node, structNode);
 
       return this;
     } finally {
@@ -417,7 +414,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, rightSibKey, pathNodeKey);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, currentNode);
 
       return this;
     } finally {
@@ -461,7 +458,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptNodesAndHashesForInsertAsFirstChild(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     mNodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.RECORDPAGE);
+    adaptForInsert(node, null, InsertPos.ASFIRSTCHILD, PageKind.RECORDPAGE);
     mNodeReadOnlyTrx.setCurrentNode(node);
     adaptHashesWithAdd();
   }
@@ -485,7 +482,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StringNode node = mNodeFactory.createJsonStringNode(parentKey, rightSibKey, textValue, mCompression);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, currentNode);
 
       return this;
     } finally {
@@ -542,7 +539,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final BooleanNode node = mNodeFactory.createJsonBooleanNode(parentKey, rightSibKey, value);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, currentNode);
 
       return this;
     } finally {
@@ -550,10 +547,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private void insertAsRightSibling(final ImmutableJsonNode node) {
+  private void insertAsRightSibling(final ImmutableJsonNode node, final StructNode currentNode) {
     // Adapt local nodes and hashes.
     mNodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert(node, InsertPos.ASRIGHTSIBLING, PageKind.RECORDPAGE);
+    adaptForInsert(node, currentNode, InsertPos.ASRIGHTSIBLING, PageKind.RECORDPAGE);
     mNodeReadOnlyTrx.setCurrentNode(node);
     adaptHashesWithAdd();
 
@@ -620,7 +617,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final NumberNode node = mNodeFactory.createJsonNumberNode(parentKey, rightSibKey, value);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, structNode);
 
       return this;
     } finally {
@@ -646,7 +643,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final NullNode node = mNodeFactory.createJsonNullNode(parentKey, rightSibKey);
 
-      insertAsRightSibling(node);
+      adaptNodesAndHashesForInsertAsFirstChild(node);
 
       return this;
     } finally {
@@ -673,7 +670,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final NullNode node = mNodeFactory.createJsonNullNode(parentKey, rightSibKey);
 
-      insertAsRightSibling(node);
+      insertAsRightSibling(node, currentNode);
 
       return this;
     } finally {
@@ -946,7 +943,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       // Reset internal transaction state to new uber page.
       mResourceManager.closeNodePageWriteTransaction(getId());
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> trx =
+      final PageTrx<Long, Record, UnorderedKeyValuePage> trx =
           mResourceManager.createPageWriteTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       mNodeReadOnlyTrx.setPageReadTransaction(trx);
@@ -1191,36 +1188,26 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * Adapting everything for insert operations.
    *
    * @param newNode pointer of the new node to be inserted
+   * @param currentNode may be null if it's inserted as a first child
    * @param insertPos determines the position where to insert
    * @param pageKind kind of subtree root page
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final ImmutableJsonNode newNode, final InsertPos insertPos, final PageKind pageKind)
-      throws SirixIOException {
+  private void adaptForInsert(final ImmutableJsonNode newNode, final StructNode currentNode, final InsertPos insertPos,
+      final PageKind pageKind) {
     assert newNode != null;
     assert insertPos != null;
     assert pageKind != null;
 
-    if (newNode instanceof StructNode) {
-      final StructNode strucNode = (StructNode) newNode;
-      final StructNode parent =
-          (StructNode) mPageWriteTrx.prepareEntryForModification(newNode.getParentKey(), pageKind, -1);
-      parent.incrementChildCount();
-      if (!((StructNode) newNode).hasLeftSibling()) {
-        parent.setFirstChildKey(newNode.getNodeKey());
-      }
-
-      if (strucNode.hasRightSibling()) {
-        final StructNode rightSiblingNode =
-            (StructNode) mPageWriteTrx.prepareEntryForModification(strucNode.getRightSiblingKey(), pageKind, -1);
-        rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
-      }
-      // if (strucNode.hasLeftSibling()) {
-      // final StructNode leftSiblingNode =
-      // (StructNode) mPageWriteTrx.prepareEntryForModification(strucNode.getLeftSiblingKey(), pageKind,
-      // -1);
-      // leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
-      // }
+    final StructNode parent =
+        (StructNode) mPageWriteTrx.prepareEntryForModification(newNode.getParentKey(), pageKind, -1);
+    parent.incrementChildCount();
+    if (insertPos == InsertPos.ASFIRSTCHILD) {
+      parent.setFirstChildKey(newNode.getNodeKey());
+    } else if (insertPos == InsertPos.ASRIGHTSIBLING) {
+      final StructNode leftSiblingNode =
+          (StructNode) mPageWriteTrx.prepareEntryForModification(currentNode.getNodeKey(), pageKind, -1);
+      leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
     }
   }
 
@@ -1729,8 +1716,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @SuppressWarnings("unchecked")
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
+  public PageTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
     mNodeReadOnlyTrx.assertNotClosed();
-    return (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();
+    return (PageTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();
   }
 }

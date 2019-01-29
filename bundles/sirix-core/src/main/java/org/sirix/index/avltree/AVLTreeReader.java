@@ -10,7 +10,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -48,8 +48,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /** Strong reference to currently selected node. */
   private Node mCurrentNode;
 
-  /** {@link PageReadTrx} for persistent storage. */
-  final PageReadTrx mPageReadTrx;
+  /** {@link PageReadOnlyTrx} for persistent storage. */
+  final PageReadOnlyTrx mPageReadTrx;
 
   /** Page kind. */
   final PageKind mPageKind;
@@ -69,11 +69,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /**
    * Private constructor.
    *
-   * @param pageReadTrx {@link PageReadTrx} for persistent storage
+   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
    * @param type kind of index
    * @param index the index number
    */
-  private AVLTreeReader(final PageReadTrx pageReadTrx, final IndexType type, final int index) {
+  private AVLTreeReader(final PageReadOnlyTrx pageReadTrx, final IndexType type, final int index) {
     mPageReadTrx = checkNotNull(pageReadTrx);
     switch (type) {
       case PATH:
@@ -107,12 +107,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /**
    * Get a new instance.
    *
-   * @param pageReadTrx {@link PageReadTrx} for persistent storage
+   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
    * @param type type of index
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-      final PageReadTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
+      final PageReadOnlyTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
     return new AVLTreeReader<K, V>(pageReadTrx, type, index);
   }
 

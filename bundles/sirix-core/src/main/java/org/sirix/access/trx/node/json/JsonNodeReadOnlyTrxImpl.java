@@ -8,7 +8,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.Move;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -48,11 +48,11 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
    *
    * @param resourceManager the current {@link ResourceManager} the reader is bound to
    * @param trxId ID of the reader
-   * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
+   * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);

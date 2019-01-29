@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -54,8 +54,8 @@ public final class NodePageTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadTrx} instance. */
-  private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadOnlyTrx} instance. */
+  private PageReadOnlyTrx mPageReadTrx;
 
   @Before
   public void setUp() throws SirixException {

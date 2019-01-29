@@ -41,7 +41,7 @@ import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -78,7 +78,7 @@ public final class PageWriteTrxFactory {
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
+  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
       final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
@@ -157,7 +157,7 @@ public final class PageWriteTrxFactory {
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new PageWriteTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController,
+    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController,
         isBoundToNodeTrx);
   }
 }

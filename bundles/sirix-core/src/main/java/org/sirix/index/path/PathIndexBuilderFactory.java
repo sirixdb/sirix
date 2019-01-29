@@ -1,7 +1,7 @@
 package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.avltree.AVLTreeWriter;
@@ -12,7 +12,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public final class PathIndexBuilderFactory {
 
-  public PathIndexBuilder create(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public PathIndexBuilder create(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var pathSummary = checkNotNull(pathSummaryReader);
     final var paths = checkNotNull(indexDef.getPaths());

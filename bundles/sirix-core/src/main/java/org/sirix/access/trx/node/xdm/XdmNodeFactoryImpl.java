@@ -6,7 +6,7 @@ import java.util.zip.Deflater;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.Kind;
@@ -38,16 +38,16 @@ import com.google.common.collect.HashBiMap;
  */
 final class XdmNodeFactoryImpl implements XdmNodeFactory {
 
-  /** {@link PageWriteTrx} implementation. */
-  private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  /** {@link PageTrx} implementation. */
+  private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   /**
    * Constructor.
    *
-   * @param pageWriteTrx {@link PageWriteTrx} implementation
+   * @param pageWriteTrx {@link PageTrx} implementation
    * @throws SirixIOException if an I/O exception occured due to name key creation
    */
-  XdmNodeFactoryImpl(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+  XdmNodeFactoryImpl(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
     mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
     mPageWriteTrx.createNameKey("xs:untyped", Kind.NAMESPACE);

@@ -28,7 +28,7 @@
 package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.page.IndirectPage;
@@ -76,7 +76,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public PageReference prepareLeafOfTree(final PageReadTrx pageRtx, final TransactionIntentLog log,
+  public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, final @Nonnegative long pageKey,
       final @Nonnegative long maxPageKey, final int index, final PageKind pageKind,
       final RevisionRootPage revisionRootPage) {
@@ -126,7 +126,7 @@ public final class TreeModifierImpl implements TreeModifier {
     return reference;
   }
 
-  private IndirectPage dereferenceOldIndirectPage(final PageReadTrx pageRtx, final TransactionIntentLog log,
+  private IndirectPage dereferenceOldIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       PageReference reference) throws AssertionError {
     final PageContainer cont = log.get(reference, pageRtx);
     IndirectPage oldPage = cont == null
@@ -143,7 +143,7 @@ public final class TreeModifierImpl implements TreeModifier {
     return oldPage;
   }
 
-  private void setNewIndirectPage(final PageReadTrx pageRtx, final RevisionRootPage revisionRoot,
+  private void setNewIndirectPage(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
       final PageKind pageKind, final int index, final PageReference pageReference) {
     switch (pageKind) {
       case RECORDPAGE:
@@ -170,7 +170,7 @@ public final class TreeModifierImpl implements TreeModifier {
     }
   }
 
-  private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadTrx pageRtx, final RevisionRootPage revisionRoot,
+  private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
       final PageKind pageKind, final int index) {
     switch (pageKind) {
       case RECORDPAGE:
@@ -190,7 +190,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public IndirectPage prepareIndirectPage(final PageReadTrx pageRtx, final TransactionIntentLog log,
+  public IndirectPage prepareIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       final PageReference reference) {
     final PageContainer cont = log.get(reference, pageRtx);
     IndirectPage page = cont == null

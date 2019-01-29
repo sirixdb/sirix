@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.serialize;
+package org.sirix.service.json.serialize;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
@@ -27,9 +27,11 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
@@ -42,10 +44,11 @@ import org.sirix.settings.Constants;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractSerializer implements Callable<Void> {
+public abstract class AbstractSerializer<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+    implements Callable<Void> {
 
   /** Sirix {@link ResourceManager}. */
-  protected final XdmResourceManager mResMgr;
+  protected final ResourceManager<R, W> mResMgr;
 
   /** Stack for reading end element. */
   protected final Deque<Long> mStack;
@@ -63,7 +66,8 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XdmResourceManager resMgr, final @Nonnegative int revision, final int... revisions) {
+  public AbstractSerializer(final ResourceManager<R, W> resMgr, final @Nonnegative int revision,
+      final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -81,7 +85,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XdmResourceManager resMgr, final @Nonnegative long key,
+  public AbstractSerializer(final ResourceManager<R, W> resMgr, final @Nonnegative long key,
       final @Nonnegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
@@ -123,10 +127,10 @@ public abstract class AbstractSerializer implements Callable<Void> {
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final XdmNodeReadOnlyTrx rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
+      try (final R rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
           ? i
           : mRevisions[i - 1])) {
-        emitRevisionStartTag(rtx);
+        emitRevisionStartNode(rtx);
 
         rtx.moveTo(mNodeKey);
 
@@ -144,12 +148,12 @@ public abstract class AbstractSerializer implements Callable<Void> {
           if (closeElements) {
             while (!mStack.isEmpty() && mStack.peek() != rtx.getLeftSiblingKey()) {
               rtx.moveTo(mStack.pop());
-              emitEndTag(rtx);
+              emitEndNode(rtx);
               rtx.moveTo(key);
             }
             if (!mStack.isEmpty()) {
               rtx.moveTo(mStack.pop());
-              emitEndTag(rtx);
+              emitEndNode(rtx);
             }
             rtx.moveTo(key);
             closeElements = false;
@@ -174,10 +178,10 @@ public abstract class AbstractSerializer implements Callable<Void> {
         // Finally emit all pending end elements.
         while (!mStack.isEmpty() && mStack.peek() != Constants.NULL_ID_LONG) {
           rtx.moveTo(mStack.pop());
-          emitEndTag(rtx);
+          emitEndNode(rtx);
         }
 
-        emitRevisionEndTag(rtx);
+        emitRevisionEndNode(rtx);
       }
     }
 
@@ -196,28 +200,28 @@ public abstract class AbstractSerializer implements Callable<Void> {
    *
    * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
-  protected abstract void emitNode(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitNode(R rtx);
 
   /**
    * Emit end tag.
    *
    * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
-  protected abstract void emitEndTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitEndNode(R rtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    *
    * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
-  protected abstract void emitRevisionStartTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitRevisionStartNode(R rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
    * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
-  protected abstract void emitRevisionEndTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitRevisionEndNode(R rtx);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

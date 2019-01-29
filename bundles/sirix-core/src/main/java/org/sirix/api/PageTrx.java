@@ -20,8 +20,8 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
-    extends PageReadTrx {
+public interface PageTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
+    extends PageReadOnlyTrx {
 
   /**
    * Truncate resource to given revision.
@@ -29,7 +29,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * @param revision the given revision
    * @return this page write transaction instance
    */
-  PageWriteTrx<K, V, S> truncateTo(int revision);
+  PageTrx<K, V, S> truncateTo(int revision);
 
   /**
    * Put a page into the cache.
@@ -38,7 +38,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
    * @param page the page to put into the cache
    * @return this page write transaction instance
    */
-  PageWriteTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference,
+  PageTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference,
       @Nonnull PageContainer page);
 
   /**
@@ -112,7 +112,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
   UberPage commit(String commitMessage);
 
   /**
-   * Committing a {@link PageWriteTrx}. This method is recursively invoked by all
+   * Committing a {@link PageTrx}. This method is recursively invoked by all
    * {@link PageReference}s.
    *
    * @param reference to be commited
@@ -130,11 +130,11 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
   void restore(Restore restore);
 
   /**
-   * Get inlying {@link PageReadTrx}.
+   * Get inlying {@link PageReadOnlyTrx}.
    *
-   * @return the {@link PageReadTrx} reference
+   * @return the {@link PageReadOnlyTrx} reference
    */
-  PageReadTrx getPageReadTrx();
+  PageReadOnlyTrx getPageReadTrx();
 
   /**
    * Rollback all changes done within the page transaction.

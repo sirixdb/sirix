@@ -43,8 +43,8 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -88,8 +88,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   /** Dewey IDs which have to be serialized. */
   private final Map<SirixDeweyID, Long> mDeweyIDs;
 
-  /** Sirix {@link PageReadTrx}. */
-  private final PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadOnlyTrx}. */
+  private final PageReadOnlyTrx mPageReadTrx;
 
   /** The kind of page (in which subtree it resides). */
   private final PageKind mPageKind;
@@ -112,7 +112,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
    * @param pageReadTrx the page reading transaction
    */
   public UnorderedKeyValuePage(final @Nonnegative long recordPageKey, final PageKind pageKind,
-      final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+      final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
     // Assertions instead of checkNotNull(...) checks as it's part of the
     // internal flow.
     assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -140,9 +140,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
    * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
    *
    * @param in input bytes to read page from
-   * @param pageReadTrx {@link PageReadTrx} implementation
+   * @param pageReadTrx {@link PageReadOnlyTrx} implementation
    */
-  protected UnorderedKeyValuePage(final DataInput in, final PageReadTrx pageReadTrx) throws IOException {
+  protected UnorderedKeyValuePage(final DataInput in, final PageReadOnlyTrx pageReadTrx) throws IOException {
     mRecordPageKey = getVarLong(in);
     mResourceConfig = pageReadTrx.getResourceManager().getResourceConfig();
     mRecordPersister = mResourceConfig.recordPersister;
@@ -349,7 +349,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      PageWriteTrx<K, V, S> pageWriteTrx) {
+      PageTrx<K, V, S> pageWriteTrx) {
     if (!mAddedReferences) {
       try {
         addReferences();
@@ -449,14 +449,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   }
 
   @Override
-  public PageReadTrx getPageReadTrx() {
+  public PageReadOnlyTrx getPageReadTrx() {
     return mPageReadTrx;
   }
 
   @SuppressWarnings("unchecked")
   @Override
   public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey, final PageKind pageKind,
-      final long previousPageRefKey, final PageReadTrx pageReadTrx) {
+      final long previousPageRefKey, final PageReadOnlyTrx pageReadTrx) {
     return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, previousPageRefKey, pageReadTrx);
   }
 

@@ -19,7 +19,7 @@ import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
@@ -140,13 +140,13 @@ public interface IndexController<R extends NodeReadTrx & NodeCursor, W extends N
   CASFilterRange createCASFilterRange(String[] pathArray, Atomic min, Atomic max, boolean incMin, boolean incMax,
       PCRCollector pcrCollector) throws PathException;
 
-  Iterator<NodeReferences> openPathIndex(PageReadTrx pageRtx, IndexDef indexDef, PathFilter filter);
+  Iterator<NodeReferences> openPathIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, PathFilter filter);
 
-  Iterator<NodeReferences> openNameIndex(PageReadTrx pageRtx, IndexDef indexDef, NameFilter filter);
+  Iterator<NodeReferences> openNameIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter);
 
-  Iterator<NodeReferences> openCASIndex(PageReadTrx pageRtx, IndexDef indexDef, CASFilter filter);
+  Iterator<NodeReferences> openCASIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilter filter);
 
-  Iterator<NodeReferences> openCASIndex(PageReadTrx pageRtx, IndexDef indexDef, CASFilterRange filter);
+  Iterator<NodeReferences> openCASIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, CASFilterRange filter);
 
   /**
    * Deserialize from an {@link InputStream}.

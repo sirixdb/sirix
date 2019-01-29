@@ -189,7 +189,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
-      final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx(version);
+      final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
       return new DBNode(rtx, this);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
@@ -329,7 +329,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       if (version < resource.getMostRecentRevisionNumber())
         ((XdmNodeTrx) trx).revertTo(version);
     } else {
-      trx = resource.beginReadOnlyTrx(version);
+      trx = resource.beginNodeReadOnlyTrx(version);
     }
 
     return new DBNode(trx, this);
@@ -360,7 +360,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
         final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
         final XdmNodeReadOnlyTrx trx = updatable
             ? resource.beginNodeTrx()
-            : resource.beginReadOnlyTrx();
+            : resource.beginNodeReadOnlyTrx();
         documents.add(new DBNode(trx, this));
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());

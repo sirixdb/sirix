@@ -45,7 +45,7 @@ import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.Cache;
@@ -93,7 +93,7 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
  * access to this transaction.
  * </p>
  */
-public final class PageReadTrxImpl implements PageReadTrx {
+public final class PageReadTrxImpl implements PageReadOnlyTrx {
   /** Page reader exclusively assigned to this transaction. */
   private final Reader mPageReader;
 
@@ -182,7 +182,7 @@ public final class PageReadTrxImpl implements PageReadTrx {
     mPageReader = checkNotNull(reader);
     mUberPage = checkNotNull(uberPage);
 
-    final PageReadTrx pageReadTrx = this;
+    final PageReadOnlyTrx pageReadTrx = this;
 
     mNodeCache = CacheBuilder.newBuilder()
                              .maximumSize(10_000)

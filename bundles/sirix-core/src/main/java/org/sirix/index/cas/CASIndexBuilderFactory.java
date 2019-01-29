@@ -1,7 +1,7 @@
 package org.sirix.index.cas;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.CASValue;
@@ -12,7 +12,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 
 public final class CASIndexBuilderFactory {
 
-  public CASIndexBuilder create(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public CASIndexBuilder create(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var avlTreeWriter =
         AVLTreeWriter.<CASValue, NodeReferences>getInstance(pageWriteTrx, indexDef.getType(), indexDef.getID());
