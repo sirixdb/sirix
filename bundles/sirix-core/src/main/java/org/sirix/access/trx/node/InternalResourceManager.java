@@ -5,7 +5,7 @@ import java.util.concurrent.locks.Lock;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UberPage;
@@ -26,7 +26,7 @@ public interface InternalResourceManager<R extends NodeReadTrx & NodeCursor, W e
 
   void assertAccess(int revision);
 
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(long trxID, int revision, int i,
+  PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(long trxID, int revision, int i,
       Abort no, boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
@@ -35,7 +35,7 @@ public interface InternalResourceManager<R extends NodeReadTrx & NodeCursor, W e
 
   void closeWriteTransaction(long transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
+  void setNodePageWriteTransaction(long transactionID, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
 
   void closeNodePageWriteTransaction(long transactionID);
 }

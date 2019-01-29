@@ -181,7 +181,7 @@ public class VersioningTest {
         fillNodePage(wtx);
         wtx.commit();
         assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
-        try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
+        try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild().hasMoved());
           }
@@ -231,7 +231,7 @@ public class VersioningTest {
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertEquals(new QNm("foobar"), rtx.getName());
         assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -263,7 +263,7 @@ public class VersioningTest {
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginReadOnlyTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());

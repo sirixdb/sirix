@@ -5,7 +5,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
@@ -80,11 +80,11 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   /**
    * Initialize path summary tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createPathSummaryTree(final PageReadTrx pageReadTrx, final int index,
+  public void createPathSummaryTree(final PageReadOnlyTrx pageReadTrx, final int index,
       final TransactionIntentLog log) {
     final PageReference reference = getReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG

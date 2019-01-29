@@ -1,6 +1,6 @@
 package org.sirix.index.name.xdm;
 
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.name.NameIndexBuilderFactory;
 import org.sirix.index.name.NameIndexListenerFactory;
@@ -19,14 +19,14 @@ public final class XdmNameIndexImpl implements XdmNameIndex {
   }
 
   @Override
-  public XdmNameIndexBuilder createBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XdmNameIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexBuilderDelegate = mNameIndexBuilderFactory.create(pageWriteTrx, indexDef);
     return new XdmNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public XdmNameIndexListener createListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XdmNameIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexListenerDelegate = mNameIndexListenerFactory.create(pageWriteTrx, indexDef);
     return new XdmNameIndexListener(nameIndexListenerDelegate);

@@ -33,7 +33,7 @@ import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XdmNodeVisitor;
@@ -99,11 +99,11 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
    *
    * @param resourceManager the current {@link ResourceManager} the reader is bound to
    * @param trxId ID of the reader
-   * @param pageReadTransaction {@link PageReadTrx} to interact with the page layer
+   * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
   XdmNodeReadOnlyTrxImpl(final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadTrx pageReadTransaction, final ImmutableXdmNode documentNode) {
+      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXdmNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);

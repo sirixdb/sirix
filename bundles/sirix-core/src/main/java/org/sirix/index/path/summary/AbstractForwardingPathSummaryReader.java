@@ -6,7 +6,7 @@ import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -42,7 +42,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public PageReadTrx getPageTrx() {
+  public PageReadOnlyTrx getPageTrx() {
     return delegate().getPageTrx();
   }
 

@@ -3,8 +3,8 @@ package org.sirix.index.path;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.Filter;
 import org.sirix.index.IndexDef;
@@ -21,13 +21,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface PathIndex<B, L extends ChangeListener> {
-  B createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+  B createBuilder(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef);
 
-  L createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+  L createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+  default Iterator<NodeReferences> openIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     final AVLTreeReader<Long, NodeReferences> reader =
         AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());

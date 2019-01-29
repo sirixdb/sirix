@@ -80,5 +80,5 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
   @Override
   void close();
 
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageWtx();
+  PageTrx<Long, Record, UnorderedKeyValuePage> getPageWtx();
 }

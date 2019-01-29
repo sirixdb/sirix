@@ -18,8 +18,8 @@ import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexDef;
@@ -131,17 +131,17 @@ public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor
     return this;
   }
 
-  private ChangeListener createPathIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createPathIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mPathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createCASIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private ChangeListener createNameIndexListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     return mNameIndex.createListener(pageWriteTrx, indexDef);
   }
@@ -179,7 +179,7 @@ public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public Iterator<NodeReferences> openPathIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openPathIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     if (mPathIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");
@@ -189,7 +189,7 @@ public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public Iterator<NodeReferences> openNameIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openNameIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final NameFilter filter) {
     if (mNameIndex == null) {
       throw new IllegalStateException("This document does not support name indexes.");
@@ -199,7 +199,7 @@ public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openCASIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final CASFilter filter) {
     if (mCASIndex == null) {
       throw new IllegalStateException("This document does not support CAS indexes.");
@@ -209,7 +209,7 @@ public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor
   }
 
   @Override
-  public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openCASIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
       final CASFilterRange filter) {
     if (mCASIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");

@@ -88,7 +88,7 @@ public class UpdateTest {
       wtx.commit();
       testDelete(wtx);
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx()) {
+      try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
         testDelete(rtx);
       }
     }
@@ -111,7 +111,7 @@ public class UpdateTest {
     wtx.commit();
     testInsert(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testInsert(rtx);
     rtx.close();
   }
@@ -150,7 +150,7 @@ public class UpdateTest {
     testNodeTransactionIsolation(wtx);
     wtx.commit();
     testNodeTransactionIsolation(wtx);
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testNodeTransactionIsolation(rtx);
     wtx.moveToFirstChild();
     wtx.insertElementAsFirstChild(new QNm(""));
@@ -191,13 +191,13 @@ public class UpdateTest {
     wtx.moveTo(5);
     wtx.commit();
     wtx.close();
-    XdmNodeReadOnlyTrxImpl rtx = (XdmNodeReadOnlyTrxImpl) holder.getResourceManager().beginReadOnlyTrx(1);
+    XdmNodeReadOnlyTrxImpl rtx = (XdmNodeReadOnlyTrxImpl) holder.getResourceManager().beginNodeReadOnlyTrx(1);
     assertEquals(1, rtx.getRevisionNumber());
     assertTrue(rtx.moveTo(7).hasMoved());
     assertEquals("c", rtx.getName().getLocalName());
     assertTrue(rtx.moveTo(11).hasMoved());
     assertEquals("c", rtx.getName().getLocalName());
-    rtx = (XdmNodeReadOnlyTrxImpl) holder.getResourceManager().beginReadOnlyTrx();
+    rtx = (XdmNodeReadOnlyTrxImpl) holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(2, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), Kind.ELEMENT));
     assertEquals(0, rtx.getNameCount("blablabla", Kind.ATTRIBUTE));
@@ -218,7 +218,7 @@ public class UpdateTest {
     wtx.insertTextAsFirstChild("foo");
     wtx.commit();
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L).hasMoved());
     assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -240,7 +240,7 @@ public class UpdateTest {
     wtx.insertTextAsRightSibling("foo");
     wtx.commit();
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L).hasMoved());
     assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -262,7 +262,7 @@ public class UpdateTest {
     wtx.insertTextAsRightSibling("foo");
     wtx.commit();
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L).hasMoved());
     assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -282,7 +282,7 @@ public class UpdateTest {
     wtx.remove();
     wtx.commit();
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(0, rtx.getNodeKey());
     assertTrue(rtx.moveToFirstChild().hasMoved());
     assertEquals(1, rtx.getNodeKey());
@@ -309,7 +309,7 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
 
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(1L, rtx.getRevisionNumber());
     rtx.close();
 
@@ -323,7 +323,7 @@ public class UpdateTest {
       wtx.commit();
       wtx.close();
 
-      rtx = holder.getResourceManager().beginReadOnlyTrx();
+      rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild();
       rtx.moveToFirstChild();
@@ -333,7 +333,7 @@ public class UpdateTest {
       rtx.close();
     }
 
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveToDocumentRoot();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
@@ -382,7 +382,7 @@ public class UpdateTest {
     wtx.commit();
     testPageBoundary(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testPageBoundary(rtx);
     rtx.close();
   }
@@ -426,7 +426,7 @@ public class UpdateTest {
     wtx.commit();
     testRemoveDescendant(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testRemoveDescendant(rtx);
     rtx.close();
   }
@@ -469,7 +469,7 @@ public class UpdateTest {
     wtx.commit();
     testRemoveDescendantTextConcat2(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testRemoveDescendantTextConcat2(rtx);
     rtx.close();
   }
@@ -500,7 +500,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(12);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -508,7 +508,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElementWithTextNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testReplaceElementWithTextNode(rtx);
     rtx.close();
   }
@@ -533,7 +533,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(12);
     wtx.moveTo(4);
     wtx.replaceNode(rtx);
@@ -541,7 +541,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceTextNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testReplaceTextNode(rtx);
     rtx.close();
   }
@@ -557,7 +557,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -565,7 +565,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElementNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testReplaceElementNode(rtx);
     rtx.close();
   }
@@ -595,7 +595,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElement(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testReplaceElement(rtx);
     rtx.close();
   }
@@ -669,7 +669,7 @@ public class UpdateTest {
     wtx.commit();
     testFirstMoveToFirstChild(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testFirstMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -736,7 +736,7 @@ public class UpdateTest {
     wtx.commit();
     testSecondMoveToFirstChild(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testSecondMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -794,7 +794,7 @@ public class UpdateTest {
     wtx.commit();
     testThirdMoveToFirstChild(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testThirdMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.<SirixDeweyID>builder();
@@ -882,7 +882,7 @@ public class UpdateTest {
 
     testFirstMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testFirstMoveSubtreeToRightSibling(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.<SirixDeweyID>builder();
@@ -939,7 +939,7 @@ public class UpdateTest {
     wtx.commit();
     testSecondMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testSecondMoveSubtreeToRightSibling(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.<SirixDeweyID>builder();
@@ -1000,7 +1000,7 @@ public class UpdateTest {
     wtx.commit();
     testThirdMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testThirdMoveSubtreeToRightSibling(rtx);
     rtx.close();
   }
@@ -1036,7 +1036,7 @@ public class UpdateTest {
     wtx.commit();
     testFourthMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testFourthMoveSubtreeToRightSibling(rtx);
     rtx.close();
   }
@@ -1068,7 +1068,7 @@ public class UpdateTest {
     XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(4);
     wtx = holder.getResourceManager().beginNodeTrx();
     wtx.moveTo(9);
@@ -1076,7 +1076,7 @@ public class UpdateTest {
     testFirstCopySubtreeAsFirstChild(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testFirstCopySubtreeAsFirstChild(rtx);
     rtx.close();
   }
@@ -1107,7 +1107,7 @@ public class UpdateTest {
     XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(5);
     wtx = holder.getResourceManager().beginNodeTrx();
     wtx.moveTo(9);
@@ -1115,7 +1115,7 @@ public class UpdateTest {
     testSecondCopySubtreeAsFirstChild(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testSecondCopySubtreeAsFirstChild(rtx);
     rtx.close();
   }
@@ -1155,7 +1155,7 @@ public class UpdateTest {
     XdmDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(5);
     wtx = holder.getResourceManager().beginNodeTrx();
     wtx.moveTo(9);
@@ -1163,7 +1163,7 @@ public class UpdateTest {
     testFirstCopySubtreeAsRightSibling(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginReadOnlyTrx();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     testFirstCopySubtreeAsRightSibling(rtx);
     rtx.close();
   }
@@ -1203,7 +1203,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsFirstChildFirst(rtx);
     rtx.close();
@@ -1236,7 +1236,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsFirstChildSecond(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsFirstChildSecond(rtx);
     rtx.close();
@@ -1271,7 +1271,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsRightSibling(wtx);
     wtx.close();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsRightSibling(rtx);
     rtx.close();

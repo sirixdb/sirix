@@ -125,8 +125,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     mSkipSubtrees = builder.mSkipSubtrees;
     mDiffKind = checkNotNull(builder).mKind;
     synchronized (builder.mResMgr) {
-      mNewRtx = builder.mResMgr.beginReadOnlyTrx(builder.mNewRev);
-      mOldRtx = builder.mResMgr.beginReadOnlyTrx(builder.mOldRev);
+      mNewRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mNewRev);
+      mOldRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mOldRev);
       mHashKind = builder.mHashKind;
     }
     mNewRtxMoved = mNewRtx.moveTo(builder.mNewStartKey).hasMoved();

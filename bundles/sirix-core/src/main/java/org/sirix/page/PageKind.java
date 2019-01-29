@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.interfaces.Page;
 
 /**
@@ -39,7 +39,7 @@ public enum PageKind {
   RECORDPAGE((byte) 1, UnorderedKeyValuePage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new UnorderedKeyValuePage(source, pageReadTrx);
     }
@@ -52,7 +52,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page nodePage, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page nodePage, final PageReadOnlyTrx pageReadTrx) {
       assert nodePage instanceof UnorderedKeyValuePage;
       final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
       return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(),
@@ -66,7 +66,7 @@ public enum PageKind {
   NAMEPAGE((byte) 2, NamePage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new NamePage(source, type);
     }
@@ -79,7 +79,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new NamePage();
     }
   },
@@ -90,7 +90,7 @@ public enum PageKind {
   UBERPAGE((byte) 3, UberPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new UberPage(source, type);
     }
@@ -103,7 +103,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new UberPage();
     }
   },
@@ -114,7 +114,7 @@ public enum PageKind {
   INDIRECTPAGE((byte) 4, IndirectPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new IndirectPage(source, type);
     }
@@ -127,7 +127,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new IndirectPage();
     }
   },
@@ -138,7 +138,7 @@ public enum PageKind {
   REVISIONROOTPAGE((byte) 5, RevisionRootPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new RevisionRootPage(source, type);
     }
@@ -151,7 +151,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new RevisionRootPage();
     }
   },
@@ -162,7 +162,7 @@ public enum PageKind {
   PATHSUMMARYPAGE((byte) 6, PathSummaryPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final @Nonnull SerializationType type) throws IOException {
       return new PathSummaryPage(source, type);
     }
@@ -175,7 +175,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new PathSummaryPage();
     }
   },
@@ -186,7 +186,7 @@ public enum PageKind {
   TEXTVALUEPAGE((byte) 7, PathPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final @Nonnull SerializationType type) throws IOException {
       return new PathPage(source, type);
     }
@@ -199,7 +199,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new PathPage();
     }
   },
@@ -210,7 +210,7 @@ public enum PageKind {
   CASPAGE((byte) 8, CASPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new CASPage(source, type);
     }
@@ -223,7 +223,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new CASPage();
     }
   },
@@ -234,7 +234,7 @@ public enum PageKind {
   OVERFLOWPAGE((byte) 9, OverflowPage.class) {
     @Override
     @Nonnull
-    Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
         final SerializationType type) throws IOException {
       return new OverflowPage(source);
     }
@@ -247,7 +247,7 @@ public enum PageKind {
     }
 
     @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
       return new OverflowPage();
     }
   },
@@ -264,13 +264,13 @@ public enum PageKind {
     }
 
     @Override
-    Page deserializePage(DataInput source, @Nonnull PageReadTrx pageReadTrx,
+    Page deserializePage(DataInput source, @Nonnull PageReadOnlyTrx pageReadTrx,
         @Nonnull SerializationType type) throws IOException {
       return new PathPage(source, type);
     }
 
     @Override
-    public @Nonnull Page getInstance(Page page, @Nonnull PageReadTrx pageReadTrx) {
+    public @Nonnull Page getInstance(Page page, @Nonnull PageReadOnlyTrx pageReadTrx) {
       return new PathPage();
     }
   };
@@ -327,10 +327,10 @@ public enum PageKind {
    * Deserialize page.
    *
    * @param source {@link DataInput} instance
-   * @param pageReadTrx implementing {@link PageReadTrx} instance
+   * @param pageReadTrx implementing {@link PageReadOnlyTrx} instance
    * @return page instance implementing the {@link Page} interface
    */
-  abstract Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+  abstract Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
       final SerializationType type) throws IOException;
 
   /**
@@ -365,8 +365,8 @@ public enum PageKind {
    * New page instance.
    *
    * @param page instance of class which implements {@link Page}
-   * @param pageReadTrx instance of class which implements {@link PageReadTrx}
+   * @param pageReadTrx instance of class which implements {@link PageReadOnlyTrx}
    * @return new page instance
    */
-  public abstract @Nonnull Page getInstance(final Page page, final PageReadTrx pageReadTrx);
+  public abstract @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx);
 }

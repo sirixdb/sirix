@@ -38,8 +38,8 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
@@ -69,7 +69,7 @@ import org.sirix.utils.NamePageHash;
  * <h1>PageWriteTrx</h1>
  *
  * <p>
- * Implements the {@link PageWriteTrx} interface to provide write capabilities to the persistent
+ * Implements the {@link PageTrx} interface to provide write capabilities to the persistent
  * storage layer.
  * </p>
  *
@@ -77,8 +77,8 @@ import org.sirix.utils.NamePageHash;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
-    implements PageWriteTrx<Long, Record, UnorderedKeyValuePage> {
+final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
+    implements PageTrx<Long, Record, UnorderedKeyValuePage> {
 
   /** Page writer to serialize. */
   private final Writer mPageWriter;
@@ -118,7 +118,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
-  PageWriteTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
+  PageTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx,
       final IndexController<?, ?> indexController, final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
@@ -498,17 +498,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  protected PageReadTrx delegate() {
+  protected PageReadOnlyTrx delegate() {
     return mPageRtx;
   }
 
   @Override
-  public PageReadTrx getPageReadTrx() {
+  public PageReadOnlyTrx getPageReadTrx() {
     return mPageRtx;
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(final PageReference reference,
+  public PageTrx<Long, Record, UnorderedKeyValuePage> appendLogRecord(final PageReference reference,
       final PageContainer pageContainer) {
     checkNotNull(pageContainer);
     mLog.put(reference, pageContainer);
@@ -522,7 +522,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> truncateTo(final int revision) {
+  public PageTrx<Long, Record, UnorderedKeyValuePage> truncateTo(final int revision) {
     mPageWriter.truncateTo(revision);
     return this;
   }

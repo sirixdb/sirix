@@ -45,8 +45,8 @@ public final class AllTimeAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    try (final NodeReadTrx firstReader = holder.getResourceManager().beginReadOnlyTrx(1);
-        final NodeReadTrx secondReader = holder.getResourceManager().beginReadOnlyTrx(2);
+    try (final NodeReadTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final NodeReadTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
         final NodeReadTrx thirdReader = holder.getNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(firstReader, secondReader, thirdReader), null) {
@@ -74,10 +74,10 @@ public final class AllTimeAxisTest {
       wtx.commit();
     }
 
-    try (final NodeReadTrx firstReader = holder.getResourceManager().beginReadOnlyTrx(1);
-        final NodeReadTrx secondReader = holder.getResourceManager().beginReadOnlyTrx(2);
-        final NodeReadTrx thirdReader = holder.getResourceManager().beginReadOnlyTrx(3);
-        final NodeReadTrx fourthReader = holder.getResourceManager().beginReadOnlyTrx(4)) {
+    try (final NodeReadTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final NodeReadTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+        final NodeReadTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final NodeReadTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);

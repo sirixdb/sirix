@@ -95,7 +95,7 @@ public final class Import extends AbstractFunction {
 
         try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
             final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
-            final XdmNodeReadOnlyTrx rtx = resourceNew.beginReadOnlyTrx();
+            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);
         }
@@ -103,7 +103,7 @@ public final class Import extends AbstractFunction {
         throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
       }
     } finally {
-      trx = doc.getTrx().getResourceManager().beginReadOnlyTrx();
+      trx = doc.getTrx().getResourceManager().beginNodeReadOnlyTrx();
       doc.getTrx().close();
     }
 

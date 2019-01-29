@@ -1,6 +1,6 @@
 package org.sirix.index.path.xdm;
 
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.path.PathIndexBuilderFactory;
 import org.sirix.index.path.PathIndexListenerFactory;
@@ -20,14 +20,14 @@ public final class XdmPathIndexImpl implements XdmPathIndex {
   }
 
   @Override
-  public XdmPathIndexBuilder createBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XdmPathIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var builderDelegate = mPathIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XdmPathIndexBuilder(builderDelegate);
   }
 
   @Override
-  public XdmPathIndexListener createListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XdmPathIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var listenerDelegate = mPathIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XdmPathIndexListener(listenerDelegate);

@@ -4,8 +4,8 @@ import java.util.Iterator;
 import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.Filter;
 import org.sirix.index.IndexDef;
@@ -21,11 +21,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  B createBuilder(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
 
-  L createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
+  L createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(PageReadTrx pageRtx, IndexDef indexDef, NameFilter filter) {
+  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
     final AVLTreeReader<QNm, NodeReferences> reader =
         AVLTreeReader.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
 

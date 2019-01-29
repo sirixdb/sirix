@@ -7,8 +7,8 @@ import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexFilterAxis;
@@ -25,13 +25,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadTrx & NodeCursor> {
-  B createBuilder(R rtx, PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  B createBuilder(R rtx, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  L createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+  L createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(PageReadTrx pageReadTrx, IndexDef indexDef, CASFilterRange filter) {
+  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilterRange filter) {
     final AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
@@ -41,7 +41,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadTrx & N
     return new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter));
   }
 
-  default Iterator<NodeReferences> openIndex(PageReadTrx pageReadTrx, IndexDef indexDef, CASFilter filter) {
+  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageReadTrx, IndexDef indexDef, CASFilter filter) {
     final AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 

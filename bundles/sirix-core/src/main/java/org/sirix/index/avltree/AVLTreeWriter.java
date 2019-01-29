@@ -7,7 +7,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -44,16 +44,16 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   /** {@link AVLTreeReader} instance. */
   private final AVLTreeReader<K, V> mAVLTreeReader;
 
-  /** {@link PageWriteTrx} instance. */
-  private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  /** {@link PageTrx} instance. */
+  private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   /**
    * Private constructor.
    *
-   * @param pageWriteTrx {@link PageWriteTrx} for persistent storage
+   * @param pageWriteTrx {@link PageTrx} for persistent storage
    * @param type type of index
    */
-  private AVLTreeWriter(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type,
+  private AVLTreeWriter(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type,
       final @Nonnegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageWriteTrx.getActualRevisionRootPage();
@@ -93,13 +93,13 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   /**
    * Get a new instance.
    *
-   * @param pageWriteTrx {@link PageWriteTrx} for persistent storage
+   * @param pageWriteTrx {@link PageTrx} for persistent storage
    * @param type type of index
    * @param index the index number
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeWriter<K, V> getInstance(
-      final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type, final int index) {
+      final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final IndexType type, final int index) {
     return new AVLTreeWriter<K, V>(pageWriteTrx, type, index);
   }
 

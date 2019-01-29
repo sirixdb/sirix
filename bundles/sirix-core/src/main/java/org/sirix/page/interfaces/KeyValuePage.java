@@ -5,7 +5,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -80,14 +80,14 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-      @Nonnull PageKind pageKind, long previousPageRefKey, @Nonnull PageReadTrx pageReadTrx);
+      @Nonnull PageKind pageKind, long previousPageRefKey, @Nonnull PageReadOnlyTrx pageReadTrx);
 
   /**
-   * Get the {@link PageReadTrx}.
+   * Get the {@link PageReadOnlyTrx}.
    *
    * @return page reading transaction
    */
-  PageReadTrx getPageReadTrx();
+  PageReadOnlyTrx getPageReadTrx();
 
   /**
    * Get the page kind.

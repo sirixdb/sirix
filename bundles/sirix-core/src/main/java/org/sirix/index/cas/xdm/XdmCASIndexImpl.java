@@ -1,6 +1,6 @@
 package org.sirix.index.cas.xdm;
 
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.cas.CASIndexBuilderFactory;
@@ -22,14 +22,14 @@ public final class XdmCASIndexImpl implements XdmCASIndex {
 
   @Override
   public XdmCASIndexBuilder createBuilder(XdmNodeReadOnlyTrx rtx,
-      PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
+      PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
     final var indexBuilderDelegate = mCASIndexBuilderFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XdmCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public XdmCASIndexListener createListener(PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XdmCASIndexListener createListener(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
     final var indexListenerDelegate = mCASIndexListenerFactory.create(pageWriteTrx, pathSummaryReader, indexDef);
     return new XdmCASIndexListener(indexListenerDelegate);

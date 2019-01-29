@@ -26,7 +26,7 @@ import org.sirix.page.interfaces.KeyValuePage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageReadTrx extends AutoCloseable {
+public interface PageReadOnlyTrx extends AutoCloseable {
 
   /**
    * Get {@link UberPage}.

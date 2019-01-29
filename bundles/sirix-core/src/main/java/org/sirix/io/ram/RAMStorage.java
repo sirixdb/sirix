@@ -4,7 +4,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nullable;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
@@ -104,7 +104,7 @@ public final class RAMStorage implements Storage {
     }
 
     @Override
-    public Page read(PageReference reference, @Nullable PageReadTrx pageReadTrx) {
+    public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
       return mResourceFileStorage.get(reference.getKey());
     }
 
@@ -161,7 +161,7 @@ public final class RAMStorage implements Storage {
     }
 
     @Override
-    public RevisionRootPage readRevisionRootPage(int revision, PageReadTrx pageReadTrx) {
+    public RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx) {
       return mResourceRevisionRootsStorage.get(revision);
     }
   }

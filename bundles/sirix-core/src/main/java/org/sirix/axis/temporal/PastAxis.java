@@ -59,7 +59,7 @@ public final class PastAxis<R extends NodeReadTrx> extends AbstractTemporalAxis<
   @Override
   protected R computeNext() {
     if (mRevision > 0) {
-      mRtx = (R) mResourceManager.beginReadOnlyTrx(mRevision--);
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mRevision--);
       return mRtx.moveTo(mNodeKey).hasMoved()
           ? mRtx
           : endOfData();

@@ -31,7 +31,7 @@ import org.sirix.access.trx.node.Moved;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -131,7 +131,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
    * @return The page reading transaction.
    */
   @Override
-  PageReadTrx getPageTrx();
+  PageReadOnlyTrx getPageTrx();
 
   /** String constants used by XPath. */
   String[] XPATHCONSTANTS = {"xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped",

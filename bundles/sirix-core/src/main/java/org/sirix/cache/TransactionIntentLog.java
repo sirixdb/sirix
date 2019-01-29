@@ -6,7 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.PageReference;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -89,7 +89,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return the value associated to this key, or {@code null} if no value with this key exists in
    *         the cache
    */
-  public PageContainer get(final PageReference key, final PageReadTrx pageRtx) {
+  public PageContainer get(final PageReference key, final PageReadOnlyTrx pageRtx) {
     PageContainer value = mMap.get(key);
     if (value == null) {
       if (key.getLogKey() != Constants.NULL_ID_INT) {

@@ -34,8 +34,8 @@ import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.Database;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -85,13 +85,13 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
   }
 
   @Override
-  public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
+  public JsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
   }
 
   @Override
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-      PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
+      PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadTrx =

@@ -5,7 +5,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.SirixDeweyID;
 
 /**
@@ -21,13 +21,13 @@ public interface RecordPersister {
    * @param source input source
    * @param recordID the unique recordID
    * @param deweyID optional deweyID of the record
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @return a {@link Record} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during deserialization
    */
   @Nonnull
-  Record deserialize(DataInput source, @Nonnegative long recordID, SirixDeweyID deweyID, PageReadTrx pageReadTrx)
+  Record deserialize(DataInput source, @Nonnegative long recordID, SirixDeweyID deweyID, PageReadOnlyTrx pageReadTrx)
       throws IOException;
 
   /**
@@ -35,9 +35,9 @@ public interface RecordPersister {
    *
    * @param sink where the data should be serialized to
    * @param record the record to serialize
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    * @throws IOException if an I/O error occurs during serialization
    */
-  void serialize(DataOutput sink, Record record, PageReadTrx pageReadTrx) throws IOException;
+  void serialize(DataOutput sink, Record record, PageReadOnlyTrx pageReadTrx) throws IOException;
 }

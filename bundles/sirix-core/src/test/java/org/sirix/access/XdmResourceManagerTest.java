@@ -125,14 +125,14 @@ public class XdmResourceManagerTest {
     }
 
     try {
-      rtx = holder.getResourceManager().beginReadOnlyTrx(Constants.UBP_ROOT_REVISION_NUMBER);
+      rtx = holder.getResourceManager().beginNodeReadOnlyTrx(Constants.UBP_ROOT_REVISION_NUMBER);
 
       assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
     } finally {
       rtx.close();
     }
 
-    try (final XdmNodeReadOnlyTrx rtx2 = holder.getResourceManager().beginReadOnlyTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx2 = holder.getResourceManager().beginNodeReadOnlyTrx()) {
       assertEquals(1L, rtx2.getRevisionNumber());
     }
   }
@@ -145,7 +145,7 @@ public class XdmResourceManagerTest {
       wtx.commit();
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
       assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
@@ -161,7 +161,7 @@ public class XdmResourceManagerTest {
       }
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx()) {
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
       assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
@@ -181,7 +181,7 @@ public class XdmResourceManagerTest {
     resource.close();
 
     final XdmResourceManager resource2 = database.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeReadOnlyTrx rtx1 = resource2.beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx1 = resource2.beginNodeReadOnlyTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
     assertEquals("bar", rtx1.getValue());
@@ -200,7 +200,7 @@ public class XdmResourceManagerTest {
 
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     final XdmResourceManager resource3 = database2.getResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeReadOnlyTrx rtx2 = resource3.beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx rtx2 = resource3.beginNodeReadOnlyTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
     assertEquals("bar2", rtx2.getValue());
@@ -217,7 +217,7 @@ public class XdmResourceManagerTest {
     wtx.close();
     wtx.close();
 
-    final NodeReadTrx rtx = holder.getResourceManager().beginReadOnlyTrx();
+    final NodeReadTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(false, rtx.moveTo(14L).hasMoved());
     rtx.close();
     rtx.close();

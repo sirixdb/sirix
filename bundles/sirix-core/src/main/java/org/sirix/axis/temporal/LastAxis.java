@@ -42,7 +42,7 @@ public final class LastAxis<R extends NodeReadTrx> extends AbstractTemporalAxis<
   protected R computeNext() {
     if (mFirst) {
       mFirst = false;
-      mRtx = (R) mResourceManager.beginReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
       return mRtx.moveTo(mNodeKey).hasMoved()
           ? mRtx
           : endOfData();

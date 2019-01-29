@@ -110,7 +110,7 @@ public final class DiffTestHelper {
     final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx(1);
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -123,7 +123,7 @@ public final class DiffTestHelper {
     final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginReadOnlyTrx(1);
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);

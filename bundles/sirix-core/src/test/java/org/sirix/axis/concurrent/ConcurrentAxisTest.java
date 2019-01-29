@@ -144,12 +144,12 @@ public final class ConcurrentAxisTest {
   public void testConcurrent() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginReadOnlyTrx();
-    final XdmNodeReadOnlyTrx secondConcurrRtx = holder.getResourceManager().beginReadOnlyTrx();
-    final XdmNodeReadOnlyTrx thirdConcurrRtx = holder.getResourceManager().beginReadOnlyTrx();
-    final XdmNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginReadOnlyTrx();
-    final XdmNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginReadOnlyTrx();
-    final XdmNodeReadOnlyTrx thirdRtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
@@ -177,7 +177,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis1() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
@@ -205,7 +205,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis2() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginReadOnlyTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(new NestedAxis(
         new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
             new NameFilter(firstConcurrRtx, "regions")),

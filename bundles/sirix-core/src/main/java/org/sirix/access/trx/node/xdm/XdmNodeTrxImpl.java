@@ -44,7 +44,7 @@ import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.Movement;
 import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.Axis;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
@@ -170,7 +170,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   private final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> mResourceManager;
 
   /** The page write trx. */
-  private PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   /** Collection holding pre-commit hooks. */
   private final List<PreCommitHook> mPreCommitHooks = new ArrayList<>();
@@ -183,7 +183,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    *
    * @param transactionID ID of transaction
    * @param resourceManager the {@link session} instance this transaction is bound to
-   * @param pageWriteTrx {@link PageWriteTrx} to interact with the page layer
+   * @param pageWriteTrx {@link PageTrx} to interact with the page layer
    * @param maxNodeCount maximum number of node modifications before auto commit
    * @param timeUnit unit of the number of the next param {@code pMaxTime}
    * @param maxTime maximum number of seconds before auto commit
@@ -207,7 +207,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     mPathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
 
     mIndexController = resourceManager.getWtxIndexController(mNodeReadTrx.getPageTrx().getRevisionNumber());
-    mPageWriteTrx = (PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadTrx.getPageTrx();
+    mPageWriteTrx = (PageTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadTrx.getPageTrx();
 
     mNodeFactory = Preconditions.checkNotNull(nodeFactory);
 
@@ -2375,7 +2375,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   private void copy(final XdmNodeReadOnlyTrx trx, final Insert insert) {
     assert trx != null;
     assert insert != null;
-    final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginReadOnlyTrx(trx.getRevisionNumber());
+    final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadOnlyTrx(trx.getRevisionNumber());
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();
@@ -2734,7 +2734,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
+  public PageTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
     mNodeReadTrx.assertNotClosed();
     return mPageWriteTrx;
   }

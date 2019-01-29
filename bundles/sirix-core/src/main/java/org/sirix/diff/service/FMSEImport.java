@@ -101,7 +101,7 @@ public final class FMSEImport {
           final var wtx = resMgrOld.beginNodeTrx();
           final var databaseNew = Databases.openXdmDatabase(newRevTarget);
           final var resourceNew = databaseNew.getResourceManager("shredded");
-          final var rtx = resourceNew.beginReadOnlyTrx();
+          final var rtx = resourceNew.beginNodeReadOnlyTrx();
           final var fmes = new FMSE()) {
         fmes.diff(wtx, rtx);
       }

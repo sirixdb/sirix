@@ -26,8 +26,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
@@ -213,7 +213,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Create revision tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param revisionRoot {@link RevisionRootPage} instance
    */
   public void createRevisionTree(final TransactionIntentLog log) {
@@ -327,12 +327,12 @@ public final class UberPage extends AbstractForwardingPage {
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final PageTrx<K, V, S> pageWriteTrx) {
     mDelegate.commit(pageWriteTrx);
   }
 
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final String commitMessage, final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final String commitMessage, final PageTrx<K, V, S> pageWriteTrx) {
     pageWriteTrx.getActualRevisionRootPage().setCommitMessage(commitMessage);
     mDelegate.commit(pageWriteTrx);
   }

@@ -212,7 +212,7 @@ public final class LevelOrderAxis extends AbstractAxis {
     }
 
     // Then follow first child if there is one.
-    if (asXdmNodeReadTrx().hasFirstChild()) {
+    if (cursor.hasFirstChild()) {
       mLevel++;
 
       // End traversal if level is reached.
@@ -220,7 +220,7 @@ public final class LevelOrderAxis extends AbstractAxis {
         return done();
       }
 
-      return asXdmNodeReadTrx().getFirstChildKey();
+      return cursor.getFirstChildKey();
     }
 
     return done();

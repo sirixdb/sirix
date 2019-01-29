@@ -8,7 +8,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
@@ -61,7 +61,7 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public PageReadTrx getPageTrx() {
+  public PageReadOnlyTrx getPageTrx() {
     return delegate().getPageTrx();
   }
 

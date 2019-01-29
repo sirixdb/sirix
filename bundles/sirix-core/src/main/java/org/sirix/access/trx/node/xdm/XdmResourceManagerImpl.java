@@ -34,8 +34,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.api.Database;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -85,13 +85,13 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   }
 
   @Override
-  public XdmNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadTrx pageReadTrx, Node documentNode) {
+  public XdmNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
     return new XdmNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXdmNode) documentNode);
   }
 
   @Override
   public XdmNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-      PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
+      PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     // The node read-only transaction.
     final InternalXdmNodeReadTrx nodeReadTrx =

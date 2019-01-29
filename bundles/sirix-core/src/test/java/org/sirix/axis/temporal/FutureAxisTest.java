@@ -46,8 +46,8 @@ public final class FutureAxisTest {
 
   @Test
   public void testFutureOrSelfAxis() throws SirixException {
-    final NodeReadTrx firstRtx = holder.getResourceManager().beginReadOnlyTrx(1);
-    final NodeReadTrx secondRtx = holder.getResourceManager().beginReadOnlyTrx(2);
+    final NodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final NodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final NodeReadTrx thirdRtx = holder.getNodeReadTrx();
 
     new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
@@ -61,8 +61,8 @@ public final class FutureAxisTest {
 
   @Test
   public void testFutureAxis() throws SirixException {
-    final NodeReadTrx firstRtx = holder.getResourceManager().beginReadOnlyTrx(1);
-    final NodeReadTrx secondRtx = holder.getResourceManager().beginReadOnlyTrx(2);
+    final NodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final NodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final NodeReadTrx thirdRtx = holder.getNodeReadTrx();
 
     new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, thirdRtx),
@@ -90,8 +90,8 @@ public final class FutureAxisTest {
       wtx.commit();
     }
 
-    try (final NodeReadTrx thirdReader = holder.getResourceManager().beginReadOnlyTrx(3);
-        final NodeReadTrx fourthReader = holder.getResourceManager().beginReadOnlyTrx(4)) {
+    try (final NodeReadTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final NodeReadTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 

@@ -25,7 +25,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -47,7 +47,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final PageTrx<K, V, S> pageWriteTrx) {
     delegate().commit(checkNotNull(pageWriteTrx));
   }
 
