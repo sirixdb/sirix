@@ -48,7 +48,6 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.node.Kind;
 import org.sirix.service.AbstractSerializer;
 import org.sirix.service.xml.serialize.XmlSerializerProperties;
 import org.sirix.settings.Constants;
@@ -168,9 +167,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
-    final boolean hasMoved = rtx.moveToNext().hasMoved();
+    final boolean hasRightSibling = rtx.hasRightSibling();
 
-    if (hasMoved && (rtx.isNullValue() || rtx.isNumberValue() || rtx.isStringValue() || rtx.isBooleanValue()))
+    if (hasRightSibling)
       mOut.write(",");
   }
 
@@ -189,11 +188,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case JSON_OBJECT:
           mOut.write("}");
-          if (rtx.hasRightSibling() && rtx.getRightSiblingKind() == Kind.JSON_OBJECT)
+          if (rtx.hasRightSibling())
             mOut.write(",");
           break;
         case JSON_OBJECT_KEY:
-          if (rtx.hasRightSibling() && rtx.getRightSiblingKind() == Kind.JSON_OBJECT_KEY)
+          if (rtx.hasRightSibling())
             mOut.write(",");
           break;
         // $CASES-OMITTED$
