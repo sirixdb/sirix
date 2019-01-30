@@ -23,10 +23,10 @@ package org.sirix.service.json.serialize;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_ID;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT_SPACES;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_REST;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -48,14 +48,16 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.service.xml.serialize.XMLSerializerProperties;
+import org.sirix.node.Kind;
+import org.sirix.service.AbstractSerializer;
+import org.sirix.service.xml.serialize.XmlSerializerProperties;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLSerializer</h1>
+ * <h1>JsonSerializer</h1>
  *
  * <p>
  * Most efficient way to serialize a subtree into an OutputStream. The encoding always is UTF-8.
@@ -145,18 +147,22 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case JSON_BOOLEAN_VALUE:
           indent();
           mOut.write(Boolean.valueOf(rtx.getValue()).toString());
+          printCommaIfNeeded(rtx);
           break;
         case JSON_NULL_VALUE:
           indent();
           mOut.write("null");
+          printCommaIfNeeded(rtx);
           break;
         case JSON_NUMBER_VALUE:
           indent();
-          mOut.write(rtx.getValue().toString());
+          mOut.write(rtx.getValue());
+          printCommaIfNeeded(rtx);
           break;
         case JSON_STRING_VALUE:
           indent();
-          mOut.write(rtx.getValue().toString());
+          mOut.write("\"" + rtx.getValue() + "\"");
+          printCommaIfNeeded(rtx);
           break;
         // $CASES-OMITTED$
         default:
@@ -165,6 +171,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
+  }
+
+  private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    final boolean hasMoved = rtx.moveToNext().hasMoved();
+
+    if (hasMoved && (rtx.isNullValue() || rtx.isNumberValue() || rtx.isStringValue() || rtx.isBooleanValue()))
+      mOut.write(",");
   }
 
   /**
@@ -182,6 +195,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case JSON_OBJECT:
           mOut.write("}");
+          break;
+        case JSON_OBJECT_KEY:
+          if (rtx.hasRightSibling() && rtx.getRightSiblingKind() == Kind.JSON_OBJECT_KEY)
+            mOut.write(",");
           break;
         // $CASES-OMITTED$
         default:
@@ -364,7 +381,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param resMgr Sirix {@link ResourceManager}
    * @param nodeKey root node key of subtree to shredder
    * @param stream {@link OutputStream} to write to
-   * @param properties {@link XMLSerializerProperties} to use
+   * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
   public static JsonSerializerBuilder newBuilder(final JsonResourceManager resMgr, final @Nonnegative long nodeKey,
@@ -450,7 +467,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param resourceMgr Sirix {@link ResourceManager}
      * @param nodeKey root node key of subtree to shredder
      * @param stream {@link OutputStream} to write to
-     * @param properties {@link XMLSerializerProperties} to use
+     * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
     public JsonSerializerBuilder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,

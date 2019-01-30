@@ -66,10 +66,10 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class XMLShredder extends AbstractShredder implements Callable<Long> {
+public final class XmlShredder extends AbstractShredder implements Callable<Long> {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlShredder.class));
 
   /** {@link XdmNodeTrx}. */
   protected final XdmNodeTrx mWtx;
@@ -90,7 +90,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
   private boolean mIncludePIs;
 
   /**
-   * Builder to build an {@link XMLShredder} instance.
+   * Builder to build an {@link XmlShredder} instance.
    */
   public static class Builder {
 
@@ -162,10 +162,10 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
     /**
      * Build an instance.
      *
-     * @return {@link XMLShredder} instance
+     * @return {@link XmlShredder} instance
      */
-    public XMLShredder build() {
-      return new XMLShredder(this);
+    public XmlShredder build() {
+      return new XmlShredder(this);
     }
   }
 
@@ -174,7 +174,7 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
    *
    * @param builder builder reference
    */
-  private XMLShredder(final Builder builder) {
+  private XmlShredder(final Builder builder) {
     super(builder.mWtx, builder.mInsert);
     mWtx = builder.mWtx;
     mReader = builder.mReader;
@@ -325,8 +325,8 @@ public final class XMLShredder extends AbstractShredder implements Callable<Long
         final boolean includeCoPI = args.length == 3
             ? Boolean.parseBoolean(args[2])
             : false;
-        final XMLShredder shredder =
-            new XMLShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD).commitAfterwards()
+        final XmlShredder shredder =
+            new XmlShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD).commitAfterwards()
                                                                      .includeComments(includeCoPI)
                                                                      .includePIs(includeCoPI)
                                                                      .build();

@@ -24,10 +24,10 @@ import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.service.xml.shredder.Insert;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Test the FMSE implementation.
@@ -238,7 +238,7 @@ public final class FMSETest extends XMLTestCase {
             first = false;
             try (final XdmNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
-              final XMLShredder shredder = new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis),
+              final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
                   Insert.ASFIRSTCHILD).commitAfterwards().build();
               shredder.call();
             }
@@ -251,7 +251,7 @@ public final class FMSETest extends XMLTestCase {
           resource = database.getResourceManager(XdmTestHelper.RESOURCE);
 
           final OutputStream out = new ByteArrayOutputStream();
-          final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
+          final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
           serializer.call();
           final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
 

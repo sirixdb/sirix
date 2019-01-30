@@ -23,9 +23,9 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.settings.Fixed;
+import org.sirix.utils.Pair;
 
 /**
  * <h1>DescendantAxis</h1>
@@ -35,20 +35,23 @@ import org.sirix.settings.Fixed;
  * might not be included.
  * </p>
  */
-public final class DescendantAxis extends AbstractAxis {
+public final class JsonDescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+  private Deque<Pair<Long, Integer>> mRightSiblingKeyStack;
 
   /** Determines if it's the first call to hasNext(). */
   private boolean mFirst;
+
+  /** The current depth, starts with zero. */
+  private int mDepth;
 
   /**
    * Constructor initializing internal state.
    *
    * @param cursor cursor to iterate with
    */
-  public DescendantAxis(final NodeCursor cursor) {
+  public JsonDescendantAxis(final NodeCursor cursor) {
     super(cursor);
   }
 
@@ -58,7 +61,7 @@ public final class DescendantAxis extends AbstractAxis {
    * @param cursor cursor to iterate with
    * @param includeSelf determines if current node is included or not
    */
-  public DescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
+  public JsonDescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
     super(cursor, includeSelf);
   }
 
@@ -83,6 +86,7 @@ public final class DescendantAxis extends AbstractAxis {
         key = cursor.getNodeKey();
       } else {
         key = cursor.getFirstChildKey();
+        mDepth++;
       }
 
       return key;
@@ -92,43 +96,32 @@ public final class DescendantAxis extends AbstractAxis {
     if (cursor.hasFirstChild()) {
       key = cursor.getFirstChildKey();
       if (cursor.hasRightSibling()) {
-        mRightSiblingKeyStack.push(cursor.getRightSiblingKey());
+        mRightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), mDepth));
       }
+      mDepth++;
       return key;
     }
 
     // Then follow right sibling if there is one.
     if (cursor.hasRightSibling()) {
-      final long currKey = cursor.getNodeKey();
       key = cursor.getRightSiblingKey();
-      return hasNextNode(key, currKey);
+
+      if (mDepth == 0)
+        return done();
+      return key;
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
-      final long currKey = cursor.getNodeKey();
-      key = mRightSiblingKeyStack.pop();
-      return hasNextNode(key, currKey);
+      final var pair = mRightSiblingKeyStack.pop();
+      key = pair.getFirst();
+      mDepth = pair.getSecond();
+
+      if (mDepth == 0)
+        return done();
+      return key;
     }
 
     return done();
-  }
-
-  /**
-   * Determines if the subtree-traversal is finished.
-   *
-   * @param key next key
-   * @param currKey current node key
-   * @return {@code false} if finished, {@code true} if not
-   */
-  private long hasNextNode(@Nonnegative final long key, final @Nonnegative long currKey) {
-    final NodeCursor cursor = getCursor();
-    cursor.moveTo(key);
-    if (cursor.getLeftSiblingKey() == getStartKey()) {
-      return done();
-    } else {
-      cursor.moveTo(currKey);
-      return key;
-    }
   }
 }

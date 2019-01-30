@@ -31,11 +31,11 @@ import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
 import org.sirix.utils.XdmDocumentCreator;
 
-public class XMLSerializerTest {
+public class XmlSerializerTest {
 
   @Before
   public void setUp() throws SirixException {
@@ -57,7 +57,7 @@ public class XMLSerializerTest {
       wtx.commit();
 
       // Generate from this session.
-      final XMLSerializer serializer = new XMLSerializerBuilder(manager, out).prettyPrint().withInitialIndent().build();
+      final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).prettyPrint().withInitialIndent().build();
       serializer.call();
 
       System.out.println(out.toString(Constants.DEFAULT_ENCODING.toString()));
@@ -76,7 +76,7 @@ public class XMLSerializerTest {
       wtx.commit();
 
       // Generate from this session.
-      final XMLSerializer serializer = new XMLSerializerBuilder(manager, out).emitXMLDeclaration().build();
+      final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).emitXMLDeclaration().build();
       serializer.call();
       assertEquals(XdmDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
@@ -93,7 +93,7 @@ public class XMLSerializerTest {
       wtx.close();
 
       // Generate from this session.
-      final XMLSerializer serializer = XMLSerializer.newBuilder(manager, out)
+      final XmlSerializer serializer = XmlSerializer.newBuilder(manager, out)
                                                     .emitRESTful()
                                                     .emitRESTSequence()
                                                     .emitIDs()
@@ -116,7 +116,7 @@ public class XMLSerializerTest {
       wtx.close();
 
       // Generate from this session.
-      final XMLSerializer serializer = new XMLSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
+      final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
       serializer.call();
       assertEquals(XdmDocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
@@ -132,14 +132,14 @@ public class XMLSerializerTest {
       // generate serialize all from this session
       XdmDocumentCreator.createVersioned(wtx);
 
-      XMLSerializer serializerall =
-          new XMLSerializerBuilder(manager, out, -1).emitXMLDeclaration().serializeTimestamp(false).build();
+      XmlSerializer serializerall =
+          new XmlSerializerBuilder(manager, out, -1).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
       assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
       out.reset();
 
       serializerall =
-          new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
+          new XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
       assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString());
     }
@@ -160,8 +160,8 @@ public class XMLSerializerTest {
       XdmDocumentCreator.createVersioned(wtx);
       wtx.commit();
 
-      XMLSerializer serializerall =
-          new XMLSerializerBuilder(manager, 5l, out, new XMLSerializerProperties()).emitXMLDeclaration().build();
+      XmlSerializer serializerall =
+          new XmlSerializerBuilder(manager, 5l, out, new XmlSerializerProperties()).emitXMLDeclaration().build();
       serializerall.call();
       final String result = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
 
@@ -169,7 +169,7 @@ public class XMLSerializerTest {
       out.reset();
 
       serializerall =
-          new XMLSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
+          new XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
       assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }

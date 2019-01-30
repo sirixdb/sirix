@@ -23,6 +23,7 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ArrayNode;
+import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectKeyNode;
@@ -92,10 +93,23 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public String getValue() {
     assertNotClosed();
     final String returnVal;
-    if (mCurrentNode instanceof ValueNode) {
-      returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
-    } else {
-      returnVal = "";
+    switch (mCurrentNode.getKind()) {
+      case JSON_STRING_VALUE:
+        returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+        break;
+      case JSON_BOOLEAN_VALUE:
+        returnVal = String.valueOf(((BooleanNode) mCurrentNode).getValue());
+        break;
+      case JSON_NULL_VALUE:
+        returnVal = "null";
+        break;
+      case JSON_NUMBER_VALUE:
+        returnVal = String.valueOf(((NumberNode) mCurrentNode).getValue());
+        break;
+      // $CASES-OMITTED$
+      default:
+        returnVal = "";
+        break;
     }
     return returnVal;
   }
@@ -114,34 +128,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
-  public Move<? extends JsonNodeReadOnlyTrx> moveToLeftSibling() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Move<? extends JsonNodeReadOnlyTrx> moveToPrevious() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public boolean hasLeftSibling() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public long getLeftSiblingKey() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public ImmutableNode getNode() {
     assertNotClosed();
     return mCurrentNode;
-  }
-
-  @Override
-  public Kind getLeftSiblingKind() {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -181,6 +170,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   }
 
   @Override
+  public boolean isBooleanValue() {
+    assertNotClosed();
+    return mCurrentNode instanceof BooleanNode;
+  }
+
+  @Override
   public void close() {
     if (!mIsClosed) {
       // Callback on session to make sure everything is cleaned up.
@@ -213,7 +208,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.XDM_DOCUMENT;
+    return mCurrentNode.getKind() == Kind.JSON_DOCUMENT;
   }
 
   @Override

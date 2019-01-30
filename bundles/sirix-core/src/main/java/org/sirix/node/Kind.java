@@ -133,7 +133,7 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final ElementNode node = (ElementNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStrucDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       sink.writeInt(node.getAttributeCount());
       for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
@@ -297,7 +297,7 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final PINode node = (PINode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStrucDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
     }
@@ -528,7 +528,7 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final PathNode node = (PathNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStrucDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
@@ -804,7 +804,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final StructNodeDelegate structDel = deserializeJsonStructDel(nodeDel, source);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new ObjectNode(structDel);
@@ -815,7 +815,7 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final ObjectNode node = (ObjectNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeJsonStructDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -842,7 +842,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final StructNodeDelegate structDel = deserializeJsonStructDel(nodeDel, source);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new ArrayNode(structDel, pathNodeKey);
@@ -854,7 +854,7 @@ public enum Kind implements NodePersistenter {
       final ArrayNode node = (ArrayNode) record;
       sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeJsonStructDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -881,7 +881,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final StructNodeDelegate structDel = deserializeJsonStructDel(nodeDel, source);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       final String name = nameKey == -1
           ? ""
@@ -898,7 +898,7 @@ public enum Kind implements NodePersistenter {
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeJsonStructDelegate(node.getStructNodeDelegate(), sink);
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -931,9 +931,7 @@ public enum Kind implements NodePersistenter {
       final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals, isCompressed);
 
       // Struct delegate.
-      final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new StringNode(valDel, structDel);
@@ -945,10 +943,7 @@ public enum Kind implements NodePersistenter {
       final StringNode node = (StringNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
-      final StructNodeDelegate del = node.getStructNodeDelegate();
-      final long nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - del.getRightSiblingKey());
-      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -974,9 +969,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new BooleanNode(boolValue, structDel);
@@ -988,10 +981,7 @@ public enum Kind implements NodePersistenter {
       final BooleanNode node = (BooleanNode) record;
       sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
-      final StructNodeDelegate del = node.getStructNodeDelegate();
-      final long nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - del.getRightSiblingKey());
-      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -1017,9 +1007,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new NumberNode(doubleValue, structDel);
@@ -1031,10 +1019,7 @@ public enum Kind implements NodePersistenter {
       final NumberNode node = (NumberNode) record;
       sink.writeDouble(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
-      final StructNodeDelegate del = node.getStructNodeDelegate();
-      final long nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - del.getRightSiblingKey());
-      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -1058,9 +1043,7 @@ public enum Kind implements NodePersistenter {
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
       // Struct delegate.
-      final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
-          nodeKey - getVarLong(source), nodeKey - getVarLong(source), 0L, 0L);
+      final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
       return new NullNode(structDel);
@@ -1071,10 +1054,7 @@ public enum Kind implements NodePersistenter {
         throws IOException {
       final NullNode node = (NullNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
-      final StructNodeDelegate del = node.getStructNodeDelegate();
-      final long nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - del.getRightSiblingKey());
-      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+      serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
 
     @Override
@@ -1345,7 +1325,7 @@ public enum Kind implements NodePersistenter {
    * @param nodeDel to be serialize
    * @param sink to serialize to
    */
-  private static final void serializeStrucDelegate(final StructNodeDelegate nodeDel, final DataOutput sink)
+  private static final void serializeStructDelegate(final StructNodeDelegate nodeDel, final DataOutput sink)
       throws IOException {
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
@@ -1370,38 +1350,6 @@ public enum Kind implements NodePersistenter {
     final long childCount = getVarLong(source);
     final long descendantCount = getVarLong(source) + childCount;
     return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl, childCount, descendantCount);
-  }
-
-  /**
-   * Serializing the {@link StructNodeDelegate} instance.
-   *
-   * @param nodeDel to be serialize
-   * @param sink to serialize to
-   */
-  private static final void serializeJsonStructDelegate(final StructNodeDelegate nodeDel, final DataOutput sink)
-      throws IOException {
-    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
-    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
-    putVarLong(sink, nodeDel.getChildCount());
-    putVarLong(sink, nodeDel.getDescendantCount() - nodeDel.getChildCount());
-  }
-
-  /**
-   * Deserialize struct delegate.
-   *
-   * @param nodeDel node delegate
-   * @param source input source
-   * @return {@link StructNodeDelegate} instance
-   */
-  private static final StructNodeDelegate deserializeJsonStructDel(final NodeDelegate nodeDel, final DataInput source)
-      throws IOException {
-    final long currKey = nodeDel.getNodeKey();
-    final long rightSibl = currKey - getVarLong(source);
-    final long firstChild = currKey - getVarLong(source);
-    final long childCount = getVarLong(source);
-    final long descendantCount = getVarLong(source) + childCount;
-    return new StructNodeDelegate(nodeDel, firstChild, rightSibl, Fixed.NULL_NODE_KEY.getStandardProperty(), childCount,
-        descendantCount);
   }
 
   /**

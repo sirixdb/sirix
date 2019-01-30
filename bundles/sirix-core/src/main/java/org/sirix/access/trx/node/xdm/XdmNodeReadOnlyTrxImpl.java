@@ -59,11 +59,11 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
 import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
@@ -80,7 +80,8 @@ import com.google.common.base.Objects;
  * revision.
  * </p>
  */
-public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeReadOnlyTrx> implements InternalXdmNodeReadTrx {
+public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeReadOnlyTrx>
+    implements InternalXdmNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
   protected final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> mResourceManager;
@@ -183,16 +184,6 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   public ImmutableValueNode getValueNode() {
     assertNotClosed();
     return (ImmutableValueNode) mCurrentNode;
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToLeftSibling() {
-    assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasLeftSibling()) {
-      return Move.notMoved();
-    }
-    return moveTo(node.getLeftSiblingKey());
   }
 
   @Override
@@ -315,12 +306,6 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public boolean hasLeftSibling() {
-    assertNotClosed();
-    return getStructuralNode().hasLeftSibling();
-  }
-
-  @Override
   protected XdmNodeReadOnlyTrx thisInstance() {
     return this;
   }
@@ -382,12 +367,6 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public long getLeftSiblingKey() {
-    assertNotClosed();
-    return getStructuralNode().getLeftSiblingKey();
-  }
-
-  @Override
   public long getAttributeKey(final @Nonnegative int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
@@ -437,19 +416,6 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
       return URI;
     }
     return null;
-  }
-
-  @Override
-  public Kind getLeftSiblingKind() {
-    assertNotClosed();
-    if (mCurrentNode instanceof StructNode && hasLeftSibling()) {
-      final long nodeKey = mCurrentNode.getNodeKey();
-      moveToLeftSibling();
-      final Kind leftSiblKind = mCurrentNode.getKind();
-      moveTo(nodeKey);
-      return leftSiblKind;
-    }
-    return Kind.UNKNOWN;
   }
 
   @Override
@@ -504,23 +470,6 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   public boolean hasNamespaces() {
     assertNotClosed();
     return mCurrentNode.getKind() == Kind.ELEMENT && ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
-  }
-
-  @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToPrevious() {
-    assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (node.hasLeftSibling()) {
-      // Left sibling node.
-      Move<? extends XdmNodeReadOnlyTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
-      // Now move down to rightmost descendant node if it has one.
-      while (leftSiblMove.get().hasFirstChild()) {
-        leftSiblMove = leftSiblMove.get().moveToLastChild();
-      }
-      return leftSiblMove;
-    }
-    // Parent node.
-    return moveTo(node.getParentKey());
   }
 
   @Override

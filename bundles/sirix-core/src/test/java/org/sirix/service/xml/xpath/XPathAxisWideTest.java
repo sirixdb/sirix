@@ -32,7 +32,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 public class XPathAxisWideTest {
 
@@ -42,7 +42,7 @@ public class XPathAxisWideTest {
   public void setUp() throws Exception {
     XdmTestHelper.deleteEverything();
     // Setup parsed session.
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
   }

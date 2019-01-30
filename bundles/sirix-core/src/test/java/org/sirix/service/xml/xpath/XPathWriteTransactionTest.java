@@ -35,7 +35,7 @@ import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Testcase for working with XPath and WriteTransactions
@@ -59,7 +59,7 @@ public final class XPathWriteTransactionTest {
   public void setUp() throws Exception {
     XdmTestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
     // Verify.
     database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());

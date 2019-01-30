@@ -23,6 +23,8 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
 
   public boolean isNullValue();
 
+  public boolean isBooleanValue();
+
   @Override
   Move<? extends JsonNodeReadOnlyTrx> moveTo(long nodeKey);
 

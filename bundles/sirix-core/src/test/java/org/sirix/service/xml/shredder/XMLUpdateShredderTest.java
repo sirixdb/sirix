@@ -43,8 +43,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 
 /**
  * Test XMLUpdateShredder.
@@ -227,14 +227,14 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
         try (final XdmNodeTrx wtx = manager.beginNodeTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
-            final XMLShredder shredder =
-                new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
+            final XmlShredder shredder =
+                new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                     .build();
             shredder.call();
             first = false;
           } else {
             @SuppressWarnings("deprecation")
-            final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, XMLShredder.createFileReader(fis),
+            final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, XmlShredder.createFileReader(fis),
                 Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
             shredder.call();
           }
@@ -243,7 +243,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
           i++;
 
           final OutputStream out = new ByteArrayOutputStream();
-          final XMLSerializer serializer = new XMLSerializerBuilder(manager, out).prettyPrint().build();
+          final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).prettyPrint().build();
           serializer.call();
           final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
 

@@ -47,7 +47,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -89,9 +89,9 @@ public final class DiffTest extends TestCase {
       database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE, config).build());
       try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
           final XdmNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
+        wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
-        wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader("<xml>foo<bar/></xml>"));
+        wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
       }
     }
 

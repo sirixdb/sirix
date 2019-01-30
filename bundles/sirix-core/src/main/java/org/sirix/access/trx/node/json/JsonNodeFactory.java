@@ -21,63 +21,72 @@ public interface JsonNodeFactory extends NodeFactory {
    * Create a {@link ArrayNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param pathNodeKey the path node key
    */
-  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, long rightSibKey, long pathNodeKey);
+  ArrayNode createJsonArrayNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey);
 
   /**
    * Create a {@link ObjectNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  ObjectNode createJsonObjectNode(@Nonnegative long parentKey, long rightSibKey);
+  ObjectNode createJsonObjectNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey);
 
   /**
    * Create a {@link ObjectKeyNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param pathNodeKey path node key of node
    * @param name the name of the key
    */
-  ObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, long rightSibKey, long pathNodeKey, String name);
+  ObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name);
 
   /**
    * Create a {@link StringNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param pathNodeKey path node key of node
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  StringNode createJsonStringNode(@Nonnegative long parentKey, long rightSibKey, byte[] value, boolean isCompressed);
+  StringNode createJsonStringNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, byte[] value,
+      boolean isCompressed);
 
   /**
    * Create a {@link BooleanNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param boolValue the boolean value
    */
-  BooleanNode createJsonBooleanNode(@Nonnegative long parentKey, long rightSibKey, boolean boolValue);
+  BooleanNode createJsonBooleanNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, boolean boolValue);
 
   /**
    * Create a {@link NumberNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param dblValue the number value
    */
-  NumberNode createJsonNumberNode(@Nonnegative long parentKey, long rightSibKey, double dblValue);
+  NumberNode createJsonNumberNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, double dblValue);
 
   /**
    * Create a {@link NullNode}.
    *
    * @param parentKey parent node key
+   * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    */
-  NullNode createJsonNullNode(@Nonnegative long parentKey, long rightSibKey);
+  NullNode createJsonNullNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey);
 }

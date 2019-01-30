@@ -8,7 +8,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.utils.XdmDocumentCreator;
 
 /**
@@ -37,8 +37,8 @@ public class PICommentTest {
   @Test
   public void testPI() throws SirixException {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final XMLSerializer serializer =
-        new XMLSerializer.XMLSerializerBuilder(mHolder.getResourceManager(),
+    final XmlSerializer serializer =
+        new XmlSerializer.XmlSerializerBuilder(mHolder.getResourceManager(),
             out).emitXMLDeclaration().build();
     serializer.call();
     Assert.assertEquals(XdmDocumentCreator.COMMENTPIXML, out.toString());

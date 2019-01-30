@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.json.JsonResourceStore;
+import org.sirix.access.xdm.XdmResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;

@@ -23,11 +23,11 @@ package org.sirix.service.xml.serialize;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_ID;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT_SPACES;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_REST;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_XMLDECL;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_XMLDECL;
 import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -48,6 +48,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
@@ -57,7 +58,7 @@ import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLSerializer</h1>
+ * <h1>XmlSerializer</h1>
  *
  * <p>
  * Most efficient way to serialize a subtree into an OutputStream. The encoding always is UTF-8.
@@ -65,10 +66,10 @@ import org.slf4j.LoggerFactory;
  * buffer it again outside of this class.
  * </p>
  */
-public final class XMLSerializer extends AbstractSerializer {
+public final class XmlSerializer extends org.sirix.service.AbstractSerializer<XdmNodeReadOnlyTrx, XdmNodeTrx> {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLSerializer.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlSerializer.class));
 
   /** Offset that must be added to digit to make it ASCII. */
   private static final int ASCII_OFFSET = 48;
@@ -116,8 +117,8 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XMLSerializer(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final XMLSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
+  private XmlSerializer(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+      final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
@@ -240,7 +241,7 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
   @Override
-  protected void emitEndTag(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
     try {
       indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
@@ -321,7 +322,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()
@@ -374,7 +375,7 @@ public final class XMLSerializer extends AbstractSerializer {
   }
 
   @Override
-  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()
@@ -469,7 +470,7 @@ public final class XMLSerializer extends AbstractSerializer {
 
       try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
-        final XMLSerializer serializer = XMLSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
+        final XmlSerializer serializer = XmlSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
       }
     }
@@ -484,9 +485,9 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final XdmResourceManager resMgr, final OutputStream stream,
+  public static XmlSerializerBuilder newBuilder(final XdmResourceManager resMgr, final OutputStream stream,
       final int... revisions) {
-    return new XMLSerializerBuilder(resMgr, stream, revisions);
+    return new XmlSerializerBuilder(resMgr, stream, revisions);
   }
 
   /**
@@ -495,18 +496,18 @@ public final class XMLSerializer extends AbstractSerializer {
    * @param resMgr Sirix {@link ResourceManager}
    * @param nodeKey root node key of subtree to shredder
    * @param stream {@link OutputStream} to write to
-   * @param properties {@link XMLSerializerProperties} to use
+   * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XMLSerializerBuilder newBuilder(final XdmResourceManager resMgr, final @Nonnegative long nodeKey,
-      final OutputStream stream, final XMLSerializerProperties properties, final int... revisions) {
-    return new XMLSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
+  public static XmlSerializerBuilder newBuilder(final XdmResourceManager resMgr, final @Nonnegative long nodeKey,
+      final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
+    return new XmlSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
 
   /**
    * XMLSerializerBuilder to setup the XMLSerializer.
    */
-  public static final class XMLSerializerBuilder {
+  public static final class XmlSerializerBuilder {
     public boolean mRESTSequence;
 
     /**
@@ -562,7 +563,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final XdmResourceManager resourceMgr, final OutputStream stream,
+    public XmlSerializerBuilder(final XdmResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
@@ -584,11 +585,11 @@ public final class XMLSerializer extends AbstractSerializer {
      * @param resourceMgr Sirix {@link ResourceManager}
      * @param nodeKey root node key of subtree to shredder
      * @param stream {@link OutputStream} to write to
-     * @param properties {@link XMLSerializerProperties} to use
+     * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XMLSerializerBuilder(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
-        final OutputStream stream, final XMLSerializerProperties properties, final int... revisions) {
+    public XmlSerializerBuilder(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+        final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
@@ -616,7 +617,7 @@ public final class XMLSerializer extends AbstractSerializer {
      * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
      * @return this XMLSerializerBuilder reference
      */
-    public XMLSerializerBuilder startNodeKey(final long nodeKey) {
+    public XmlSerializerBuilder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
       return this;
     }
@@ -624,9 +625,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Sets an initial indentation.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder withInitialIndent() {
+    public XmlSerializerBuilder withInitialIndent() {
       mInitialIndent = true;
       return this;
     }
@@ -634,9 +635,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Sets if the serialization is used for XQuery result sets.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder isXQueryResultSequence() {
+    public XmlSerializerBuilder isXQueryResultSequence() {
       mEmitXQueryResultSequence = true;
       return this;
     }
@@ -644,9 +645,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Sets if the serialization of timestamps of the revision(s) is used or not.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
+    public XmlSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
       mSerializeTimestamp = serializeTimestamp;
       return this;
     }
@@ -654,9 +655,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Pretty prints the output.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder prettyPrint() {
+    public XmlSerializerBuilder prettyPrint() {
       mIndent = true;
       return this;
     }
@@ -664,9 +665,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit RESTful output.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder emitRESTful() {
+    public XmlSerializerBuilder emitRESTful() {
       mREST = true;
       return this;
     }
@@ -674,9 +675,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit a rest-sequence start-tag/end-tag in startDocument()/endDocument() method.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder emitRESTSequence() {
+    public XmlSerializerBuilder emitRESTSequence() {
       mRESTSequence = true;
       return this;
     }
@@ -684,9 +685,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit an XML declaration.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder emitXMLDeclaration() {
+    public XmlSerializerBuilder emitXMLDeclaration() {
       mDeclaration = true;
       return this;
     }
@@ -694,9 +695,9 @@ public final class XMLSerializer extends AbstractSerializer {
     /**
      * Emit the unique nodeKeys / IDs of nodes.
      *
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder emitIDs() {
+    public XmlSerializerBuilder emitIDs() {
       mID = true;
       return this;
     }
@@ -705,9 +706,9 @@ public final class XMLSerializer extends AbstractSerializer {
      * The versions to serialize.
      *
      * @param revisions the versions to serialize
-     * @return this {@link XMLSerializerBuilder} instance
+     * @return this {@link XmlSerializerBuilder} instance
      */
-    public XMLSerializerBuilder revisions(final int[] revisions) {
+    public XmlSerializerBuilder revisions(final int[] revisions) {
       checkNotNull(revisions);
 
       mVersion = revisions[0];
@@ -725,8 +726,8 @@ public final class XMLSerializer extends AbstractSerializer {
      *
      * @return a new {@link Serializer} instance
      */
-    public XMLSerializer build() {
-      return new XMLSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
+    public XmlSerializer build() {
+      return new XmlSerializer(mResourceMgr, mNodeKey, this, mInitialIndent, mVersion, mVersions);
     }
   }
 }

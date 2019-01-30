@@ -31,7 +31,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Performes the XMark benchmark.
@@ -50,7 +50,7 @@ public class XMarkTest {
   public void setUp() throws Exception {
     XdmTestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
 

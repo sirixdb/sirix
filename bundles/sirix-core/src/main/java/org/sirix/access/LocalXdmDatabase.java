@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.xdm.XdmResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeTrx;

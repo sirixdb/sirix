@@ -38,8 +38,8 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.utils.XdmDocumentCreator;
 
 /**
@@ -903,7 +903,7 @@ public class PathSummaryTest {
     System.out.println("nodes");
 
     OutputStream out = new ByteArrayOutputStream();
-    XMLSerializer serializer = new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
     serializer.call();
     System.out.println(out.toString());
 

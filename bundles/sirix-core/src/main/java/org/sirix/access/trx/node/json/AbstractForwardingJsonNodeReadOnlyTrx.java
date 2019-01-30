@@ -242,6 +242,11 @@ public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingOb
   }
 
   @Override
+  public boolean isBooleanValue() {
+    return delegate().isBooleanValue();
+  }
+
+  @Override
   public Move<? extends JsonNodeReadOnlyTrx> moveTo(long key) {
     return delegate().moveTo(key);
   }

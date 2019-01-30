@@ -40,7 +40,7 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.ShredderCommit;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableSet;
@@ -68,7 +68,7 @@ public final class DiffTestHelper {
   static void setUpThird(final Holder holder) throws IOException {
     try (final FileInputStream fis =
         new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
-      new XMLShredder.Builder(holder.getXdmNodeWriteTrx(), XMLShredder.createFileReader(fis),
+      new XmlShredder.Builder(holder.getXdmNodeWriteTrx(), XmlShredder.createFileReader(fis),
           Insert.ASFIRSTCHILD).commitAfterwards().build().call();
       final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
       wtx.moveToDocumentRoot();
@@ -138,12 +138,12 @@ public final class DiffTestHelper {
     for (final Path file : files) {
       try (final FileInputStream fis = new FileInputStream(file.toFile())) {
         if (i == 0) {
-          final XMLShredder init = new XMLShredder.Builder(holder.getXdmNodeWriteTrx(),
-              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+          final XmlShredder init = new XmlShredder.Builder(holder.getXdmNodeWriteTrx(),
+              XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
           init.call();
         } else {
           final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
-              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
+              XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
           init.call();
         }
       }

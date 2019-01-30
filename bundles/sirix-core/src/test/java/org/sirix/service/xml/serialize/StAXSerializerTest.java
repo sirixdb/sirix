@@ -42,7 +42,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 
 /**
  * Test StAXSerializer.
@@ -71,8 +71,8 @@ public class StAXSerializerTest {
   public void testStAXSerializer() {
     try {
       final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      final XMLSerializer xmlSerializer =
-          new XMLSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
+      final XmlSerializer xmlSerializer =
+          new XmlSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
       xmlSerializer.call();
 
       final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();

@@ -248,7 +248,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
       // If structure already exists, make a sync against the current structure.
       if (mMaxNodeKey == 0) {
         // If no content is in the XML, a normal insertNewContent is executed.
-        new XMLShredder.Builder(mWtx, mReader, mInsert).build().call();
+        new XmlShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
         if (mWtx.getKind() == Kind.XDM_DOCUMENT) {
           // Find the start key for the update operation.
@@ -1156,7 +1156,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
         final XdmNodeTrx wtx = resMgr.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
-      final XMLEventReader reader = XMLShredder.createFileReader(fis);
+      final XMLEventReader reader = XmlShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =
           new XMLUpdateShredder(wtx, reader, Insert.ASFIRSTCHILD, new File(args[0]), ShredderCommit.COMMIT);
       shredder.call();
