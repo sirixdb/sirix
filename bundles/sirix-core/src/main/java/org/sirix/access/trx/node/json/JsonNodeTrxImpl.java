@@ -480,7 +480,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     acquireLock();
     try {
       final Kind kind = getKind();
-      if (kind == Kind.JSON_OBJECT || kind == Kind.JSON_DOCUMENT)
+      if (kind == Kind.JSON_OBJECT_KEY || kind == Kind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is the document node or an object node!");
 
       checkAccessAndCommit();
