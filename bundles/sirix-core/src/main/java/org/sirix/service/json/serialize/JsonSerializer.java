@@ -134,9 +134,19 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           // Emit start element.
           indent();
           mOut.write("{");
+          if (!rtx.hasFirstChild()) {
+            mOut.write("}");
+            if (rtx.hasRightSibling())
+              mOut.write(",");
+          }
           break;
         case JSON_ARRAY:
           mOut.write("[");
+          if (!rtx.hasFirstChild()) {
+            mOut.write("]");
+            if (rtx.hasRightSibling())
+              mOut.write(",");
+          }
           break;
         case JSON_OBJECT_KEY:
           mOut.write("\"" + rtx.getName().stringValue() + "\":");
