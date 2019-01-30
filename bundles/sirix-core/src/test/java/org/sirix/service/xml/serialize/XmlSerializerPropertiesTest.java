@@ -24,11 +24,11 @@ package org.sirix.service.xml.serialize;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_ID;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT_SPACES;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_REST;
-import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_XMLDECL;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_XMLDECL;
 import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.After;
@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 
-public class XMLSerializerPropertiesTest {
+public class XmlSerializerPropertiesTest {
 
   @Before
   public void setUp() throws SirixException {
@@ -51,7 +51,7 @@ public class XMLSerializerPropertiesTest {
 
   @Test
   public void testXMLSerializerProp() {
-    final XMLSerializerProperties props = new XMLSerializerProperties();
+    final XmlSerializerProperties props = new XmlSerializerProperties();
 
     final ConcurrentHashMap<String, Object> map =
         (ConcurrentHashMap<String, Object>) props.getProps();

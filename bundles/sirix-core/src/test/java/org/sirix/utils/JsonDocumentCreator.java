@@ -58,6 +58,9 @@ import org.sirix.exception.SirixException;
  */
 public final class JsonDocumentCreator {
 
+  public static final String JSON =
+      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\"}";
+
   /**
    * Private Constructor, not used.
    */
@@ -92,7 +95,7 @@ public final class JsonDocumentCreator {
        .insertObjectKeyAsFirstChild("hello")
        .insertStringValueAsFirstChild("world")
        .moveToParent();
-    wtx.insertObjectKeyAsRightSibling("hello")
+    wtx.insertObjectKeyAsRightSibling("helloo")
        .insertBooleanValueAsFirstChild(true)
        .moveToParent()
        .get()

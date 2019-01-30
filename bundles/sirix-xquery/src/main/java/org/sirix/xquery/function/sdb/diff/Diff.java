@@ -58,7 +58,7 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.DiffTuple;
 import org.sirix.node.Kind;
-import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
@@ -302,8 +302,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     switch (rtx.getKind()) {
       case ELEMENT:
         final OutputStream out = new ByteArrayOutputStream();
-        final XMLSerializer serializer =
-            XMLSerializer.newBuilder(rtx.getResourceManager(), out).startNodeKey(rtx.getNodeKey()).build();
+        final XmlSerializer serializer =
+            XmlSerializer.newBuilder(rtx.getResourceManager(), out).startNodeKey(rtx.getNodeKey()).build();
         serializer.call();
         return out.toString();
       case ATTRIBUTE:

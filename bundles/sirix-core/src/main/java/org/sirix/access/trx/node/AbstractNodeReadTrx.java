@@ -1,7 +1,5 @@
 package org.sirix.access.trx.node;
 
-
-
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
@@ -35,6 +33,59 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     mId = trxId;
     mPageReadTrx = checkNotNull(pageReadTransaction);
     mCurrentNode = checkNotNull(documentNode);
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public Move<T> moveToPrevious() {
+    assertNotClosed();
+    final StructNode node = getStructuralNode();
+    if (node.hasLeftSibling()) {
+      // Left sibling node.
+      Move<T> leftSiblMove = moveTo(node.getLeftSiblingKey());
+      // Now move down to rightmost descendant node if it has one.
+      while (leftSiblMove.get().hasFirstChild()) {
+        leftSiblMove = (Move<T>) leftSiblMove.get().moveToLastChild();
+      }
+      return leftSiblMove;
+    }
+    // Parent node.
+    return moveTo(node.getParentKey());
+  }
+
+  @Override
+  public Kind getLeftSiblingKind() {
+    assertNotClosed();
+    if (mCurrentNode instanceof StructNode && hasLeftSibling()) {
+      final long nodeKey = mCurrentNode.getNodeKey();
+      moveToLeftSibling();
+      final Kind leftSiblKind = mCurrentNode.getKind();
+      moveTo(nodeKey);
+      return leftSiblKind;
+    }
+    return Kind.UNKNOWN;
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    assertNotClosed();
+    return getStructuralNode().getLeftSiblingKey();
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    assertNotClosed();
+    return getStructuralNode().hasLeftSibling();
+  }
+
+  @Override
+  public Move<T> moveToLeftSibling() {
+    assertNotClosed();
+    final StructNode node = getStructuralNode();
+    if (!node.hasLeftSibling()) {
+      return Move.notMoved();
+    }
+    return moveTo(node.getLeftSiblingKey());
   }
 
   @Override

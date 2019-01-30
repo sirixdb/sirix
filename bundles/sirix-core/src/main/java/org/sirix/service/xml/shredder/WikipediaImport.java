@@ -241,14 +241,14 @@ public final class WikipediaImport implements Import<StartElement> {
                   assert mWtx.getName().getLocalName().equals(page.getName().getLocalPart());
                 }
 
-                XMLShredder shredder = null;
+                XmlShredder shredder = null;
                 if (hasFirstChild) {
                   // Shredder as child.
-                  shredder = new XMLShredder.Builder(mWtx, XMLShredder.createQueueReader(mPageEvents),
+                  shredder = new XmlShredder.Builder(mWtx, XmlShredder.createQueueReader(mPageEvents),
                       Insert.ASRIGHTSIBLING).build();
                 } else {
                   // Shredder as right sibling.
-                  shredder = new XMLShredder.Builder(mWtx, XMLShredder.createQueueReader(mPageEvents),
+                  shredder = new XmlShredder.Builder(mWtx, XmlShredder.createQueueReader(mPageEvents),
                       Insert.ASFIRSTCHILD).build();
                 }
 
@@ -285,8 +285,8 @@ public final class WikipediaImport implements Import<StartElement> {
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
     final XdmNodeTrx wtx = resourceManager.beginNodeTrx();
-    final XMLShredder shredder =
-        new XMLShredder.Builder(wtx, XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards()
+    final XmlShredder shredder =
+        new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                      .build();
     shredder.call();
     wtx.close();

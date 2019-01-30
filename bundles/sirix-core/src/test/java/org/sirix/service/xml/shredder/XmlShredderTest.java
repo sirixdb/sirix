@@ -44,7 +44,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.utils.XdmDocumentCreator;
 
-public class XMLShredderTest extends XMLTestCase {
+public class XmlShredderTest extends XMLTestCase {
 
   public static final Path XML = Paths.get("src", "test", "resources", "test.xml");
 
@@ -71,7 +71,7 @@ public class XMLShredderTest extends XMLTestCase {
   @Test
   public void testSTAXShredder() throws Exception {
     // Setup parsed session.
-    XMLShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
+    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
     final XdmNodeReadOnlyTrx expectedTrx = holder.getXdmNodeWriteTrx();
 
     // Verify.
@@ -111,8 +111,8 @@ public class XMLShredderTest extends XMLTestCase {
     try (final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
         final FileInputStream fis1 = new FileInputStream(XML.toFile());
         final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
-      final XMLShredder shredder =
-          new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).includeComments(true)
+      final XmlShredder shredder =
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).includeComments(true)
                                                                                                .commitAfterwards()
                                                                                                .build();
       shredder.call();
@@ -120,8 +120,8 @@ public class XMLShredderTest extends XMLTestCase {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.remove();
-      final XMLShredder shredder2 =
-          new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis2), Insert.ASFIRSTCHILD).includeComments(true)
+      final XmlShredder shredder2 =
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis2), Insert.ASFIRSTCHILD).includeComments(true)
                                                                                                .commitAfterwards()
                                                                                                .build();
       shredder2.call();
@@ -167,8 +167,8 @@ public class XMLShredderTest extends XMLTestCase {
     try (final var manager2 = database2.getResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager2.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
-      final XMLShredder shredder =
-          new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
+      final XmlShredder shredder =
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                               .build();
       shredder.call();
       wtx.commit();
@@ -206,8 +206,8 @@ public class XMLShredderTest extends XMLTestCase {
         final FileInputStream fis1 = new FileInputStream(XML3.toFile());
         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
       try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
-        final XMLShredder shredder =
-            new XMLShredder.Builder(wtx, XMLShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).commitAfterwards()
+        final XmlShredder shredder =
+            new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), Insert.ASFIRSTCHILD).commitAfterwards()
                                                                                                  .build();
         shredder.call();
       }
@@ -226,7 +226,7 @@ public class XMLShredderTest extends XMLTestCase {
 
       final String tnkString = tnkBuilder.toString();
 
-      final XMLEventReader validater = XMLShredder.createFileReader(fis2);
+      final XMLEventReader validater = XmlShredder.createFileReader(fis2);
       final StringBuilder xmlBuilder = new StringBuilder();
       while (validater.hasNext()) {
         final XMLEvent event = validater.nextEvent();

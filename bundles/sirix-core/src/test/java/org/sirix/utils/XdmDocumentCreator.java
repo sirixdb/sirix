@@ -33,7 +33,7 @@ import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * <h1>TestDocument</h1>
@@ -347,7 +347,7 @@ public final class XdmDocumentCreator {
 
     try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XdmNodeTrx firstWtx = resMgr.beginNodeTrx()) {
-        final XMLShredder shredder = new XMLShredder.Builder(firstWtx, XMLShredder.createStringReader(REVXML),
+        final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
             Insert.ASFIRSTCHILD).commitAfterwards().build();
         shredder.call();
       }

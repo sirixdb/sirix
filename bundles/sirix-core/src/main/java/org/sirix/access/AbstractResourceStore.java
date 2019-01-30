@@ -11,13 +11,13 @@ import org.sirix.io.Storage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
-abstract class AbstractResourceStore<R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+public abstract class AbstractResourceStore<R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
     implements ResourceStore<R> {
 
   /** Central repository of all open resource managers. */
   protected final ConcurrentMap<Path, R> mResourceManagers;
 
-  AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers) {
+  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers) {
     mResourceManagers = resourceManagers;
   }
 

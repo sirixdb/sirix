@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.json.serialize;
+package org.sirix.service;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
@@ -35,7 +35,6 @@ import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
 import org.sirix.settings.Constants;
 
 /**
@@ -140,7 +139,7 @@ public abstract class AbstractSerializer<R extends NodeReadTrx & NodeCursor, W e
         boolean closeElements = false;
         long key = rtx.getNodeKey();
 
-        // Iterate over all nodes of the subtree including self.
+        // Iterate over all nodes of the subtree including start node.
         while (descAxis.hasNext()) {
           key = descAxis.next();
 
@@ -160,11 +159,13 @@ public abstract class AbstractSerializer<R extends NodeReadTrx & NodeCursor, W e
           }
 
           // Emit node.
+          final long nodeKey = rtx.getNodeKey();
           emitNode(rtx);
+          rtx.moveTo(nodeKey);
 
           // Push end element to stack if we are a start element with
           // children.
-          if (rtx.getKind() == Kind.ELEMENT && rtx.hasFirstChild()) {
+          if (!rtx.isDocumentRoot() && rtx.hasFirstChild()) {
             mStack.push(rtx.getNodeKey());
           }
 

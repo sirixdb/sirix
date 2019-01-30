@@ -32,7 +32,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
 
@@ -61,7 +61,7 @@ public class FunctionsXMarkTest {
   @Ignore
   public void setUp() throws Exception {
     XdmTestHelper.deleteEverything();
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
   }

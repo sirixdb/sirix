@@ -38,7 +38,7 @@ import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 
 /**
@@ -94,7 +94,7 @@ public class WikipediaImportTest {
 
     // Invoke import.
     new WikipediaImport(WIKIPEDIA, PATHS.PATH2.getFile()).importData(DateBy.HOURS, list);
-    XMLSerializer.main(
+    XmlSerializer.main(
         PATHS.PATH2.getFile().toAbsolutePath().toString(),
         PATHS.PATH3.getFile().toAbsolutePath().toString());
 

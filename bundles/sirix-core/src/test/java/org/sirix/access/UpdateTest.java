@@ -42,7 +42,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.utils.NamePageHash;
@@ -590,7 +590,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.replaceNode(XMLShredder.createStringReader("<d>foobar</d>"));
+    wtx.replaceNode(XmlShredder.createStringReader("<d>foobar</d>"));
     testReplaceElement(wtx);
     wtx.commit();
     testReplaceElement(wtx);
@@ -1197,7 +1197,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1230,7 +1230,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.moveTo(11);
-    wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsFirstChildSecond(wtx);
     wtx.commit();
     wtx.moveTo(14);
@@ -1265,7 +1265,7 @@ public class UpdateTest {
     final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     XdmDocumentCreator.create(wtx);
     wtx.moveTo(5);
-    wtx.insertSubtreeAsRightSibling(XMLShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
+    wtx.insertSubtreeAsRightSibling(XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
     testSubtreeInsertAsRightSibling(wtx);
     wtx.commit();
     wtx.moveTo(14);

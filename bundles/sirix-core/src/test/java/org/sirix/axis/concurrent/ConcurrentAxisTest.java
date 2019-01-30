@@ -40,7 +40,7 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 
 /** Test {@link ConcurrentAxis}. */
@@ -64,7 +64,7 @@ public final class ConcurrentAxisTest {
   public void setUp() throws Exception {
     try {
       XdmTestHelper.deleteEverything();
-      XMLShredder.main(
+      XmlShredder.main(
           XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
       holder = Holder.generateRtx();
     } catch (final Exception e) {

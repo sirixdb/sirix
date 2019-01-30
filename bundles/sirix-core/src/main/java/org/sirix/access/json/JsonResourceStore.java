@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
@@ -6,10 +6,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
+import org.sirix.access.AbstractResourceStore;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
@@ -20,17 +22,17 @@ import org.sirix.page.UberPage;
  *
  * @author Johannes Lichtenberger
  */
-public final class XdmResourceStore extends AbstractResourceStore<XdmResourceManager> {
+public final class JsonResourceStore extends AbstractResourceStore<JsonResourceManager> {
 
   /**
    * Default constructor.
    */
-  public XdmResourceStore() {
+  public JsonResourceStore() {
     super(new ConcurrentHashMap<>());
   }
 
   @Override
-  public XdmResourceManager openResource(final @Nonnull Database<XdmResourceManager> database,
+  public JsonResourceManager openResource(final @Nonnull Database<JsonResourceManager> database,
       final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
       final @Nonnull Path resourceFile) {
     checkNotNull(database);
@@ -48,7 +50,7 @@ public final class XdmResourceStore extends AbstractResourceStore<XdmResourceMan
       final Lock writeLock = Databases.computeWriteLockIfAbsent(resourceConfig.getResource());
 
       // Create the resource manager instance.
-      final XdmResourceManager resourceManager = new XdmResourceManagerImpl(database, this, resourceConfig,
+      final JsonResourceManager resourceManager = new JsonResourceManagerImpl(database, this, resourceConfig,
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock);
 
       // Put it in the databases cache.

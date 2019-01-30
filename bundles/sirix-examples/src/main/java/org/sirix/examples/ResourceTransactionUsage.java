@@ -10,8 +10,8 @@ import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 public final class ResourceTransactionUsage {
 
@@ -36,12 +36,12 @@ public final class ResourceTransactionUsage {
       try (var resourceMgr = database.getResourceManager("resource");
           var wtx = resourceMgr.beginNodeTrx();
           var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
-        wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(fis));
+        wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
         wtx.moveTo(2);
         wtx.moveSubtreeToFirstChild(4).commit();
 
         var out = new ByteArrayOutputStream();
-        new XMLSerializer.XMLSerializerBuilder(resourceMgr, out).prettyPrint().build().call();
+        new XmlSerializer.XmlSerializerBuilder(resourceMgr, out).prettyPrint().build().call();
 
         System.out.println(out);
       }

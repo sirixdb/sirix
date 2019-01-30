@@ -84,7 +84,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.Insert;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
@@ -773,7 +773,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         checkAccessAndCommit();
         mBulkInsert = true;
         long nodeKey = getCurrentNode().getNodeKey();
-        final XMLShredder shredder = new XMLShredder.Builder(this, reader, insert).build();
+        final XmlShredder shredder = new XmlShredder.Builder(this, reader, insert).build();
         shredder.call();
         moveTo(nodeKey);
         switch (insert) {
@@ -2438,7 +2438,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         break;
       // $CASES-OMITTED$
       default:
-        new XMLShredder.Builder(this, new StAXSerializer(rtx), insert).build().call();
+        new XmlShredder.Builder(this, new StAXSerializer(rtx), insert).build().call();
     }
     rtx.close();
   }
@@ -2483,7 +2483,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   private void insert(final XMLEventReader reader, Insert pos, long anchorNodeKey) {
     moveTo(anchorNodeKey);
-    final XMLShredder shredder = new XMLShredder.Builder(this, reader, pos).build();
+    final XmlShredder shredder = new XmlShredder.Builder(this, reader, pos).build();
     shredder.call();
   }
 

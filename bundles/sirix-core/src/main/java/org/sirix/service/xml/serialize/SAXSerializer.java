@@ -34,6 +34,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
@@ -61,7 +62,8 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class SAXSerializer extends AbstractSerializer implements XMLReader {
+public final class SAXSerializer extends org.sirix.service.AbstractSerializer<XdmNodeReadOnlyTrx, XdmNodeTrx>
+    implements XMLReader {
 
   /** {@link LogWrapper} reference. */
   private final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(SAXSerializer.class));
@@ -107,7 +109,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndTag(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -119,7 +121,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -136,7 +138,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;

@@ -34,7 +34,7 @@ import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.xdm.TextNode;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * <h1>NodeWriteTrx</h1>
@@ -405,9 +405,9 @@ public interface XdmNodeTrx extends XdmNodeReadOnlyTrx, NodeWriteTrx {
    * Insert a subtree as a first child.
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
-   *        {@link XMLShredder#createStringReader(String)},
-   *        {@link XMLShredder#createFileReader(java.io.File)} or
-   *        {@link XMLShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -420,9 +420,9 @@ public interface XdmNodeTrx extends XdmNodeReadOnlyTrx, NodeWriteTrx {
    * Insert a subtree as a right sibling.
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
-   *        {@link XMLShredder#createStringReader(String)},
-   *        {@link XMLShredder#createFileReader(java.io.File)} or
-   *        {@link XMLShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or
@@ -435,9 +435,9 @@ public interface XdmNodeTrx extends XdmNodeReadOnlyTrx, NodeWriteTrx {
    * Insert a subtree as a left sibling.
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
-   *        {@link XMLShredder#createStringReader(String)},
-   *        {@link XMLShredder#createFileReader(java.io.File)} or
-   *        {@link XMLShredder#createQueueReader(java.util.Queue)
+   *        {@link XmlShredder#createStringReader(String)},
+   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
    * @throws IllegalStateException if subtree is inserted as right sibling of a root-node or

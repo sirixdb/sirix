@@ -32,20 +32,19 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>XMLSerializerProperties</h1>
+ * <h1>XmlSerializerProperties</h1>
  *
  * <p>
- * XMLSerializer properties.
+ * XmlSerializer properties.
  * </p>
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class XMLSerializerProperties {
+public final class XmlSerializerProperties {
 
   /** Logger. */
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(XMLSerializerProperties.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlSerializerProperties.class));
 
   // ============== Class constants. =================
 
@@ -78,7 +77,7 @@ public final class XMLSerializerProperties {
   /**
    * Constructor.
    */
-  public XMLSerializerProperties() {
+  public XmlSerializerProperties() {
     try {
       for (final Field f : getClass().getFields()) {
         final Object obj = f.get(null);
@@ -109,9 +108,9 @@ public final class XMLSerializerProperties {
    * </ul>
    *
    * <p>
-   * Note that currently all properties have to be set. If specific key/value pairs are specified
-   * more than once the last values are preserved, so the default values are overridden by user
-   * specified values.
+   * Note that currently all properties have to be set. If specific key/value pairs are specified more
+   * than once the last values are preserved, so the default values are overridden by user specified
+   * values.
    * </p>
    *
    * @param filePath path to properties file

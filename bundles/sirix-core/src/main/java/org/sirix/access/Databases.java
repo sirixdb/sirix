@@ -13,6 +13,8 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.json.JsonResourceStore;
+import org.sirix.access.xdm.XdmResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
