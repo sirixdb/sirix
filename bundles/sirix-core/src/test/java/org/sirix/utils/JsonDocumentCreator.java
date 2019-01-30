@@ -52,14 +52,15 @@ import org.sirix.exception.SirixException;
  * {
  *   "foo": ["bar", null, 2.33],
  *   "bar": { "hello": "world", "hello": true },
- *   "baz": "hello"
+ *   "baz": "hello",
+ *   "tada": [{"foo":"bar"},{"baz":true}]
  * }
  * </pre></code>
  */
 public final class JsonDocumentCreator {
 
   public static final String JSON =
-      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\"}";
+      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":true}]}";
 
   /**
    * Private Constructor, not used.
@@ -105,7 +106,23 @@ public final class JsonDocumentCreator {
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello");
+    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello").moveToParent().get();
+
+    assert wtx.isObjectKey();
+
+    wtx.insertObjectKeyAsRightSibling("tada")
+       .insertArrayAsFirstChild()
+       .insertObjectAsFirstChild()
+       .insertObjectKeyAsFirstChild("foo")
+       .insertStringValueAsFirstChild("bar")
+       .moveToParent()
+       .get()
+       .moveToParent()
+       .get();
+
+    assert wtx.isObject();
+
+    wtx.insertObjectAsRightSibling().insertObjectKeyAsFirstChild("baz").insertBooleanValueAsFirstChild(true);
 
     wtx.moveToDocumentRoot();
   }

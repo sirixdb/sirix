@@ -288,7 +288,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     }
     final long nodeKey = node.getNodeKey();
     moveToParent();
-    final Kind parentKind = node.getKind();
+    final Kind parentKind = mCurrentNode.getKind();
     moveTo(nodeKey);
     return parentKind;
   }
