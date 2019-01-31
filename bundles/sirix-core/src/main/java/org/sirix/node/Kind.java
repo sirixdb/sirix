@@ -26,6 +26,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1020,8 +1021,12 @@ public enum Kind implements NodePersistenter {
           number = source.readLong();
           break;
         case 4:
-          // FIXME / TODO
-          number = source.readDouble();
+          number = deserializeBigInteger(source);
+          break;
+        case 5:
+          final BigInteger bigInt = deserializeBigInteger(source);
+          final int scale = source.readInt();
+          number = new BigDecimal(bigInt, scale);
           break;
         default:
           throw new AssertionError("Type not known.");
@@ -1035,6 +1040,12 @@ public enum Kind implements NodePersistenter {
 
       // Returning an instance.
       return new NumberNode(number, structDel);
+    }
+
+    private BigInteger deserializeBigInteger(final DataInput source) throws IOException {
+      final byte[] bytes = new byte[source.readInt()];
+      source.readFully(bytes);
+      return new BigInteger(bytes);
     }
 
     @Override
@@ -1055,13 +1066,26 @@ public enum Kind implements NodePersistenter {
       } else if (number instanceof Long) {
         sink.writeByte(3);
         sink.writeLong(number.longValue());
-      } else if (number instanceof BigDecimal) {
+      } else if (number instanceof BigInteger) {
         sink.writeByte(4);
-        // TODO;
+        serializeBigInteger(sink, (BigInteger) number);
+      } else if (number instanceof BigDecimal) {
+        sink.writeByte(5);
+        final BigDecimal value = (BigDecimal) number;
+        final BigInteger bigInt = value.unscaledValue();
+        final int scale = value.scale();
+        serializeBigInteger(sink, bigInt);
+        sink.writeInt(scale);
       }
 
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
+    }
+
+    private void serializeBigInteger(final DataOutput sink, final BigInteger bigInteger) throws IOException {
+      final byte[] bytes = bigInteger.toByteArray();
+      sink.writeInt(bytes.length);
+      sink.write(bytes);
     }
 
     @Override
