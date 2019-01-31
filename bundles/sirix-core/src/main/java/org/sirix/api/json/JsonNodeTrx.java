@@ -33,9 +33,9 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeWriteTrx {
 
   JsonNodeTrx insertBooleanValueAsRightSibling(boolean value);
 
-  JsonNodeTrx insertNumberValueAsFirstChild(double value);
+  JsonNodeTrx insertNumberValueAsFirstChild(Number value);
 
-  JsonNodeTrx insertNumberValueAsRightSibling(double value);
+  JsonNodeTrx insertNumberValueAsRightSibling(Number value);
 
   JsonNodeTrx insertNullValueAsFirstChild();
 

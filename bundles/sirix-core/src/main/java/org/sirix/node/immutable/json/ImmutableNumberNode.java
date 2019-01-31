@@ -46,7 +46,7 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
     return mNode.getStructNodeDelegate();
   }
 
-  public double getValue() {
+  public Number getValue() {
     return mNode.getValue();
   }
 

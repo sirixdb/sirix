@@ -583,7 +583,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx insertNumberValueAsFirstChild(double value) {
+  public JsonNodeTrx insertNumberValueAsFirstChild(Number value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -615,7 +615,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx insertNumberValueAsRightSibling(double value) {
+  public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
     acquireLock();
     try {
       final Kind kind = getKind();
