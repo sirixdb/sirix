@@ -1076,6 +1076,8 @@ public enum Kind implements NodePersistenter {
         final int scale = value.scale();
         serializeBigInteger(sink, bigInt);
         sink.writeInt(scale);
+      } else {
+        throw new AssertionError("Type not known.");
       }
 
       serializeDelegate(node.getNodeDelegate(), sink);
