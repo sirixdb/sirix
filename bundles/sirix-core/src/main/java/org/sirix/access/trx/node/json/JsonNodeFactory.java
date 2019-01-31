@@ -79,7 +79,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param dblValue the number value
    */
-  NumberNode createJsonNumberNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, double dblValue);
+  NumberNode createJsonNumberNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, Number value);
 
   /**
    * Create a {@link NullNode}.

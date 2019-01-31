@@ -25,6 +25,7 @@ import static org.sirix.node.Utils.putVarLong;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1002,7 +1003,30 @@ public enum Kind implements NodePersistenter {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
-      final double doubleValue = source.readDouble();
+      final byte valueType = source.readByte();
+      final Number number;
+
+      switch (valueType) {
+        case 0:
+          number = source.readDouble();
+          break;
+        case 1:
+          number = source.readFloat();
+          break;
+        case 2:
+          number = source.readInt();
+          break;
+        case 3:
+          number = source.readLong();
+          break;
+        case 4:
+          // FIXME / TODO
+          number = source.readDouble();
+          break;
+        default:
+          throw new AssertionError("Type not known.");
+      }
+
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -1010,14 +1034,32 @@ public enum Kind implements NodePersistenter {
       final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
-      return new NumberNode(doubleValue, structDel);
+      return new NumberNode(number, structDel);
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final NumberNode node = (NumberNode) record;
-      sink.writeDouble(node.getValue());
+      final Number number = node.getValue();
+
+      if (number instanceof Double) {
+        sink.writeByte(0);
+        sink.writeDouble(number.doubleValue());
+      } else if (number instanceof Float) {
+        sink.writeByte(1);
+        sink.writeFloat(number.floatValue());
+      } else if (number instanceof Integer) {
+        sink.writeByte(2);
+        sink.writeInt(number.intValue());
+      } else if (number instanceof Long) {
+        sink.writeByte(3);
+        sink.writeLong(number.longValue());
+      } else if (number instanceof BigDecimal) {
+        sink.writeByte(4);
+        // TODO;
+      }
+
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }

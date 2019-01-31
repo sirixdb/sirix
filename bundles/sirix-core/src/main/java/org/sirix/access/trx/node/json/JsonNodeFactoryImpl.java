@@ -148,13 +148,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, double dblValue) {
+  public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value) {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (NumberNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new NumberNode(dblValue, structDel),
+    return (NumberNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new NumberNode(value, structDel),
         PageKind.RECORDPAGE, -1);
   }
 }

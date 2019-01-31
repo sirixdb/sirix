@@ -68,7 +68,7 @@ public class JSONNumberNodeTest {
   @Test
   public void test() throws IOException {
     // Create empty node.
-    final double value = 10.87463;
+    final double value = 10.87463D;
     final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
@@ -91,7 +91,7 @@ public class JSONNumberNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(10.87463D, node.getValue(), 0);
+    assertEquals(10.87463D, node.getValue().doubleValue(), 0);
     assertEquals(Kind.JSON_NUMBER_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());

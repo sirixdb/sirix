@@ -44,7 +44,7 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
-  private double mNumber;
+  private Number mNumber;
 
   /**
    * Constructor for JSONBooleanNode.
@@ -52,16 +52,16 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
    * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public NumberNode(final double number, final StructNodeDelegate structDel) {
+  public NumberNode(final Number number, final StructNodeDelegate structDel) {
     mNumber = number;
     mStructNodeDel = checkNotNull(structDel);
   }
 
-  public void setValue(final double number) {
+  public void setValue(final Number number) {
     mNumber = number;
   }
 
-  public double getValue() {
+  public Number getValue() {
     return mNumber;
   }
 
