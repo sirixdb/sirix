@@ -44,8 +44,8 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
       // Left sibling node.
       Move<T> leftSiblMove = moveTo(node.getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
-      while (leftSiblMove.get().hasFirstChild()) {
-        leftSiblMove = (Move<T>) leftSiblMove.get().moveToLastChild();
+      while (leftSiblMove.getCursor().hasFirstChild()) {
+        leftSiblMove = (Move<T>) leftSiblMove.getCursor().moveToLastChild();
       }
       return leftSiblMove;
     }

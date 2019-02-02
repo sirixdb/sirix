@@ -192,9 +192,9 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
       // Case: Has right sibl. and left sibl.
       if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
         final long rightSiblKey = mWtx.getRightSiblingKey();
-        final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
+        final long rightRightSiblKey = mWtx.moveToRightSibling().getCursor().getRightSiblingKey();
         mWtx.moveTo(nodeKey);
-        final String value = removeTextNode ? mWtx.moveToLeftSibling().get().getValue() : "";
+        final String value = removeTextNode ? mWtx.moveToLeftSibling().getCursor().getValue() : "";
         mWtx.moveTo(nodeKey);
         mWtx.remove();
         if (removeTextNode) {

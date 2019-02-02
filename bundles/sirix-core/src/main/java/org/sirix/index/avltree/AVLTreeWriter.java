@@ -364,7 +364,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   private void rotateLeft(AVLNode<K, V> node) throws SirixIOException {
     moveTo(node.getNodeKey());
 
-    AVLNode<K, V> right = ((AVLTreeReader<K, V>) moveToLastChild().get()).getAVLNode();
+    AVLNode<K, V> right = ((AVLTreeReader<K, V>) moveToLastChild().getCursor()).getAVLNode();
 
     node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), mAVLTreeReader.mPageKind,
         mAVLTreeReader.mIndex);
@@ -418,7 +418,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
   private void rotateRight(AVLNode<K, V> node) throws SirixIOException {
     moveTo(node.getNodeKey());
 
-    AVLNode<K, V> leftChild = ((AVLTreeReader<K, V>) moveToFirstChild().get()).getAVLNode();
+    AVLNode<K, V> leftChild = ((AVLTreeReader<K, V>) moveToFirstChild().getCursor()).getAVLNode();
     node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), mAVLTreeReader.mPageKind,
         mAVLTreeReader.mIndex);
     node.setLeftChildKey(leftChild.getRightChildKey());

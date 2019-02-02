@@ -531,7 +531,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
     final PathNode[] path = new PathNode[node.getLevel()];
     for (int i = node.getLevel() - 1; i >= 0; i--) {
       path[i] = node;
-      node = moveToParent().get().getPathNode();
+      node = moveToParent().getCursor().getPathNode();
     }
 
     final Path<QNm> p = new Path<QNm>();
@@ -763,8 +763,8 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
       // Left sibling node.
       Move<? extends PathSummaryReader> leftSiblMove = moveTo(node.getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
-      while (leftSiblMove.get().hasFirstChild()) {
-        leftSiblMove = leftSiblMove.get().moveToLastChild();
+      while (leftSiblMove.getCursor().hasFirstChild()) {
+        leftSiblMove = leftSiblMove.getCursor().moveToLastChild();
       }
       return leftSiblMove;
     }
