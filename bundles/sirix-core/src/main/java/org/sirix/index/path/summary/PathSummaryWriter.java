@@ -517,9 +517,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
     final long pathNodeKey;
 
     if (mNodeRtx instanceof XdmNodeReadOnlyTrx)
-      pathNodeKey = ((XdmNodeReadOnlyTrx) mNodeRtx.moveToParent().get()).getPathNodeKey();
+      pathNodeKey = ((XdmNodeReadOnlyTrx) mNodeRtx.moveToParent().getCursor()).getPathNodeKey();
     else if (mNodeRtx instanceof JsonNodeReadOnlyTrx)
-      pathNodeKey = ((JsonNodeReadOnlyTrx) mNodeRtx.moveToParent().get()).getPathNodeKey();
+      pathNodeKey = ((JsonNodeReadOnlyTrx) mNodeRtx.moveToParent().getCursor()).getPathNodeKey();
     else
       throw new IllegalStateException("Node transaction kind not known.");
 

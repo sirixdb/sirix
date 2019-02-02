@@ -42,5 +42,5 @@ public abstract class Move<T extends NodeCursor> {
    * @return cursor reference
    * @throws NoSuchElementException if the cursor couldn't be moved
    */
-  public abstract T get();
+  public abstract T getCursor();
 }

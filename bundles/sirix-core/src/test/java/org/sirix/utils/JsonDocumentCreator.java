@@ -87,7 +87,7 @@ public final class JsonDocumentCreator {
        .insertNullValueAsRightSibling()
        .insertNumberValueAsRightSibling(2.33);
 
-    wtx.moveToParent().get().moveToParent();
+    wtx.moveToParent().getCursor().moveToParent();
 
     assert wtx.isObjectKey();
 
@@ -99,14 +99,14 @@ public final class JsonDocumentCreator {
     wtx.insertObjectKeyAsRightSibling("helloo")
        .insertBooleanValueAsFirstChild(true)
        .moveToParent()
-       .get()
+       .getCursor()
        .moveToParent()
-       .get()
+       .getCursor()
        .moveToParent();
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello").moveToParent().get();
+    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello").moveToParent().getCursor();
 
     assert wtx.isObjectKey();
 
@@ -116,7 +116,7 @@ public final class JsonDocumentCreator {
        .insertObjectKeyAsFirstChild("foo")
        .insertStringValueAsFirstChild("bar")
        .moveToParent()
-       .get()
+       .getCursor()
        .moveToParent();
 
     assert wtx.isObject();
@@ -125,7 +125,7 @@ public final class JsonDocumentCreator {
        .insertObjectKeyAsFirstChild("baz")
        .insertBooleanValueAsFirstChild(false)
        .moveToParent()
-       .get()
+       .getCursor()
        .moveToParent();
 
     assert wtx.isObject();

@@ -139,7 +139,7 @@ public abstract class AbstractSerializer<R extends NodeReadTrx & NodeCursor, W e
         boolean closeElements = false;
         long key = rtx.getNodeKey();
 
-        // Iterate over all nodes of the subtree including start node.
+        // Iterate over all nodes of the subtree including s.
         while (descAxis.hasNext()) {
           key = descAxis.next();
 

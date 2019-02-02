@@ -23,7 +23,6 @@ package org.sirix.service.json.serialize;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
@@ -81,9 +80,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /** Serialize a rest-sequence element for the start-document. */
   private final boolean mSerializeRestSequence;
 
-  /** Serialize id. */
-  private final boolean mSerializeId;
-
   /** Number of spaces to indent. */
   private final int mIndentSpaces;
 
@@ -112,7 +108,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     mIndent = builder.mIndent;
     mSerializeRest = builder.mREST;
     mSerializeRestSequence = builder.mRESTSequence;
-    mSerializeId = builder.mID;
     mIndentSpaces = builder.mIndentSpaces;
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
@@ -221,16 +216,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (mSerializeRestSequence || length > 1) {
-        if (mSerializeRestSequence) {
-          mOut.write("{ \"rest\": ");
-        } else {
-          mOut.write("{ \"sirix\": ");
-        }
+        mOut.write("{");
 
         if (mIndent) {
           // mOut.write(CharsForSerializing.NEWLINE.getBytes());
           mStack.push(Constants.NULL_ID_LONG);
         }
+
+        if (mSerializeRestSequence) {
+          mOut.write("\"rest\":");
+        } else {
+          mOut.write("\"sirix\":");
+        }
+
+        mOut.write("{");
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -251,6 +250,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         indent();
 
         mOut.write("}");
+
+        indent();
+
+        mOut.write("}");
       }
 
       mOut.flush();
@@ -268,18 +271,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (mSerializeRest || length > 1) {
         indent();
-        mOut.write("{");
 
         if (length > 1 || mEmitXQueryResultSequence) {
-          mOut.write("\"revision\":");
-          mOut.write(Integer.toString(rtx.getRevisionNumber()));
-          mOut.write(",");
+          mOut.write("\"revisionNumber" + Integer.toString(rtx.getRevisionNumber()) + "\":");
 
           if (mSerializeTimestamp) {
-            mOut.write(" \"revisionTimestamp\":");
+            mOut.write("{\"revisionTimestamp-");
             mOut.write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
                                                     .format(Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
-            mOut.write("{");
+            mOut.write("\":");
           }
         } else if (mSerializeRest) {
         }
@@ -304,10 +304,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (mSerializeRest || length > 1) {
-        if (rtx.moveToDocumentRoot().get().hasFirstChild())
+        if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
           mStack.pop();
         indent();
-        mOut.write("}");
+
+        if (rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1])
+          mOut.write(",");
       }
 
       // if (mIndent) {
@@ -411,11 +413,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     private boolean mREST;
 
     /**
-     * Intermediate boolean for ids, not necessary.
-     */
-    private boolean mID;
-
-    /**
      * Intermediate number of spaces to indent, not necessary.
      */
     private int mIndentSpaces = 2;
@@ -493,7 +490,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
       mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
       mREST = checkNotNull((Boolean) map.get(S_REST[0]));
-      mID = checkNotNull((Boolean) map.get(S_ID[0]));
       mIndentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
     }
 
@@ -565,16 +561,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     public JsonSerializerBuilder emitRESTSequence() {
       mRESTSequence = true;
-      return this;
-    }
-
-    /**
-     * Emit the unique nodeKeys / IDs of nodes.
-     *
-     * @return this {@link JsonSerializerBuilder} instance
-     */
-    public JsonSerializerBuilder emitIDs() {
-      mID = true;
       return this;
     }
 

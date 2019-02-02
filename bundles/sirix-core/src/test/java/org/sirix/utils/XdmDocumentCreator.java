@@ -273,7 +273,7 @@ public final class XdmDocumentCreator {
       wtx.commit();
     }
 
-    wtx.moveToDocumentRoot().get().moveToFirstChild().get().moveToLastChild().get();
+    wtx.moveToDocumentRoot().getCursor().moveToFirstChild().getCursor().moveToLastChild().getCursor();
     wtx.remove();
     wtx.commit();
 

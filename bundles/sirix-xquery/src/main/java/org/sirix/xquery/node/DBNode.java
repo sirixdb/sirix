@@ -559,7 +559,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getParent() throws DocumentException {
     moveRtx();
     return mRtx.hasParent()
-        ? new DBNode(mRtx.moveToParent().get(), mCollection)
+        ? new DBNode(mRtx.moveToParent().getCursor(), mCollection)
         : null;
   }
 
@@ -567,7 +567,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getFirstChild() throws DocumentException {
     moveRtx();
     return mRtx.hasFirstChild()
-        ? new DBNode(mRtx.moveToFirstChild().get(), mCollection)
+        ? new DBNode(mRtx.moveToFirstChild().getCursor(), mCollection)
         : null;
   }
 
@@ -575,7 +575,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getLastChild() throws DocumentException {
     moveRtx();
     return mRtx.hasLastChild()
-        ? new DBNode(mRtx.moveToLastChild().get(), mCollection)
+        ? new DBNode(mRtx.moveToLastChild().getCursor(), mCollection)
         : null;
   }
 
@@ -602,7 +602,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getNextSibling() throws DocumentException {
     moveRtx();
     return mRtx.hasRightSibling()
-        ? new DBNode(mRtx.moveToRightSibling().get(), mCollection)
+        ? new DBNode(mRtx.moveToRightSibling().getCursor(), mCollection)
         : null;
   }
 
@@ -610,7 +610,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   public DBNode getPreviousSibling() throws DocumentException {
     moveRtx();
     return mRtx.hasLeftSibling()
-        ? new DBNode(mRtx.moveToLeftSibling().get(), mCollection)
+        ? new DBNode(mRtx.moveToLeftSibling().getCursor(), mCollection)
         : null;
   }
 
@@ -1038,7 +1038,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, Insert.ASLEFTSIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(), mCollection);
+      return new DBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1163,7 +1163,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, Insert.ASRIGHTSIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new DBNode(wtx.moveTo(builder.getStartNodeKey()).get(), mCollection);
+      return new DBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1420,7 +1420,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
   private DBNode replace(final long nodeKey, final XdmNodeTrx wtx) throws SirixException {
     // Move to original node.
-    wtx.moveTo(nodeKey).get().moveToRightSibling();
+    wtx.moveTo(nodeKey).getCursor().moveToRightSibling();
     // Remove original node.
     wtx.remove();
     // Move to subtree root of new subtree.

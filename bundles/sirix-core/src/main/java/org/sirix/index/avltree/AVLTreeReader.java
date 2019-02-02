@@ -333,7 +333,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @return number of index entries
    */
   public long size() {
-    return ((XdmDocumentRootNode) moveToDocumentRoot().get().getNode()).getDescendantCount();
+    return ((XdmDocumentRootNode) moveToDocumentRoot().getCursor().getNode()).getDescendantCount();
   }
 
   @Override
@@ -501,17 +501,17 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       } else if (node.hasRightChild()) {
         moveToLastChild();
       } else {
-        while (moveToParent().get().getNode() instanceof AVLNode && !hasLastChild()) {
+        while (moveToParent().getCursor().getNode() instanceof AVLNode && !hasLastChild()) {
         }
 
         if (getNode() instanceof AVLNode) {
-          return Move.moved(moveToLastChild().get());
+          return Move.moved(moveToLastChild().getCursor());
         } else {
           return Move.notMoved();
         }
       }
     }
-    return Move.moved(moveToFirstChild().get());
+    return Move.moved(moveToFirstChild().getCursor());
   }
 
   @Override
@@ -547,7 +547,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   @Override
   public Kind getFirstChildKind() {
     assertNotClosed();
-    final Kind firstChildKind = moveToFirstChild().get().getKind();
+    final Kind firstChildKind = moveToFirstChild().getCursor().getKind();
     moveToParent();
     return firstChildKind;
   }
@@ -555,7 +555,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   @Override
   public Kind getLastChildKind() {
     assertNotClosed();
-    final Kind lastChildKind = moveToLastChild().get().getKind();
+    final Kind lastChildKind = moveToLastChild().getCursor().getKind();
     moveToParent();
     return lastChildKind;
   }
@@ -568,7 +568,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
         return Kind.XDM_DOCUMENT;
       } else {
         final long nodeKey = mCurrentNode.getNodeKey();
-        final Kind parentKind = moveToParent().get().getKind();
+        final Kind parentKind = moveToParent().getCursor().getKind();
         moveTo(nodeKey);
         return parentKind;
       }
@@ -676,7 +676,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       if (!mFirst) {
         if (!mKeys.isEmpty()) {
           // Subsequent results.
-          final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
+          final AVLNode<K, V> node = moveTo(mKeys.pop()).getCursor().getAVLNode();
           stackOperation(node);
           return node;
         }
@@ -699,12 +699,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
     private void stackOperation(final AVLNode<K, V> node) {
       if (node.hasRightChild()) {
-        final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+        final AVLNode<K, V> right = moveToLastChild().getCursor().getAVLNode();
         mKeys.push(right.getNodeKey());
       }
       moveTo(node.getNodeKey());
       if (node.hasLeftChild()) {
-        final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+        final AVLNode<K, V> left = moveToFirstChild().getCursor().getAVLNode();
         mKeys.push(left.getNodeKey());
       }
     }

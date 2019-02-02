@@ -849,7 +849,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       checkAccessAndCommit();
 
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().get().getPathNodeKey();
+      final long pathNodeKey = moveToParent().getCursor().getPathNodeKey();
       moveTo(nodeKey);
 
       // Remove old value from indexes.
@@ -886,7 +886,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       checkAccessAndCommit();
 
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().get().getPathNodeKey();
+      final long pathNodeKey = moveToParent().getCursor().getPathNodeKey();
       moveTo(nodeKey);
 
       // Remove old value from indexes.
@@ -920,7 +920,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         checkAccessAndCommit();
 
         final long nodeKey = getNodeKey();
-        final long pathNodeKey = moveToParent().get().getPathNodeKey();
+        final long pathNodeKey = moveToParent().getCursor().getPathNodeKey();
         moveTo(nodeKey);
 
         // Remove old value from indexes.
