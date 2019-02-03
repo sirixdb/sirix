@@ -8,7 +8,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
+public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
@@ -16,7 +16,7 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
    *
    * @throws SirixException if this revision couldn't be commited
    */
-  NodeWriteTrx commit();
+  NodeTrx commit();
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
@@ -25,14 +25,14 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
    * @param commitMessage message of the commit
    * @throws SirixException if this revision couldn't be commited
    */
-  NodeWriteTrx commit(String commitMessage);
+  NodeTrx commit(String commitMessage);
 
   /**
    * Rollback all modifications of the exclusive write transaction.
    *
    * @throws SirixException if the changes in this revision couldn't be rollbacked
    */
-  NodeWriteTrx rollback();
+  NodeTrx rollback();
 
   /**
    * Reverting all changes to the revision defined. This command has to be finalized with a commit. A
@@ -40,21 +40,21 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
    *
    * @param revision revert to the revision
    */
-  NodeWriteTrx revertTo(@Nonnegative int revision);
+  NodeTrx revertTo(@Nonnegative int revision);
 
   /**
    * Add pre commit hook.
    *
    * @param hook pre commit hook
    */
-  NodeWriteTrx addPreCommitHook(PreCommitHook hook);
+  NodeTrx addPreCommitHook(PreCommitHook hook);
 
   /**
    * Add a post commit hook.
    *
    * @param hook post commit hook
    */
-  NodeWriteTrx addPostCommitHook(PostCommitHook hook);
+  NodeTrx addPostCommitHook(PostCommitHook hook);
 
   /**
    * Truncate to a revision.
@@ -62,7 +62,7 @@ public interface NodeWriteTrx extends NodeReadTrx, AutoCloseable {
    * @param revision the revision to truncate to
    * @return
    */
-  NodeWriteTrx truncateTo(int revision);
+  NodeTrx truncateTo(int revision);
 
   /**
    * Get the {@link PathSummaryReader} associated with the current write transaction -- might be

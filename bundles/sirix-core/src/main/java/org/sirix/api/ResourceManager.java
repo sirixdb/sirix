@@ -54,7 +54,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Marc Kramis, Seabix GmbH
  * @author Johannes Lichtenberger
  */
-public interface ResourceManager<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AutoCloseable {
 
   /**

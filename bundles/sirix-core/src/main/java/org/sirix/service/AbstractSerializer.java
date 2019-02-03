@@ -28,8 +28,8 @@ import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
@@ -43,7 +43,7 @@ import org.sirix.settings.Constants;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractSerializer<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements Callable<Void> {
 
   /** Sirix {@link ResourceManager}. */

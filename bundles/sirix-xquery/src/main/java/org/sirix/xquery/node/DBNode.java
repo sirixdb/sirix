@@ -20,7 +20,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.TemporalNode;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -373,7 +373,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     if (getKind() == Kind.DOCUMENT && other instanceof DBNode) {
       final DBNode node = (DBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      final NodeReadTrx rtx = node.getTrx();
+      final NodeReadOnlyTrx rtx = node.getTrx();
       if (rtx.getRevisionNumber() == mRtx.getRevisionNumber()
           && rtx.getResourceManager().getResourceConfig().getID() == mRtx.getResourceManager()
                                                                          .getResourceConfig()
@@ -1872,7 +1872,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       return false;
 
     final DBNode otherNode = (DBNode) other;
-    final NodeReadTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
 
     return otherTrx.getResourceManager().getMostRecentRevisionNumber() == otherTrx.getRevisionNumber();
   }
@@ -1885,7 +1885,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       return false;
 
     final DBNode otherNode = (DBNode) other;
-    final NodeReadTrx otherTrx = otherNode.getTrx();
+    final NodeReadOnlyTrx otherTrx = otherNode.getTrx();
 
     // Revision 0 is just the bootstrap revision and not accessed over here.
     return otherTrx.getRevisionNumber() == 1;

@@ -16,8 +16,8 @@ import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixRuntimeException;
@@ -40,7 +40,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public abstract class AbstractIndexController<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
   /** The index types. */
   private final Indexes mIndexes;

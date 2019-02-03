@@ -5,7 +5,7 @@ import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.index.path.PCRCollector;
@@ -20,7 +20,7 @@ public final class XdmPCRCollector implements PCRCollector {
   private static final LogWrapper LOGGER =
       new LogWrapper(LoggerFactory.getLogger(XdmPCRCollector.class));
 
-  private final NodeReadTrx mRtx;
+  private final NodeReadOnlyTrx mRtx;
 
   public XdmPCRCollector(final XdmNodeReadOnlyTrx rtx) {
     mRtx = Objects.requireNonNull(rtx, "The transaction must not be null.");

@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Predicate;
 
 /**
@@ -35,7 +35,7 @@ import com.google.common.base.Predicate;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbstractFilter<R extends NodeReadTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
+public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
   private R mRtx;

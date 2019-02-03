@@ -50,7 +50,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -82,7 +82,7 @@ public final class WikipediaImport implements Import<StartElement> {
   /** Resource manager instance. */
   private final XdmResourceManager mResourceManager;
 
-  /** sirix {@link NodeWriteTrx}. */
+  /** sirix {@link NodeTrx}. */
   private transient XdmNodeTrx mWtx;
 
   /** {@link XMLEvent}s which specify the page metadata. */
@@ -453,7 +453,7 @@ public final class WikipediaImport implements Import<StartElement> {
   }
 
   /**
-   * Moves {@link NodeWriteTrx} to last shreddered article/page.
+   * Moves {@link NodeTrx} to last shreddered article/page.
    *
    * @param page {@link StartElement} page
    */

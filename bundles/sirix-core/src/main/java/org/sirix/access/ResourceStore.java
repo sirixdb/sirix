@@ -4,13 +4,13 @@ import java.nio.file.Path;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
 
 
-public interface ResourceStore<R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+public interface ResourceStore<R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
 
   /**

@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
@@ -17,7 +17,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
-public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadTrx {
+public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 
   /** ID of transaction. */
   private final long mId;

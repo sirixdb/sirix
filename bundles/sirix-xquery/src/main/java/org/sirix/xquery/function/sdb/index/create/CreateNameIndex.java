@@ -13,7 +13,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
@@ -60,7 +60,7 @@ public final class CreateNameIndex extends AbstractFunction {
     }
 
     final DBNode doc = ((DBNode) args[0]);
-    final NodeReadTrx rtx = doc.getTrx();
+    final NodeReadOnlyTrx rtx = doc.getTrx();
     final XdmIndexController controller =
         (XdmIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
 

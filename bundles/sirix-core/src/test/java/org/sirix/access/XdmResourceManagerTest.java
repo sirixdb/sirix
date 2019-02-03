@@ -34,7 +34,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -217,7 +217,7 @@ public class XdmResourceManagerTest {
     wtx.close();
     wtx.close();
 
-    final NodeReadTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(false, rtx.moveTo(14L).hasMoved());
     rtx.close();
     rtx.close();

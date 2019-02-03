@@ -1,8 +1,8 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
@@ -15,18 +15,18 @@ import org.sirix.axis.AbstractTemporalAxis;
  * @author Johannes Lichtenberger
  *
  */
-public final class AllTimeAxis<R extends NodeReadTrx> extends AbstractTemporalAxis<R> {
+public final class AllTimeAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** The revision number. */
   private int mRevision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
 
-  /** Sirix {@link NodeReadTrx}. */
+  /** Sirix {@link NodeReadOnlyTrx}. */
   private R mRtx;
 
   /** Determines if node has been found before and now has been deleted. */
@@ -37,7 +37,7 @@ public final class AllTimeAxis<R extends NodeReadTrx> extends AbstractTemporalAx
    *
    * /** Constructor.
    *
-   * @param rtx Sirix {@link NodeReadTrx}
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
   public AllTimeAxis(final R rtx) {
     mResourceManager = checkNotNull(rtx.getResourceManager());

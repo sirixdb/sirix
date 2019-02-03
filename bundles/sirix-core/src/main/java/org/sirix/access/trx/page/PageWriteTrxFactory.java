@@ -39,8 +39,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
@@ -79,7 +79,7 @@ public final class PageWriteTrxFactory {
    *        {@code false} otherwise
    */
   public PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
-      final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager,
+      final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
       final @Nonnull BufferManager bufferManager, final boolean isBoundToNodeTrx) {

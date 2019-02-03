@@ -27,7 +27,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Filter;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 public class FilterTest {
@@ -37,8 +37,8 @@ public class FilterTest {
     XdmTestHelper.deleteEverything();
   }
 
-  public static void testFilterConventions(final Filter<? extends NodeReadTrx> filter, final boolean expected) {
-    final NodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
+  public static void testFilterConventions(final Filter<? extends NodeReadOnlyTrx> filter, final boolean expected) {
+    final NodeReadOnlyTrx rtx = ((AbstractFilter) filter).getTrx();
 
     // Filter Convention 1.
     final long startKey = rtx.getNodeKey();

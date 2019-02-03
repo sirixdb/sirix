@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.index.ChangeListener;
@@ -24,7 +24,7 @@ import org.sirix.settings.Fixed;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 
-public interface CASIndex<B, L extends ChangeListener, R extends NodeReadTrx & NodeCursor> {
+public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
   B createBuilder(R rtx, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef);
 

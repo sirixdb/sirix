@@ -25,7 +25,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_REST;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -74,12 +73,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /** Indent output. */
   private final boolean mIndent;
 
-  /** Serialize rest header and closer and rest:id. */
-  private final boolean mSerializeRest;
-
-  /** Serialize a rest-sequence element for the start-document. */
-  private final boolean mSerializeRestSequence;
-
   /** Number of spaces to indent. */
   private final int mIndentSpaces;
 
@@ -106,8 +99,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = builder.mStream;
     mIndent = builder.mIndent;
-    mSerializeRest = builder.mREST;
-    mSerializeRestSequence = builder.mRESTSequence;
     mIndentSpaces = builder.mIndentSpaces;
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
@@ -215,7 +206,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRestSequence || length > 1) {
+      if (length > 1) {
         mOut.write("{");
 
         if (mIndent) {
@@ -223,13 +214,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           mStack.push(Constants.NULL_ID_LONG);
         }
 
-        if (mSerializeRestSequence) {
-          mOut.write("\"rest\":");
-        } else {
-          mOut.write("\"sirix\":");
-        }
-
-        mOut.write("{");
+        mOut.write("\"sirix\":");
+        mOut.write("[");
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -243,13 +229,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRestSequence || length > 1) {
+      if (length > 1) {
         if (mIndent) {
           mStack.pop();
         }
         indent();
 
-        mOut.write("}");
+        mOut.write("]");
 
         indent();
 
@@ -269,19 +255,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRest || length > 1) {
+      if (length > 1) {
         indent();
 
         if (length > 1 || mEmitXQueryResultSequence) {
-          mOut.write("\"revisionNumber" + Integer.toString(rtx.getRevisionNumber()) + "\":");
+          mOut.write("{");
+          mOut.write("\"revisionNumber\":");
+          mOut.write(Integer.toString(rtx.getRevisionNumber()));
+          mOut.write(",");
 
           if (mSerializeTimestamp) {
-            mOut.write("{\"revisionTimestamp-");
+            mOut.write("{\"revisionTimestamp\":");
             mOut.write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
                                                     .format(Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
-            mOut.write("\":");
+            mOut.write(",");
           }
-        } else if (mSerializeRest) {
+
+          mOut.write("\"revision\":");
         }
 
         if (rtx.hasFirstChild())
@@ -303,10 +293,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (mSerializeRest || length > 1) {
+      if (length > 1) {
         if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
           mStack.pop();
         indent();
+        mOut.write("}");
 
         if (rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1])
           mOut.write(",");
@@ -400,17 +391,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * JsonSerializerBuilder to setup the JsonSerializer.
    */
   public static final class JsonSerializerBuilder {
-    public boolean mRESTSequence;
-
     /**
      * Intermediate boolean for indendation, not necessary.
      */
     private boolean mIndent;
-
-    /**
-     * Intermediate boolean for rest serialization, not necessary.
-     */
-    private boolean mREST;
 
     /**
      * Intermediate number of spaces to indent, not necessary.
@@ -489,7 +473,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       }
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
       mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
-      mREST = checkNotNull((Boolean) map.get(S_REST[0]));
       mIndentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
     }
 
@@ -541,26 +524,6 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     public JsonSerializerBuilder prettyPrint() {
       mIndent = true;
-      return this;
-    }
-
-    /**
-     * Emit RESTful output.
-     *
-     * @return this {@link JsonSerializerBuilder} instance
-     */
-    public JsonSerializerBuilder emitRESTful() {
-      mREST = true;
-      return this;
-    }
-
-    /**
-     * Emit a rest-sequence start-tag/end-tag in startDocument()/endDocument() method.
-     *
-     * @return this {@link JsonSerializerBuilder} instance
-     */
-    public JsonSerializerBuilder emitRESTSequence() {
-      mRESTSequence = true;
       return this;
     }
 

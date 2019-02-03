@@ -1,8 +1,8 @@
 package org.sirix.api.json;
 
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeTrx;
 
-public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeWriteTrx {
+public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertObjectAsFirstChild();
 
   JsonNodeTrx insertObjectAsRightSibling();

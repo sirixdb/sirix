@@ -17,8 +17,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -38,7 +38,7 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 
-public interface IndexController<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor> {
+public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
 
   /**
    * Determines if an index of the specified type is available.
@@ -114,7 +114,7 @@ public interface IndexController<R extends NodeReadTrx & NodeCursor, W extends N
    * Create new indexes.
    *
    * @param indexDefs Set of {@link IndexDef}s
-   * @param nodeWriteTrx the {@link NodeWriteTrx} used
+   * @param nodeWriteTrx the {@link NodeTrx} used
    * @return this {@link IndexController} instance
    * @throws SirixIOException if an I/O exception during index creation occured
    */

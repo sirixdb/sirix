@@ -29,7 +29,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
@@ -72,7 +72,7 @@ public class MultipleCommitTest {
     XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
 
-    final NodeReadTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.close();
   }
 

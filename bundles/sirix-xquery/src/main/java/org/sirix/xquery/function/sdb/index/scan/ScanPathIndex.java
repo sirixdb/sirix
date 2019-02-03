@@ -19,7 +19,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.PathFilter;
@@ -54,7 +54,7 @@ public final class ScanPathIndex extends AbstractFunction {
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
-    final NodeReadTrx rtx = doc.getTrx();
+    final NodeReadOnlyTrx rtx = doc.getTrx();
     final XdmIndexController controller =
         (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 

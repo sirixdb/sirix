@@ -16,8 +16,8 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xdm.XdmResourceStore;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -181,7 +181,7 @@ public final class Databases {
   }
 
   private static Database<?> openDatabase(final Path file,
-      final ResourceStore<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> store,
+      final ResourceStore<? extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> store,
       final DatabaseType databaseType) {
     checkNotNull(file);
     if (!Files.exists(file)) {
