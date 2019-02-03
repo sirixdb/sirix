@@ -5,30 +5,29 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 
 
-public interface NodeReadTrx extends AutoCloseable {
+public interface NodeReadOnlyTrx extends AutoCloseable {
 
   /**
-   * Get ID of reader.
+   * Get the transaction-ID of transaction.
    *
-   * @return ID of reader
+   * @return ID of the transaction
    */
   long getId();
 
   /**
    * Get the revision number of this transaction.
    *
-   * @return immutable revision number of this IReadTransaction
+   * @return immutable revision number of this transaction
    */
   int getRevisionNumber();
 
   /**
    * UNIX-style timestamp of the commit of the revision.
    *
-   * @throws SirixIOException if can't get timestamp
+   * @return the timestamp (milliseconds from 1970).
    */
   long getRevisionTimestamp();
 
@@ -60,21 +59,37 @@ public interface NodeReadTrx extends AutoCloseable {
   /**
    * Get the {@link ResourceManager} this instance is bound to.
    *
-   * @return session instance
+   * @return the resource manager this transaction is bound to
    */
-  ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager();
+  ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager();
 
   /**
    * Get the commit credentials.
    *
-   * @return The commit credentials.
+   * @return the commit credentials
    */
   CommitCredentials getCommitCredentials();
 
+  /**
+   * Move to a specific node.
+   *
+   * @param key the nodeKey of the node to move to
+   * @return this transaction instance
+   */
   Move<? extends NodeCursor> moveTo(long key);
 
+  /**
+   * Get the underlying page transaction.
+   *
+   * @return the underlying page transaction
+   */
   PageReadOnlyTrx getPageTrx();
 
+  /**
+   * Get the path node key of the current node.
+   *
+   * @return the path node key
+   */
   long getPathNodeKey();
 
   /**
@@ -93,17 +108,52 @@ public interface NodeReadTrx extends AutoCloseable {
    */
   String nameForKey(int key);
 
+  /**
+   * Get the number of descendants of the current node.
+   *
+   * @return the number of descendants of the current node
+   */
   long getDescendantCount();
 
+  /**
+   * Get the number of children of the current node.
+   *
+   * @return the number of children of the current node
+   */
   long getChildCount();
 
+  /**
+   * Get the kind of path of the current node (only supported for path summary transactions).
+   *
+   * @return the kind of path of the current node
+   */
   Kind getPathKind();
 
+  /**
+   * Determines if the current node is the document root node or not.
+   *
+   * @return {@code true}, if the current node is the document root node, {@code false} otherwise
+   */
   boolean isDocumentRoot();
 
+  /**
+   * Determines if the state of the transaction has been changed to {@code closed}.
+   *
+   * @return {@code true}, if the transaction has been closed, {@code false} otherwise
+   */
   boolean isClosed();
 
+  /**
+   * Get the name of the current node or {@code null}.
+   *
+   * @return the name of the current node or {@code null} if the node has no name
+   */
   QNm getName();
 
+  /**
+   * Determines if the current node has children or not.
+   * 
+   * @return {@code true}, if the current node has children, {@code false} otherwise
+   */
   boolean hasChildren();
 }

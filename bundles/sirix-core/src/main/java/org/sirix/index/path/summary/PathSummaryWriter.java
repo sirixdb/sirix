@@ -9,8 +9,8 @@ import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.access.trx.node.xdm.InsertPos;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -46,7 +46,7 @@ import org.sirix.settings.Fixed;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends AbstractForwardingPathSummaryReader {
+public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractForwardingPathSummaryReader {
 
   /**
    * Operation type to determine behavior of path summary updates during {@code setQName(QName)} and
@@ -98,7 +98,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadTrx> extends
    * @param rtx the read-only trx
    */
   public PathSummaryWriter(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-      final ResourceManager<R, ? extends NodeWriteTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
+      final ResourceManager<R, ? extends NodeTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
     mPathSummaryReader = PathSummaryReader.getInstance(pageWriteTrx, resMgr);
     mNodeRtx = checkNotNull(rtx);

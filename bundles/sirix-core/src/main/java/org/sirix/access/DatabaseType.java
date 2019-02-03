@@ -8,8 +8,8 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xdm.XdmResourceStore;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -23,7 +23,7 @@ public enum DatabaseType {
   XDM {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
         DatabaseConfiguration dbConfig, S store) {
       return (Database<R>) new LocalXdmDatabase(dbConfig, (XdmResourceStore) store);
     }
@@ -42,7 +42,7 @@ public enum DatabaseType {
   JSON {
     @SuppressWarnings("unchecked")
     @Override
-    public <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+    public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
         DatabaseConfiguration dbConfig, S store) {
       return (Database<R>) new LocalJsonDatabase(dbConfig, (JsonResourceStore) store);
     }
@@ -65,7 +65,7 @@ public enum DatabaseType {
     return Optional.ofNullable(stringToEnum.get(symbol));
   }
 
-  public abstract <R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
+  public abstract <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
       DatabaseConfiguration dbConfig, S store);
 
   public abstract Node getDocumentNode(SirixDeweyID id);

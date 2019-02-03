@@ -53,17 +53,11 @@ public final class JsonSerializerProperties {
 
   // ============ Shredding constants. ===============
 
-  /** Serialize TT-ID: yes/no. */
-  public static final Object[] S_ID = {"serialize-id", NO};
-
   /** Serialization parameter: yes/no. */
   public static final Object[] S_INDENT = {"indent", NO};
 
   /** Specific serialization parameter: number of spaces to indent. */
   public static final Object[] S_INDENT_SPACES = {"indent-spaces", 2};
-
-  /** Serialize REST: yes/no. */
-  public static final Object[] S_REST = {"serialize-rest", NO};
 
   /** Property file. */
   private String mFilePath;

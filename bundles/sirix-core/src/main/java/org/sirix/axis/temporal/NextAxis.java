@@ -1,8 +1,8 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 
@@ -12,7 +12,7 @@ import org.sirix.axis.AbstractTemporalAxis;
  * @author Johannes Lichtenberger
  *
  */
-public final class NextAxis<R extends NodeReadTrx> extends AbstractTemporalAxis<R> {
+public final class NextAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** Determines if it's the first call. */
   private boolean mFirst;
@@ -21,18 +21,18 @@ public final class NextAxis<R extends NodeReadTrx> extends AbstractTemporalAxis<
   private int mRevision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
 
-  /** Sirix {@link NodeReadTrx}. */
+  /** Sirix {@link NodeReadOnlyTrx}. */
   private R mRtx;
 
   /**
    * Constructor.
    *
-   * @param rtx Sirix {@link NodeReadTrx}
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
   public NextAxis(final R rtx) {
     mResourceManager = checkNotNull(rtx.getResourceManager());

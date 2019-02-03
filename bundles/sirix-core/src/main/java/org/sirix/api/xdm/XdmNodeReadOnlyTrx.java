@@ -30,7 +30,7 @@ import org.sirix.access.trx.node.Move;
 import org.sirix.access.trx.node.Moved;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
@@ -124,7 +124,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *
  * </p>
  */
-public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadTrx {
+public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the page reading transaction.
    *

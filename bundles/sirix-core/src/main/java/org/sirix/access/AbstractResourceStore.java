@@ -3,15 +3,15 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentMap;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
-public abstract class AbstractResourceStore<R extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+public abstract class AbstractResourceStore<R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements ResourceStore<R> {
 
   /** Central repository of all open resource managers. */

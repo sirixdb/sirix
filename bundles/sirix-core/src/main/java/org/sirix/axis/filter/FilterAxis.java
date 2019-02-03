@@ -26,7 +26,7 @@ import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
@@ -36,7 +36,7 @@ import org.sirix.axis.AbstractAxis;
  * Perform a test on a given axis.
  * </p>
  */
-public final class FilterAxis<R extends NodeReadTrx & NodeCursor> extends AbstractAxis {
+public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends AbstractAxis {
 
   /** Axis to test. */
   private final Axis mAxis;

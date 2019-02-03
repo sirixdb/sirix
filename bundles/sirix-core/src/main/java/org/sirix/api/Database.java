@@ -45,7 +45,7 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Database<T extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     extends AutoCloseable {
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be

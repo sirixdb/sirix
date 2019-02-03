@@ -4,8 +4,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.node.Kind;
@@ -18,7 +18,7 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingPathSummaryReader extends ForwardingObject implements NodeReadTrx, NodeCursor {
+public abstract class AbstractForwardingPathSummaryReader extends ForwardingObject implements NodeReadOnlyTrx, NodeCursor {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingPathSummaryReader() {}
@@ -62,7 +62,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
+  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     return delegate().getResourceManager();
   }
 

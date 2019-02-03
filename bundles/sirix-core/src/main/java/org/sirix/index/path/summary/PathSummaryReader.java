@@ -16,8 +16,8 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.DescendantAxis;
@@ -48,7 +48,7 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
+public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /** Logger. */
   private final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(PathSummaryReader.class));
@@ -60,7 +60,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   private final PageReadOnlyTrx mPageReadTrx;
 
   /** {@link ResourceManager} reference. */
-  private final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> mResourceManager;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Determines if path summary is closed or not. */
   private boolean mClosed;
@@ -81,7 +81,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
    * @param resourceManager {@link ResourceManager} reference
    */
   private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
-      final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager) {
+      final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
     mPathCache = new HashMap<>();
     mPageReadTrx = pageReadTrx;
     mClosed = false;
@@ -130,7 +130,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
    * @return new path summary reader instance
    */
   public static final PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
-      final ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager) {
+      final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
     return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
   }
 
@@ -498,7 +498,7 @@ public final class PathSummaryReader implements NodeReadTrx, NodeCursor {
   }
 
   @Override
-  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
+  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }

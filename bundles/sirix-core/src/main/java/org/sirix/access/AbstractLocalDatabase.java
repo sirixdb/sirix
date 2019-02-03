@@ -17,8 +17,8 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
@@ -34,7 +34,7 @@ import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 
-public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>>
+public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements Database<T> {
 
   /** Unique ID of a resource. */

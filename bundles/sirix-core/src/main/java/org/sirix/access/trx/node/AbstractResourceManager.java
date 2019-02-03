@@ -26,8 +26,8 @@ import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
@@ -47,7 +47,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 
-public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor, W extends NodeWriteTrx & NodeCursor>
+public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
 
   /** The database. */
@@ -93,7 +93,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   final BufferManager mBufferManager;
 
   /** The resource store with which this manager has been created. */
-  final ResourceStore<? extends ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx>> mResourceStore;
+  final ResourceStore<? extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> mResourceStore;
 
   /**
    * Package private constructor.
@@ -297,7 +297,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   public synchronized void close() {
     if (!mClosed) {
       // Close all open node transactions.
-      for (NodeReadTrx rtx : mNodeReaderMap.values()) {
+      for (NodeReadOnlyTrx rtx : mNodeReaderMap.values()) {
         if (rtx instanceof XdmNodeTrx) {
           ((XdmNodeTrx) rtx).rollback();
         }
@@ -536,7 +536,7 @@ public abstract class AbstractResourceManager<R extends NodeReadTrx & NodeCursor
   @SuppressWarnings("unchecked")
   @Override
   public synchronized Optional<W> getNodeWriteTrx() {
-    return mNodeReaderMap.values().stream().filter(rtx -> rtx instanceof NodeWriteTrx).map(rtx -> (W) rtx).findAny();
+    return mNodeReaderMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();
   }
 
   @Override

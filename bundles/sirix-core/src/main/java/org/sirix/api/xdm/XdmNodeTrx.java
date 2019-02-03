@@ -28,7 +28,7 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.Movement;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
@@ -116,7 +116,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * </p>
  */
-public interface XdmNodeTrx extends XdmNodeReadOnlyTrx, NodeWriteTrx {
+public interface XdmNodeTrx extends XdmNodeReadOnlyTrx, NodeTrx {
 
   // --- Node Modifiers
   // --------------------------------------------------------

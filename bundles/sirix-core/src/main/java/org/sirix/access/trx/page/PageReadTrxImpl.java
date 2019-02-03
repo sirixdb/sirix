@@ -43,8 +43,8 @@ import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.cache.BufferManager;
@@ -147,7 +147,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
    * @throws SirixIOException if reading of the persistent storage fails
    */
   public PageReadTrxImpl(final long trxId,
-      final InternalResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> resourceManager,
+      final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
       final @Nullable TransactionIntentLog trxIntentLog, final @Nullable IndexController<?, ?> indexController,
       final @Nonnull BufferManager bufferManager) {
@@ -238,7 +238,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public ResourceManager<? extends NodeReadTrx, ? extends NodeWriteTrx> getResourceManager() {
+  public ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceManager() {
     assertNotClosed();
     return mResourceManager;
   }

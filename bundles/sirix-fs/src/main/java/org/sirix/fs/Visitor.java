@@ -23,7 +23,7 @@ package org.sirix.fs;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import javax.annotation.Nonnull;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Optional;
 
 /**
@@ -37,7 +37,7 @@ import com.google.common.base.Optional;
  * 
  */
 @Nonnull
-public interface Visitor<T extends NodeReadTrx> {
+public interface Visitor<T extends NodeReadOnlyTrx> {
   /**
    * Process a directory.
    * 

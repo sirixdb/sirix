@@ -32,7 +32,7 @@ import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -292,7 +292,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param wtx {@link XdmNodeTrx} implementation reference on old revision
    * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
    */
-  private void secondFMESStep(final XdmNodeTrx wtx, final NodeReadTrx rtx)
+  private void secondFMESStep(final XdmNodeTrx wtx, final NodeReadOnlyTrx rtx)
       throws SirixException {
     assert wtx != null;
     assert rtx != null;
