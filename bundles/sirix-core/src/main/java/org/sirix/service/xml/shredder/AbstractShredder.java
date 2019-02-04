@@ -34,7 +34,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   /**
    * Constructor.
    *
-   * @throws NullPointerException if {@code pWtx} is {@code null}
+   * @throws NullPointerException if {@code wtx} is {@code null} or {@code insertLocation} is
+   *         {@code null}
    */
   public AbstractShredder(final XdmNodeTrx wtx, final Insert insertLocation) {
     mWtx = checkNotNull(wtx);
@@ -61,8 +62,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   }
 
   @Override
-  public void processPI(final String processingContent, final String processingTarget)
-      throws SirixException {
+  public void processPI(final String processingContent, final String processingTarget) throws SirixException {
     final String content = checkNotNull(processingContent);
     final String target = checkNotNull(processingTarget);
 

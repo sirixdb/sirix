@@ -43,6 +43,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
+import org.sirix.service.ShredderCommit;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 

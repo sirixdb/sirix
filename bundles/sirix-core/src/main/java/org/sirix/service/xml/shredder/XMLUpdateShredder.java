@@ -52,6 +52,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
+import org.sirix.service.ShredderCommit;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.TypedValue;
