@@ -19,8 +19,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.shredder;
+package org.sirix.service;
 
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeTrx;
 import org.sirix.exception.SirixException;
 
@@ -34,14 +35,14 @@ public enum ShredderCommit {
   /** Auto commit afterwards. */
   COMMIT {
     @Override
-    void commit(final NodeTrx wtx) throws SirixException {
+    public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
       wtx.commit();
     }
   },
   /** Do not commit after subtree has been shreddered. */
   NOCOMMIT {
     @Override
-    void commit(final NodeTrx wtx) throws SirixException {
+    public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
       // Do nothing.
     }
   };
@@ -52,5 +53,5 @@ public enum ShredderCommit {
    * @param wtx {@link NodeTrx} reference
    * @throws SirixException if commiting changes fails
    */
-  abstract void commit(final NodeTrx wtx) throws SirixException;
+  public abstract <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException;
 }

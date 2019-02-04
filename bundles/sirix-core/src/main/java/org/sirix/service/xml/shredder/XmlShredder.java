@@ -52,6 +52,7 @@ import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.xdm.ElementNode;
+import org.sirix.service.ShredderCommit;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
