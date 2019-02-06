@@ -189,7 +189,7 @@ Once also Keycloak is set up we can start the server via:
 
 `java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
 
-If you like to change your user home directory to `/opt/intrexx` for instance.
+If you like to change your user home directory to `/opt/sirix` for instance.
 
 The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
 
