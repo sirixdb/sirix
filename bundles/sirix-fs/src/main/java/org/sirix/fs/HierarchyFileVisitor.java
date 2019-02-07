@@ -109,7 +109,7 @@ public class HierarchyFileVisitor extends AbstractShredder
    * @throws NullPointerException if {@code pBuilder} is {@code null}
    */
   private HierarchyFileVisitor(final Builder builder) throws SirixException {
-    super(builder.mWtx, Insert.ASFIRSTCHILD);
+    super(builder.mWtx, Insert.AS_FIRST_CHILD);
     mVisitor = builder.mVisitor;
     mWtx = builder.mWtx;
     mWtx.insertElementAsFirstChild(new QNm("fsml"));

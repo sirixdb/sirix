@@ -239,7 +239,7 @@ public final class FMSETest extends XMLTestCase {
             try (final XdmNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                  Insert.ASFIRSTCHILD).commitAfterwards().build();
+                  Insert.AS_FIRST_CHILD).commitAfterwards().build();
               shredder.call();
             }
           } else {

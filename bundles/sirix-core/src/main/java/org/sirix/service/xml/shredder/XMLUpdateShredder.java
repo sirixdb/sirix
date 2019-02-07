@@ -1021,7 +1021,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final QNm qName = new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart());
     long key;
 
-    if (mInsert == Insert.ASRIGHTSIBLING) {
+    if (mInsert == Insert.AS_RIGHT_SIBLING) {
       key = mWtx.insertElementAsRightSibling(qName).getNodeKey();
     } else {
       if (paramAdd == EAdd.ASFIRSTCHILD) {
@@ -1159,7 +1159,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XmlShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =
-          new XMLUpdateShredder(wtx, reader, Insert.ASFIRSTCHILD, new File(args[0]), ShredderCommit.COMMIT);
+          new XMLUpdateShredder(wtx, reader, Insert.AS_FIRST_CHILD, new File(args[0]), ShredderCommit.COMMIT);
       shredder.call();
     } catch (final SirixException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);

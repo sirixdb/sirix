@@ -76,7 +76,7 @@ public final class FMSEImport {
           final var wtx = resMgr.beginNodeTrx();
           final var fis = new FileInputStream(resNewRev.toFile())) {
         final var fileReader = XmlShredder.createFileReader(fis);
-        final var shredder = new XmlShredder.Builder(wtx, fileReader, Insert.ASFIRSTCHILD).commitAfterwards().build();
+        final var shredder = new XmlShredder.Builder(wtx, fileReader, Insert.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     }

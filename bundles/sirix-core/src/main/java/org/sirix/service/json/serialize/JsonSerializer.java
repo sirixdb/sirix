@@ -94,7 +94,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param revsions further revisions to serialize
    */
   private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final JsonSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
+      final Builder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = builder.mStream;
@@ -368,9 +368,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static JsonSerializerBuilder newBuilder(final JsonResourceManager resMgr, final Writer stream,
+  public static Builder newBuilder(final JsonResourceManager resMgr, final Writer stream,
       final int... revisions) {
-    return new JsonSerializerBuilder(resMgr, stream, revisions);
+    return new Builder(resMgr, stream, revisions);
   }
 
   /**
@@ -382,15 +382,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static JsonSerializerBuilder newBuilder(final JsonResourceManager resMgr, final @Nonnegative long nodeKey,
+  public static Builder newBuilder(final JsonResourceManager resMgr, final @Nonnegative long nodeKey,
       final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
-    return new JsonSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
+    return new Builder(resMgr, nodeKey, stream, properties, revisions);
   }
 
   /**
    * JsonSerializerBuilder to setup the JsonSerializer.
    */
-  public static final class JsonSerializerBuilder {
+  public static final class Builder {
     /**
      * Intermediate boolean for indendation, not necessary.
      */
@@ -432,7 +432,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public JsonSerializerBuilder(final JsonResourceManager resourceMgr, final Writer stream, final int... revisions) {
+    public Builder(final JsonResourceManager resourceMgr, final Writer stream, final int... revisions) {
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
@@ -456,7 +456,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public JsonSerializerBuilder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,
+    public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);
@@ -482,7 +482,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
      * @return this XMLSerializerBuilder reference
      */
-    public JsonSerializerBuilder startNodeKey(final long nodeKey) {
+    public Builder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
       return this;
     }
@@ -490,9 +490,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets an initial indentation.
      *
-     * @return this {@link JsonSerializerBuilder} instance
+     * @return this {@link Builder} instance
      */
-    public JsonSerializerBuilder withInitialIndent() {
+    public Builder withInitialIndent() {
       mInitialIndent = true;
       return this;
     }
@@ -500,9 +500,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if the serialization is used for XQuery result sets.
      *
-     * @return this {@link JsonSerializerBuilder} instance
+     * @return this {@link Builder} instance
      */
-    public JsonSerializerBuilder isXQueryResultSequence() {
+    public Builder isXQueryResultSequence() {
       mEmitXQueryResultSequence = true;
       return this;
     }
@@ -510,9 +510,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Sets if the serialization of timestamps of the revision(s) is used or not.
      *
-     * @return this {@link JsonSerializerBuilder} instance
+     * @return this {@link Builder} instance
      */
-    public JsonSerializerBuilder serializeTimestamp(boolean serializeTimestamp) {
+    public Builder serializeTimestamp(boolean serializeTimestamp) {
       mSerializeTimestamp = serializeTimestamp;
       return this;
     }
@@ -520,9 +520,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * Pretty prints the output.
      *
-     * @return this {@link JsonSerializerBuilder} instance
+     * @return this {@link Builder} instance
      */
-    public JsonSerializerBuilder prettyPrint() {
+    public Builder prettyPrint() {
       mIndent = true;
       return this;
     }
@@ -531,9 +531,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * The versions to serialize.
      *
      * @param revisions the versions to serialize
-     * @return this {@link JsonSerializerBuilder} instance
+     * @return this {@link Builder} instance
      */
-    public JsonSerializerBuilder revisions(final int[] revisions) {
+    public Builder revisions(final int[] revisions) {
       checkNotNull(revisions);
 
       mVersion = revisions[0];

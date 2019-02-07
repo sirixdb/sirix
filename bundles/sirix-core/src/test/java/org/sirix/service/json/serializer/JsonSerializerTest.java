@@ -34,8 +34,9 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
-      final var serializer = new JsonSerializer.JsonSerializerBuilder(manager, writer).build();
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
+      System.out.println(writer.toString());
       assertEquals(JsonDocumentCreator.JSON, writer.toString());
     }
   }
@@ -52,7 +53,7 @@ public final class JsonSerializerTest {
       wtx.insertObjectKeyAsFirstChild("tadaaa").insertStringValueAsFirstChild("todooo");
       wtx.commit();
 
-      final var serializer = new JsonSerializer.JsonSerializerBuilder(manager, writer, 1, 2).build();
+      final var serializer = new JsonSerializer.Builder(manager, writer, 1, 2).build();
       serializer.call();
       System.out.println(writer.toString());
       assertEquals(mJson, writer.toString());

@@ -348,7 +348,7 @@ public final class XdmDocumentCreator {
     try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XdmNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
-            Insert.ASFIRSTCHILD).commitAfterwards().build();
+            Insert.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 

@@ -102,30 +102,30 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
     final QNm name = checkNotNull(elementName);
     long key = -1;
     switch (mInsertLocation) {
-      case ASFIRSTCHILD:
+      case AS_FIRST_CHILD:
         if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
           key = mWtx.insertElementAsFirstChild(name).getNodeKey();
         } else {
           key = mWtx.insertElementAsRightSibling(name).getNodeKey();
         }
         break;
-      case ASRIGHTSIBLING:
+      case AS_RIGHT_SIBLING:
         if (mWtx.getKind() == Kind.XDM_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = mWtx.insertElementAsRightSibling(name).getNodeKey();
-        mInsertLocation = Insert.ASFIRSTCHILD;
+        mInsertLocation = Insert.AS_FIRST_CHILD;
         break;
-      case ASLEFTSIBLING:
+      case AS_LEFT_SIBLING:
         if (mWtx.getKind() == Kind.XDM_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
-        mInsertLocation = Insert.ASFIRSTCHILD;
+        mInsertLocation = Insert.AS_FIRST_CHILD;
         break;
       default:
         throw new AssertionError();// Must not happen.
