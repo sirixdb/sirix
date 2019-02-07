@@ -112,7 +112,7 @@ public class XmlShredderTest extends XMLTestCase {
         final FileInputStream fis1 = new FileInputStream(XML.toFile());
         final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
       final XmlShredder shredder =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), Insert.AS_FIRST_CHILD).includeComments(true)
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), InsertPosition.AS_FIRST_CHILD).includeComments(true)
                                                                                                .commitAfterwards()
                                                                                                .build();
       shredder.call();
@@ -121,7 +121,7 @@ public class XmlShredderTest extends XMLTestCase {
       wtx.moveToFirstChild();
       wtx.remove();
       final XmlShredder shredder2 =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis2), Insert.AS_FIRST_CHILD).includeComments(true)
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis2), InsertPosition.AS_FIRST_CHILD).includeComments(true)
                                                                                                .commitAfterwards()
                                                                                                .build();
       shredder2.call();
@@ -168,7 +168,7 @@ public class XmlShredderTest extends XMLTestCase {
         final XdmNodeTrx wtx = manager2.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
       final XmlShredder shredder =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), Insert.AS_FIRST_CHILD).commitAfterwards()
+          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
                                                                                               .build();
       shredder.call();
       wtx.commit();
@@ -207,7 +207,7 @@ public class XmlShredderTest extends XMLTestCase {
         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
       try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
         final XmlShredder shredder =
-            new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), Insert.AS_FIRST_CHILD).commitAfterwards()
+            new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
                                                                                                  .build();
         shredder.call();
       }

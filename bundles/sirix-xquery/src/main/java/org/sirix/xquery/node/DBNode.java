@@ -42,7 +42,7 @@ import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.stream.SirixStream;
@@ -728,9 +728,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       if (wtx.hasFirstChild()) {
         wtx.moveToLastChild();
 
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_RIGHT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       } else {
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
       child.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
@@ -770,7 +770,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       }
 
       parser.parse(
-          new SubtreeBuilder(mCollection, (XdmNodeTrx) rtx, Insert.AS_RIGHT_SIBLING, Collections.emptyList()));
+          new SubtreeBuilder(mCollection, (XdmNodeTrx) rtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList()));
 
       moveRtx();
       rtx.moveToFirstChild();
@@ -869,9 +869,9 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       if (wtx.hasFirstChild()) {
         wtx.moveToFirstChild();
 
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_LEFT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       } else {
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
       child.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
@@ -906,7 +906,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 
   private DBNode prepend(final XdmNodeTrx wtx, final SubtreeParser parser) throws DocumentException {
     try {
-      parser.parse(new SubtreeBuilder(mCollection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList()));
+      parser.parse(new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
       moveRtx();
       wtx.moveToFirstChild();
     } catch (final SirixException e) {
@@ -1000,7 +1000,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
       if (!(node.getKind() == Kind.ELEMENT))
         return insertBefore(wtx, node.getKind(), node.getName(), node.getValue());
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, Insert.AS_LEFT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       node.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
@@ -1036,7 +1036,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private DBNode insertBefore(final XdmNodeTrx wtx, final SubtreeParser parser) throws DocumentException {
     try {
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, Insert.AS_LEFT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       parser.parse(builder);
       return new DBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
     } catch (final SirixException e) {
@@ -1126,7 +1126,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
         return insertAfter(wtx, node.getKind(), node.getName(), node.getValue());
 
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, Insert.AS_RIGHT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       node.parse(builder);
       wtx.moveTo(builder.getStartNodeKey());
     } catch (final SirixException e) {
@@ -1161,7 +1161,7 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
   private DBNode insertAfter(final XdmNodeTrx wtx, final SubtreeParser parser) throws DocumentException {
     try {
       final SubtreeBuilder builder =
-          new SubtreeBuilder(mCollection, wtx, Insert.AS_RIGHT_SIBLING, Collections.emptyList());
+          new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       parser.parse(builder);
       return new DBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
     } catch (final SirixException e) {
@@ -1434,10 +1434,10 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
     try {
       if (wtx.hasLeftSibling()) {
         wtx.moveToLeftSibling();
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_RIGHT_SIBLING, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       } else {
         wtx.moveToParent();
-        builder = new SubtreeBuilder(mCollection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList());
+        builder = new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
       }
     } catch (final SirixException e) {
       throw new DocumentException(e);

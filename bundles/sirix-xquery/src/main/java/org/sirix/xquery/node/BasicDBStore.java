@@ -28,7 +28,7 @@ import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 
 /**
  * Database storage.
@@ -207,7 +207,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
 
       try (final XdmResourceManager manager = database.getResourceManager(resName);
           final XdmNodeTrx wtx = manager.beginNodeTrx()) {
-        parser.parse(new SubtreeBuilder(collection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList()));
+        parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
 
         wtx.commit();
       }
@@ -251,7 +251,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                   final XdmNodeTrx wtx = manager.beginNodeTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
-                nextParser.parse(new SubtreeBuilder(collection, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList()));
+                nextParser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
                 wtx.commit();
               }
               return null;

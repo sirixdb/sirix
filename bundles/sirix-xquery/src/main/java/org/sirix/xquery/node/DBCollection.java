@@ -29,7 +29,7 @@ import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
@@ -208,7 +208,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                                     .build());
       final XdmResourceManager manager = mDatabase.getResourceManager(resource);
       final XdmNodeTrx wtx = manager.beginNodeTrx();
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList());
+      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -236,7 +236,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
       final XdmNodeTrx wtx = resource.beginNodeTrx();
 
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, Insert.AS_FIRST_CHILD, Collections.emptyList());
+      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {

@@ -17,7 +17,7 @@ import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.MoreObjects;
@@ -109,7 +109,7 @@ public class HierarchyFileVisitor extends AbstractShredder
    * @throws NullPointerException if {@code pBuilder} is {@code null}
    */
   private HierarchyFileVisitor(final Builder builder) throws SirixException {
-    super(builder.mWtx, Insert.AS_FIRST_CHILD);
+    super(builder.mWtx, InsertPosition.AS_FIRST_CHILD);
     mVisitor = builder.mVisitor;
     mWtx = builder.mWtx;
     mWtx.insertElementAsFirstChild(new QNm("fsml"));

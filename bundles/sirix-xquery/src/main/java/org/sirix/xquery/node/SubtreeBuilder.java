@@ -13,7 +13,7 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 
 /**
  * Subtree builder to build a new tree.
@@ -55,7 +55,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    *         reading transaction failed (might indicate that a few
    */
   public SubtreeBuilder(final DBCollection collection, final XdmNodeTrx wtx,
-      final Insert insertPos,
+      final InsertPosition insertPos,
       final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
       throws SirixException {
     super(wtx, insertPos);

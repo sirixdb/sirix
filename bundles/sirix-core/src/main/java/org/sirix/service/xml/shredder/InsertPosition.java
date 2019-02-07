@@ -27,7 +27,7 @@ package org.sirix.service.xml.shredder;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public enum Insert {
+public enum InsertPosition {
   /** Subtree should be added as first child of the current node. */
   AS_FIRST_CHILD,
 

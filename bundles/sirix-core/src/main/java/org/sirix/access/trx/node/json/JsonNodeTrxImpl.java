@@ -47,6 +47,7 @@ import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -75,6 +76,8 @@ import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.service.json.shredder.JsonShredder;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -82,6 +85,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.google.gson.stream.JsonReader;
 
 /**
  * <h1>JSONNodeReadWriteTrxImpl</h1>
@@ -235,6 +239,133 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void unLock() {
     if (mLock != null) {
       mLock.unlock();
+    }
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader) {
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonReader reader) {
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING);
+  }
+
+  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insert) {
+    checkNotNull(reader);
+    assert insert != null;
+    acquireLock();
+    try {
+      final var nodeKind = getKind();
+      if (!(nodeKind == Kind.JSON_DOCUMENT || nodeKind == Kind.JSON_ARRAY || nodeKind == Kind.JSON_OBJECT_KEY))
+        throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+
+      checkAccessAndCommit();
+      mBulkInsert = true;
+      long nodeKey = getCurrentNode().getNodeKey();
+      final JsonShredder shredder = new JsonShredder.Builder(this, reader, insert).build();
+      shredder.call();
+      moveTo(nodeKey);
+      switch (insert) {
+        case AS_FIRST_CHILD:
+          moveToFirstChild();
+          break;
+        case AS_RIGHT_SIBLING:
+          moveToRightSibling();
+          break;
+        case AS_LEFT_SIBLING:
+          moveToLeftSibling();
+          break;
+        default:
+          // May not happen.
+      }
+      nodeKey = getCurrentNode().getNodeKey();
+      postOrderTraversalHashes();
+      final ImmutableNode startNode = getCurrentNode();
+      moveToParent();
+      while (getCurrentNode().hasParent()) {
+        moveToParent();
+        addParentHash(startNode);
+      }
+      moveTo(nodeKey);
+      commit();
+      mBulkInsert = false;
+    } finally {
+      unLock();
+    }
+    return this;
+  }
+
+  /**
+   * Modifying hashes in a postorder-traversal.
+   *
+   * @throws SirixIOException if an I/O error occurs
+   */
+  private void postOrderTraversalHashes() {
+    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> {
+      addHashAndDescendantCount();
+    });
+  }
+
+  /**
+   * Add a hash.
+   *
+   * @param startNode start node
+   */
+  private void addParentHash(final ImmutableNode startNode) {
+    switch (mHashKind) {
+      case ROLLING:
+        final long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+        final Node node =
+            (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
+                PageKind.RECORDPAGE, -1);
+        node.setHash(node.getHash() + hashToAdd * PRIME);
+        if (startNode instanceof StructNode) {
+          ((StructNode) node).setDescendantCount(
+              ((StructNode) node).getDescendantCount() + ((StructNode) startNode).getDescendantCount() + 1);
+        }
+        break;
+      case POSTORDER:
+        break;
+      case NONE:
+      default:
+    }
+  }
+
+  /** Add a hash and the descendant count. */
+  private void addHashAndDescendantCount() {
+    switch (mHashKind) {
+      case ROLLING:
+        // Setup.
+        final ImmutableJsonNode startNode = getCurrentNode();
+        final long oldDescendantCount = mNodeReadOnlyTrx.getStructuralNode().getDescendantCount();
+        final long descendantCount = oldDescendantCount == 0
+            ? 1
+            : oldDescendantCount + 1;
+
+        // Set start node.
+        final long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
+        Node node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
+            PageKind.RECORDPAGE, -1);
+        node.setHash(hashToAdd);
+
+        // Set parent node.
+        if (startNode.hasParent()) {
+          moveToParent();
+          node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
+              PageKind.RECORDPAGE, -1);
+          node.setHash(node.getHash() + hashToAdd * PRIME);
+          setAddDescendants(startNode, node, descendantCount);
+        }
+
+        mNodeReadOnlyTrx.setCurrentNode(startNode);
+        break;
+      case POSTORDER:
+        postorderAdd();
+        break;
+      case NONE:
+      default:
     }
   }
 
@@ -760,7 +891,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     }
   }
 
-  private void removeValue() throws SirixIOException {
+  private void removeValue() {
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
       final long pathNodeKey = moveToParent().hasMoved()
@@ -1118,7 +1249,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   // *
   // * @throws SirixIOException if an I/O error occurs
   // */
-  // private void postOrderTraversalHashes() throws SirixIOException {
+  // private void postOrderTraversalHashes() {
   // new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> {
   // addHashAndDescendantCount();
   // });
@@ -1129,7 +1260,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   // *
   // * @param startNode start node
   // */
-  // private void addParentHash(final ImmutableNode startNode) throws SirixIOException {
+  // private void addParentHash(final ImmutableNode startNode) {
   // switch (mHashKind) {
   // case ROLLING:
   // final long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
@@ -1151,7 +1282,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   // }
   //
   // /** Add a hash and the descendant count. */
-  // private void addHashAndDescendantCount() throws SirixIOException {
+  // private void addHashAndDescendantCount() {
   // switch (mHashKind) {
   // case ROLLING:
   // // Setup.
@@ -1356,7 +1487,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    *
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adaptHashesWithAdd() throws SirixIOException {
+  private void adaptHashesWithAdd() {
     if (!mBulkInsert) {
       switch (mHashKind) {
         case ROLLING:
@@ -1376,7 +1507,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    *
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adaptHashesWithRemove() throws SirixIOException {
+  private void adaptHashesWithRemove() {
     if (!mBulkInsert) {
       switch (mHashKind) {
         case ROLLING:
@@ -1397,7 +1528,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @param pOldHash pOldHash to be removed
    * @throws SirixIOException if an I/O error occurs
    */
-  private void adaptHashedWithUpdate(final long pOldHash) throws SirixIOException {
+  private void adaptHashedWithUpdate(final long pOldHash) {
     if (!mBulkInsert) {
       switch (mHashKind) {
         case ROLLING:
@@ -1560,7 +1691,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    *
    * @throws SirixIOException if an I/O error occurs
    */
-  private void rollingAdd() throws SirixIOException {
+  private void rollingAdd() {
     // start with hash to add
     final ImmutableJsonNode startNode = mNodeReadOnlyTrx.getCurrentNode();
     final long oldDescendantCount = mNodeReadOnlyTrx.getStructuralNode().getDescendantCount();
