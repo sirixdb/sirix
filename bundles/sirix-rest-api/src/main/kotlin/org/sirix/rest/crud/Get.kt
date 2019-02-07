@@ -5,7 +5,6 @@ import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
@@ -15,12 +14,12 @@ import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.ResourceManager
-import org.sirix.api.XdmNodeReadTrx
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx
+import org.sirix.api.xdm.XdmResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.Serialize
 import org.sirix.rest.SessionDBStore
-import org.sirix.service.xml.serialize.XMLSerializer
+import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -35,7 +34,7 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-class Get(private val location: Path, private val keycloak: OAuth2Auth) {
+class Get(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
@@ -90,16 +89,16 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        val database: Database
+        val database: Database<XdmResourceManager>
         try {
-            database = Databases.openDatabase(location.resolve(dbName))
+            database = Databases.openXdmDatabase(location.resolve(dbName))
         } catch (e: SirixUsageException) {
             ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
         }
 
         database.use {
-            val manager: ResourceManager
+            val manager: XdmResourceManager
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
@@ -134,7 +133,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
     }
 
     private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
-                                        endRevisionTimestamp: String?, manager: ResourceManager, revision: String?,
+                                        endRevisionTimestamp: String?, manager: XdmResourceManager, revision: String?,
                                         revisionTimestamp: String?): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
@@ -146,8 +145,8 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database, revision: String?,
-                                      revisionTimestamp: String?, manager: ResourceManager, ctx: RoutingContext,
+    private suspend fun queryResource(dbName: String?, database: Database<XdmResourceManager>, revision: String?,
+                                      revisionTimestamp: String?, manager: XdmResourceManager, ctx: RoutingContext,
                                       nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
             val dbCollection = DBCollection(dbName, database)
@@ -155,9 +154,9 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                val trx: XdmNodeReadTrx
+                val trx: XdmNodeReadOnlyTrx
                 try {
-                    trx = manager.beginNodeReadTrx(revisionNumber[0])
+                    trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
                     trx.use {
                         if (nodeId == null)
@@ -176,7 +175,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         }
     }
 
-    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: ResourceManager): Array<Int> {
+    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XdmResourceManager): Array<Int> {
         return if (rev != null) {
             arrayOf(rev.toInt())
         } else if (revTimestamp != null) {
@@ -192,7 +191,7 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
 
     private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
             // Initialize queryResource context and store.
             val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
 
@@ -219,17 +218,17 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
                 }
             }
 
-            it.complete(null)
+            future.complete(null)
         })
     }
 
-    private fun getRevisionNumber(manager: ResourceManager, revision: String): Int {
+    private fun getRevisionNumber(manager: XdmResourceManager, revision: String): Int {
         val revisionDateTime = LocalDateTime.parse(revision)
         val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: ResourceManager,
+    private fun getRevisionNumbers(manager: XdmResourceManager,
                                    revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
@@ -242,10 +241,11 @@ class Get(private val location: Path, private val keycloak: OAuth2Auth) {
         return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
     }
 
-    private fun serializeResource(manager: ResourceManager, revisions: Array<Int>, nodeId: Long?, ctx: RoutingContext) {
+    private fun serializeResource(manager: XdmResourceManager, revisions: Array<Int>, nodeId: Long?,
+                                  ctx: RoutingContext) {
         val out = ByteArrayOutputStream()
 
-        val serializerBuilder = XMLSerializer.XMLSerializerBuilder(manager, out).revisions(revisions.toIntArray())
+        val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions.toIntArray())
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 

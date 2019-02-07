@@ -14,11 +14,11 @@ import org.sirix.access.Databases
 import org.sirix.access.conf.DatabaseConfiguration
 import org.sirix.access.conf.ResourceConfiguration
 import org.sirix.api.Database
-import org.sirix.api.ResourceManager
-import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.api.xdm.XdmNodeTrx
+import org.sirix.api.xdm.XdmResourceManager
 import org.sirix.rest.Serialize
-import org.sirix.service.xml.serialize.XMLSerializer
-import org.sirix.service.xml.shredder.XMLShredder
+import org.sirix.service.xml.serialize.XmlSerializer
+import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -38,7 +38,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         if (resource == null) {
             val dbFile = location.resolve(databaseName)
             val dispatcher = ctx.vertx().dispatcher()
-            createDatabaseIfNotExists(dbFile, dispatcher)
+            createDatabaseIfNotExists(dbFile, dispatcher, ctx.vertx().orCreateContext)
             return ctx.currentRoute()
         }
 
@@ -57,9 +57,9 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
-        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher)
+        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher, context)
 
-        val database = Databases.openDatabase(dbFile)
+        val database = Databases.openXdmDatabase(dbFile)
 
         database.use {
             ctx.fileUploads().forEach { fileUpload ->
@@ -71,7 +71,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
                 val manager = database.getResourceManager(fileName)
 
                 manager.use {
-                    val wtx = manager.beginNodeWriteTrx()
+                    val wtx = manager.beginNodeTrx()
                     val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
                     insertSubtreeAsFirstChild(wtx, buffer.toString(StandardCharsets.UTF_8), context)
                 }
@@ -84,7 +84,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val dbFile = location.resolve(dbPathName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
-        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher)
+        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher, context)
 
         insertResource(dbFile, resPathName, dbConfig, dispatcher, resFileToStore, context, ctx)
     }
@@ -95,7 +95,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
                                        resFileToStore: String,
                                        context: Context,
                                        ctx: RoutingContext) {
-        val database = Databases.openDatabase(dbFile)
+        val database = Databases.openXdmDatabase(dbFile)
 
         database.use {
             val resConfig = ResourceConfiguration.Builder(resPathName, dbConfig).build()
@@ -105,17 +105,19 @@ class Create(private val location: Path, private val createMultipleResources: Bo
             val manager = database.getResourceManager(resPathName)
 
             manager.use {
-                val wtx = manager.beginNodeWriteTrx()
+                val wtx = manager.beginNodeTrx()
                 insertSubtreeAsFirstChild(wtx, resFileToStore, context)
                 serialize(manager, context, ctx)
             }
         }
     }
 
-    private suspend fun serialize(manager: ResourceManager?, vertxContext: Context, routingCtx: RoutingContext) {
+    private suspend fun serialize(manager: XdmResourceManager, vertxContext: Context,
+                                  routingCtx:
+                                  RoutingContext) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             val out = ByteArrayOutputStream()
-            val serializerBuilder = XMLSerializer.XMLSerializerBuilder(manager, out)
+            val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
             Serialize().serializeXml(serializer, out, routingCtx)
@@ -125,24 +127,29 @@ class Create(private val location: Path, private val createMultipleResources: Bo
     }
 
     private suspend fun createDatabaseIfNotExists(dbFile: Path,
-                                                  dispatcher: CoroutineDispatcher): DatabaseConfiguration {
+                                                  dispatcher: CoroutineDispatcher,
+                                                  context: Context): DatabaseConfiguration {
         return withContext(dispatcher) {
             val dbExists = Files.exists(dbFile)
 
-            if (!dbExists)
-                Files.createDirectories(dbFile.parent)
+            if (!dbExists) {
+                context.executeBlockingAwait(Handler<Future<Nothing>> {
+                    Files.createDirectories(dbFile.parent)
+                })
+            }
 
             val dbConfig = DatabaseConfiguration(dbFile)
 
             if (!Databases.existsDatabase(dbFile)) {
-                Databases.createDatabase(dbConfig)
+                Databases.createXdmDatabase(dbConfig)
             }
 
             dbConfig
         }
     }
 
-    private suspend fun createOrRemoveAndCreateResource(database: Database, resConfig: ResourceConfiguration?,
+    private suspend fun createOrRemoveAndCreateResource(database: Database<XdmResourceManager>,
+                                                        resConfig: ResourceConfiguration?,
                                                         resPathName: String, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
@@ -152,10 +159,10 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         }
     }
 
-    private suspend fun insertSubtreeAsFirstChild(wtx: XdmNodeWriteTrx, resFileToStore: String, context: Context) {
+    private suspend fun insertSubtreeAsFirstChild(wtx: XdmNodeTrx, resFileToStore: String, context: Context) {
         context.executeBlockingAwait(Handler<Future<Nothing>> {
             wtx.use {
-                wtx.insertSubtreeAsFirstChild(XMLShredder.createStringReader(resFileToStore))
+                wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
             }
 
             it.complete(null)

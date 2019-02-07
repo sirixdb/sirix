@@ -2,49 +2,48 @@ package org.sirix.rest.crud
 
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
-import org.sirix.api.XdmNodeWriteTrx
+import org.sirix.api.xdm.XdmNodeTrx
 import org.sirix.rest.Serialize
-import org.sirix.service.xml.serialize.XMLSerializer
-import org.sirix.service.xml.shredder.XMLShredder
+import org.sirix.service.xml.serialize.XmlSerializer
+import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
 private enum class InsertionMode {
     ASFIRSTCHILD {
-        override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
     },
     ASRIGHTSIBLING {
-        override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
     },
     ASLEFTSIBLING {
-        override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
     },
     REPLACE {
-        override fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
             wtx.replaceNode(xmlReader)
         }
     };
 
-    abstract fun insert(wtx: XdmNodeWriteTrx, xmlReader: XMLEventReader)
+    abstract fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader)
 
     companion object {
         fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
     }
 }
 
-class Update(private val location: Path, private val keycloak: OAuth2Auth) {
+class Update(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
 
@@ -70,12 +69,12 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             val dbFile = location.resolve(dbPathName)
 
-            val database = Databases.openDatabase(dbFile)
+            val database = Databases.openXdmDatabase(dbFile)
 
             database.use {
                 val manager = database.getResourceManager(resPathName)
 
-                val wtx = manager.beginNodeWriteTrx()
+                val wtx = manager.beginNodeTrx()
                 wtx.use {
                     if (nodeId != null)
                         wtx.moveTo(nodeId)
@@ -83,7 +82,7 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
                     if (wtx.isDocumentRoot && wtx.hasFirstChild())
                         wtx.moveToFirstChild()
 
-                    val xmlReader = XMLShredder.createStringReader(resFileToStore)
+                    val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
                     if (insertionMode != null)
                         InsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
@@ -92,7 +91,7 @@ class Update(private val location: Path, private val keycloak: OAuth2Auth) {
                 }
 
                 val out = ByteArrayOutputStream()
-                val serializerBuilder = XMLSerializer.XMLSerializerBuilder(manager, out)
+                val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
                 val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
                 Serialize().serializeXml(serializer, out, ctx)

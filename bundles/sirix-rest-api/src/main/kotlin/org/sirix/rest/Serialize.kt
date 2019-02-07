@@ -1,12 +1,12 @@
 package org.sirix.rest
 
 import io.vertx.ext.web.RoutingContext
-import org.sirix.service.xml.serialize.XMLSerializer
+import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
 class Serialize {
-    fun serializeXml(serializer: XMLSerializer, out: ByteArrayOutputStream, ctx: RoutingContext) {
+    fun serializeXml(serializer: XmlSerializer, out: ByteArrayOutputStream, ctx: RoutingContext) {
         serializer.call()
         val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
