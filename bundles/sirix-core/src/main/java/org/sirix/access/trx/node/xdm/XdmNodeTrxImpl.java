@@ -751,17 +751,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.ASFIRSTCHILD);
+    return insertSubtree(reader, Insert.AS_FIRST_CHILD);
   }
 
   @Override
   public XdmNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.ASRIGHTSIBLING);
+    return insertSubtree(reader, Insert.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.ASLEFTSIBLING);
+    return insertSubtree(reader, Insert.AS_LEFT_SIBLING);
   }
 
   private XdmNodeTrx insertSubtree(final XMLEventReader reader, final Insert insert) {
@@ -777,13 +777,13 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         shredder.call();
         moveTo(nodeKey);
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             moveToFirstChild();
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             moveToRightSibling();
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             moveToLeftSibling();
             break;
           default:
@@ -809,17 +809,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertPIAsLeftSibling(final String target, final String content) {
-    return pi(target, content, Insert.ASLEFTSIBLING);
+    return pi(target, content, Insert.AS_LEFT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertPIAsRightSibling(final String target, final String content) {
-    return pi(target, content, Insert.ASRIGHTSIBLING);
+    return pi(target, content, Insert.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertPIAsFirstChild(final String target, final String content) {
-    return pi(target, content, Insert.ASFIRSTCHILD);
+    return pi(target, content, Insert.AS_FIRST_CHILD);
   }
 
   /**
@@ -851,20 +851,20 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         InsertPos pos = InsertPos.ASFIRSTCHILD;
         SirixDeweyID id = null;
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
             id = newFirstChildID();
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
             id = newRightSiblingID();
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
@@ -899,17 +899,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertCommentAsLeftSibling(final String value) {
-    return comment(value, Insert.ASLEFTSIBLING);
+    return comment(value, Insert.AS_LEFT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertCommentAsRightSibling(final String value) {
-    return comment(value, Insert.ASRIGHTSIBLING);
+    return comment(value, Insert.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertCommentAsFirstChild(final String value) {
-    return comment(value, Insert.ASFIRSTCHILD);
+    return comment(value, Insert.AS_FIRST_CHILD);
   }
 
   /**
@@ -930,7 +930,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     acquireLock();
     try {
       if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != Kind.XDM_DOCUMENT
-          || (getCurrentNode().getKind() == Kind.XDM_DOCUMENT && insert == Insert.ASFIRSTCHILD))) {
+          || (getCurrentNode().getKind() == Kind.XDM_DOCUMENT && insert == Insert.AS_FIRST_CHILD))) {
         checkAccessAndCommit();
 
         // Insert new comment node.
@@ -942,21 +942,21 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         final SirixDeweyID id;
 
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             parentKey = getCurrentNode().getNodeKey();
             leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
             rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
             pos = InsertPos.ASFIRSTCHILD;
             id = newFirstChildID();
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = getCurrentNode().getNodeKey();
             rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
             pos = InsertPos.ASRIGHTSIBLING;
             id = newRightSiblingID();
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             parentKey = getCurrentNode().getParentKey();
             leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
             rightSibKey = getCurrentNode().getNodeKey();
@@ -2324,7 +2324,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.ASFIRSTCHILD);
+      copy(rtx, Insert.AS_FIRST_CHILD);
       moveTo(nodeKey);
       moveToFirstChild();
     } finally {
@@ -2340,7 +2340,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.ASLEFTSIBLING);
+      copy(rtx, Insert.AS_LEFT_SIBLING);
       moveTo(nodeKey);
       moveToFirstChild();
     } finally {
@@ -2356,7 +2356,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.ASRIGHTSIBLING);
+      copy(rtx, Insert.AS_RIGHT_SIBLING);
       moveTo(nodeKey);
       moveToRightSibling();
     } finally {
@@ -2392,13 +2392,13 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
       case TEXT:
         final String textValue = rtx.getValue();
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             insertTextAsFirstChild(textValue);
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             insertTextAsLeftSibling(textValue);
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             insertTextAsRightSibling(textValue);
             break;
           default:
@@ -2407,13 +2407,13 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         break;
       case PROCESSING_INSTRUCTION:
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             insertPIAsFirstChild(rtx.getName().getLocalName(), rtx.getValue());
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             insertPIAsLeftSibling(rtx.getName().getLocalName(), rtx.getValue());
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             insertPIAsRightSibling(rtx.getName().getLocalName(), rtx.getValue());
             break;
           default:
@@ -2423,13 +2423,13 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
       case COMMENT:
         final String commentValue = rtx.getValue();
         switch (insert) {
-          case ASFIRSTCHILD:
+          case AS_FIRST_CHILD:
             insertCommentAsFirstChild(commentValue);
             break;
-          case ASLEFTSIBLING:
+          case AS_LEFT_SIBLING:
             insertCommentAsLeftSibling(commentValue);
             break;
-          case ASRIGHTSIBLING:
+          case AS_RIGHT_SIBLING:
             insertCommentAsRightSibling(commentValue);
             break;
           default:
@@ -2457,10 +2457,10 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
         final long anchorNodeKey;
         if (currentNode.hasLeftSibling()) {
           anchorNodeKey = getLeftSiblingKey();
-          pos = Insert.ASRIGHTSIBLING;
+          pos = Insert.AS_RIGHT_SIBLING;
         } else {
           anchorNodeKey = getParentKey();
-          pos = Insert.ASFIRSTCHILD;
+          pos = Insert.AS_FIRST_CHILD;
         }
 
         insertAndThenRemove(reader, pos, anchorNodeKey);

@@ -69,7 +69,7 @@ public final class DiffTestHelper {
     try (final FileInputStream fis =
         new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
       new XmlShredder.Builder(holder.getXdmNodeWriteTrx(), XmlShredder.createFileReader(fis),
-          Insert.ASFIRSTCHILD).commitAfterwards().build().call();
+          Insert.AS_FIRST_CHILD).commitAfterwards().build().call();
       final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
@@ -139,11 +139,11 @@ public final class DiffTestHelper {
       try (final FileInputStream fis = new FileInputStream(file.toFile())) {
         if (i == 0) {
           final XmlShredder init = new XmlShredder.Builder(holder.getXdmNodeWriteTrx(),
-              XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+              XmlShredder.createFileReader(fis), Insert.AS_FIRST_CHILD).commitAfterwards().build();
           init.call();
         } else {
           final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
-              XmlShredder.createFileReader(fis), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
+              XmlShredder.createFileReader(fis), Insert.AS_FIRST_CHILD, file, ShredderCommit.COMMIT);
           init.call();
         }
       }

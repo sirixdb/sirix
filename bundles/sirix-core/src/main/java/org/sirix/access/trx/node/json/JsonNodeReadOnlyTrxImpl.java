@@ -31,6 +31,7 @@ import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
+import com.google.common.base.MoreObjects;
 
 public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
     implements InternalJsonNodeReadOnlyTrx {
@@ -245,5 +246,28 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public void setCurrentNode(ImmutableJsonNode node) {
     mCurrentNode = node;
+  }
+
+  @Override
+  public String toString() {
+    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    helper.add("Revision number", getRevisionNumber());
+
+    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
+      helper.add("Name of Node", getName().toString());
+    }
+
+    if (mCurrentNode.getKind() == Kind.JSON_BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.JSON_STRING_VALUE
+        || mCurrentNode.getKind() == Kind.JSON_NUMBER_VALUE) {
+      helper.add("Value of Node", getValue());
+    }
+
+    if (mCurrentNode.getKind() == Kind.JSON_DOCUMENT) {
+      helper.addValue("Node is DocumentRoot");
+    }
+
+    helper.add("node", mCurrentNode.toString());
+
+    return helper.toString();
   }
 }

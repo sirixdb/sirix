@@ -327,7 +327,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             ? Boolean.parseBoolean(args[2])
             : false;
         final XmlShredder shredder =
-            new XmlShredder.Builder(wtx, reader, Insert.ASFIRSTCHILD).commitAfterwards()
+            new XmlShredder.Builder(wtx, reader, Insert.AS_FIRST_CHILD).commitAfterwards()
                                                                      .includeComments(includeCoPI)
                                                                      .includePIs(includeCoPI)
                                                                      .build();
