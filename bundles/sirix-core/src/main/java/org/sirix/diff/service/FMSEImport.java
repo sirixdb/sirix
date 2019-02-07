@@ -34,7 +34,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
@@ -76,7 +76,7 @@ public final class FMSEImport {
           final var wtx = resMgr.beginNodeTrx();
           final var fis = new FileInputStream(resNewRev.toFile())) {
         final var fileReader = XmlShredder.createFileReader(fis);
-        final var shredder = new XmlShredder.Builder(wtx, fileReader, Insert.AS_FIRST_CHILD).commitAfterwards().build();
+        final var shredder = new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     }

@@ -180,7 +180,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
   private final XMLEventReader mReader;
 
-  private Insert mInsert;
+  private InsertPosition mInsert;
 
   /**
    * Normal constructor to invoke a shredding process on a existing {@link XdmNodeTrx}.
@@ -199,7 +199,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
    */
   @SuppressWarnings("unchecked")
   public XMLUpdateShredder(final XdmNodeTrx paramWtx, final XMLEventReader paramReader,
-      final Insert paramAddAsFirstChild, final Object paramData, final ShredderCommit paramCommit)
+      final InsertPosition paramAddAsFirstChild, final Object paramData, final ShredderCommit paramCommit)
       throws SirixIOException {
     mInsert = paramAddAsFirstChild;
     mWtx = paramWtx;
@@ -1021,7 +1021,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final QNm qName = new QNm(name.getNamespaceURI(), name.getPrefix(), name.getLocalPart());
     long key;
 
-    if (mInsert == Insert.AS_RIGHT_SIBLING) {
+    if (mInsert == InsertPosition.AS_RIGHT_SIBLING) {
       key = mWtx.insertElementAsRightSibling(qName).getNodeKey();
     } else {
       if (paramAdd == EAdd.ASFIRSTCHILD) {
@@ -1159,7 +1159,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XmlShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =
-          new XMLUpdateShredder(wtx, reader, Insert.AS_FIRST_CHILD, new File(args[0]), ShredderCommit.COMMIT);
+          new XMLUpdateShredder(wtx, reader, InsertPosition.AS_FIRST_CHILD, new File(args[0]), ShredderCommit.COMMIT);
       shredder.call();
     } catch (final SirixException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);

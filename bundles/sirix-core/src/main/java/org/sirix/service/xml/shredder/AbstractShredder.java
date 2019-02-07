@@ -29,7 +29,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
   private final Deque<Long> mParents;
 
   /** Determines the import location of a new node. */
-  private Insert mInsertLocation;
+  private InsertPosition mInsertLocation;
 
   /**
    * Constructor.
@@ -37,7 +37,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
    * @throws NullPointerException if {@code wtx} is {@code null} or {@code insertLocation} is
    *         {@code null}
    */
-  public AbstractShredder(final XdmNodeTrx wtx, final Insert insertLocation) {
+  public AbstractShredder(final XdmNodeTrx wtx, final InsertPosition insertLocation) {
     mWtx = checkNotNull(wtx);
     mInsertLocation = checkNotNull(insertLocation);
     mParents = new ArrayDeque<>();
@@ -116,7 +116,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = mWtx.insertElementAsRightSibling(name).getNodeKey();
-        mInsertLocation = Insert.AS_FIRST_CHILD;
+        mInsertLocation = InsertPosition.AS_FIRST_CHILD;
         break;
       case AS_LEFT_SIBLING:
         if (mWtx.getKind() == Kind.XDM_DOCUMENT
@@ -125,7 +125,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
               "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
-        mInsertLocation = Insert.AS_FIRST_CHILD;
+        mInsertLocation = InsertPosition.AS_FIRST_CHILD;
         break;
       default:
         throw new AssertionError();// Must not happen.

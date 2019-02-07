@@ -83,7 +83,7 @@ import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.serialize.StAXSerializer;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -751,20 +751,20 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.AS_FIRST_CHILD);
+    return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD);
   }
 
   @Override
   public XdmNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.AS_RIGHT_SIBLING);
+    return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
-    return insertSubtree(reader, Insert.AS_LEFT_SIBLING);
+    return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING);
   }
 
-  private XdmNodeTrx insertSubtree(final XMLEventReader reader, final Insert insert) {
+  private XdmNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insert) {
     checkNotNull(reader);
     assert insert != null;
     acquireLock();
@@ -809,17 +809,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertPIAsLeftSibling(final String target, final String content) {
-    return pi(target, content, Insert.AS_LEFT_SIBLING);
+    return pi(target, content, InsertPosition.AS_LEFT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertPIAsRightSibling(final String target, final String content) {
-    return pi(target, content, Insert.AS_RIGHT_SIBLING);
+    return pi(target, content, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertPIAsFirstChild(final String target, final String content) {
-    return pi(target, content, Insert.AS_FIRST_CHILD);
+    return pi(target, content, InsertPosition.AS_FIRST_CHILD);
   }
 
   /**
@@ -830,7 +830,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeTrx pi(final String target, final String content, final Insert insert) {
+  private XdmNodeTrx pi(final String target, final String content, final InsertPosition insert) {
     final byte[] targetBytes = getBytes(target);
     if (!XMLToken.isNCName(checkNotNull(targetBytes))) {
       throw new IllegalArgumentException("The target is not valid!");
@@ -899,17 +899,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
   @Override
   public XdmNodeTrx insertCommentAsLeftSibling(final String value) {
-    return comment(value, Insert.AS_LEFT_SIBLING);
+    return comment(value, InsertPosition.AS_LEFT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertCommentAsRightSibling(final String value) {
-    return comment(value, Insert.AS_RIGHT_SIBLING);
+    return comment(value, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
   public XdmNodeTrx insertCommentAsFirstChild(final String value) {
-    return comment(value, Insert.AS_FIRST_CHILD);
+    return comment(value, InsertPosition.AS_FIRST_CHILD);
   }
 
   /**
@@ -919,7 +919,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeTrx comment(final String value, final Insert insert) {
+  private XdmNodeTrx comment(final String value, final InsertPosition insert) {
     // Produces a NPE if value is null (what we want).
     if (value.contains("--")) {
       throw new SirixUsageException("Character sequence \"--\" is not allowed in comment content!");
@@ -930,7 +930,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     acquireLock();
     try {
       if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != Kind.XDM_DOCUMENT
-          || (getCurrentNode().getKind() == Kind.XDM_DOCUMENT && insert == Insert.AS_FIRST_CHILD))) {
+          || (getCurrentNode().getKind() == Kind.XDM_DOCUMENT && insert == InsertPosition.AS_FIRST_CHILD))) {
         checkAccessAndCommit();
 
         // Insert new comment node.
@@ -1038,7 +1038,8 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT && !value.isEmpty()) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT
+          && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -1104,7 +1105,8 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT && !value.isEmpty()) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != Kind.XDM_DOCUMENT
+          && !value.isEmpty()) {
         checkAccessAndCommit();
 
         final long parentKey = getCurrentNode().getParentKey();
@@ -2324,7 +2326,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.AS_FIRST_CHILD);
+      copy(rtx, InsertPosition.AS_FIRST_CHILD);
       moveTo(nodeKey);
       moveToFirstChild();
     } finally {
@@ -2340,7 +2342,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.AS_LEFT_SIBLING);
+      copy(rtx, InsertPosition.AS_LEFT_SIBLING);
       moveTo(nodeKey);
       moveToFirstChild();
     } finally {
@@ -2356,7 +2358,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     try {
       checkAccessAndCommit();
       final long nodeKey = getCurrentNode().getNodeKey();
-      copy(rtx, Insert.AS_RIGHT_SIBLING);
+      copy(rtx, InsertPosition.AS_RIGHT_SIBLING);
       moveTo(nodeKey);
       moveToRightSibling();
     } finally {
@@ -2372,7 +2374,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @param insert the insertion strategy
    * @throws SirixException if anything fails in sirix
    */
-  private void copy(final XdmNodeReadOnlyTrx trx, final Insert insert) {
+  private void copy(final XdmNodeReadOnlyTrx trx, final InsertPosition insert) {
     assert trx != null;
     assert insert != null;
     final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadOnlyTrx(trx.getRevisionNumber());
@@ -2453,14 +2455,14 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
       if (getCurrentNode() instanceof StructNode) {
         final StructNode currentNode = mNodeReadTrx.getStructuralNode();
 
-        final Insert pos;
+        final InsertPosition pos;
         final long anchorNodeKey;
         if (currentNode.hasLeftSibling()) {
           anchorNodeKey = getLeftSiblingKey();
-          pos = Insert.AS_RIGHT_SIBLING;
+          pos = InsertPosition.AS_RIGHT_SIBLING;
         } else {
           anchorNodeKey = getParentKey();
-          pos = Insert.AS_FIRST_CHILD;
+          pos = InsertPosition.AS_FIRST_CHILD;
         }
 
         insertAndThenRemove(reader, pos, anchorNodeKey);
@@ -2474,14 +2476,14 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     return this;
   }
 
-  private void insertAndThenRemove(final XMLEventReader reader, Insert pos, long anchorNodeKey) {
+  private void insertAndThenRemove(final XMLEventReader reader, InsertPosition pos, long anchorNodeKey) {
     long formerNodeKey = getNodeKey();
     insert(reader, pos, anchorNodeKey);
     moveTo(formerNodeKey);
     remove();
   }
 
-  private void insert(final XMLEventReader reader, Insert pos, long anchorNodeKey) {
+  private void insert(final XMLEventReader reader, InsertPosition pos, long anchorNodeKey) {
     moveTo(anchorNodeKey);
     final XmlShredder shredder = new XmlShredder.Builder(this, reader, pos).build();
     shredder.call();

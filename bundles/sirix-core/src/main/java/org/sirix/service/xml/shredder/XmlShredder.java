@@ -82,7 +82,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   private final ShredderCommit mCommit;
 
   /** Insertion position. */
-  protected final Insert mInsert;
+  protected final InsertPosition mInsert;
 
   /** Determines if comments should be included. */
   private boolean mIncludeComments;
@@ -102,7 +102,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     private final XMLEventReader mReader;
 
     /** Insertion position. */
-    private final Insert mInsert;
+    private final InsertPosition mInsert;
 
     /** Determines if comments should be included. */
     private boolean mIncludeComments = true;
@@ -122,7 +122,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
      * @param reader {@link XMLEventReader} implementation
      * @param insert insertion position
      */
-    public Builder(final XdmNodeTrx wtx, final XMLEventReader reader, final Insert insert) {
+    public Builder(final XdmNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
       mWtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
       mInsert = checkNotNull(insert);
@@ -327,7 +327,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             ? Boolean.parseBoolean(args[2])
             : false;
         final XmlShredder shredder =
-            new XmlShredder.Builder(wtx, reader, Insert.AS_FIRST_CHILD).commitAfterwards()
+            new XmlShredder.Builder(wtx, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
                                                                      .includeComments(includeCoPI)
                                                                      .includePIs(includeCoPI)
                                                                      .build();

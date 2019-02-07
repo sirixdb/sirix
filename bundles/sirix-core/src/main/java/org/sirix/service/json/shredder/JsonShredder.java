@@ -43,7 +43,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.service.ShredderCommit;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -76,7 +76,7 @@ public final class JsonShredder implements Callable<Long> {
   private final Deque<Long> mParents;
 
   /** Insertion position. */
-  private Insert mInsert;
+  private InsertPosition mInsert;
 
   private boolean mInsertAsFirstChild;
 
@@ -92,7 +92,7 @@ public final class JsonShredder implements Callable<Long> {
     private final JsonReader mReader;
 
     /** Insertion position. */
-    private final Insert mInsert;
+    private final InsertPosition mInsert;
 
     /**
      * Determines if after shredding the transaction should be immediately commited.
@@ -107,7 +107,7 @@ public final class JsonShredder implements Callable<Long> {
      * @param insert insertion position
      * @throws NullPointerException if one of the arguments is {@code null}
      */
-    public Builder(final JsonNodeTrx wtx, final JsonReader reader, final Insert insert) {
+    public Builder(final JsonNodeTrx wtx, final JsonReader reader, final InsertPosition insert) {
       mWtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
       mInsert = checkNotNull(insert);
@@ -390,7 +390,7 @@ public final class JsonShredder implements Callable<Long> {
               "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
         }
         key = mWtx.insertArrayAsRightSibling().getNodeKey();
-        mInsert = Insert.AS_FIRST_CHILD;
+        mInsert = InsertPosition.AS_FIRST_CHILD;
         break;
       // $CASES-OMITTED$
       default:
@@ -421,7 +421,7 @@ public final class JsonShredder implements Callable<Long> {
               "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
         }
         key = mWtx.insertObjectAsRightSibling().getNodeKey();
-        mInsert = Insert.AS_FIRST_CHILD;
+        mInsert = InsertPosition.AS_FIRST_CHILD;
         break;
       // $CASES-OMITTED$
       default:
@@ -476,7 +476,7 @@ public final class JsonShredder implements Callable<Long> {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);
         final var shredder =
-            new JsonShredder.Builder(wtx, jsonReader, Insert.AS_FIRST_CHILD).commitAfterwards().build();
+            new JsonShredder.Builder(wtx, jsonReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     }

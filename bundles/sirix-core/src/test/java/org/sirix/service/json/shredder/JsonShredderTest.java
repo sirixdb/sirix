@@ -13,7 +13,7 @@ import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
 
 public final class JsonShredderTest {
@@ -42,7 +42,7 @@ public final class JsonShredderTest {
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("test.json")),
-          Insert.AS_FIRST_CHILD).commitAfterwards().build();
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -57,7 +57,7 @@ public final class JsonShredderTest {
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex1.json")),
-          Insert.AS_FIRST_CHILD).commitAfterwards().build();
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -72,7 +72,7 @@ public final class JsonShredderTest {
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex2.json")),
-          Insert.AS_FIRST_CHILD).commitAfterwards().build();
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();

@@ -26,7 +26,7 @@ import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
@@ -239,7 +239,7 @@ public final class FMSETest extends XMLTestCase {
             try (final XdmNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                  Insert.AS_FIRST_CHILD).commitAfterwards().build();
+                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
               shredder.call();
             }
           } else {

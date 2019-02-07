@@ -1,6 +1,7 @@
 package org.sirix.api.json;
 
 import org.sirix.api.NodeTrx;
+import com.google.gson.stream.JsonReader;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertObjectAsFirstChild();
@@ -40,4 +41,8 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertNullValueAsFirstChild();
 
   JsonNodeTrx insertNullValueAsRightSibling();
+
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonReader reader);
+
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonReader reader);
 }
