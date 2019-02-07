@@ -11,7 +11,7 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
-<h1 align="center">SirixDB - An Evolutionary Tree-Structured Storage System</h1>
+<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Storage System</h1>
 <h2 align="center">Store and query revisions of your data efficiently</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
@@ -189,7 +189,7 @@ Once also Keycloak is set up we can start the server via:
 
 `java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
 
-If you like to change your user home directory to `/opt/intrexx` for instance.
+If you like to change your user home directory to `/opt/sirix` for instance.
 
 The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
 
