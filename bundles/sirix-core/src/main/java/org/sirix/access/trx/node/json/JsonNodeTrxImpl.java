@@ -252,9 +252,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING);
   }
 
-  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insert) {
+  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition) {
     checkNotNull(reader);
-    assert insert != null;
+    assert insertionPosition != null;
     acquireLock();
     try {
       final var nodeKind = getKind();
@@ -264,10 +264,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       checkAccessAndCommit();
       mBulkInsert = true;
       long nodeKey = getCurrentNode().getNodeKey();
-      final JsonShredder shredder = new JsonShredder.Builder(this, reader, insert).build();
+      final JsonShredder shredder = new JsonShredder.Builder(this, reader, insertionPosition).build();
       shredder.call();
       moveTo(nodeKey);
-      switch (insert) {
+
+      switch (insertionPosition) {
         case AS_FIRST_CHILD:
           moveToFirstChild();
           break;
@@ -280,15 +281,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         default:
           // May not happen.
       }
-      nodeKey = getCurrentNode().getNodeKey();
-      postOrderTraversalHashes();
-      final ImmutableNode startNode = getCurrentNode();
-      moveToParent();
-      while (getCurrentNode().hasParent()) {
+
+      if (mHashKind != HashType.NONE) {
+        nodeKey = getCurrentNode().getNodeKey();
+        postOrderTraversalHashes();
+        final ImmutableNode startNode = getCurrentNode();
         moveToParent();
-        addParentHash(startNode);
+        while (getCurrentNode().hasParent()) {
+          moveToParent();
+          addParentHash(startNode);
+        }
+        moveTo(nodeKey);
       }
-      moveTo(nodeKey);
+
       commit();
       mBulkInsert = false;
     } finally {
