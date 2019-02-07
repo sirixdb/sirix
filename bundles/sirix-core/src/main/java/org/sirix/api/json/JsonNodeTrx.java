@@ -21,7 +21,7 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx setBooleanValue(boolean value);
 
-  JsonNodeTrx setNumberValue(double value);
+  JsonNodeTrx setNumberValue(Number value);
 
   JsonNodeTrx remove();
 

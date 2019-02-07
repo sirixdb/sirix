@@ -912,7 +912,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx setNumberValue(final double value) {
+  public JsonNodeTrx setNumberValue(final Number value) {
     checkNotNull(value);
     acquireLock();
     try {
