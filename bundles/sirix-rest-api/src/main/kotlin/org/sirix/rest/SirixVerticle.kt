@@ -90,7 +90,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:modify").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Update(location, keycloak).handle(it)
+            Update(location).handle(it)
         }
 
         // Get.
@@ -98,35 +98,35 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location, keycloak).handle(it)
+            Get(location).handle(it)
         }
 
         get("/:database/:resource").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location, keycloak).handle(it)
+            Get(location).handle(it)
         }
 
         get("/:database").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location, keycloak).handle(it)
+            Get(location).handle(it)
         }
 
         post("/").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Get(location, keycloak).handle(it)
+            Get(location).handle(it)
         }
 
         post("/:database/:resource").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Get(location, keycloak).handle(it)
+            Get(location).handle(it)
         }
 
         // Delete.
@@ -134,21 +134,21 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location, keycloak).handle(it)
+            Delete(location).handle(it)
         }
 
         delete("/:database/:resource").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location, keycloak).handle(it)
+            Delete(location).handle(it)
         }
 
         delete("/:database").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location, keycloak).handle(it)
+            Delete(location).handle(it)
         }
 
         // Exception with status code
