@@ -57,7 +57,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
-        val dbConfig = createDatabaseIfNotExists(dbFile, context)
+        createDatabaseIfNotExists(dbFile, context)
 
         val database = Databases.openXdmDatabase(dbFile)
 
