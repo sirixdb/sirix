@@ -218,7 +218,7 @@ public class HashTest {
   private XdmNodeTrx createWtx(final HashType kind) throws SirixException {
     final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-    final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }

@@ -5,7 +5,7 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
-class Serialize {
+class XdmSerializeHelper {
     fun serializeXml(serializer: XmlSerializer, out: ByteArrayOutputStream, ctx: RoutingContext) {
         serializer.call()
         val body = String(out.toByteArray(), StandardCharsets.UTF_8)

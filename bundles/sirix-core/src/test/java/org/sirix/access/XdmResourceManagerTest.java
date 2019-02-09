@@ -64,11 +64,11 @@ public class XdmResourceManagerTest {
     try (final var database = Holder.openResourceManager().getDatabase()) {
       assertEquals(database, holder.getDatabase());
 
-      try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE)) {
         assertEquals(manager, holder.getResourceManager());
       }
 
-      try (final XdmResourceManager manager2 = database.getResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XdmResourceManager manager2 = database.openResourceManager(XdmTestHelper.RESOURCE)) {
         assertNotSame(manager2, holder.getResourceManager());
       }
     }
@@ -171,7 +171,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testExisting() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
 
     final XdmNodeTrx wtx1 = resource.beginNodeTrx();
     XdmDocumentCreator.create(wtx1);
@@ -180,7 +180,7 @@ public class XdmResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final XdmResourceManager resource2 = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resource2 = database.openResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeReadOnlyTrx rtx1 = resource2.beginNodeReadOnlyTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -199,7 +199,7 @@ public class XdmResourceManagerTest {
     wtx2.close();
 
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resource3 = database2.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resource3 = database2.openResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeReadOnlyTrx rtx2 = resource3.beginNodeReadOnlyTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);

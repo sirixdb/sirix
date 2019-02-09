@@ -209,7 +209,7 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final Path folder) throws Exception {
     try (var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+      XdmResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -248,7 +248,7 @@ public final class FMSETest extends XMLTestCase {
           }
 
           resource.close();
-          resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+          resource = database.openResourceManager(XdmTestHelper.RESOURCE);
 
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();

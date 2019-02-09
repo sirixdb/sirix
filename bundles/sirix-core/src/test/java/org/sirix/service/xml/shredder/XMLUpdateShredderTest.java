@@ -200,7 +200,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
   private void test(final Path folder) throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-    final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
         Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(Collectors.toList());

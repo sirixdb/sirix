@@ -473,7 +473,7 @@ public final class JsonShredder implements Callable<Long> {
 
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
-      try (final var resMgr = db.getResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
+      try (final var resMgr = db.openResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);
         final var shredder =
@@ -491,7 +491,7 @@ public final class JsonShredder implements Callable<Long> {
    * @param path the path to the file
    * @return an {@link JsonReader} instance
    */
-  public static synchronized JsonReader createFileReader(final Path path) {
+  public static JsonReader createFileReader(final Path path) {
     checkNotNull(path);
 
     try {
@@ -508,7 +508,7 @@ public final class JsonShredder implements Callable<Long> {
    * @param json the JSON as a string
    * @return an {@link JsonReader} instance
    */
-  public static synchronized JsonReader createStringReader(final String json) {
+  public static JsonReader createStringReader(final String json) {
     checkNotNull(json);
 
     final var stringReader = new StringReader(json);

@@ -1154,7 +1154,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     Databases.createXdmDatabase(config);
     final var db = Databases.openXdmDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded").build());
-    try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
+    try (final XdmResourceManager resMgr = db.openResourceManager("shredded");
         final XdmNodeTrx wtx = resMgr.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XmlShredder.createFileReader(fis);

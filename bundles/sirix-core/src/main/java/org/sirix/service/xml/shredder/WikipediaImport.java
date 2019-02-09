@@ -141,7 +141,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXdmDatabase(config);
     mDatabase = Databases.openXdmDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
-    mResourceManager = mDatabase.getResourceManager("shredded");
+    mResourceManager = mDatabase.openResourceManager("shredded");
     mWtx = mResourceManager.beginNodeTrx();
   }
 
@@ -278,7 +278,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXdmDatabase(dbConf);
     final var db = Databases.openXdmDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki").build());
-    final XdmResourceManager resourceManager = db.getResourceManager("wiki");
+    final XdmResourceManager resourceManager = db.openResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
       mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));

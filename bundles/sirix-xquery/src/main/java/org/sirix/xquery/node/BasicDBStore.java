@@ -205,7 +205,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       final DBCollection collection = new DBCollection(collName, database);
       mCollections.put(database, collection);
 
-      try (final XdmResourceManager manager = database.getResourceManager(resName);
+      try (final XdmResourceManager manager = database.openResourceManager(resName);
           final XdmNodeTrx wtx = manager.beginNodeTrx()) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
 
@@ -247,7 +247,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                                                            .useTextCompression(true)
                                                            .buildPathSummary(true)
                                                            .build());
-              try (final XdmResourceManager manager = database.getResourceManager(resourceName);
+              try (final XdmResourceManager manager = database.openResourceManager(resourceName);
                   final XdmNodeTrx wtx = manager.beginNodeTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);

@@ -72,7 +72,7 @@ public final class FMSEImport {
 
     try (final var db = Databases.openXdmDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
-      try (final var resMgr = db.getResourceManager("shredded");
+      try (final var resMgr = db.openResourceManager("shredded");
           final var wtx = resMgr.beginNodeTrx();
           final var fis = new FileInputStream(resNewRev.toFile())) {
         final var fileReader = XmlShredder.createFileReader(fis);
@@ -98,10 +98,10 @@ public final class FMSEImport {
       shredder(checkNotNull(resNewRev), newRevTarget);
 
       try (final var databaseOld = Databases.openXdmDatabase(resOldRev);
-          final var resMgrOld = databaseOld.getResourceManager("shredded");
+          final var resMgrOld = databaseOld.openResourceManager("shredded");
           final var wtx = resMgrOld.beginNodeTrx();
           final var databaseNew = Databases.openXdmDatabase(newRevTarget);
-          final var resourceNew = databaseNew.getResourceManager("shredded");
+          final var resourceNew = databaseNew.openResourceManager("shredded");
           final var rtx = resourceNew.beginNodeReadOnlyTrx();
           final var fmes = new FMSE()) {
         fmes.diff(wtx, rtx);

@@ -125,7 +125,7 @@ public class FileSystemWatcher implements AutoCloseable {
   private FileSystemWatcher(final Path path, final Database<XdmResourceManager> database) throws SirixException {
     mPath = checkNotNull(path);
     mDatabase = checkNotNull(database);
-    mResource = mDatabase.getResourceManager("shredded");
+    mResource = mDatabase.openResourceManager("shredded");
     mWtx = mResource.beginNodeTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);

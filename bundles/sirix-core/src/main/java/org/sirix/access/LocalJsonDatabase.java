@@ -80,7 +80,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
   }
 
   @Override
-  public synchronized JsonResourceManager getResourceManager(final String resource) {
+  public synchronized JsonResourceManager openResourceManager(final String resource) {
     assertNotClosed();
 
     final Path resourceFile =
@@ -122,7 +122,7 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
 
     try (
         final JsonResourceManager resourceTrxManager =
-            getResourceManager(resConfig.getResource().getFileName().toString());
+            openResourceManager(resConfig.getResource().getFileName().toString());
         final JsonNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {

@@ -172,7 +172,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -210,7 +210,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
       XdmNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -260,7 +260,7 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.getResourceManager(XdmTestHelper.RESOURCE)) {
+    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
       XdmNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();

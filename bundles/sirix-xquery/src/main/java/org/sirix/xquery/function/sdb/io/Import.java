@@ -94,7 +94,7 @@ public final class Import extends AbstractFunction {
         }
 
         try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
-            final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
+            final XdmResourceManager resourceNew = databaseNew.openResourceManager("shredded");
             final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);

@@ -131,7 +131,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   private DBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
-    final XdmResourceManager resource = mDatabase.getResourceManager(resName);
+    final XdmResourceManager resource = mDatabase.openResourceManager(resName);
 
     final XdmNodeReadOnlyTrx trx;
 
@@ -185,7 +185,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final XdmResourceManager manager = mDatabase.getResourceManager(resources.get(0).getFileName().toString());
+      final XdmResourceManager manager = mDatabase.openResourceManager(resources.get(0).getFileName().toString());
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
@@ -206,7 +206,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final XdmResourceManager manager = mDatabase.getResourceManager(resource);
+      final XdmResourceManager manager = mDatabase.openResourceManager(resource);
       final XdmNodeTrx wtx = manager.beginNodeTrx();
       final SubtreeHandler handler =
           new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
@@ -234,7 +234,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
+      final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
       final XdmNodeTrx wtx = resource.beginNodeTrx();
 
       final SubtreeHandler handler =
@@ -257,7 +257,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throws OperationNotSupportedException, DocumentException {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-      final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
+      final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
       final XdmNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
@@ -308,7 +308,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   private DBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
-    final XdmResourceManager resource = mDatabase.getResourceManager(resName);
+    final XdmResourceManager resource = mDatabase.openResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
         : revision;
@@ -358,7 +358,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     for (final Path resourcePath : resources) {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
+        final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
         final XdmNodeReadOnlyTrx trx = updatable
             ? resource.beginNodeTrx()
             : resource.beginNodeReadOnlyTrx();
