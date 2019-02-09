@@ -13,8 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnegative;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.TransactionManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -72,6 +70,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     assertNotClosed();
 
     boolean returnVal = true;
+    resConfig.setDatabaseConfiguration(mDBConfig);
     final Path path =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resConfig.resourcePath);
     // If file is existing, skip.

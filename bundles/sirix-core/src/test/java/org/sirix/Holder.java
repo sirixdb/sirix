@@ -23,9 +23,9 @@ package org.sirix;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
@@ -71,8 +71,7 @@ public class Holder {
       Databases.createXdmDatabase(config);
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).useDeweyIDs(true).build());
     final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
@@ -93,8 +92,7 @@ public class Holder {
       Databases.createXdmDatabase(config);
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).buildPathSummary(true).build());
     final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);

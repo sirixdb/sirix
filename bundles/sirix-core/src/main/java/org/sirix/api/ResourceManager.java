@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;

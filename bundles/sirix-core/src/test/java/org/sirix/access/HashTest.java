@@ -29,8 +29,6 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -219,7 +217,7 @@ public class HashTest {
 
   private XdmNodeTrx createWtx(final HashType kind) throws SirixException {
     final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
     final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;

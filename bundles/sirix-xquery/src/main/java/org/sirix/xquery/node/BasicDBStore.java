@@ -19,9 +19,9 @@ import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -196,7 +196,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       final String resName = optResName != null
           ? optResName
           : new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
-      database.createResource(ResourceConfiguration.newBuilder(resName, dbConf)
+      database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
                                                    .buildPathSummary(mBuildPathSummary)
@@ -241,7 +241,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
             final SubtreeParser nextParser = parser;
             final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
             pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName, dbConf)
+              database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                            .storageType(mStorageType)
                                                            .useDeweyIDs(true)
                                                            .useTextCompression(true)
@@ -251,7 +251,8 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                   final XdmNodeTrx wtx = manager.beginNodeTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
-                nextParser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
+                nextParser.parse(
+                    new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
                 wtx.commit();
               }
               return null;

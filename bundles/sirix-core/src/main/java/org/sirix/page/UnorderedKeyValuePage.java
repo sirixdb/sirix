@@ -42,7 +42,7 @@ import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;

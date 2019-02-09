@@ -43,9 +43,9 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
@@ -1153,7 +1153,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
     Databases.createXdmDatabase(config);
     final var db = Databases.openXdmDatabase(target);
-    db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+    db.createResource(new ResourceConfiguration.Builder("shredded").build());
     try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
         final XdmNodeTrx wtx = resMgr.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {

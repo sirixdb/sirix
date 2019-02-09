@@ -18,7 +18,7 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.access.conf;
+package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -172,10 +172,10 @@ public final class ResourceConfiguration {
   public final ByteHandlePipeline byteHandlePipeline;
 
   /** Path for the resource to be associated. */
-  public final Path resourcePath;
+  public Path resourcePath;
 
   /** DatabaseConfiguration for this {@link ResourceConfiguration}. */
-  public final DatabaseConfiguration databaseConfig;
+  private DatabaseConfiguration databaseConfig;
 
   /** Determines if text-compression should be used or not (default is true). */
   public final boolean useTextCompression;
@@ -192,18 +192,19 @@ public final class ResourceConfiguration {
   /** Determines if dewey IDs are generated and stored or not. */
   public final boolean areDeweyIDsStored;
 
+  private String resourceName;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
    * Get a new builder instance.
    *
    * @param resource the name of the resource
-   * @param config the related {@link DatabaseConfiguration}
    * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
    * @return {@link Builder} instance
    */
-  public static Builder newBuilder(final String resource, final DatabaseConfiguration config) {
-    return new Builder(resource, config);
+  public static Builder newBuilder(final String resource) {
+    return new Builder(resource);
   }
 
   /**
@@ -217,13 +218,18 @@ public final class ResourceConfiguration {
     revisioningType = builder.mRevisionKind;
     hashType = builder.mHashKind;
     numberOfRevisionsToRestore = builder.mRevisionsToRestore;
-    databaseConfig = builder.mDBConfig;
     useTextCompression = builder.mCompression;
     withPathSummary = builder.mPathSummary;
     areDeweyIDsStored = builder.mUseDeweyIDs;
-    resourcePath =
-        databaseConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(builder.mResource);
     recordPersister = builder.mPersistenter;
+    resourceName = builder.mResource;
+  }
+
+  ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
+    databaseConfig = checkNotNull(config);
+    resourcePath =
+        databaseConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    return this;
   }
 
   /**
@@ -421,8 +427,7 @@ public final class ResourceConfiguration {
       final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
 
       // Builder.
-      final ResourceConfiguration.Builder builder =
-          new ResourceConfiguration.Builder(file.getFileName().toString(), dbConfig);
+      final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(file.getFileName().toString());
       builder.byteHandlerPipeline(pipeline)
              .hashKind(hashing)
              .versioningApproach(revisioning)
@@ -435,6 +440,7 @@ public final class ResourceConfiguration {
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
+      config.setDatabaseConfiguration(dbConfig);
       return config.setID(ID);
     } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
         | IllegalAccessException | InvocationTargetException e) {
@@ -465,9 +471,6 @@ public final class ResourceConfiguration {
     /** Resource for this session. */
     private final String mResource;
 
-    /** Resource for this session. */
-    private final DatabaseConfiguration mDBConfig;
-
     /** Determines if text-compression should be used or not (default is true). */
     private boolean mCompression;
 
@@ -484,16 +487,14 @@ public final class ResourceConfiguration {
      * Constructor, setting the mandatory fields.
      *
      * @param resource the name of the resource
-     * @param config the related {@link DatabaseConfiguration}
      * @throws NullPointerException if {@code resource} or {@code config} is {@code null}
      */
-    public Builder(final String resource, final DatabaseConfiguration config) {
+    public Builder(final String resource) {
       mResource = checkNotNull(resource);
-      mDBConfig = checkNotNull(config);
       mPathSummary = true;
 
-      final Path path =
-          mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
+      // final Path path =
+      // mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(mResource);
 
       mByteHandler = new ByteHandlePipeline(new SnappyCompressor());// new Encryptor(path));
     }

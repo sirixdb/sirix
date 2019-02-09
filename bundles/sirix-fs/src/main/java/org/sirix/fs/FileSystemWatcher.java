@@ -44,9 +44,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -285,8 +285,8 @@ public class FileSystemWatcher implements AutoCloseable {
   }
 
   /**
-   * Find node corresponding to the path. The {@link XdmNodeTrx} globally used is moved to the
-   * found node.
+   * Find node corresponding to the path. The {@link XdmNodeTrx} globally used is moved to the found
+   * node.
    *
    * @param query xpath expression
    * @throws SirixXPathException if expression isn't valid
@@ -438,7 +438,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
     Databases.createXdmDatabase(conf);
     try (final var database = Databases.openXdmDatabase(databasePath)) {
-      database.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
+      database.createResource(new ResourceConfiguration.Builder("shredded").build());
       index =
           FileHierarchyWalker.parseDir(Paths.get(args[0]), database, Optional.of(new ProcessFileSystemAttributes()));
       assert index != null;

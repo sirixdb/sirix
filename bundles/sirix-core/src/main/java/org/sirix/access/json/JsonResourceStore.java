@@ -8,7 +8,7 @@ import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonResourceManager;

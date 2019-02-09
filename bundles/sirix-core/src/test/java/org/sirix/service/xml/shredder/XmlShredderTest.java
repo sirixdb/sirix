@@ -35,7 +35,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
@@ -76,7 +76,7 @@ public class XmlShredderTest extends XMLTestCase {
 
     // Verify.
     final var database2 = XdmTestHelper.getDatabase(PATHS.PATH2.getFile());
-    database2.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
+    database2.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
     final XdmResourceManager manager = database2.getResourceManager(XdmTestHelper.RESOURCE);
     final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
     rtx.moveToDocumentRoot();
@@ -111,19 +111,15 @@ public class XmlShredderTest extends XMLTestCase {
     try (final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
         final FileInputStream fis1 = new FileInputStream(XML.toFile());
         final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
-      final XmlShredder shredder =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), InsertPosition.AS_FIRST_CHILD).includeComments(true)
-                                                                                               .commitAfterwards()
-                                                                                               .build();
+      final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
+          InsertPosition.AS_FIRST_CHILD).includeComments(true).commitAfterwards().build();
       shredder.call();
       assertEquals(2, wtx.getRevisionNumber());
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.remove();
-      final XmlShredder shredder2 =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis2), InsertPosition.AS_FIRST_CHILD).includeComments(true)
-                                                                                               .commitAfterwards()
-                                                                                               .build();
+      final XmlShredder shredder2 = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis2),
+          InsertPosition.AS_FIRST_CHILD).includeComments(true).commitAfterwards().build();
       shredder2.call();
       assertEquals(3, wtx.getRevisionNumber());
     }
@@ -167,9 +163,8 @@ public class XmlShredderTest extends XMLTestCase {
     try (final var manager2 = database2.getResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager2.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
-      final XmlShredder shredder =
-          new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                              .build();
+      final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
       wtx.commit();
 
@@ -206,9 +201,8 @@ public class XmlShredderTest extends XMLTestCase {
         final FileInputStream fis1 = new FileInputStream(XML3.toFile());
         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
       try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
-        final XmlShredder shredder =
-            new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                 .build();
+        final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 

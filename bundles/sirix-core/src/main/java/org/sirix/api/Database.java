@@ -24,8 +24,8 @@ package org.sirix.api;
 import java.nio.file.Path;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -37,7 +37,7 @@ import org.sirix.exception.SirixIOException;
  * </p>
  *
  * <p>
- * Furthermore, databases are created by {@link org.access.conf.DatabaseConfiguration}s. After
+ * Furthermore, databases are created by {@link org.sirix.access.access.conf.DatabaseConfiguration}s. After
  * creation, the settings of a database cannot be changed.
  * </p>
  *

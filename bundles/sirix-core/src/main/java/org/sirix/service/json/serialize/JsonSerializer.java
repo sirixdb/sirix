@@ -39,9 +39,9 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.util.serialize.Serializer;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -93,9 +93,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,
-      final Builder builder, final boolean initialIndent, final @Nonnegative int revision,
-      final int... revsions) {
+  private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Builder builder,
+      final boolean initialIndent, final @Nonnegative int revision, final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
     mOut = builder.mStream;
     mIndent = builder.mIndent;
@@ -349,7 +348,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
     Databases.createJsonDatabase(config);
     try (final var db = Databases.openJsonDatabase(databaseFile)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
       try (final JsonResourceManager resMgr = db.getResourceManager("shredded");
           final FileWriter outputStream = new FileWriter(target.toFile())) {
@@ -368,8 +367,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static Builder newBuilder(final JsonResourceManager resMgr, final Writer stream,
-      final int... revisions) {
+  public static Builder newBuilder(final JsonResourceManager resMgr, final Writer stream, final int... revisions) {
     return new Builder(resMgr, stream, revisions);
   }
 
@@ -456,8 +454,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey,
-        final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
+    public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
+        final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;

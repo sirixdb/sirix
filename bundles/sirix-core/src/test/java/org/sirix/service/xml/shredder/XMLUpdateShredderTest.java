@@ -39,7 +39,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
@@ -199,7 +199,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
   private void test(final Path folder) throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
     final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
@@ -228,9 +228,8 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
         try (final XdmNodeTrx wtx = manager.beginNodeTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
-            final XmlShredder shredder =
-                new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                    .build();
+            final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+                InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
             shredder.call();
             first = false;
           } else {

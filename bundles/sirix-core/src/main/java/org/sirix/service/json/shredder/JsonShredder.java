@@ -35,9 +35,9 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -471,7 +471,7 @@ public final class JsonShredder implements Callable<Long> {
     Databases.createJsonDatabase(databaseConfig);
 
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", databaseConfig).build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
       try (final var resMgr = db.getResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);

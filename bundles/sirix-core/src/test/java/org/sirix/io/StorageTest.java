@@ -25,8 +25,7 @@ import static org.testng.AssertJUnit.assertEquals;
 import java.io.IOException;
 import java.nio.file.Files;
 import org.sirix.XdmTestHelper;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -53,14 +52,11 @@ public final class StorageTest {
     XdmTestHelper.deleteEverything();
     Files.createDirectories(XdmTestHelper.PATHS.PATH1.getFile());
     Files.createDirectories(
-        XdmTestHelper.PATHS.PATH1.getFile()
-                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
-    Files.createFile(
-        XdmTestHelper.PATHS.PATH1.getFile()
-                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                              .resolve("data.sirix"));
-    mResourceConfig = new ResourceConfiguration.Builder("shredded",
-        new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile())).build();
+        XdmTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
+    Files.createFile(XdmTestHelper.PATHS.PATH1.getFile()
+                                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                              .resolve("data.sirix"));
+    mResourceConfig = new ResourceConfiguration.Builder("shredded").build();
   }
 
   @AfterClass
@@ -76,8 +72,7 @@ public final class StorageTest {
    * @throws SirixIOException
    */
   @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(final Class<Storage> clazz, final Storage[] storages)
-      throws SirixException {
+  public void testFirstRef(final Class<Storage> clazz, final Storage[] storages) throws SirixException {
     for (final Storage handler : storages) {
       try {
         final PageReference pageRef1 = new PageReference();
@@ -88,28 +83,17 @@ public final class StorageTest {
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
           pageRef2 = writer.writeUberPageReference(pageRef1).readUberPageReference();
-          assertEquals(
-              new StringBuilder("Check for ").append(handler.getClass())
-                                             .append(" failed.")
-                                             .toString(),
-              ((UberPage) pageRef1.getPage()).getRevisionCount(),
-              ((UberPage) pageRef2.getPage()).getRevisionCount());
+          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+              ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
         }
 
         // new instance check
         try (final Reader reader = handler.createReader()) {
           final PageReference pageRef3 = reader.readUberPageReference();
-          assertEquals(
-              new StringBuilder("Check for ").append(handler.getClass())
-                                             .append(" failed.")
-                                             .toString(),
+          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
               pageRef2.getKey(), pageRef3.getKey());
-          assertEquals(
-              new StringBuilder("Check for ").append(handler.getClass())
-                                             .append(" failed.")
-                                             .toString(),
-              ((UberPage) pageRef2.getPage()).getRevisionCount(),
-              ((UberPage) pageRef3.getPage()).getRevisionCount());
+          assertEquals(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+              ((UberPage) pageRef2.getPage()).getRevisionCount(), ((UberPage) pageRef3.getPage()).getRevisionCount());
         }
       } finally {
         handler.close();
@@ -118,16 +102,15 @@ public final class StorageTest {
   }
 
   /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test
-   * class.
+   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
    *
    * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException if an I/O error occurs
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() throws SirixIOException {
-    Object[][] returnVal = {{Storage.class,
-        new Storage[] {new FileStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
+    Object[][] returnVal =
+        {{Storage.class, new Storage[] {new FileStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
     return returnVal;
   }
 

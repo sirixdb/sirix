@@ -13,7 +13,7 @@ import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Node;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.XdmIndexController;
 import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.NodeCursor;

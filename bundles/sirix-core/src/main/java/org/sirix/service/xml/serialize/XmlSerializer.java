@@ -43,9 +43,9 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.util.serialize.Serializer;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -466,7 +466,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
     Databases.createXdmDatabase(config);
     try (final var db = Databases.openXdmDatabase(databaseFile)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
       try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
