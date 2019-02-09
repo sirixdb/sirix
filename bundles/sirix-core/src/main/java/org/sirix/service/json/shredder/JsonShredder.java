@@ -25,6 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -499,5 +500,18 @@ public final class JsonShredder implements Callable<Long> {
     } catch (final FileNotFoundException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  /**
+   * Create a new {@link JsonReader} instance on a String.
+   *
+   * @param json the JSON as a string
+   * @return an {@link JsonReader} instance
+   */
+  public static synchronized JsonReader createStringReader(final String json) {
+    checkNotNull(json);
+
+    final var stringReader = new StringReader(json);
+    return new JsonReader(stringReader);
   }
 }
