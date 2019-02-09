@@ -50,7 +50,7 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithInitialIndent() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
@@ -69,7 +69,7 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
@@ -85,7 +85,7 @@ public class XmlSerializerTest {
   @Test
   public void testRestSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
@@ -108,7 +108,7 @@ public class XmlSerializerTest {
   @Test
   public void testIDSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
@@ -125,7 +125,7 @@ public class XmlSerializerTest {
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
@@ -152,7 +152,7 @@ public class XmlSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 

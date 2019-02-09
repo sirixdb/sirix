@@ -319,7 +319,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
 
     try (final var db = Databases.openXdmDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
-      try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.openResourceManager("shredded");
           final XdmNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
@@ -345,7 +345,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @return an {@link XMLEventReader}
    * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createFileReader(final FileInputStream fis) {
+  public static XMLEventReader createFileReader(final FileInputStream fis) {
     checkNotNull(fis);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
@@ -369,7 +369,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @return an {@link XMLEventReader}
    * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createStringReader(final String xmlString) {
+  public static XMLEventReader createStringReader(final String xmlString) {
     checkNotNull(xmlString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
@@ -389,8 +389,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @throws IOException if I/O operation fails
    * @throws XMLStreamException if any parsing error occurs
    */
-  public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> events)
-      throws IOException, XMLStreamException {
+  public static XMLEventReader createQueueReader(final Queue<XMLEvent> events) throws IOException, XMLStreamException {
     return new QueueEventReader(checkNotNull(events));
   }
 }

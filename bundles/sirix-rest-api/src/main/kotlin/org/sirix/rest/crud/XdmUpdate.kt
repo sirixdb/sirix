@@ -7,14 +7,14 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
 import org.sirix.api.xdm.XdmNodeTrx
-import org.sirix.rest.Serialize
+import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
-private enum class InsertionMode {
+enum class XdmInsertionMode {
     ASFIRSTCHILD {
         override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
@@ -43,7 +43,7 @@ private enum class InsertionMode {
     }
 }
 
-class Update(private val location: Path) {
+class XdmUpdate(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
 
@@ -72,7 +72,7 @@ class Update(private val location: Path) {
             val database = Databases.openXdmDatabase(dbFile)
 
             database.use {
-                val manager = database.getResourceManager(resPathName)
+                val manager = database.openResourceManager(resPathName)
 
                 val wtx = manager.beginNodeTrx()
                 wtx.use {
@@ -85,7 +85,7 @@ class Update(private val location: Path) {
                     val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
                     if (insertionMode != null)
-                        InsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
+                        XdmInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
                     else
                         wtx.replaceNode(xmlReader)
                 }
@@ -94,7 +94,7 @@ class Update(private val location: Path) {
                 val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
                 val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                Serialize().serializeXml(serializer, out, ctx)
+                XdmSerializeHelper().serializeXml(serializer, out, ctx)
             }
 
             it.complete(null)

@@ -80,7 +80,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * @return the session
    * @throws SirixException if can't get session
    */
-  T getResourceManager(String resourceName) throws SirixException;
+  T openResourceManager(String resourceName) throws SirixException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.

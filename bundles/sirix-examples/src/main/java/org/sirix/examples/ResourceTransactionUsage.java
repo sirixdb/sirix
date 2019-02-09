@@ -33,7 +33,7 @@ public final class ResourceTransactionUsage {
     try (var database = Databases.openXdmDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource").build());
 
-      try (var resourceMgr = database.getResourceManager("resource");
+      try (var resourceMgr = database.openResourceManager("resource");
           var wtx = resourceMgr.beginNodeTrx();
           var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));

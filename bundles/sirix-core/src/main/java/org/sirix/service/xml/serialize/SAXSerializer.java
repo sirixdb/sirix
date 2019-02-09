@@ -250,7 +250,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
     Databases.createXdmDatabase(config);
     final var database = Databases.openXdmDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded").build());
-    try (final XdmResourceManager resource = database.getResourceManager("shredded")) {
+    try (final XdmResourceManager resource = database.openResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();

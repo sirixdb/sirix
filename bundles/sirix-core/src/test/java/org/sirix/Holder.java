@@ -72,7 +72,7 @@ public class Holder {
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).useDeweyIDs(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resourceManager = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -93,7 +93,7 @@ public class Holder {
     }
     final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).buildPathSummary(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resourceManager = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -108,7 +108,7 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);

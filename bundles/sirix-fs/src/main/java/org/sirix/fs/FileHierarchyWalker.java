@@ -40,7 +40,7 @@ public class FileHierarchyWalker {
       final Database<XdmResourceManager> database, Optional<Visitor<XdmNodeTrx>> visitor) throws IOException {
     checkNotNull(visitor);
     checkNotNull(path);
-    try (final XdmResourceManager resource = checkNotNull(database).getResourceManager("shredded");
+    try (final XdmResourceManager resource = checkNotNull(database).openResourceManager("shredded");
         final XdmNodeTrx wtx = resource.beginNodeTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {

@@ -19,7 +19,7 @@ import org.sirix.xquery.node.BasicDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Delete(private val location: Path) {
+class XdmDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
@@ -62,7 +62,7 @@ class Delete(private val location: Path) {
             if (nodeId == null) {
                 removeResource(dispatcher, database, resPathName, ctx)
             } else {
-                val manager = database.getResourceManager(resPathName)
+                val manager = database.openResourceManager(resPathName)
 
                 removeSubtree(manager, nodeId, context)
             }

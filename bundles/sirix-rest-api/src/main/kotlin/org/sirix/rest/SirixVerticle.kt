@@ -17,10 +17,7 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.OAuth2ClientOptions
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
-import org.sirix.rest.crud.Create
-import org.sirix.rest.crud.Delete
-import org.sirix.rest.crud.Get
-import org.sirix.rest.crud.Update
+import org.sirix.rest.crud.*
 import java.nio.file.Paths
 
 
@@ -64,91 +61,181 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         // Create.
-        put("/:database").coroutineHandler {
+        put("/:database").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Create(location, false).handle(it)
+            XdmCreate(location, false).handle(it)
+        }
+        put("/:database").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            JsonCreate(location, false).handle(it)
         }
 
-        put("/:database/:resource").coroutineHandler {
+        put("/:database/:resource").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Create(location, false).handle(it)
+            XdmCreate(location, false).handle(it)
+        }
+        put("/:database/:resource").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            JsonCreate(location, false).handle(it)
         }
 
-        post("/:database").coroutineHandler {
+        post("/:database").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Create(location, true).handle(it)
+            XdmCreate(location, true).handle(it)
+        }
+        post("/:database").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            JsonCreate(location, true).handle(it)
         }
 
         // Update.
-        post("/:database/:resource").coroutineHandler {
-            Auth(keycloak, "realm:modify").handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            Update(location).handle(it)
-        }
+        post("/:database/:resource")
+                .consumes("application/xml")
+                .produces("application/xml")
+                .coroutineHandler {
+                    Auth(keycloak, "realm:modify").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    XdmUpdate(location).handle(it)
+                }
+        post("/:database/:resource")
+                .consumes("application/json")
+                .produces("application/json")
+                .coroutineHandler {
+                    Auth(keycloak, "realm:modify").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    JsonUpdate(location).handle(it)
+                }
 
         // Get.
-        get("/").coroutineHandler {
+        get("/").produces("application/xml").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            XdmGet(location).handle(it)
         }
-
-        get("/:database/:resource").coroutineHandler {
+        get("/").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            JsonGet(location).handle(it)
         }
 
-        get("/:database").coroutineHandler {
+        get("/:database/:resource").produces("application/xml").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            Get(location).handle(it)
+            XdmGet(location).handle(it)
+        }
+        get("/:database/:resource").produces("application/json").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonGet(location).handle(it)
         }
 
-        post("/").coroutineHandler {
+        get("/:database").produces("application/xml").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            XdmGet(location).handle(it)
+        }
+        get("/:database").produces("application/json").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonGet(location).handle(it)
+        }
+
+        post("/")
+                .consumes("application/xml")
+                .produces("application/xml")
+                .coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Get(location).handle(it)
+            XdmGet(location).handle(it)
         }
+        post("/")
+                .consumes("application/json")
+                .produces("application/json")
+                .coroutineHandler {
+                    Auth(keycloak, "realm:view").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    JsonGet(location).handle(it)
+                }
 
-        post("/:database/:resource").coroutineHandler {
+        post("/:database/:resource")
+                .consumes("application/xml")
+                .produces("application/xml")
+                .coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            Get(location).handle(it)
+            XdmGet(location).handle(it)
         }
+        post("/:database/:resource")
+                .consumes("application/json")
+                .produces("application/json")
+                .coroutineHandler {
+                    Auth(keycloak, "realm:view").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    JsonGet(location).handle(it)
+                }
 
         // Delete.
-        delete("/").coroutineHandler {
+        delete("/").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            XdmDelete(location).handle(it)
+        }
+        delete("/").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonDelete(location).handle(it)
         }
 
-        delete("/:database/:resource").coroutineHandler {
+        delete("/:database/:resource").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            XdmDelete(location).handle(it)
+        }
+        delete("/:database/:resource").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonDelete(location).handle(it)
         }
 
-        delete("/:database").coroutineHandler {
+        delete("/:database").consumes("application/xml").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            Delete(location).handle(it)
+            XdmDelete(location).handle(it)
+        }
+        delete("/:database").consumes("application/json").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonDelete(location).handle(it)
         }
 
         // Exception with status code

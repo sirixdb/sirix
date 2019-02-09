@@ -32,7 +32,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -46,7 +46,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot().getCursor().moveToFirstChild();

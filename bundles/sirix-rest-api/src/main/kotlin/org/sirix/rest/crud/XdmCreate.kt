@@ -15,7 +15,7 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.xdm.XdmResourceManager
-import org.sirix.rest.Serialize
+import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Create(private val location: Path, private val createMultipleResources: Boolean = false) {
+class XdmCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
 
@@ -67,7 +67,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
 
                 createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
-                val manager = database.getResourceManager(fileName)
+                val manager = database.openResourceManager(fileName)
 
                 manager.use {
                     val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
@@ -99,7 +99,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
 
             createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
 
-            val manager = database.getResourceManager(resPathName)
+            val manager = database.openResourceManager(resPathName)
 
             manager.use {
                 insertXdmSubtreeAsFirstChild(manager, resFileToStore, context)
@@ -116,7 +116,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
             val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-            Serialize().serializeXml(serializer, out, routingCtx)
+            XdmSerializeHelper().serializeXml(serializer, out, routingCtx)
 
             it.complete(null)
         })

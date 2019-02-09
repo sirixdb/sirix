@@ -350,7 +350,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     try (final var db = Databases.openJsonDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
-      try (final JsonResourceManager resMgr = db.getResourceManager("shredded");
+      try (final JsonResourceManager resMgr = db.openResourceManager("shredded");
           final FileWriter outputStream = new FileWriter(target.toFile())) {
         final JsonSerializer serializer = JsonSerializer.newBuilder(resMgr, outputStream).build();
         serializer.call();

@@ -201,7 +201,7 @@ public final class XdmTestHelper {
   public static void createTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -216,7 +216,7 @@ public final class XdmTestHelper {
   public static void createPICommentTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
+    try (final XdmResourceManager manager = database.openResourceManager(RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.createCommentPI(wtx);
       wtx.commit();

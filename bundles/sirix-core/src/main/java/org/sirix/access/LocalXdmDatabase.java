@@ -80,7 +80,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
   }
 
   @Override
-  public synchronized XdmResourceManager getResourceManager(final String resource) {
+  public synchronized XdmResourceManager openResourceManager(final String resource) {
     assertNotClosed();
 
     final Path resourceFile =
@@ -122,7 +122,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
 
     try (
         final XdmResourceManager resourceTrxManager =
-            getResourceManager(resConfig.getResource().getFileName().toString());
+            openResourceManager(resConfig.getResource().getFileName().toString());
         final XdmNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {

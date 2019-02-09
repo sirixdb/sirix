@@ -345,7 +345,7 @@ public final class XdmDocumentCreator {
   public static void createRevisioned(final Database<XdmResourceManager> database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE)) {
+    try (final XdmResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XdmNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

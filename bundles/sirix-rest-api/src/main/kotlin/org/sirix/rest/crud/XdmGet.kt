@@ -17,7 +17,7 @@ import org.sirix.api.Database
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx
 import org.sirix.api.xdm.XdmResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.Serialize
+import org.sirix.rest.XdmSerializeHelper
 import org.sirix.rest.SessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
@@ -34,7 +34,7 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-class Get(private val location: Path) {
+class XdmGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
@@ -110,7 +110,7 @@ class Get(private val location: Path) {
 
                     buffer.appendln("</rest:sequence>")
                 } else {
-                    manager = database.getResourceManager(resName)
+                    manager = database.openResourceManager(resName)
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
@@ -251,7 +251,7 @@ class Get(private val location: Path) {
 
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-        Serialize().serializeXml(serializer, out, ctx)
+        XdmSerializeHelper().serializeXml(serializer, out, ctx)
     }
 
     private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {

@@ -468,7 +468,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
     try (final var db = Databases.openXdmDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
-      try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
+      try (final XdmResourceManager resMgr = db.openResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XmlSerializer serializer = XmlSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
