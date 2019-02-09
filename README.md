@@ -385,13 +385,13 @@ Databases.createXdmDatabase(config);
 // Open the database.
 try (var database = Databases.openXdmDatabase(file)) {
   /* 
-   * Create a resource in the database with the name "resource1".
+   * Create a resource in the database with the name "resource".
    * Store deweyIDs (hierarchical node labels), use text node compression,
    * build a summary of all paths in the resource and use the SLIDING_SNAPSHOT
    * versioning algorithm.
    */
   database.createResource(
-            ResourceConfiguration.newBuilder("resource1", config)
+            ResourceConfiguration.newBuilder("resource")
                                  .useDeweyIDs(true)
                                  .useTextCompression(true)
                                  .buildPathSummary(true)
@@ -428,7 +428,7 @@ try (var database = Databases.openXdmDatabase(file)) {
 
     // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
-    new XMLSerializer.XMLSerializerBuilder(manager, out).prettyPrint().build().call();
+    new XmlSerializer.XmlSerializerBuilder(manager, out).prettyPrint().build().call();
 
     System.out.println(out);
   }
@@ -442,7 +442,7 @@ There are N reading transactions as well as one write-transaction permitted on a
 A read-only transaction can be opened through:
 
 ```java
-var rtx = manager.beginNodeReadTrx()
+var rtx = manager.beginNodeReadOnlyTrx()
 ```
 
 The codè above starts a transaction on the most recent revision.
@@ -450,17 +450,17 @@ The codè above starts a transaction on the most recent revision.
 The following code starts a transaction at revision 1.
 
 ```java
-var rtx = manager.beginNodeReadTrx(1)
+var rtx = manager.beginNodeReadOnlyTrx(1)
 ```
 
 The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
 var time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-var rtx = manager.beginNodeReadTrx(time.toInstant())
+var rtx = manager.beginNodeReadOnlyTrx(time.toInstant())
 ```
 
-There are also several ways to start the single write-transaction:
+There are also several ways to start the single read/write-transaction:
 
 ```java
   /**
