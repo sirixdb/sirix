@@ -6,18 +6,12 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx
-import org.sirix.api.xdm.XdmResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.JsonSerializeHelper
-import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.xquery.node.DBCollection
 import org.sirix.xquery.node.DBNode
 import java.io.StringWriter
 import java.nio.file.Files
@@ -93,13 +87,17 @@ class JsonGet(private val location: Path) {
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
-                    buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+                    buffer.append("{ \"databases\":[")
 
-                    for (resource in it.listResources()) {
-                        buffer.appendln("  <rest:item resource-name=\"${resource.fileName}\"/>")
+                    val resources = it.listResources()
+
+                    for ((index, resource) in resources.withIndex()) {
+                        buffer.append(resource)
+                        if (index != resources.size)
+                            buffer.append(",")
                     }
 
-                    buffer.appendln("</rest:sequence>")
+                    buffer.append("]}")
                 } else {
                     manager = database.openResourceManager(resName)
 
