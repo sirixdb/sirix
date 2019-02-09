@@ -21,7 +21,7 @@
 package org.sirix.io;
 
 import java.io.RandomAccessFile;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;

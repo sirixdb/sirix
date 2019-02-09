@@ -28,10 +28,10 @@ import java.nio.file.Paths;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.Utils;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -249,7 +249,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
     Databases.createXdmDatabase(config);
     final var database = Databases.openXdmDatabase(path);
-    database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+    database.createResource(new ResourceConfiguration.Builder("shredded").build());
     try (final XdmResourceManager resource = database.getResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());

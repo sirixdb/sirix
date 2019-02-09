@@ -2,7 +2,6 @@ package org.sirix.access;
 
 import java.nio.file.Path;
 import javax.annotation.Nonnull;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;

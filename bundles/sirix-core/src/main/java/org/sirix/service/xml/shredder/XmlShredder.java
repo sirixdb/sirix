@@ -44,9 +44,9 @@ import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
@@ -58,8 +58,8 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeTrx} . The content of
- * the stream is added as a subtree. Based on an enum which identifies the point of insertion, the
+ * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeTrx} . The content of the
+ * stream is added as a subtree. Based on an enum which identifies the point of insertion, the
  * subtree is either added as first child or as right sibling.
  *
  * @author Marc Kramis, Seabix
@@ -318,7 +318,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     Databases.createXdmDatabase(config);
 
     try (final var db = Databases.openXdmDatabase(target)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
       try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
           final XdmNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
@@ -328,9 +328,9 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             : false;
         final XmlShredder shredder =
             new XmlShredder.Builder(wtx, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                     .includeComments(includeCoPI)
-                                                                     .includePIs(includeCoPI)
-                                                                     .build();
+                                                                               .includeComments(includeCoPI)
+                                                                               .includePIs(includeCoPI)
+                                                                               .build();
         shredder.call();
       }
     }

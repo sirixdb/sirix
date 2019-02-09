@@ -27,7 +27,7 @@
  */
 package org.sirix.access.trx.page;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.cache.TransactionIntentLog;
 
 /**

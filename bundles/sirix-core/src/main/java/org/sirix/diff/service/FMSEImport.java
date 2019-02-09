@@ -29,9 +29,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLStreamException;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -71,12 +71,13 @@ public final class FMSEImport {
     Databases.createXdmDatabase(conf);
 
     try (final var db = Databases.openXdmDatabase(newRev)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
       try (final var resMgr = db.getResourceManager("shredded");
           final var wtx = resMgr.beginNodeTrx();
           final var fis = new FileInputStream(resNewRev.toFile())) {
         final var fileReader = XmlShredder.createFileReader(fis);
-        final var shredder = new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var shredder =
+            new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     }

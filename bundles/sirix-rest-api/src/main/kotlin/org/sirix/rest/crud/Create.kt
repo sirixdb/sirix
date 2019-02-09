@@ -37,8 +37,8 @@ class Create(private val location: Path, private val createMultipleResources: Bo
 
         if (resource == null) {
             val dbFile = location.resolve(databaseName)
-            val dispatcher = ctx.vertx().dispatcher()
-            createDatabaseIfNotExists(dbFile, dispatcher, ctx.vertx().orCreateContext)
+            val vertxContext = ctx.vertx().orCreateContext
+            createDatabaseIfNotExists(dbFile, vertxContext)
             return ctx.currentRoute()
         }
 
@@ -57,14 +57,14 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
-        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher, context)
+        val dbConfig = createDatabaseIfNotExists(dbFile, context)
 
         val database = Databases.openXdmDatabase(dbFile)
 
         database.use {
             ctx.fileUploads().forEach { fileUpload ->
                 val fileName = fileUpload.fileName()
-                val resConfig = ResourceConfiguration.Builder(fileName, dbConfig).build()
+                val resConfig = ResourceConfiguration.Builder(fileName).build()
 
                 createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
@@ -73,7 +73,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
                 manager.use {
                     val wtx = manager.beginNodeTrx()
                     val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
-                    insertSubtreeAsFirstChild(wtx, buffer.toString(StandardCharsets.UTF_8), context)
+                    insertXdmSubtreeAsFirstChild(wtx, buffer.toString(StandardCharsets.UTF_8), context)
                 }
             }
         }
@@ -84,13 +84,13 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val dbFile = location.resolve(dbPathName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
-        val dbConfig = createDatabaseIfNotExists(dbFile, dispatcher, context)
+        val dbConfig = createDatabaseIfNotExists(dbFile, context)
 
         insertResource(dbFile, resPathName, dbConfig, dispatcher, resFileToStore, context, ctx)
     }
 
     private suspend fun insertResource(dbFile: Path?, resPathName: String,
-                                       dbConfig: DatabaseConfiguration,
+                                       dbConfig: DatabaseConfiguration?,
                                        dispatcher: CoroutineDispatcher,
                                        resFileToStore: String,
                                        context: Context,
@@ -98,7 +98,7 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         val database = Databases.openXdmDatabase(dbFile)
 
         database.use {
-            val resConfig = ResourceConfiguration.Builder(resPathName, dbConfig).build()
+            val resConfig = ResourceConfiguration.Builder(resPathName).build()
 
             createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
 
@@ -106,14 +106,14 @@ class Create(private val location: Path, private val createMultipleResources: Bo
 
             manager.use {
                 val wtx = manager.beginNodeTrx()
-                insertSubtreeAsFirstChild(wtx, resFileToStore, context)
-                serialize(manager, context, ctx)
+                insertXdmSubtreeAsFirstChild(wtx, resFileToStore, context)
+                serializeXdm(manager, context, ctx)
             }
         }
     }
 
-    private suspend fun serialize(manager: XdmResourceManager, vertxContext: Context,
-                                  routingCtx:
+    private suspend fun serializeXdm(manager: XdmResourceManager, vertxContext: Context,
+                                     routingCtx:
                                   RoutingContext) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             val out = ByteArrayOutputStream()
@@ -127,15 +127,12 @@ class Create(private val location: Path, private val createMultipleResources: Bo
     }
 
     private suspend fun createDatabaseIfNotExists(dbFile: Path,
-                                                  dispatcher: CoroutineDispatcher,
-                                                  context: Context): DatabaseConfiguration {
-        return withContext(dispatcher) {
+                                                  context: Context): DatabaseConfiguration? {
+        return context.executeBlockingAwait(Handler<Future<DatabaseConfiguration>> {
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
-                context.executeBlockingAwait(Handler<Future<Nothing>> {
-                    Files.createDirectories(dbFile.parent)
-                })
+                Files.createDirectories(dbFile.parent)
             }
 
             val dbConfig = DatabaseConfiguration(dbFile)
@@ -144,8 +141,8 @@ class Create(private val location: Path, private val createMultipleResources: Bo
                 Databases.createXdmDatabase(dbConfig)
             }
 
-            dbConfig
-        }
+            it.complete(dbConfig)
+        })
     }
 
     private suspend fun createOrRemoveAndCreateResource(database: Database<XdmResourceManager>,
@@ -159,13 +156,13 @@ class Create(private val location: Path, private val createMultipleResources: Bo
         }
     }
 
-    private suspend fun insertSubtreeAsFirstChild(wtx: XdmNodeTrx, resFileToStore: String, context: Context) {
+    private suspend fun insertXdmSubtreeAsFirstChild(wtx: XdmNodeTrx, resFileToStore: String, context: Context) {
         context.executeBlockingAwait(Handler<Future<Nothing>> {
-            wtx.use {
-                wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
-            }
+                wtx.use {
+                    wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
+                }
 
-            it.complete(null)
+                it.complete(null)
         })
     }
 }

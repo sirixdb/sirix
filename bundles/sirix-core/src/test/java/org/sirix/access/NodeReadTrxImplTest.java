@@ -30,7 +30,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.node.Kind;
@@ -58,7 +57,7 @@ public final class NodeReadTrxImplTest {
     Databases.createXdmDatabase(PATHS.PATH2.getConfig());
 
     try (final var db = Databases.openXdmDatabase(PATHS.PATH2.getFile())) {
-      db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
+      db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
       try (final XdmResourceManager resMgr = db.getResourceManager(XdmTestHelper.RESOURCE);
           final XdmNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
         assertEquals(0, rtx.getRevisionNumber());

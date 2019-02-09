@@ -21,7 +21,7 @@ import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.Transaction;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
@@ -201,14 +201,15 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     try {
       final String resource =
           new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
-      mDatabase.createResource(ResourceConfiguration.newBuilder(resource, mDatabase.getDatabaseConfig())
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resource)
                                                     .useDeweyIDs(true)
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
       final XdmResourceManager manager = mDatabase.getResourceManager(resource);
       final XdmNodeTrx wtx = manager.beginNodeTrx();
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
+      final SubtreeHandler handler =
+          new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -228,7 +229,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     try {
       final String resourceName =
           new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
-      mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig())
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                     .useDeweyIDs(true)
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
@@ -236,7 +237,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
       final XdmNodeTrx wtx = resource.beginNodeTrx();
 
-      final SubtreeHandler handler = new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
+      final SubtreeHandler handler =
+          new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
       // Make sure the CollectionParser is used.
       if (!(parser instanceof CollectionParser)) {
@@ -254,8 +256,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   public DBNode add(final String resourceName, final XMLEventReader reader)
       throws OperationNotSupportedException, DocumentException {
     try {
-      mDatabase.createResource(
-          ResourceConfiguration.newBuilder(resourceName, mDatabase.getDatabaseConfig()).useDeweyIDs(true).build());
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
       final XdmResourceManager resource = mDatabase.getResourceManager(resourceName);
       final XdmNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);

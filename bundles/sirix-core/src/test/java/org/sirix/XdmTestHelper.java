@@ -34,10 +34,10 @@ import java.util.Random;
 import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xdm.XdmNodeTrx;
@@ -125,7 +125,7 @@ public final class XdmTestHelper {
           Databases.createXdmDatabase(config);
         }
         final var database = Databases.openXdmDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {
@@ -200,7 +200,7 @@ public final class XdmTestHelper {
    */
   public static void createTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.create(wtx);
@@ -215,7 +215,7 @@ public final class XdmTestHelper {
    */
   public static void createPICommentTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
         final XdmNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.createCommentPI(wtx);

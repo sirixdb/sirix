@@ -6,9 +6,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -31,7 +31,7 @@ public final class ResourceTransactionUsage {
     Databases.createXdmDatabase(config);
 
     try (var database = Databases.openXdmDatabase(file)) {
-      database.createResource(new ResourceConfiguration.Builder("resource", config).build());
+      database.createResource(new ResourceConfiguration.Builder("resource").build());
 
       try (var resourceMgr = database.getResourceManager("resource");
           var wtx = resourceMgr.beginNodeTrx();

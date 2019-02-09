@@ -45,9 +45,9 @@ import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.NodeTrx;
@@ -140,7 +140,7 @@ public final class WikipediaImport implements Import<StartElement> {
     final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
     Databases.createXdmDatabase(config);
     mDatabase = Databases.openXdmDatabase(sirixDatabase);
-    mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+    mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
     mResourceManager = mDatabase.getResourceManager("shredded");
     mWtx = mResourceManager.beginNodeTrx();
   }
@@ -277,7 +277,7 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.removeDatabase(path);
     Databases.createXdmDatabase(dbConf);
     final var db = Databases.openXdmDatabase(path);
-    db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
+    db.createResource(new ResourceConfiguration.Builder("wiki").build());
     final XdmResourceManager resourceManager = db.getResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
@@ -285,9 +285,8 @@ public final class WikipediaImport implements Import<StartElement> {
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
     final XdmNodeTrx wtx = resourceManager.beginNodeTrx();
-    final XmlShredder shredder =
-        new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                     .build();
+    final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
+        InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
