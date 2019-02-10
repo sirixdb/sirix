@@ -261,7 +261,7 @@ val xml = """
 val url = "$server/database/resource1?nodeId=3&insert=asFirstChild"
 
 val httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
 ```
 
 The interesting part is the URL, we are using as the endpoint. We simply say, select the node with the ID 3, then insert the given XML-fragment as the first child. This yields the following serialized XML-document:
@@ -335,7 +335,7 @@ We for sure are also able to delete the resource or any subtree thereof by an up
 val url = "$server/database/resource1?nodeId=3"
 
 val httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendAwait()
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
 if (200 == httpResponse.statusCode()) {
   ...
