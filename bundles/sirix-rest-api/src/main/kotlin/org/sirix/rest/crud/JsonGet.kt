@@ -18,6 +18,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.stream.Collectors.toList
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -44,15 +45,21 @@ class JsonGet(private val location: Path) {
 
         val buffer = StringBuilder()
 
-        buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+        buffer.append("{\"databases\":[")
 
         databases.use {
-            databases.filter { Files.isDirectory(it) }.forEach {
-                buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+            val databasesList = it.collect(toList())
+            for ((index, database) in databasesList.withIndex()) {
+                if (Files.isDirectory(database)) {
+                    buffer.append(database.fileName)
+
+                    if (index != databasesList.size)
+                        buffer.append(",")
+                }
             }
         }
 
-        buffer.append("</rest:sequence>")
+        buffer.append("]}")
 
         val content = buffer.toString()
 
@@ -87,7 +94,7 @@ class JsonGet(private val location: Path) {
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
-                    buffer.append("{ \"databases\":[")
+                    buffer.append("{\"databases\":[")
 
                     val resources = it.listResources()
 
