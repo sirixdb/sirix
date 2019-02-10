@@ -221,7 +221,7 @@ val xml = """
     </xml>
 """.trimIndent()
 
-var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
   
 if (200 == response.statusCode()) {
   println("Stored document.")
@@ -229,7 +229,7 @@ if (200 == response.statusCode()) {
   println("Something went wrong ${response.message}")
 }
 ```
-First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again.
+First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again. Note that every request now has to contain an `HTTP-Header` which content type it sends and which resource-type it expects (`Content-Type: application/xml` and `Accept: application/xml`) for instance. This is needed as we now support the storage of and retrieval of XML or JSON-data. The following sections show the API for usage with out binary and in-memory XML representation.
 
 The HTTP-Response should be 200 and the HTTP-body yields:
 
