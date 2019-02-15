@@ -187,7 +187,7 @@ And a fat-JAR with all required dependencies should have been created in your ta
 
 Once also Keycloak is set up we can start the server via:
 
-`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp /opt/sirix/*`
 
 If you like to change your user home directory to `/opt/sirix` for instance.
 
