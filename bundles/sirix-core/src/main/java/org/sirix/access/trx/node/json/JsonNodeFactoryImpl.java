@@ -109,7 +109,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name) {
-    final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.JSON_OBJECT_KEY);
+    final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.OBJECT_KEY);
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);

@@ -72,7 +72,7 @@ public final class BooleanNode extends AbstractStructForwardingNode implements I
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_BOOLEAN_VALUE;
+    return Kind.BOOLEAN_VALUE;
   }
 
   @Override

@@ -45,7 +45,7 @@ public final class BooleanValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.JSON_BOOLEAN_VALUE;
+    return getTrx().getKind() == Kind.BOOLEAN_VALUE;
   }
 
 }

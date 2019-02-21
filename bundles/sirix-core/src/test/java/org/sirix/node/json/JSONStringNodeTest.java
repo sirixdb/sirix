@@ -82,7 +82,7 @@ public class JSONStringNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final StringNode node2 =
-        (StringNode) Kind.JSON_STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
+        (StringNode) Kind.STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
@@ -94,7 +94,7 @@ public class JSONStringNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.JSON_STRING_VALUE, node.getKind());
+    assertEquals(Kind.STRING_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

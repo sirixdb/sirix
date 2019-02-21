@@ -45,7 +45,7 @@ public final class NullValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.JSON_NULL_VALUE;
+    return getTrx().getKind() == Kind.NULL_VALUE;
   }
 
 }

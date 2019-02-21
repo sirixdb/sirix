@@ -133,22 +133,22 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               mOut.write(",");
           }
           break;
-        case JSON_OBJECT_KEY:
+        case OBJECT_KEY:
           mOut.write("\"" + rtx.getName().stringValue() + "\":");
           break;
-        case JSON_BOOLEAN_VALUE:
+        case BOOLEAN_VALUE:
           mOut.write(Boolean.valueOf(rtx.getValue()).toString());
           printCommaIfNeeded(rtx);
           break;
-        case JSON_NULL_VALUE:
+        case NULL_VALUE:
           mOut.write("null");
           printCommaIfNeeded(rtx);
           break;
-        case JSON_NUMBER_VALUE:
+        case NUMBER_VALUE:
           mOut.write(rtx.getValue());
           printCommaIfNeeded(rtx);
           break;
-        case JSON_STRING_VALUE:
+        case STRING_VALUE:
           mOut.write("\"" + rtx.getValue() + "\"");
           printCommaIfNeeded(rtx);
           break;
@@ -186,7 +186,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           if (rtx.hasRightSibling())
             mOut.write(",");
           break;
-        case JSON_OBJECT_KEY:
+        case OBJECT_KEY:
           if (rtx.hasRightSibling())
             mOut.write(",");
           break;

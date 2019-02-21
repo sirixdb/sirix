@@ -18,8 +18,8 @@ public final class JsonCASIndexListener implements ChangeListener {
 
   @Override
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    if (node.getKind() == Kind.JSON_BOOLEAN_VALUE || node.getKind() == Kind.JSON_NUMBER_VALUE
-        || node.getKind() == Kind.JSON_STRING_VALUE) {
+    if (node.getKind() == Kind.BOOLEAN_VALUE || node.getKind() == Kind.NUMBER_VALUE
+        || node.getKind() == Kind.STRING_VALUE) {
       final ValueNode valueNode = ((ValueNode) node);
 
       mIndexListenerDelegate.listen(type, valueNode, pathNodeKey, new Str(valueNode.getValue()));

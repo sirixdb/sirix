@@ -78,7 +78,7 @@ public final class StringNode extends AbstractStructForwardingNode implements Va
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_STRING_VALUE;
+    return Kind.STRING_VALUE;
   }
 
   @Override

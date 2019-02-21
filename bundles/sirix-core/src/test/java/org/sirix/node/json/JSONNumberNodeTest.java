@@ -80,7 +80,7 @@ public class JSONNumberNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final NumberNode node2 =
-        (NumberNode) Kind.JSON_NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
+        (NumberNode) Kind.NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
@@ -92,7 +92,7 @@ public class JSONNumberNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(10.87463D, node.getValue().doubleValue(), 0);
-    assertEquals(Kind.JSON_NUMBER_VALUE, node.getKind());
+    assertEquals(Kind.NUMBER_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

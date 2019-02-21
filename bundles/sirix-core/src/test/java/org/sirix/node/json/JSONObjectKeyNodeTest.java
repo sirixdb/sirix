@@ -72,7 +72,7 @@ public class JSONObjectKeyNodeTest {
   @Test
   public void testNode() throws IOException {
     // Create empty node.
-    mNameKey = mPageWriteTrx.createNameKey("foobar", Kind.JSON_OBJECT_KEY);
+    mNameKey = mPageWriteTrx.createNameKey("foobar", Kind.OBJECT_KEY);
     final String name = "foobar";
 
     final long pathNodeKey = 12;
@@ -86,7 +86,7 @@ public class JSONObjectKeyNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectKeyNode node2 = (ObjectKeyNode) Kind.JSON_OBJECT_KEY.deserialize(new DataInputStream(in),
+    final ObjectKeyNode node2 = (ObjectKeyNode) Kind.OBJECT_KEY.deserialize(new DataInputStream(in),
         node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
@@ -100,7 +100,7 @@ public class JSONObjectKeyNodeTest {
 
     assertEquals(mNameKey, node.getNameKey());
     assertEquals("foobar", node.getName());
-    assertEquals(Kind.JSON_OBJECT_KEY, node.getKind());
+    assertEquals(Kind.OBJECT_KEY, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());
