@@ -25,6 +25,7 @@ import org.sirix.rest.crud.xdm.XdmDelete
 import org.sirix.rest.crud.xdm.XdmGet
 import org.sirix.rest.crud.xdm.XdmUpdate
 import java.nio.file.Paths
+import org.sirix.rest.crud.JsonUpdate
 
 
 class SirixVerticle : CoroutineVerticle() {
