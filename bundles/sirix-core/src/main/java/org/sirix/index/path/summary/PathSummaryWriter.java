@@ -159,7 +159,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
   private void movePathSummary() {
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
+    } else if (mNodeRtx.getKind() == Kind.OBJECT_KEY) {
       mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == Kind.JSON_ARRAY) {
       mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
@@ -303,7 +303,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
         boolean firstRun = true;
         for (final Axis descendants = new DescendantAxis(mNodeRtx, IncludeSelf.YES); descendants.hasNext();) {
           descendants.next();
-          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
+          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.OBJECT_KEY) {
             // Path Summary : New mapping.
             if (firstRun) {
               insertPathAsFirstChild(name, mNodeRtx.getKind(), ++level);

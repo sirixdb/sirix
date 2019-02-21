@@ -133,7 +133,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         rawName = mPIs.getRawName(key);
         break;
-      case JSON_OBJECT_KEY:
+      case OBJECT_KEY:
         rawName = mJSONObjectKeys.getRawName(key);
         break;
       // $CASES-OMITTED$
@@ -164,7 +164,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         name = mPIs.getName(key);
         break;
-      case JSON_OBJECT_KEY:
+      case OBJECT_KEY:
         name = mJSONObjectKeys.getName(key);
         break;
       case JSON_ARRAY:
@@ -198,7 +198,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         count = mPIs.getCount(key);
         break;
-      case JSON_OBJECT_KEY:
+      case OBJECT_KEY:
         count = mJSONObjectKeys.getCount(key);
         break;
       case JSON_ARRAY:
@@ -232,7 +232,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.setName(key, name);
         break;
-      case JSON_OBJECT_KEY:
+      case OBJECT_KEY:
         mJSONObjectKeys.setName(key, name);
         break;
       case JSON_ARRAY:
@@ -302,7 +302,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.removeName(key);
         break;
-      case JSON_OBJECT_KEY:
+      case OBJECT_KEY:
         mJSONObjectKeys.removeName(key);
         break;
       // $CASES-OMITTED$

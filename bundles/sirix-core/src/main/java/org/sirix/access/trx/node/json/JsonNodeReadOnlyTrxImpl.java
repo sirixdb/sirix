@@ -95,16 +95,16 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
     final String returnVal;
     switch (mCurrentNode.getKind()) {
-      case JSON_STRING_VALUE:
+      case STRING_VALUE:
         returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
         break;
-      case JSON_BOOLEAN_VALUE:
+      case BOOLEAN_VALUE:
         returnVal = String.valueOf(((BooleanNode) mCurrentNode).getValue());
         break;
-      case JSON_NULL_VALUE:
+      case NULL_VALUE:
         returnVal = "null";
         break;
-      case JSON_NUMBER_VALUE:
+      case NUMBER_VALUE:
         returnVal = String.valueOf(((NumberNode) mCurrentNode).getValue());
         break;
       // $CASES-OMITTED$
@@ -221,7 +221,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public QNm getName() {
     assertNotClosed();
 
-    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
+    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
       final String localName = nameKey == -1
           ? ""
@@ -253,12 +253,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
+    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (mCurrentNode.getKind() == Kind.JSON_BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.JSON_STRING_VALUE
-        || mCurrentNode.getKind() == Kind.JSON_NUMBER_VALUE) {
+    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.STRING_VALUE
+        || mCurrentNode.getKind() == Kind.NUMBER_VALUE) {
       helper.add("Value of Node", getValue());
     }
 

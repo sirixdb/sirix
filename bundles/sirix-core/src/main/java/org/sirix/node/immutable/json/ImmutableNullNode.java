@@ -50,6 +50,6 @@ public final class ImmutableNullNode extends AbstractImmutableJsonStructuralNode
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_NULL_VALUE;
+    return Kind.NULL_VALUE;
   }
 }

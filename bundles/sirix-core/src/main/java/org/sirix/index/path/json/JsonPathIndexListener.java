@@ -16,7 +16,7 @@ final class JsonPathIndexListener implements ChangeListener {
 
   @Override
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    if (node.getKind() == Kind.JSON_OBJECT_KEY) {
+    if (node.getKind() == Kind.OBJECT_KEY) {
       mPathIndexListener.listen(type, node, pathNodeKey);
     }
   }

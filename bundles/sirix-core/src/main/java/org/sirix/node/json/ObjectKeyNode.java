@@ -83,7 +83,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_OBJECT_KEY;
+    return Kind.OBJECT_KEY;
   }
 
   @Override

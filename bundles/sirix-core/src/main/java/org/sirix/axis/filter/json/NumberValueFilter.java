@@ -45,7 +45,7 @@ public final class NumberValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx>
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.JSON_NUMBER_VALUE;
+    return getTrx().getKind() == Kind.NUMBER_VALUE;
   }
 
 }
