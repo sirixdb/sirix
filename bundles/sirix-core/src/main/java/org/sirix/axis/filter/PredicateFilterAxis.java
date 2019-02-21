@@ -24,7 +24,6 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
@@ -38,7 +37,7 @@ import org.sirix.axis.AbstractAxis;
  * before the evaluation.
  * </p>
  */
-public final class PredicateFilterAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
+public final class PredicateFilterAxis extends AbstractAxis {
 
   /** First run. */
   private boolean mIsFirst;
@@ -49,11 +48,11 @@ public final class PredicateFilterAxis<R extends NodeCursor & NodeReadOnlyTrx> e
   /**
    * Constructor. Initializes the internal state.
    *
-   * @param rtx exclusive (immutable) trx to iterate with
+   * @param nodeCursor exclusive (immutable) cursor to iterate with
    * @param predicate predicate expression
    */
-  public PredicateFilterAxis(final R rtx, final Axis predicate) {
-    super(rtx);
+  public PredicateFilterAxis(final NodeCursor nodeCursor, final Axis predicate) {
+    super(nodeCursor);
     mIsFirst = true;
     mPredicate = checkNotNull(predicate);
   }
