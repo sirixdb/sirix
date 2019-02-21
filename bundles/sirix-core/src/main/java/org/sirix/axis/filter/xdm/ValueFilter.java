@@ -19,33 +19,71 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.utils.TypedValue;
 
 /**
- * <h1>TextFilter</h1>
+ * <h1>ValueAxisTest</h1>
  *
  * <p>
- * Only select nodes of kind {@link TextNode}.
+ * Only match nodes of kind TEXT or ATTRIBUTE whoe's value matches.
  * </p>
  */
-public final class TextFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class ValueFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+
+  /** Value test to do. */
+  private final byte[] mValue;
 
   /**
-   * Default constructor.
+   * Constructor initializing internal state.
    *
    * @param rtx transaction this filter is bound to
+   * @param value value to find
    */
-  public TextFilter(final XdmNodeReadOnlyTrx rtx) {
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final byte[] value) {
     super(rtx);
+    mValue = checkNotNull(value);
+  }
+
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param value Value to find.
+   */
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final String value) {
+    this(rtx, TypedValue.getBytes(value));
+  }
+
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param value Value to find.
+   */
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final int value) {
+    this(rtx, TypedValue.getBytes(value));
+  }
+
+  /**
+   * Constructor initializing internal state.
+   *
+   * @param rtx Transaction to bind filter to.
+   * @param mValue Value to find.
+   */
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final long mValue) {
+    this(rtx, TypedValue.getBytes(mValue));
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.TEXT;
+    return (getTrx().getKind() == Kind.TEXT || getTrx().getKind() == Kind.ATTRIBUTE)
+        && (TypedValue.equals(getTrx().getValue(), mValue));
   }
 
 }

@@ -27,8 +27,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.WildcardFilter;
-import org.sirix.axis.filter.WildcardFilter.EType;
+import org.sirix.axis.filter.xdm.WildcardFilter;
+import org.sirix.axis.filter.xdm.WildcardFilter.EType;
 import org.sirix.exception.SirixException;
 
 public class WildcardFilterTest {

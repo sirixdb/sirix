@@ -19,31 +19,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>NamespaceFilter</h1>
+ * <h1>NameAxisTest</h1>
  *
  * <p>
- * Only match NAMESPACE nodes.
+ * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public final class NamespaceFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class XdmNameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+
+  /** Key of local name to test. */
+  private final int mLocalNameKey;
+
+  /** Key of prefix to test. */
+  private final int mPrefixKey;
 
   /**
    * Default constructor.
    *
-   * @param rtx Transaction this filter is bound to.
+   * @param rtx the node trx/node cursor this filter is bound to
+   * @param name name to check
    */
-  public NamespaceFilter(final XdmNodeReadOnlyTrx rtx) {
+  public XdmNameFilter(final XdmNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
+    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
+        ? -1
+        : rtx.keyForName(name.getPrefix());
+    mLocalNameKey = rtx.keyForName(name.getLocalName());
+  }
+
+  /**
+   * Default constructor.
+   *
+   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
+   * @param name name to check
+   */
+  public XdmNameFilter(final XdmNodeReadOnlyTrx rtx, final String name) {
+    super(rtx);
+    final int index = name.indexOf(":");
+    if (index != -1) {
+      mPrefixKey = rtx.keyForName(name.substring(0, index));
+    } else {
+      mPrefixKey = -1;
+    }
+
+    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
   }
 
   @Override
-  public final boolean filter() {
-    return getTrx().isNamespace();
+  public boolean filter() {
+    boolean returnVal = false;
+    if (getTrx().isNameNode()) {
+      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+    }
+    return returnVal;
   }
-
 }

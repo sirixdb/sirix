@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -32,57 +32,71 @@ import org.sirix.node.immutable.xdm.ImmutableText;
 /**
  * Interface which must be implemented from visitors to implement functionality based on the visitor
  * pattern.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
-public interface XdmNodeVisitor {
+public interface XdmNodeVisitor extends NodeVisitor {
   /**
    * Do something when visiting a {@link ImmutablePI}.
-   * 
+   *
    * @param node the {@link ImmutablePI}
    */
-  VisitResult visit(ImmutablePI node);
+  default VisitResult visit(ImmutablePI node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableComment}.
-   * 
+   *
    * @param node the {@link ImmutableComment}
    */
-  VisitResult visit(ImmutableComment node);
+  default VisitResult visit(ImmutableComment node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting an {@link ImmutableElement}.
-   * 
+   *
    * @param node the {@link ImmutableElement}
    */
-  VisitResult visit(ImmutableElement node);
+  default VisitResult visit(ImmutableElement node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableAttributeNode}.
-   * 
+   *
    * @param node the {@link ImmutableAttributeNode}
    */
-  VisitResult visit(ImmutableAttributeNode node);
+  default VisitResult visit(ImmutableAttributeNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * ImmutableDocumentRoot Do something when visiting a {@link ImmutableNamespace}.
-   * 
+   *
    * @param node the {@link ImmutableNamespace}
    */
-  VisitResult visit(ImmutableNamespace node);
+  default VisitResult visit(ImmutableNamespace node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableText}.
-   * 
+   *
    * @param node the {@link ImmutableText}
    */
-  VisitResult visit(ImmutableText node);
+  default VisitResult visit(ImmutableText node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting the {@link ImmutableDocumentNode}.
-   * 
+   *
    * @param node the {@link ImmutableDocumentNode}
    */
-  VisitResult visit(ImmutableDocumentNode node);
+  default VisitResult visit(ImmutableDocumentNode node) {
+    return VisitResultType.CONTINUE;
+  }
 }

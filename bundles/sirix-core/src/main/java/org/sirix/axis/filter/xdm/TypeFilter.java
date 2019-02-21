@@ -19,64 +19,47 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>NameAxisTest</h1>
+ * <h1>TypeFilter</h1>
  *
  * <p>
- * Match qname of ELEMENT or ATTRIBUTE by key.
+ * Only match nodes with the specified value type.
  * </p>
  */
-public final class NameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public class TypeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
 
-  /** Key of local name to test. */
-  private final int mLocalNameKey;
-
-  /** Key of prefix to test. */
-  private final int mPrefixKey;
+  /** Type information. */
+  private final int mType;
 
   /**
-   * Default constructor.
+   * Constructor. Initializes the internal state.
    *
-   * @param rtx the node trx/node cursor this filter is bound to
-   * @param name name to check
+   * @param rtx transaction this filter is bound to
+   * @param type type to match
    */
-  public NameFilter(final XdmNodeReadOnlyTrx rtx, final QNm name) {
+  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final int type) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
-        ? -1
-        : rtx.keyForName(name.getPrefix());
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
+    mType = type;
   }
 
   /**
-   * Default constructor.
+   * Constructor. Initializes the internal state.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
+   * @param rtx transaction this filter is bound to
+   * @param typeName name of the type to match
    */
-  public NameFilter(final XdmNodeReadOnlyTrx rtx, final String name) {
-    super(rtx);
-    final int index = name.indexOf(":");
-    if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
-    } else {
-      mPrefixKey = -1;
-    }
-
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
+  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final String typeName) {
+    this(rtx, rtx.keyForName(typeName));
   }
 
   @Override
-  public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
-    }
-    return returnVal;
+  public final boolean filter() {
+    return getTrx().getTypeKey() == mType;
   }
+
 }

@@ -17,7 +17,13 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.OAuth2ClientOptions
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
-import org.sirix.rest.crud.*
+import org.sirix.rest.crud.json.JsonCreate
+import org.sirix.rest.crud.json.JsonDelete
+import org.sirix.rest.crud.json.JsonGet
+import org.sirix.rest.crud.xdm.XdmCreate
+import org.sirix.rest.crud.xdm.XdmDelete
+import org.sirix.rest.crud.xdm.XdmGet
+import org.sirix.rest.crud.xdm.XdmUpdate
 import java.nio.file.Paths
 
 

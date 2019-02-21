@@ -28,7 +28,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.TypeFilter;
+import org.sirix.axis.filter.xdm.TypeFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathAxis;

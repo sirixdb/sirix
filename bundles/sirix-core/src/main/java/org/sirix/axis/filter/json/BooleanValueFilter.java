@@ -19,32 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.json;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
 /**
- * <h1>AttributeFilter</h1>
+ * <h1>BooleanValueFilter</h1>
  *
  * <p>
- * Only match ATTRIBUTE nodes.
+ * Only match BOOLEAN_VALUE nodes.
  * </p>
  */
-public final class AttributeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class BooleanValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx Transaction this filter is bound to.
    */
-  public AttributeFilter(final XdmNodeReadOnlyTrx rtx) {
+  public BooleanValueFilter(final JsonNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.ATTRIBUTE;
+    return getTrx().getKind() == Kind.JSON_BOOLEAN_VALUE;
   }
 
 }

@@ -19,31 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.json;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
 /**
- * <h1>NodeAxisTest</h1>
+ * <h1>ObjectKeyFilter</h1>
  *
  * <p>
- * Only match ELEMENT nodes.
+ * Only match OBJECT_KEY nodes.
  * </p>
  */
-public final class ElementFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class ObjectKeyFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
+   * @param rtx Transaction this filter is bound to.
    */
-  public ElementFilter(final XdmNodeReadOnlyTrx rtx) {
+  public ObjectKeyFilter(final JsonNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.ELEMENT;
+    return getTrx().getKind() == Kind.JSON_OBJECT_KEY;
   }
+
 }

@@ -1,6 +1,7 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
@@ -64,4 +65,8 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
   long getStartKey();
 
   PathSummaryReader asPathSummary();
+
+  NodeReadOnlyTrx getTrx();
+
+  JsonNodeReadOnlyTrx asJsonNodeReadTrx();
 }
