@@ -187,7 +187,7 @@ And a fat-JAR with all required dependencies should have been created in your ta
 
 Once also Keycloak is set up we can start the server via:
 
-`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp /opt/sirix/*`
 
 If you like to change your user home directory to `/opt/sirix` for instance.
 
@@ -221,7 +221,7 @@ val xml = """
     </xml>
 """.trimIndent()
 
-var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
   
 if (200 == response.statusCode()) {
   println("Stored document.")
@@ -229,7 +229,7 @@ if (200 == response.statusCode()) {
   println("Something went wrong ${response.message}")
 }
 ```
-First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again.
+First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again. Note that every request now has to contain an `HTTP-Header` which content type it sends and which resource-type it expects (`Content-Type: application/xml` and `Accept: application/xml`) for instance. This is needed as we now support the storage of and retrieval of XML or JSON-data. The following sections show the API for usage with out binary and in-memory XML representation.
 
 The HTTP-Response should be 200 and the HTTP-body yields:
 
@@ -261,7 +261,7 @@ val xml = """
 val url = "$server/database/resource1?nodeId=3&insert=asFirstChild"
 
 val httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
 ```
 
 The interesting part is the URL, we are using as the endpoint. We simply say, select the node with the ID 3, then insert the given XML-fragment as the first child. This yields the following serialized XML-document:
@@ -335,7 +335,7 @@ We for sure are also able to delete the resource or any subtree thereof by an up
 val url = "$server/database/resource1?nodeId=3"
 
 val httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendAwait()
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
 if (200 == httpResponse.statusCode()) {
   ...
@@ -399,7 +399,7 @@ try (var database = Databases.openXdmDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      var manager = database.getResourceManager("resource1");
+      var manager = database.openResourceManager("resource1");
       // Start the single read/write transaction.
       var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
