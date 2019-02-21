@@ -19,10 +19,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
 /**

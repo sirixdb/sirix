@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,7 +22,8 @@
 package org.sirix.axis.concurrent;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
@@ -34,13 +35,13 @@ import org.sirix.settings.Fixed;
  * operands. The result is in doc order and duplicate free.
  * </p>
  */
-public final class ConcurrentIntersectAxis extends AbstractAxis {
+public final class ConcurrentIntersectAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
   /** First operand sequence. */
-  private final ConcurrentAxis mOp1;
+  private final ConcurrentAxis<R> mOp1;
 
   /** Second operand sequence. */
-  private final ConcurrentAxis mOp2;
+  private final ConcurrentAxis<R> mOp2;
 
   /** Is axis called for the first time? */
   private boolean mFirst;
@@ -53,18 +54,16 @@ public final class ConcurrentIntersectAxis extends AbstractAxis {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx exclusive (immutable) trx to iterate with.
    * @param operand1 first operand
    * @param operand2 second operand
-   * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
-   *         {@code null}
+   * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is {@code null}
    */
-  public ConcurrentIntersectAxis(final XdmNodeReadOnlyTrx rtx, final Axis operand1,
-      final Axis operand2) {
+  public ConcurrentIntersectAxis(final R rtx, final Axis operand1, final Axis operand2) {
     super(rtx);
-    mOp1 = new ConcurrentAxis(rtx, operand1);
-    mOp2 = new ConcurrentAxis(rtx, operand2);
+    mOp1 = new ConcurrentAxis<>(rtx, operand1);
+    mOp2 = new ConcurrentAxis<>(rtx, operand2);
     mFirst = true;
     mCurrentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
     mCurrentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();

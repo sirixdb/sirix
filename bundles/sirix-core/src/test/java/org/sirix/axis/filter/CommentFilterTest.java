@@ -27,6 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.xdm.CommentFilter;
 import org.sirix.exception.SirixException;
 
 public class CommentFilterTest {

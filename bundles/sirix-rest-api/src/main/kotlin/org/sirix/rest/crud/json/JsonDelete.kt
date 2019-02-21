@@ -1,9 +1,8 @@
-package org.sirix.rest.crud
+package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
-import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -12,21 +11,19 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.xdm.XdmNodeTrx
-import org.sirix.api.xdm.XdmResourceManager
-import org.sirix.rest.SessionDBStore
-import org.sirix.xquery.node.BasicDBStore
-import java.nio.file.Files
+import org.sirix.api.json.JsonNodeTrx
+import org.sirix.api.json.JsonResourceManager
 import java.nio.file.Path
 
-class XdmDelete(private val location: Path) {
+class JsonDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null) {
-            // Initialize queryResource context and store.
+            // TODO
+            /* // Initialize queryResource context and store.
             val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), ctx.get("user") as User)
 
             ctx.vertx().executeBlockingAwait(Handler<Future<Nothing>> {
@@ -37,7 +34,7 @@ class XdmDelete(private val location: Path) {
                         dbStore.drop(it.fileName.toString())
                     }
                 }
-            })
+            }) */
         } else {
             delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
         }
@@ -56,7 +53,7 @@ class XdmDelete(private val location: Path) {
             return
         }
 
-        val database = Databases.openXdmDatabase(dbFile)
+        val database = Databases.openJsonDatabase(dbFile)
 
         database.use {
             if (nodeId == null) {
@@ -78,7 +75,7 @@ class XdmDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<XdmResourceManager>,
+    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<JsonResourceManager>,
                                        resPathName: String?,
                                        ctx: RoutingContext): Any? {
         return try {
@@ -90,8 +87,8 @@ class XdmDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: XdmResourceManager, nodeId: Long, context: Context): XdmNodeTrx? {
-        return context.executeBlockingAwait(Handler<Future<XdmNodeTrx>> {
+    private suspend fun removeSubtree(manager: JsonResourceManager, nodeId: Long, context: Context): JsonNodeTrx? {
+        return context.executeBlockingAwait(Handler<Future<JsonNodeTrx>> {
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 

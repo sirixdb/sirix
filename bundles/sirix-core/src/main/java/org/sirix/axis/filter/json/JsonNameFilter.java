@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -19,44 +19,43 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.filter;
+package org.sirix.axis.filter.json;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.xdm.ItemFilter;
-import org.sirix.exception.SirixException;
+import org.brackit.xquery.atomic.QNm;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 
-public class ItemFilterTest {
+/**
+ * <h1>NameAxisTest</h1>
+ *
+ * <p>
+ * Match qname of ELEMENT or ATTRIBUTE by key.
+ * </p>
+ */
+public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
-  private Holder holder;
+  /** Key of local name to test. */
+  private final QNm mName;
 
-  @Before
-  public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
+  /**
+   * Default constructor.
+   *
+   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
+   * @param name name to check
+   */
+  public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final String name) {
+    super(rtx);
+
+    mName = new QNm(name);
   }
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XdmTestHelper.deleteEverything();
-  }
+  @Override
+  public boolean filter() {
+    final JsonNodeReadOnlyTrx rtx = getTrx();
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    holder.getNodeReadTrx().moveTo(9L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
-
-    holder.getNodeReadTrx().moveTo(3L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
-
-    holder.getNodeReadTrx().moveTo(2L);
-    holder.getNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
+    return rtx.isObjectKey()
+        ? mName.equals(rtx.getName())
+        : false;
   }
 }

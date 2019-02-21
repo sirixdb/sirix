@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,6 +23,8 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
@@ -36,7 +38,7 @@ import org.sirix.axis.AbstractAxis;
  * before the evaluation.
  * </p>
  */
-public final class PredicateFilterAxis extends AbstractAxis {
+public final class PredicateFilterAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
   /** First run. */
   private boolean mIsFirst;
@@ -46,11 +48,11 @@ public final class PredicateFilterAxis extends AbstractAxis {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx exclusive (immutable) trx to iterate with
    * @param predicate predicate expression
    */
-  public PredicateFilterAxis(final XdmNodeReadOnlyTrx rtx, final Axis predicate) {
+  public PredicateFilterAxis(final R rtx, final Axis predicate) {
     super(rtx);
     mIsFirst = true;
     mPredicate = checkNotNull(predicate);
@@ -71,7 +73,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
     if (mIsFirst) {
       mIsFirst = false;
 
-      final long currKey = asXdmNodeReadTrx().getNodeKey();
+      final long currKey = getCursor().getNodeKey();
       mPredicate.reset(currKey);
 
       if (mPredicate.hasNext()) {
@@ -82,26 +84,32 @@ public final class PredicateFilterAxis extends AbstractAxis {
         return currKey;
       }
     }
+
     return done();
   }
 
   /**
    * Tests whether current item is an atomic value with boolean value "false".
-   * 
+   *
    * @return {@code true}, if item is boolean typed atomic value with type "false".
    */
   private boolean isBooleanFalse() {
-    if (asXdmNodeReadTrx().getNodeKey() >= 0) {
-      return false;
-    } else { // is AtomicValue
-      if (asXdmNodeReadTrx().getTypeKey() == asXdmNodeReadTrx().keyForName("xs:boolean")) {
-        // atomic value of type boolean
-        // return true, if atomic values's value is false
-        return !(Boolean.parseBoolean(asXdmNodeReadTrx().getValue()));
-      } else {
+    if (getTrx() instanceof XdmNodeReadOnlyTrx) {
+      final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+      if (rtx.getNodeKey() >= 0) {
         return false;
+      } else { // is AtomicValue
+        if (rtx.getTypeKey() == rtx.keyForName("xs:boolean")) {
+          // atomic value of type boolean
+          // return true, if atomic values's value is false
+          return !(Boolean.parseBoolean(rtx.getValue()));
+        } else {
+          return false;
+        }
       }
     }
+
+    return false;
   }
 
 }

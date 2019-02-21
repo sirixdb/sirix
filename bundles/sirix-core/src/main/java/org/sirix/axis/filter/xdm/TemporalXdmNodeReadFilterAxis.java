@@ -1,4 +1,4 @@
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
@@ -13,7 +13,8 @@ import org.sirix.axis.AbstractTemporalAxis;
  * @author Johannes Lichtenberger
  *
  */
-public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnlyTrx>> extends AbstractTemporalAxis<XdmNodeReadOnlyTrx> {
+public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnlyTrx>>
+    extends AbstractTemporalAxis<XdmNodeReadOnlyTrx> {
 
   /** Axis to test. */
   private final AbstractTemporalAxis<XdmNodeReadOnlyTrx> mAxis;

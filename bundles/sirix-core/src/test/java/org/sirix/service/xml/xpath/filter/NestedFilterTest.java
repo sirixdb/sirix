@@ -27,14 +27,14 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.axis.filter.AttributeFilter;
-import org.sirix.axis.filter.ElementFilter;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.ItemFilter;
-import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NestedFilter;
-import org.sirix.axis.filter.NodeFilter;
-import org.sirix.axis.filter.TextFilter;
+import org.sirix.axis.filter.xdm.AttributeFilter;
+import org.sirix.axis.filter.xdm.ElementFilter;
+import org.sirix.axis.filter.xdm.ItemFilter;
+import org.sirix.axis.filter.xdm.NodeFilter;
+import org.sirix.axis.filter.xdm.XdmNameFilter;
+import org.sirix.axis.filter.xdm.TextFilter;
 import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {
@@ -59,11 +59,11 @@ public class NestedFilterTest {
     holder.getNodeReadTrx().moveTo(9L);
     FilterTest.testFilterConventions(
         new NestedFilter(holder.getNodeReadTrx(), List.of(new ItemFilter(holder.getNodeReadTrx()),
-            new ElementFilter(holder.getNodeReadTrx()), new NameFilter(holder.getNodeReadTrx(), "b"))),
+            new ElementFilter(holder.getNodeReadTrx()), new XdmNameFilter(holder.getNodeReadTrx(), "b"))),
         true);
     FilterTest.testFilterConventions(
         new NestedFilter(holder.getNodeReadTrx(), List.of(new ItemFilter(holder.getNodeReadTrx()),
-            new AttributeFilter(holder.getNodeReadTrx()), new NameFilter(holder.getNodeReadTrx(), "b"))),
+            new AttributeFilter(holder.getNodeReadTrx()), new XdmNameFilter(holder.getNodeReadTrx(), "b"))),
         false);
 
     holder.getNodeReadTrx().moveTo(4L);
@@ -75,6 +75,6 @@ public class NestedFilterTest {
     holder.getNodeReadTrx().moveTo(1L);
     holder.getNodeReadTrx().moveToAttribute(0);
     FilterTest.testFilterConventions(new NestedFilter(holder.getNodeReadTrx(),
-        List.of(new AttributeFilter(holder.getNodeReadTrx()), new NameFilter(holder.getNodeReadTrx(), "i"))), true);
+        List.of(new AttributeFilter(holder.getNodeReadTrx()), new XdmNameFilter(holder.getNodeReadTrx(), "i"))), true);
   }
 }

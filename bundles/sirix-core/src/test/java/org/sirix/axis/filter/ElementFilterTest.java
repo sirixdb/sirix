@@ -30,6 +30,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.filter.xdm.ElementFilter;
 import org.sirix.exception.SirixException;
 import com.google.common.collect.FluentIterable;
 

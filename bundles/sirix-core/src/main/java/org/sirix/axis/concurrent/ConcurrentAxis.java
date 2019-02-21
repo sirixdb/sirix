@@ -28,7 +28,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
@@ -51,11 +52,10 @@ import org.slf4j.LoggerFactory;
  * Make sure that the used class is thread-safe.
  * </p>
  */
-public class ConcurrentAxis extends AbstractAxis {
+public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
   /** Logger. */
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
 
   /** Axis that is running in an own thread and produces results for this axis. */
   private final Axis mProducer;
@@ -87,9 +87,9 @@ public class ConcurrentAxis extends AbstractAxis {
    * @param rtx exclusive (immutable) trx to iterate with
    * @param childAxis producer axis
    */
-  public ConcurrentAxis(final XdmNodeReadOnlyTrx rtx, final Axis childAxis) {
+  public ConcurrentAxis(final R rtx, final Axis childAxis) {
     super(rtx);
-    if (rtx.equals(childAxis.asXdmNodeReadTrx()) && rtx.getId() == childAxis.asXdmNodeReadTrx().getId()) {
+    if (rtx.getId() == childAxis.getTrx().getId()) {
       throw new IllegalArgumentException(
           "The filter must be bound to another transaction but on the same revision/node!");
     }

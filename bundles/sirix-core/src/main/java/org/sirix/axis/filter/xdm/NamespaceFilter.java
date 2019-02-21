@@ -19,46 +19,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.xdm;
 
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>TypeFilter</h1>
+ * <h1>NamespaceFilter</h1>
  *
  * <p>
- * Only match nodes with the specified value type.
+ * Only match NAMESPACE nodes.
  * </p>
  */
-public class TypeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
-
-  /** Type information. */
-  private final int mType;
+public final class NamespaceFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
 
   /**
-   * Constructor. Initializes the internal state.
+   * Default constructor.
    *
-   * @param rtx transaction this filter is bound to
-   * @param type type to match
+   * @param rtx Transaction this filter is bound to.
    */
-  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final int type) {
+  public NamespaceFilter(final XdmNodeReadOnlyTrx rtx) {
     super(rtx);
-    mType = type;
-  }
-
-  /**
-   * Constructor. Initializes the internal state.
-   *
-   * @param rtx transaction this filter is bound to
-   * @param typeName name of the type to match
-   */
-  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final String typeName) {
-    this(rtx, rtx.keyForName(typeName));
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getTypeKey() == mType;
+    return getTrx().isNamespace();
   }
 
 }

@@ -27,6 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.axis.filter.xdm.PIFilter;
 import org.sirix.exception.SirixException;
 
 public class PIFilterTest {

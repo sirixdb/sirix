@@ -19,32 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter;
+package org.sirix.axis.filter.json;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
 /**
- * <h1>NodeAxisTest</h1>
+ * <h1>NullValueFilter</h1>
  *
  * <p>
- * Only match process instruction nodes.
+ * Only match NULL_VALUE nodes.
  * </p>
  */
-public final class PIFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class NullValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
-   * @param rtx transaction this filter is bound to
+   * @param rtx Transaction this filter is bound to.
    */
-  public PIFilter(final XdmNodeReadOnlyTrx rtx) {
+  public NullValueFilter(final JsonNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
+    return getTrx().getKind() == Kind.JSON_NULL_VALUE;
   }
 
 }

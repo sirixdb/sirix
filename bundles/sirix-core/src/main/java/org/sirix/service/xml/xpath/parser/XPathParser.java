@@ -39,20 +39,20 @@ import org.sirix.axis.ParentAxis;
 import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.PrecedingSiblingAxis;
 import org.sirix.axis.SelfAxis;
-import org.sirix.axis.filter.AttributeFilter;
-import org.sirix.axis.filter.CommentFilter;
-import org.sirix.axis.filter.DocumentRootNodeFilter;
-import org.sirix.axis.filter.ElementFilter;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.ItemFilter;
-import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NestedFilter;
-import org.sirix.axis.filter.NodeFilter;
-import org.sirix.axis.filter.PIFilter;
-import org.sirix.axis.filter.TextFilter;
-import org.sirix.axis.filter.TypeFilter;
-import org.sirix.axis.filter.WildcardFilter;
-import org.sirix.axis.filter.WildcardFilter.EType;
+import org.sirix.axis.filter.xdm.AttributeFilter;
+import org.sirix.axis.filter.xdm.CommentFilter;
+import org.sirix.axis.filter.xdm.DocumentRootNodeFilter;
+import org.sirix.axis.filter.xdm.ElementFilter;
+import org.sirix.axis.filter.xdm.ItemFilter;
+import org.sirix.axis.filter.xdm.NodeFilter;
+import org.sirix.axis.filter.xdm.XdmNameFilter;
+import org.sirix.axis.filter.xdm.WildcardFilter.EType;
+import org.sirix.axis.filter.xdm.PIFilter;
+import org.sirix.axis.filter.xdm.TextFilter;
+import org.sirix.axis.filter.xdm.TypeFilter;
+import org.sirix.axis.filter.xdm.WildcardFilter;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -1017,7 +1017,7 @@ public final class XPathParser {
 
       filter = parseWildcard(mIsAtt);
     } else {
-      filter = new NameFilter(getTransaction(), parseQName());
+      filter = new XdmNameFilter(getTransaction(), parseQName());
     }
     return filter;
   }
@@ -1537,7 +1537,7 @@ public final class XPathParser {
 
       consume(TokenType.CLOSE_BR, true);
 
-      filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), stringLiteral)));
+      filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), stringLiteral)));
     }
 
     return filter;
@@ -1571,7 +1571,7 @@ public final class XPathParser {
       // add name filter
       final String name = parseAttributeNameOrWildcard();
       if (!name.equals("*")) {
-        filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), name)));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), name)));
       } // if it is '*', all attributes are accepted, so the normal
         // attribute
         // filter is sufficient
@@ -1661,7 +1661,7 @@ public final class XPathParser {
 
       final String mName = parseElementNameOrWildcard();
       if (!mName.equals("*")) {
-        filter = new NestedFilter(getTransaction(), List.of(filter, new NameFilter(getTransaction(), mName)));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), mName)));
       } // if it is '*', all elements are accepted, so the normal element
         // filter is sufficient
 

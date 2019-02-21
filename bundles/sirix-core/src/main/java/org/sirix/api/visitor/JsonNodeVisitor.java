@@ -37,60 +37,76 @@ import org.sirix.node.immutable.json.ImmutableStringNode;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public interface JsonNodeVisitor {
+public interface JsonNodeVisitor extends NodeVisitor {
   /**
    * Do something when visiting a {@link ImmutableArrayNode}.
    *
    * @param node the {@link ImmutableArrayNode}
    */
-  VisitResult visit(ImmutableArrayNode node);
+  default VisitResult visit(ImmutableArrayNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableObjectNode}.
    *
    * @param node the {@link ImmutableObjectNode}
    */
-  VisitResult visit(ImmutableObjectNode node);
+  default VisitResult visit(ImmutableObjectNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting an {@link ImmutableObjectKeyNode}.
    *
    * @param node the {@link ImmutableObjectKeyNode}
    */
-  VisitResult visit(ImmutableObjectKeyNode node);
+  default VisitResult visit(ImmutableObjectKeyNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableBooleanNode}.
    *
    * @param node the {@link ImmutableBooleanNode}
    */
-  VisitResult visit(ImmutableBooleanNode node);
+  default VisitResult visit(ImmutableBooleanNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * ImmutableDocumentRoot Do something when visiting a {@link ImmutableStringNode}.
    *
    * @param node the {@link ImmutableStringNode}
    */
-  VisitResult visit(ImmutableStringNode node);
+  default VisitResult visit(ImmutableStringNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableNullNode}.
    *
    * @param node the {@link ImmutableNullNode}
    */
-  VisitResult visit(ImmutableNumberNode node);
+  default VisitResult visit(ImmutableNumberNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting a {@link ImmutableNullNode}.
    *
    * @param node the {@link ImmutableNullNode}
    */
-  VisitResult visit(ImmutableNullNode node);
+  default VisitResult visit(ImmutableNullNode node) {
+    return VisitResultType.CONTINUE;
+  }
 
   /**
    * Do something when visiting the {@link ImmutableDocumentNode}.
    *
    * @param node the {@link ImmutableDocumentNode}
    */
-  VisitResult visit(ImmutableDocumentNode node);
+  default VisitResult visit(ImmutableDocumentNode node) {
+    return VisitResultType.CONTINUE;
+  }
 }
