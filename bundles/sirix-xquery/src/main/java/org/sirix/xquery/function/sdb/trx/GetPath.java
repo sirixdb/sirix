@@ -27,7 +27,7 @@ import org.sirix.xquery.node.DBNode;
 public final class GetPath extends AbstractFunction {
 
   /** Move to function name. */
-  public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "getPath");
+  public final static QNm GET_PATH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "path");
 
   /**
    * Constructor.
