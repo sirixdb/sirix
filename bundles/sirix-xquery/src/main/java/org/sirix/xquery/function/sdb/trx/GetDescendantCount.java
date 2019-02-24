@@ -1,4 +1,4 @@
-package org.sirix.xquery.function.sdb.datamining;
+package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -13,20 +13,19 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for retrieving the number of children of the current node. Supported signature is:
+ * Function for retrieving the number of descendants of the current node. Supported signature is:
  * </p>
  * <ul>
- * <li><code>sdb:get-child-count($doc as xs:node) as xs:int</code></li>
+ * <li><code>sdb:get-descendant-count($doc as xs:node) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class GetChildCount extends AbstractFunction {
+public final class GetDescendantCount extends AbstractFunction {
 
-  /** Get number of children function name. */
-  public final static QNm GET_CHILD_COUNT =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "get-child-count");
+  /** Get number of descendants function name. */
+  public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "descendant-count");
 
   /**
    * Constructor.
@@ -34,15 +33,14 @@ public final class GetChildCount extends AbstractFunction {
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public GetChildCount(QNm name, Signature signature) {
+  public GetDescendantCount(QNm name, Signature signature) {
     super(name, signature, true);
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-      throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 
-    return new Int64(doc.getTrx().getChildCount());
+    return new Int64(doc.getTrx().getDescendantCount());
   }
 }

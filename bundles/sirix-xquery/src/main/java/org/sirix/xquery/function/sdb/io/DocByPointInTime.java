@@ -3,6 +3,7 @@ package org.sirix.xquery.function.sdb.io;
 import java.time.Instant;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
@@ -57,10 +58,17 @@ public final class DocByPointInTime extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
+    // let $millis := (xs:dateTime(\"2019-05-01T00:00:00-00:00\") -
+    // xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div xs:dayTimeDuration('PT0.001S')
+
     final String expResName = ((Str) args[1]).stringValue();
-    final long time =
-        FunUtil.getLong(args, 2, "pointInTime", System.currentTimeMillis(), null, true);
-    final Instant pointInTime = Instant.ofEpochMilli(time);
+
+    final String dateTime = ((DateTime) args[2]).stringValue();
+
+    final Instant pointInTime = Instant.parse(dateTime);
+    // final long time = FunUtil.getLong(args, 2, "pointInTime", System.currentTimeMillis(), null,
+    // true);
+    // final Instant pointInTime = Instant.ofEpochMilli(time);
     final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
 
     return col.getDocument(pointInTime, expResName, updatable);

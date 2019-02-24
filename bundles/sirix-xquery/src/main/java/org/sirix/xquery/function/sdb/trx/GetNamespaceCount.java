@@ -25,8 +25,7 @@ import org.sirix.xquery.node.DBNode;
 public final class GetNamespaceCount extends AbstractFunction {
 
   /** Get namespcae count function name. */
-  public final static QNm GET_NAMESPACE_COUNT =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "get-namespace-count");
+  public final static QNm GET_NAMESPACE_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "namespace-count");
 
   /**
    * Constructor.

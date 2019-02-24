@@ -42,8 +42,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.DBNode;
 import junit.framework.TestCase;
 
 /**
@@ -82,9 +82,14 @@ public final class DocByPointInTimeTestCase extends TestCase {
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:open('" + dbName + "','" + resName + "', bit:now())";
+      final String xq1 = "sdb:open('" + dbName + "','" + resName + "', xs:dateTime(\"2019-05-01T00:00:00-00:00\"))";
+
+      // final String xq1 =
+      // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div
+      // xs:dayTimeDuration('PT0.001S')";
 
       final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      // query.serialize(ctx, System.out);
       final DBNode node = (DBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());

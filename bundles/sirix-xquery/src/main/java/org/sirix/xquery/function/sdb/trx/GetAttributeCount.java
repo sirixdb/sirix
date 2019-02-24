@@ -25,8 +25,7 @@ import org.sirix.xquery.node.DBNode;
 public final class GetAttributeCount extends AbstractFunction {
 
   /** Get most recent revision function name. */
-  public final static QNm GET_ATTRIBUTE_COUNT =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "get-attribute-count");
+  public final static QNm GET_ATTRIBUTE_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "attribute-count");
 
   /**
    * Constructor.
