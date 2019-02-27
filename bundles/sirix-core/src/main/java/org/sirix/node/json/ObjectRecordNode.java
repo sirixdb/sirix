@@ -53,27 +53,19 @@ public final class ObjectRecordNode extends AbstractStructForwardingNode impleme
 
   private long mPathNodeKey;
 
-  private final long mObjectValueKey;
-
   /**
    * Constructor
    *
    * @param structDel {@link StructNodeDelegate} to be set
    * @param name the key name
    */
-  public ObjectRecordNode(final StructNodeDelegate structDel, final int nameKey, final String name, final long pathNodeKey,
-      final long objectValueKey) {
+  public ObjectRecordNode(final StructNodeDelegate structDel, final int nameKey, final String name,
+      final long pathNodeKey) {
     assert structDel != null;
     mStructNodeDel = structDel;
     mNameKey = nameKey;
     mName = name;
     mPathNodeKey = pathNodeKey;
-    mObjectValueKey = objectValueKey;
-  }
-
-  @Override
-  public long getFirstChildKey() {
-    return mObjectValueKey;
   }
 
   public int getNameKey() {

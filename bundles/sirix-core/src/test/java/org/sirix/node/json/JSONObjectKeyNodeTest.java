@@ -40,7 +40,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
-import org.sirix.settings.Fixed;
 
 /**
  * Object record node test.
@@ -76,10 +75,9 @@ public class JSONObjectKeyNodeTest {
     final String name = "foobar";
 
     final long pathNodeKey = 12;
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final ObjectRecordNode node = new ObjectRecordNode(strucDel, mNameKey, name, pathNodeKey, 0);
+    final NodeDelegate del = new NodeDelegate(14, 13, 0, 0, SirixDeweyID.newRootID());
+    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
+    final ObjectRecordNode node = new ObjectRecordNode(strucDel, mNameKey, name, pathNodeKey);
     check(node);
 
     // Serialize and deserialize node.
@@ -93,18 +91,17 @@ public class JSONObjectKeyNodeTest {
 
   private final void check(final ObjectRecordNode node) {
     // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(14L, node.getNodeKey());
+    assertEquals(13L, node.getParentKey());
+    assertEquals(17L, node.getFirstChildKey());
     assertEquals(16L, node.getRightSiblingKey());
 
     assertEquals(mNameKey, node.getNameKey());
     assertEquals("foobar", node.getName());
     assertEquals(Kind.OBJECT_RECORD, node.getKind());
-    assertEquals(false, node.hasFirstChild());
+    assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());
-    assertEquals(0, node.getFirstChildKey());
   }
 
 }
