@@ -1,5 +1,6 @@
 package org.sirix.api.json;
 
+import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.api.NodeTrx;
 import com.google.gson.stream.JsonReader;
 
@@ -8,9 +9,9 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx insertObjectAsRightSibling();
 
-  JsonNodeTrx insertObjectKeyAsFirstChild(String name);
+  JsonNodeTrx insertObjectRecordAsFirstChild(String key, ObjectRecordValue<?> value);
 
-  JsonNodeTrx insertObjectKeyAsRightSibling(String name);
+  JsonNodeTrx insertObjectRecordAsRightSibling(String key, ObjectRecordValue<?> value);
 
   JsonNodeTrx insertArrayAsFirstChild();
 

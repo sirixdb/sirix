@@ -107,22 +107,22 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime) throws DocumentException {
+  public DBNode getDocument(Instant pointInTime) {
     return getDocument(pointInTime, name, false);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, boolean updatable) throws DocumentException {
+  public DBNode getDocument(Instant pointInTime, boolean updatable) {
     return getDocument(pointInTime, name, updatable);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, String name) throws DocumentException {
+  public DBNode getDocument(Instant pointInTime, String name) {
     return getDocument(pointInTime, name, false);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, String name, boolean updatable) throws DocumentException {
+  public DBNode getDocument(Instant pointInTime, String name, boolean updatable) {
     try {
       return getDocumentInternal(name, pointInTime, updatable);
     } catch (final SirixException e) {
@@ -150,17 +150,25 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
       final int revision = resource.getRevisionNumber(pointInTime);
 
-      if (revision < resource.getMostRecentRevisionNumber())
+      if (revision == 0 && revision < resource.getMostRecentRevisionNumber())
+        ((XdmNodeTrx) trx).revertTo(1);
+      else if (revision < resource.getMostRecentRevisionNumber())
         ((XdmNodeTrx) trx).revertTo(revision);
     } else {
-      trx = resource.beginNodeReadOnlyTrx(pointInTime);
+      final int revision = resource.getRevisionNumber(pointInTime);
+
+      if (revision == 0 && revision < resource.getMostRecentRevisionNumber()) {
+        trx = resource.beginNodeReadOnlyTrx(1);
+      } else {
+        trx = resource.beginNodeReadOnlyTrx(pointInTime);
+      }
     }
 
     return new DBNode(trx, this);
   }
 
   @Override
-  public void delete() throws DocumentException {
+  public void delete() {
     try {
       Databases.removeDatabase(mDatabase.getDatabaseConfig().getFile());
     } catch (final SirixIOException e) {
@@ -169,7 +177,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public void remove(final long documentID) throws OperationNotSupportedException, DocumentException {
+  public void remove(final long documentID) {
     if (documentID >= 0) {
       final String resource = mDatabase.getResourceName((int) documentID);
       if (resource != null) {
@@ -179,7 +187,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(final @Nonnegative int revision) throws DocumentException {
+  public DBNode getDocument(final @Nonnegative int revision) {
     final List<Path> resources = mDatabase.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -279,27 +287,27 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument() throws DocumentException {
+  public DBNode getDocument() {
     return getDocument(-1);
   }
 
   @Override
-  public Stream<DBNode> getDocuments() throws DocumentException {
+  public Stream<DBNode> getDocuments() {
     return getDocuments(false);
   }
 
   @Override
-  public DBNode getDocument(final int revision, final String name) throws DocumentException {
+  public DBNode getDocument(final int revision, final String name) {
     return getDocument(revision, name, false);
   }
 
   @Override
-  public DBNode getDocument(final String name) throws DocumentException {
+  public DBNode getDocument(final String name) {
     return getDocument(-1, name, false);
   }
 
   @Override
-  public DBNode getDocument(final int revision, final String name, final boolean updatable) throws DocumentException {
+  public DBNode getDocument(final int revision, final String name, final boolean updatable) {
     try {
       return getDocumentInternal(name, revision, updatable);
     } catch (final SirixException e) {
@@ -337,7 +345,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(final int revision, final boolean updatable) throws DocumentException {
+  public DBNode getDocument(final int revision, final boolean updatable) {
     final List<Path> resources = mDatabase.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -350,12 +358,11 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public Stream<DBNode> getDocuments(final boolean updatable) throws DocumentException {
+  public Stream<DBNode> getDocuments(final boolean updatable) {
     final List<Path> resources = mDatabase.listResources();
     final List<DBNode> documents = new ArrayList<>(resources.size());
 
-    // Foreach because of throwing of an unchecked exception (DocumentException).
-    for (final Path resourcePath : resources) {
+    resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
         final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
@@ -366,13 +373,13 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
-    }
+    });
 
     return new ArrayStream<>(documents.toArray(new DBNode[documents.size()]));
   }
 
   @Override
-  public DBNode getDocument(boolean updatabale) throws DocumentException {
+  public DBNode getDocument(boolean updatabale) {
     return getDocument(-1, updatabale);
   }
 }
