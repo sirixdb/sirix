@@ -450,8 +450,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), key, Kind.OBJECT_RECORD);
 
-      final ObjectRecordNode node =
-          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1);
+      final ObjectRecordNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, key, Fixed.NULL_NODE_KEY.getStandardProperty());
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -466,8 +466,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void setFirstChildOfObjectKeyNode(final ObjectRecordNode node) {
-    final StructNode objectKeyNode =
-        (StructNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+    final ObjectRecordNode objectKeyNode =
+        (ObjectRecordNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
     objectKeyNode.incrementChildCount();
     objectKeyNode.setFirstChildKey(getNodeKey());
   }

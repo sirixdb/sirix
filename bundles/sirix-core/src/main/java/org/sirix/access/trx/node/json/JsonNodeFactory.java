@@ -6,8 +6,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 
 /**

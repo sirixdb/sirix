@@ -18,8 +18,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
@@ -113,10 +113,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, objectValueKey, rightSibKey, leftSibKey, 0, 0);
     return (ObjectRecordNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-        new ObjectRecordNode(structDel, localNameKey, name, pathNodeKey, objectValueKey), PageKind.RECORDPAGE, -1);
+        new ObjectRecordNode(structDel, localNameKey, name, pathNodeKey), PageKind.RECORDPAGE, -1);
   }
 
   @Override

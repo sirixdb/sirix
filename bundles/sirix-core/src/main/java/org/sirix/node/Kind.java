@@ -890,7 +890,7 @@ public enum Kind implements NodePersistenter {
           : pageReadTrx.getName(nameKey, Kind.OBJECT_RECORD);
 
       // Returning an instance.
-      return new ObjectRecordNode(structDel, nameKey, name, pathNodeKey, structDel.getFirstChildKey());
+      return new ObjectRecordNode(structDel, nameKey, name, pathNodeKey);
     }
 
     @Override
