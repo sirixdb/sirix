@@ -12,6 +12,7 @@ import static org.sirix.xquery.function.sdb.io.Doc.DOC;
 import static org.sirix.xquery.function.sdb.io.DocByPointInTime.OPEN;
 import static org.sirix.xquery.function.sdb.io.Import.IMPORT;
 import static org.sirix.xquery.function.sdb.io.Load.LOAD;
+import static org.sirix.xquery.function.sdb.io.OpenRevisions.OPEN_REVISIONS;
 import static org.sirix.xquery.function.sdb.io.Store.STORE;
 import static org.sirix.xquery.function.sdb.trx.Commit.COMMIT;
 import static org.sirix.xquery.function.sdb.trx.GetAttributeCount.GET_ATTRIBUTE_COUNT;
@@ -45,6 +46,7 @@ import org.sirix.xquery.function.sdb.io.Doc;
 import org.sirix.xquery.function.sdb.io.DocByPointInTime;
 import org.sirix.xquery.function.sdb.io.Import;
 import org.sirix.xquery.function.sdb.io.Load;
+import org.sirix.xquery.function.sdb.io.OpenRevisions;
 import org.sirix.xquery.function.sdb.io.Serialize;
 import org.sirix.xquery.function.sdb.io.Store;
 import org.sirix.xquery.function.sdb.trx.Commit;
@@ -70,7 +72,7 @@ public final class SDBFun {
   public static final String SDB_PREFIX = "sdb";
 
   /** Namespace URI for Sirix functions. */
-  public static final String SDB_NSURI = "https://github.com/sirixdb/sirix";
+  public static final String SDB_NSURI = "https://sirix.io";
 
   public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX, "SIRIXDBF0001");
 
@@ -151,6 +153,11 @@ public final class SDBFun {
         new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+
+    // open-revisions
+    Functions.predefine(new OpenRevisions(OPEN_REVISIONS,
+        new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.STRING, SequenceType.STRING,
+            new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One))));
 
     // commit
     Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));

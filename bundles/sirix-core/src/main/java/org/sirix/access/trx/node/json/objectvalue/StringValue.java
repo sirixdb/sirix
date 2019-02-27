@@ -19,33 +19,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.json;
+package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.axis.filter.AbstractFilter;
+import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.Kind;
 
-/**
- * <h1>ObjectKeyFilter</h1>
- *
- * <p>
- * Only match OBJECT_KEY nodes.
- * </p>
- */
-public final class ObjectKeyFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
+public final class StringValue implements ObjectRecordValue<String> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx Transaction this filter is bound to.
-   */
-  public ObjectKeyFilter(final JsonNodeReadOnlyTrx rtx) {
-    super(rtx);
+  private final String mValue;
+
+  public StringValue(final String value) {
+    mValue = checkNotNull(value);
   }
 
   @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.OBJECT_RECORD;
+  public String getValue() {
+    return mValue;
   }
 
+  @Override
+  public Kind getKind() {
+    return Kind.STRING_VALUE;
+  }
 }

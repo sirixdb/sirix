@@ -42,7 +42,7 @@ import com.google.common.base.Objects;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
+public final class ObjectRecordNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -53,19 +53,27 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   private long mPathNodeKey;
 
+  private final long mObjectValueKey;
+
   /**
    * Constructor
    *
    * @param structDel {@link StructNodeDelegate} to be set
    * @param name the key name
    */
-  public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
+  public ObjectRecordNode(final StructNodeDelegate structDel, final int nameKey, final String name, final long pathNodeKey,
+      final long objectValueKey) {
     assert structDel != null;
     mStructNodeDel = structDel;
     mNameKey = nameKey;
     mName = name;
     mPathNodeKey = pathNodeKey;
+    mObjectValueKey = objectValueKey;
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return mObjectValueKey;
   }
 
   public int getNameKey() {
@@ -83,7 +91,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public Kind getKind() {
-    return Kind.OBJECT_KEY;
+    return Kind.OBJECT_RECORD;
   }
 
   @Override
@@ -102,10 +110,10 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode))
+    if (!(obj instanceof ObjectRecordNode))
       return false;
 
-    final ObjectKeyNode other = (ObjectKeyNode) obj;
+    final ObjectRecordNode other = (ObjectRecordNode) obj;
     return Objects.equal(mName, other.mName) && mNameKey == other.mNameKey
         && Objects.equal(delegate(), other.delegate());
   }
@@ -120,7 +128,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return mStructNodeDel;
   }
 
-  public ObjectKeyNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public ObjectRecordNode setPathNodeKey(final @Nonnegative long pathNodeKey) {
     mPathNodeKey = pathNodeKey;
     return this;
   }

@@ -115,7 +115,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       switch (rtx.getKind()) {
         case JSON_DOCUMENT:
           break;
-        case JSON_OBJECT:
+        case OBJECT:
           // Emit start element.
           indent();
           mOut.write("{");
@@ -125,7 +125,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               mOut.write(",");
           }
           break;
-        case JSON_ARRAY:
+        case ARRAY:
           mOut.write("[");
           if (!rtx.hasFirstChild()) {
             mOut.write("]");
@@ -133,7 +133,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               mOut.write(",");
           }
           break;
-        case OBJECT_KEY:
+        case OBJECT_RECORD:
           mOut.write("\"" + rtx.getName().stringValue() + "\":");
           break;
         case BOOLEAN_VALUE:
@@ -178,15 +178,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     try {
       indent();
       switch (rtx.getKind()) {
-        case JSON_ARRAY:
+        case ARRAY:
           mOut.write("]");
           break;
-        case JSON_OBJECT:
+        case OBJECT:
           mOut.write("}");
           if (rtx.hasRightSibling())
             mOut.write(",");
           break;
-        case OBJECT_KEY:
+        case OBJECT_RECORD:
           if (rtx.hasRightSibling())
             mOut.write(",");
           break;

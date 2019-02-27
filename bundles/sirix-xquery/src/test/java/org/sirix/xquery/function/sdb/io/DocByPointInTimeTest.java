@@ -50,7 +50,7 @@ import junit.framework.TestCase;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public final class DocByPointInTimeTestCase extends TestCase {
+public final class DocByPointInTimeTest extends TestCase {
   /** The {@link Holder} instance. */
   private Holder holder;
 

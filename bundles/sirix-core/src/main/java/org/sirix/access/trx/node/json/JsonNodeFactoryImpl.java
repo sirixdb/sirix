@@ -18,7 +18,7 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
@@ -47,7 +47,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    */
   JsonNodeFactoryImpl(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
-    pageWriteTrx.createNameKey("array", Kind.JSON_ARRAY);
+    pageWriteTrx.createNameKey("array", Kind.ARRAY);
   }
 
   @Override
@@ -107,16 +107,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
-      String name) {
-    final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.OBJECT_KEY);
+  public ObjectRecordNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      String name, long objectValueKey) {
+    final int localNameKey = mPageWriteTrx.createNameKey(name, Kind.OBJECT_RECORD);
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel =
         new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (ObjectKeyNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-        new ObjectKeyNode(structDel, localNameKey, name, pathNodeKey), PageKind.RECORDPAGE, -1);
+    return (ObjectRecordNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+        new ObjectRecordNode(structDel, localNameKey, name, pathNodeKey, objectValueKey), PageKind.RECORDPAGE, -1);
   }
 
   @Override

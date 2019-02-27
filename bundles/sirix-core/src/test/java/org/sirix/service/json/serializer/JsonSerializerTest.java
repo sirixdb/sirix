@@ -9,6 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
+import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.utils.JsonDocumentCreator;
@@ -50,7 +51,7 @@ public final class JsonSerializerTest {
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot().getCursor().moveToFirstChild();
-      wtx.insertObjectKeyAsFirstChild("tadaaa").insertStringValueAsFirstChild("todooo");
+      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.commit();
 
       final var serializer = new JsonSerializer.Builder(manager, writer, 1, 2).build();

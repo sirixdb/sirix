@@ -50,6 +50,6 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_ARRAY;
+    return Kind.ARRAY;
   }
 }

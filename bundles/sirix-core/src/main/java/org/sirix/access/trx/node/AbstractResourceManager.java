@@ -208,9 +208,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId,
-      PageTrx<Long, Record, UnorderedKeyValuePage> pageReadTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
-      Node documentNode);
+  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageReadTrx,
+      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
@@ -230,8 +229,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * A commit file which is used by a {@link XdmNodeTrx} to denote if it's currently commiting or
-   * not.
+   * A commit file which is used by a {@link XdmNodeTrx} to denote if it's currently commiting or not.
    */
   @Override
   public Path getCommitFile() {
@@ -480,8 +478,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(), revision,
-        mFac.createReader(), null, null, mBufferManager);
+    final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
+        revision, mFac.createReader(), null, null, mBufferManager);
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -497,8 +495,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(
-      final @Nonnegative int revision) throws SirixException {
+  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision)
+      throws SirixException {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -609,7 +607,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     else if (revision == getMostRecentRevisionNumber() + 1)
       return getMostRecentRevisionNumber();
 
-    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1); final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
+    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
+        final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
       final int revisionNumber;
 
       if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,

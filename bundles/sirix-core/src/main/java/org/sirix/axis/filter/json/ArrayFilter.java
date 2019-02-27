@@ -45,7 +45,7 @@ public final class ArrayFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.JSON_ARRAY;
+    return getTrx().getKind() == Kind.ARRAY;
   }
 
 }
