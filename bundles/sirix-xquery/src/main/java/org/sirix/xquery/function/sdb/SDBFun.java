@@ -22,6 +22,7 @@ import static org.sirix.xquery.function.sdb.trx.GetHash.HASH;
 import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECENT_REVISION;
 import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
+import static org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp.TIMESTAMP;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
@@ -58,6 +59,7 @@ import org.sirix.xquery.function.sdb.trx.GetNamespaceCount;
 import org.sirix.xquery.function.sdb.trx.GetNodeKey;
 import org.sirix.xquery.function.sdb.trx.GetPath;
 import org.sirix.xquery.function.sdb.trx.GetRevision;
+import org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp;
 import org.sirix.xquery.function.sdb.trx.Rollback;
 import org.sirix.xquery.function.sdb.trx.SelectNode;
 
@@ -121,6 +123,9 @@ public final class SDBFun {
 
     // get hash
     Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING, SequenceType.NODE)));
+
+    // get timestamp
+    Functions.predefine(new GetRevisionTimestamp(TIMESTAMP, new Signature(SequenceType.ITEM, SequenceType.NODE)));
 
     // store
     Functions.predefine(new Store(false));
