@@ -11,7 +11,7 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
-<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Storage System</h1>
+<h1 align="center">SirixDB - An Evolutionary, Bitemporal NoSQL Storage System</h1>
 <h2 align="center">Store and query revisions of your data efficiently</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
