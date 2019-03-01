@@ -49,7 +49,7 @@ public class TextFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadOnlyTrx reader = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx reader = holder.getXdmNodeReadTrx();
     reader.moveTo(8L);
     FilterTest.testFilterConventions(new TextFilter(reader), true);
 

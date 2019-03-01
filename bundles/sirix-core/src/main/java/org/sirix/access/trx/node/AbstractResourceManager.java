@@ -557,8 +557,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
     final R rtxRevision = beginNodeReadOnlyTrx(revision);
 
-    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
-        rtxRevision.getRevisionTimestamp())) {
+    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
+        rtxRevision.getRevisionTimestamp().toEpochMilli())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -611,8 +611,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
         final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
       final int revisionNumber;
 
-      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
-          rtxRevision.getRevisionTimestamp())) {
+      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
+          rtxRevision.getRevisionTimestamp().toEpochMilli())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

@@ -1,6 +1,7 @@
 package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.time.Instant;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
@@ -431,9 +432,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public long getRevisionTimestamp() {
+  public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
+    return Instant.ofEpochMilli(mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override

@@ -53,7 +53,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
@@ -73,7 +73,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest2() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
@@ -94,7 +94,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest3() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find desceFndants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();

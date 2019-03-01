@@ -2,6 +2,7 @@ package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -126,9 +127,9 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public long getRevisionTimestamp() {
+  public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
+    return Instant.ofEpochMilli(mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override

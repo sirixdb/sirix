@@ -188,7 +188,7 @@ public class Holder {
    *
    * @return {@link XdmNodeReadOnlyTrx} handle
    */
-  public XdmNodeReadOnlyTrx getNodeReadTrx() {
+  public XdmNodeReadOnlyTrx getXdmNodeReadTrx() {
     return mRtx;
   }
 

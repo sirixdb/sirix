@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.xdm;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
@@ -76,7 +77,7 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public long getRevisionTimestamp() {
+  public Instant getRevisionTimestamp() {
     return delegate().getRevisionTimestamp();
   }
 

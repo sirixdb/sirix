@@ -43,7 +43,7 @@ public final class GetRevisionTimestamp extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
-    final Instant instant = Instant.ofEpochMilli(doc.getTrx().getRevisionTimestamp());
+    final Instant instant = doc.getTrx().getRevisionTimestamp();
     final String dateTime = DateTimeFormatter.ISO_INSTANT.format(instant);
     return new DateTime(dateTime);
   }

@@ -133,7 +133,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   private DBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
     final XdmResourceManager resource = mDatabase.openResourceManager(resName);
 
-    final XdmNodeReadOnlyTrx trx;
+    XdmNodeReadOnlyTrx trx;
 
     if (updatable) {
       if (resource.hasRunningNodeWriteTrx()) {
@@ -150,17 +150,33 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
 
       final int revision = resource.getRevisionNumber(pointInTime);
 
-      if (revision == 0 && revision < resource.getMostRecentRevisionNumber())
-        ((XdmNodeTrx) trx).revertTo(1);
-      else if (revision < resource.getMostRecentRevisionNumber())
-        ((XdmNodeTrx) trx).revertTo(revision);
-    } else {
-      final int revision = resource.getRevisionNumber(pointInTime);
+      if (revision < resource.getMostRecentRevisionNumber()) {
+        final XdmNodeTrx wtx = (XdmNodeTrx) trx;
+        if (wtx.revertTo(revision).getRevisionTimestamp().isAfter(pointInTime)) {
+          if (revision - 1 >= 1) {
+            wtx.revertTo(revision - 1);
+          } else {
+            wtx.close();
 
-      if (revision == 0 && revision < resource.getMostRecentRevisionNumber()) {
-        trx = resource.beginNodeReadOnlyTrx(1);
-      } else {
-        trx = resource.beginNodeReadOnlyTrx(pointInTime);
+            return null;
+          }
+        }
+      }
+    } else {
+      trx = resource.beginNodeReadOnlyTrx(pointInTime);
+
+      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+        final int revision = trx.getRevisionNumber();
+
+        if (revision > 1) {
+          trx.close();
+
+          trx = resource.beginNodeReadOnlyTrx(revision - 1);
+        } else {
+          trx.close();
+
+          return null;
+        }
       }
     }
 

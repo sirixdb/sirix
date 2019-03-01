@@ -1,5 +1,6 @@
 package org.sirix.api;
 
+import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
@@ -27,9 +28,9 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   /**
    * UNIX-style timestamp of the commit of the revision.
    *
-   * @return the timestamp (milliseconds from 1970).
+   * @return instant, representing the milliseconds from unix epoch.
    */
-  long getRevisionTimestamp();
+  Instant getRevisionTimestamp();
 
   /**
    * Getting the maximum nodekey available in this revision.
@@ -152,7 +153,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
 
   /**
    * Determines if the current node has children or not.
-   * 
+   *
    * @return {@code true}, if the current node has children, {@code false} otherwise
    */
   boolean hasChildren();

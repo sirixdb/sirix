@@ -53,7 +53,7 @@ public class FilterAxisTest {
 
   @Test
   public void testNameAxisTest() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -62,7 +62,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAxisTest() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -71,7 +71,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAndNameAxisTest() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(1L);
     AbsAxisTest.testIAxisConventions(

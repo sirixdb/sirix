@@ -53,7 +53,7 @@ public class TypeFilterTest {
   @Test
   public void testFilterConvetions() throws Exception {
 
-    final AbstractAxis axis = new XPathAxis(holder.getNodeReadTrx(), "a");
+    final AbstractAxis axis = new XPathAxis(holder.getXdmNodeReadTrx(), "a");
     final XdmNodeReadOnlyTrx xtx = ((XdmNodeReadOnlyTrx) axis.asXdmNodeReadTrx());
 
     xtx.moveTo(9L);

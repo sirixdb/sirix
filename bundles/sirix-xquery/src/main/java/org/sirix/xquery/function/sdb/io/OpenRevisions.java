@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.DTD;
 import org.brackit.xquery.atomic.DateTime;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -44,8 +45,11 @@ public final class OpenRevisions extends AbstractFunction {
     }
 
     final var expResName = ((Str) args[1]).stringValue();
-    final var startDateTime = ((DateTime) args[2]).stringValue();
-    final var startPointInTime = Instant.parse(startDateTime);
+    final var millis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
+                                           .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
+                                           .longValue();
+
+    final var startPointInTime = Instant.ofEpochMilli(millis);
     final var endDateTime = ((DateTime) args[3]).stringValue();
     final var endPointInTime = Instant.parse(endDateTime);
 

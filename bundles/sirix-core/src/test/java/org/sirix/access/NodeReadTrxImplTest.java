@@ -67,48 +67,48 @@ public final class NodeReadTrxImplTest {
 
   @Test
   public void testDocumentRoot() {
-    assertEquals(true, holder.getNodeReadTrx().moveToDocumentRoot().hasMoved());
-    assertEquals(Kind.XDM_DOCUMENT, holder.getNodeReadTrx().getKind());
-    assertEquals(false, holder.getNodeReadTrx().hasParent());
-    assertEquals(false, holder.getNodeReadTrx().hasLeftSibling());
-    assertEquals(false, holder.getNodeReadTrx().hasRightSibling());
-    assertEquals(true, holder.getNodeReadTrx().hasFirstChild());
+    assertEquals(true, holder.getXdmNodeReadTrx().moveToDocumentRoot().hasMoved());
+    assertEquals(Kind.XDM_DOCUMENT, holder.getXdmNodeReadTrx().getKind());
+    assertEquals(false, holder.getXdmNodeReadTrx().hasParent());
+    assertEquals(false, holder.getXdmNodeReadTrx().hasLeftSibling());
+    assertEquals(false, holder.getXdmNodeReadTrx().hasRightSibling());
+    assertEquals(true, holder.getXdmNodeReadTrx().hasFirstChild());
   }
 
   @Test
   public void testConventions() {
 
     // ReadTransaction Convention 1.
-    assertEquals(true, holder.getNodeReadTrx().moveToDocumentRoot().hasMoved());
-    long key = holder.getNodeReadTrx().getNodeKey();
+    assertEquals(true, holder.getXdmNodeReadTrx().moveToDocumentRoot().hasMoved());
+    long key = holder.getXdmNodeReadTrx().getNodeKey();
 
     // ReadTransaction Convention 2.
-    assertEquals(holder.getNodeReadTrx().hasParent(), holder.getNodeReadTrx().moveToParent().hasMoved());
-    assertEquals(key, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasParent(), holder.getXdmNodeReadTrx().moveToParent().hasMoved());
+    assertEquals(key, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasFirstChild(), holder.getNodeReadTrx().moveToFirstChild().hasMoved());
-    assertEquals(1L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasFirstChild(), holder.getXdmNodeReadTrx().moveToFirstChild().hasMoved());
+    assertEquals(1L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(false, holder.getNodeReadTrx().moveTo(Integer.MAX_VALUE).hasMoved());
-    assertEquals(false, holder.getNodeReadTrx().moveTo(Integer.MIN_VALUE).hasMoved());
-    assertEquals(false, holder.getNodeReadTrx().moveTo(Long.MAX_VALUE).hasMoved());
-    assertEquals(false, holder.getNodeReadTrx().moveTo(Long.MIN_VALUE).hasMoved());
-    assertEquals(1L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(false, holder.getXdmNodeReadTrx().moveTo(Integer.MAX_VALUE).hasMoved());
+    assertEquals(false, holder.getXdmNodeReadTrx().moveTo(Integer.MIN_VALUE).hasMoved());
+    assertEquals(false, holder.getXdmNodeReadTrx().moveTo(Long.MAX_VALUE).hasMoved());
+    assertEquals(false, holder.getXdmNodeReadTrx().moveTo(Long.MIN_VALUE).hasMoved());
+    assertEquals(1L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasRightSibling(), holder.getNodeReadTrx().moveToRightSibling().hasMoved());
-    assertEquals(1L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasRightSibling(), holder.getXdmNodeReadTrx().moveToRightSibling().hasMoved());
+    assertEquals(1L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasFirstChild(), holder.getNodeReadTrx().moveToFirstChild().hasMoved());
-    assertEquals(4L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasFirstChild(), holder.getXdmNodeReadTrx().moveToFirstChild().hasMoved());
+    assertEquals(4L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasRightSibling(), holder.getNodeReadTrx().moveToRightSibling().hasMoved());
-    assertEquals(5L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasRightSibling(), holder.getXdmNodeReadTrx().moveToRightSibling().hasMoved());
+    assertEquals(5L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasLeftSibling(), holder.getNodeReadTrx().moveToLeftSibling().hasMoved());
-    assertEquals(4L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasLeftSibling(), holder.getXdmNodeReadTrx().moveToLeftSibling().hasMoved());
+    assertEquals(4L, holder.getXdmNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getNodeReadTrx().hasParent(), holder.getNodeReadTrx().moveToParent().hasMoved());
-    assertEquals(1L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().hasParent(), holder.getXdmNodeReadTrx().moveToParent().hasMoved());
+    assertEquals(1L, holder.getXdmNodeReadTrx().getNodeKey());
   }
 
 }
