@@ -52,23 +52,16 @@ public final class DocByPointInTime extends AbstractFunction {
     if (args.length < 3 || args.length > 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
+
     final DBCollection col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    // let $millis := (xs:dateTime(\"2019-05-01T00:00:00-00:00\") -
-    // xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div xs:dayTimeDuration('PT0.001S')
-
     final String expResName = ((Str) args[1]).stringValue();
-
     final String dateTime = ((DateTime) args[2]).stringValue();
-
     final Instant pointInTime = Instant.parse(dateTime);
-    // final long time = FunUtil.getLong(args, 2, "pointInTime", System.currentTimeMillis(), null,
-    // true);
-    // final Instant pointInTime = Instant.ofEpochMilli(time);
     final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
 
     return col.getDocument(pointInTime, expResName, updatable);

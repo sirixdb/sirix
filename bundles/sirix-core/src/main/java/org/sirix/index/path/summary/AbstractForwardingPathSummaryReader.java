@@ -1,5 +1,6 @@
 package org.sirix.index.path.summary;
 
+import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
@@ -18,7 +19,8 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingPathSummaryReader extends ForwardingObject implements NodeReadOnlyTrx, NodeCursor {
+public abstract class AbstractForwardingPathSummaryReader extends ForwardingObject
+    implements NodeReadOnlyTrx, NodeCursor {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingPathSummaryReader() {}
@@ -57,7 +59,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public long getRevisionTimestamp() {
+  public Instant getRevisionTimestamp() {
     return delegate().getRevisionTimestamp();
   }
 

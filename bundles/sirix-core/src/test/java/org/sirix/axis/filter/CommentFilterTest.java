@@ -49,7 +49,7 @@ public class CommentFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadOnlyTrx wtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx wtx = holder.getXdmNodeReadTrx();
 
     wtx.moveTo(9L);
     FilterTest.testFilterConventions(new CommentFilter(wtx), false);

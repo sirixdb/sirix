@@ -32,7 +32,6 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
@@ -265,8 +264,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           if (mSerializeTimestamp) {
             mOut.write("{\"revisionTimestamp\":");
-            mOut.write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
-                                                    .format(Instant.ofEpochMilli(rtx.getRevisionTimestamp())));
+            mOut.write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
             mOut.write(",");
           }
 

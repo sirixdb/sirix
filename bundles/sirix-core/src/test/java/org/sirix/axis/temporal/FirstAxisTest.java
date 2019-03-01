@@ -50,7 +50,7 @@ public final class FirstAxisTest {
     new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
       protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-        return new FirstAxis<>(holder.getNodeReadTrx());
+        return new FirstAxis<>(holder.getXdmNodeReadTrx());
       }
     }.test();
   }

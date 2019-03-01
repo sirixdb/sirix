@@ -57,7 +57,7 @@ public class ForAxisTest {
 
   @Test
   public void testFor() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(1L);
 

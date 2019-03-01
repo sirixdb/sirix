@@ -67,13 +67,13 @@ public final class MinimumCommitTest {
     holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateRtx();
-    assertEquals(3L, holder.getNodeReadTrx().getRevisionNumber());
+    assertEquals(3L, holder.getXdmNodeReadTrx().getRevisionNumber());
   }
 
   @Test
   public void testTimestamp() throws SirixException {
     try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
-      assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
+      assertTrue(rtx.getRevisionTimestamp().toEpochMilli() < (System.currentTimeMillis() + 1));
     }
   }
 

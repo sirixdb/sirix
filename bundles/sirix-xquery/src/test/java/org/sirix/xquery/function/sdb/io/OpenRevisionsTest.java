@@ -29,6 +29,10 @@ package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -40,6 +44,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -74,6 +79,14 @@ public final class OpenRevisionsTest extends TestCase {
     XdmDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
 
+    final Instant revisionTwoTimestamp;
+
+    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+      revisionTwoTimestamp = rtx.getRevisionTimestamp();
+    }
+
+    final ZonedDateTime dateTime = ZonedDateTime.ofInstant(revisionTwoTimestamp, ZoneId.of("UTC"));
+
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
@@ -83,8 +96,9 @@ public final class OpenRevisionsTest extends TestCase {
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:open-revisions('" + dbName + "','" + resName
-          + "', xs:dateTime(\"1970-05-01T00:00:00-00:00\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
+      final String xq1 = "sdb:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
+          + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
+          + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
       final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
       final Sequence nodes = query.evaluate(ctx);

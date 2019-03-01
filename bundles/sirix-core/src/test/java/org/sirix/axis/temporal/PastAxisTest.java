@@ -48,7 +48,7 @@ public final class PastAxisTest {
   public void testPastOrSelfAxis() throws SirixException {
     final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-    final NodeReadOnlyTrx thirdRtx = holder.getNodeReadTrx();
+    final NodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx, secondRtx, firstRtx),
         null) {
@@ -63,7 +63,7 @@ public final class PastAxisTest {
   public void testPastAxis() throws SirixException {
     final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-    final NodeReadOnlyTrx thirdRtx = holder.getNodeReadTrx();
+    final NodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
     new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, firstRtx),
         null) {

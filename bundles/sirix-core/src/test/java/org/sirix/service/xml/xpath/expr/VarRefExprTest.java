@@ -56,37 +56,37 @@ public class VarRefExprTest {
   @Test
   public void testEveryExpr() throws SirixException {
 
-    final AbstractAxis axis = new XPathAxis(holder.getNodeReadTrx(), "for $a in b return $a");
+    final AbstractAxis axis = new XPathAxis(holder.getXdmNodeReadTrx(), "for $a in b return $a");
 
-    final VariableAxis variable = new VariableAxis(holder.getNodeReadTrx(), axis);
+    final VariableAxis variable = new VariableAxis(holder.getXdmNodeReadTrx(), axis);
 
-    final VarRefExpr axis1 = new VarRefExpr(holder.getNodeReadTrx(), variable);
+    final VarRefExpr axis1 = new VarRefExpr(holder.getXdmNodeReadTrx(), variable);
     // assertEquals(false, axis1.hasNext());
     axis1.update(5L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(5L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(5L, holder.getXdmNodeReadTrx().getNodeKey());
     axis1.update(13L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(13L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(13L, holder.getXdmNodeReadTrx().getNodeKey());
     axis1.update(1L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(1L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(1L, holder.getXdmNodeReadTrx().getNodeKey());
     assertEquals(false, axis1.hasNext());
 
-    final VarRefExpr axis2 = new VarRefExpr(holder.getNodeReadTrx(), variable);
+    final VarRefExpr axis2 = new VarRefExpr(holder.getXdmNodeReadTrx(), variable);
     // assertEquals(false, axis2.hasNext());
     axis2.update(13L);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(13L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(13L, holder.getXdmNodeReadTrx().getNodeKey());
     assertEquals(false, axis2.hasNext());
     axis2.update(12L);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(12L, holder.getNodeReadTrx().getNodeKey());
+    assertEquals(12L, holder.getXdmNodeReadTrx().getNodeKey());
     assertEquals(false, axis2.hasNext());
 
   }
