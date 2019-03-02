@@ -7,8 +7,8 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 import com.google.common.base.MoreObjects;
 
 /**
@@ -17,30 +17,30 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>> {
+public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNode>> {
 
   /** Temporal axis. */
   private final AbstractTemporalAxis<XmlNodeReadOnlyTrx> mAxis;
 
-  /** The {@link DBCollection} reference. */
-  private DBCollection mCollection;
+  /** The {@link XmlDBCollection} reference. */
+  private XmlDBCollection mCollection;
 
   /**
    * Constructor.
    *
    * @param axis Sirix {@link Axis}
-   * @param collection {@link DBCollection} the nodes belong to
+   * @param collection {@link XmlDBCollection} the nodes belong to
    */
-  public TemporalSirixStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis, final DBCollection collection) {
+  public TemporalSirixStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis, final XmlDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
   }
 
   @Override
-  public AbstractTemporalNode<DBNode> next() throws DocumentException {
+  public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
     if (mAxis.hasNext()) {
       mAxis.next();
-      return new DBNode(mAxis.getTrx(), mCollection);
+      return new XmlDBNode(mAxis.getTrx(), mCollection);
     }
     return null;
   }

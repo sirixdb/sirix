@@ -26,7 +26,7 @@ public final class SirixScope implements Scope {
    * 
    * @param node database node
    */
-  public SirixScope(final DBNode node) {
+  public SirixScope(final XmlDBNode node) {
     // Assertion instead of checkNotNull(...) (part of internal API).
     assert node != null;
     mRtx = node.getTrx();

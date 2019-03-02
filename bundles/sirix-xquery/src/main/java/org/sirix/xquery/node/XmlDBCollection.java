@@ -40,11 +40,11 @@ import com.google.common.base.Preconditions;
  * @author Johannes Lichtenberger
  *
  */
-public final class DBCollection extends AbstractCollection<AbstractTemporalNode<DBNode>>
-    implements TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
+public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNode<XmlDBNode>>
+    implements TemporalCollection<AbstractTemporalNode<XmlDBNode>>, AutoCloseable {
 
   /** Logger. */
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(DBCollection.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
 
   /** ID sequence. */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
@@ -61,7 +61,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
    * @param name collection name
    * @param database Sirix {@link Database} reference
    */
-  public DBCollection(final String name, final Database<XmlResourceManager> database) {
+  public XmlDBCollection(final String name, final Database<XmlResourceManager> database) {
     super(Preconditions.checkNotNull(name));
     mDatabase = Preconditions.checkNotNull(database);
     mID = ID_SEQUENCE.incrementAndGet();
@@ -76,10 +76,10 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     if (this == other)
       return true;
 
-    if (!(other instanceof DBCollection))
+    if (!(other instanceof XmlDBCollection))
       return false;
 
-    final DBCollection coll = (DBCollection) other;
+    final XmlDBCollection coll = (XmlDBCollection) other;
     return mDatabase.equals(coll.mDatabase);
   }
 
@@ -107,22 +107,22 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime) {
+  public XmlDBNode getDocument(Instant pointInTime) {
     return getDocument(pointInTime, name, false);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, boolean updatable) {
+  public XmlDBNode getDocument(Instant pointInTime, boolean updatable) {
     return getDocument(pointInTime, name, updatable);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, String name) {
+  public XmlDBNode getDocument(Instant pointInTime, String name) {
     return getDocument(pointInTime, name, false);
   }
 
   @Override
-  public DBNode getDocument(Instant pointInTime, String name, boolean updatable) {
+  public XmlDBNode getDocument(Instant pointInTime, String name, boolean updatable) {
     try {
       return getDocumentInternal(name, pointInTime, updatable);
     } catch (final SirixException e) {
@@ -130,7 +130,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     }
   }
 
-  private DBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
+  private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
     final XmlResourceManager resource = mDatabase.openResourceManager(resName);
 
     XmlNodeReadOnlyTrx trx;
@@ -180,7 +180,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       }
     }
 
-    return new DBNode(trx, this);
+    return new XmlDBNode(trx, this);
   }
 
   @Override
@@ -203,7 +203,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument(final @Nonnegative int revision) {
+  public XmlDBNode getDocument(final @Nonnegative int revision) {
     final List<Path> resources = mDatabase.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -214,13 +214,13 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
           ? manager.getMostRecentRevisionNumber()
           : revision;
       final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
-      return new DBNode(rtx, this);
+      return new XmlDBNode(rtx, this);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
-  public DBNode add(final String resName, SubtreeParser parser)
+  public XmlDBNode add(final String resName, SubtreeParser parser)
       throws OperationNotSupportedException, DocumentException {
     try {
       final String resource =
@@ -241,7 +241,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       }
 
       parser.parse(handler);
-      return new DBNode(wtx, this);
+      return new XmlDBNode(wtx, this);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -249,7 +249,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
+  public XmlDBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
     try {
       final String resourceName =
           new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
@@ -270,14 +270,14 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       }
 
       parser.parse(handler);
-      return new DBNode(wtx, this);
+      return new XmlDBNode(wtx, this);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
     }
   }
 
-  public DBNode add(final String resourceName, final XMLEventReader reader)
+  public XmlDBNode add(final String resourceName, final XMLEventReader reader)
       throws OperationNotSupportedException, DocumentException {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
@@ -285,7 +285,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final XmlNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
-      return new DBNode(wtx, this);
+      return new XmlDBNode(wtx, this);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -303,27 +303,27 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public DBNode getDocument() {
+  public XmlDBNode getDocument() {
     return getDocument(-1);
   }
 
   @Override
-  public Stream<DBNode> getDocuments() {
+  public Stream<XmlDBNode> getDocuments() {
     return getDocuments(false);
   }
 
   @Override
-  public DBNode getDocument(final int revision, final String name) {
+  public XmlDBNode getDocument(final int revision, final String name) {
     return getDocument(revision, name, false);
   }
 
   @Override
-  public DBNode getDocument(final String name) {
+  public XmlDBNode getDocument(final String name) {
     return getDocument(-1, name, false);
   }
 
   @Override
-  public DBNode getDocument(final int revision, final String name, final boolean updatable) {
+  public XmlDBNode getDocument(final int revision, final String name, final boolean updatable) {
     try {
       return getDocumentInternal(name, revision, updatable);
     } catch (final SirixException e) {
@@ -331,7 +331,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     }
   }
 
-  private DBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
+  private XmlDBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
     final XmlResourceManager resource = mDatabase.openResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
@@ -357,11 +357,11 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       trx = resource.beginNodeReadOnlyTrx(version);
     }
 
-    return new DBNode(trx, this);
+    return new XmlDBNode(trx, this);
   }
 
   @Override
-  public DBNode getDocument(final int revision, final boolean updatable) {
+  public XmlDBNode getDocument(final int revision, final boolean updatable) {
     final List<Path> resources = mDatabase.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -374,9 +374,9 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   @Override
-  public Stream<DBNode> getDocuments(final boolean updatable) {
+  public Stream<XmlDBNode> getDocuments(final boolean updatable) {
     final List<Path> resources = mDatabase.listResources();
-    final List<DBNode> documents = new ArrayList<>(resources.size());
+    final List<XmlDBNode> documents = new ArrayList<>(resources.size());
 
     resources.forEach(resourcePath -> {
       try {
@@ -385,17 +385,17 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
         final XmlNodeReadOnlyTrx trx = updatable
             ? resource.beginNodeTrx()
             : resource.beginNodeReadOnlyTrx();
-        documents.add(new DBNode(trx, this));
+        documents.add(new XmlDBNode(trx, this));
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
     });
 
-    return new ArrayStream<>(documents.toArray(new DBNode[documents.size()]));
+    return new ArrayStream<>(documents.toArray(new XmlDBNode[documents.size()]));
   }
 
   @Override
-  public DBNode getDocument(boolean updatabale) {
+  public XmlDBNode getDocument(boolean updatabale) {
     return getDocument(-1, updatabale);
   }
 }

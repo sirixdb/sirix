@@ -61,8 +61,8 @@ import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -113,7 +113,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final DBCollection col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -122,7 +122,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     final String expResName = ((Str) args[1]).stringValue();
     final int rev1 = FunUtil.getInt(args, 2, "revision1", -1, null, false);
     final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
-    final DBNode doc = col.getDocument(expResName);
+    final XmlDBNode doc = col.getDocument(expResName);
 
     mDiffs.clear();
     mBuf.setLength(0);

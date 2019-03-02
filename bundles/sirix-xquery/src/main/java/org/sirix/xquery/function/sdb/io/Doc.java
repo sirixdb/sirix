@@ -10,7 +10,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
+import org.sirix.xquery.node.XmlDBCollection;
 
 /**
  * <p>
@@ -51,7 +51,7 @@ public final class Doc extends AbstractFunction {
     if (args.length < 2 || args.length > 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
-    final DBCollection col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));

@@ -29,7 +29,7 @@ import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.path.xdm.XdmPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
@@ -61,7 +61,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
       throws QueryException {
-    final DBNode doc = (DBNode) args[0];
+    final XmlDBNode doc = (XmlDBNode) args[0];
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
         rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
@@ -108,7 +108,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
         pathArray, min, max, incMin, incMax, new XdmPCRCollector(rtx));
 
     final XmlIndexController ic = controller;
-    final DBNode node = doc;
+    final XmlDBNode node = doc;
 
     return new LazySequence() {
       @Override

@@ -51,7 +51,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.BasicXmlDBStore;
 import junit.framework.TestCase;
 
 /**
@@ -96,7 +96,7 @@ public final class DiffTest extends TestCase {
     }
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(databasePath.getParent()).build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databasePath.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = databasePath.getFileName().toString();
@@ -134,7 +134,7 @@ public final class DiffTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();

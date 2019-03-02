@@ -5,8 +5,8 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 import com.google.common.base.MoreObjects;
 
 /**
@@ -15,29 +15,29 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public final class SirixStream implements Stream<DBNode> {
+public final class SirixStream implements Stream<XmlDBNode> {
   /** Sirix {@link Axis}. */
   private final Axis mAxis;
 
-  /** {@link DBCollection} the nodes belong to. */
-  private final DBCollection mCollection;
+  /** {@link XmlDBCollection} the nodes belong to. */
+  private final XmlDBCollection mCollection;
 
   /**
    * Constructor.
    *
    * @param axis Sirix {@link SirixAxis}
-   * @param collection {@link DBCollection} the nodes belong to
+   * @param collection {@link XmlDBCollection} the nodes belong to
    */
-  public SirixStream(final Axis axis, final DBCollection collection) {
+  public SirixStream(final Axis axis, final XmlDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
   }
 
   @Override
-  public DBNode next() throws DocumentException {
+  public XmlDBNode next() throws DocumentException {
     if (mAxis.hasNext()) {
       mAxis.next();
-      return new DBNode(mAxis.asXdmNodeReadTrx(), mCollection);
+      return new XmlDBNode(mAxis.asXdmNodeReadTrx(), mCollection);
     }
     return null;
   }

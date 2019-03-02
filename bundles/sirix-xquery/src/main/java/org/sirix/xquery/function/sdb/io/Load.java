@@ -29,8 +29,8 @@ import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.BasicXmlDBStore;
 
 /**
  * <p>
@@ -99,8 +99,8 @@ public final class Load extends AbstractFunction {
               ? false
               : true);
 
-      final BasicDBStore store = (BasicDBStore) ctx.getStore();
-      DBCollection coll;
+      final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getStore();
+      XmlDBCollection coll;
       if (createNew) {
         coll = create(store, collName, resName, resources);
       } else {
@@ -120,7 +120,7 @@ public final class Load extends AbstractFunction {
   }
 
   private static TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
-      final DBCollection coll, final String resName, final Sequence resources)
+      final XmlDBCollection coll, final String resName, final Sequence resources)
       throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
@@ -139,7 +139,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static DBCollection create(final BasicDBStore store, final String collName,
+  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName,
       final String resName, final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;

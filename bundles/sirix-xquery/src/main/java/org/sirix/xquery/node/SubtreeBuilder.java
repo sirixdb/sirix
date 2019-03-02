@@ -25,16 +25,16 @@ import org.sirix.service.xml.shredder.InsertPosition;
 public final class SubtreeBuilder extends AbstractShredder implements SubtreeHandler {
 
   /** {@link SubtreeProcessor} for listeners. */
-  private final SubtreeProcessor<AbstractTemporalNode<DBNode>> mSubtreeProcessor;
+  private final SubtreeProcessor<AbstractTemporalNode<XmlDBNode>> mSubtreeProcessor;
 
   /** Sirix {@link XmlNodeTrx}. */
   private final XmlNodeTrx mWtx;
 
   /** Stack for saving the parent nodes. */
-  private final Deque<DBNode> mParents;
+  private final Deque<XmlDBNode> mParents;
 
   /** Collection. */
-  private final DBCollection mCollection;
+  private final XmlDBCollection mCollection;
 
   /** First element. */
   private boolean mFirst;
@@ -55,8 +55,8 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    * @param insertPos determines how to insert (as a right sibling, first child or left sibling)
    * @param listeners listeners which implement
    */
-  public SubtreeBuilder(final DBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
-      final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners) {
+  public SubtreeBuilder(final XmlDBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
+      final List<SubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
     mCollection = checkNotNull(collection);
     mSubtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
@@ -159,7 +159,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
         mFirst = false;
         mStartNodeKey = mWtx.getNodeKey();
       }
-      mSubtreeProcessor.notifyComment(new DBNode(mWtx, mCollection));
+      mSubtreeProcessor.notifyComment(new XmlDBNode(mWtx, mCollection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -169,7 +169,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
     try {
       processPI(content.asStr().stringValue(), target.getLocalName());
-      mSubtreeProcessor.notifyProcessingInstruction(new DBNode(mWtx, mCollection));
+      mSubtreeProcessor.notifyProcessingInstruction(new XmlDBNode(mWtx, mCollection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -192,7 +192,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
         mFirst = false;
         mStartNodeKey = mWtx.getNodeKey();
       }
-      final DBNode node = new DBNode(mWtx, mCollection);
+      final XmlDBNode node = new XmlDBNode(mWtx, mCollection);
       mParents.push(node);
       mSubtreeProcessor.notifyStartElement(node);
     } catch (final SirixException e) {
@@ -203,7 +203,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   @Override
   public void endElement(final QNm name) throws DocumentException {
     processEndTag(name);
-    final DBNode node = mParents.pop();
+    final XmlDBNode node = mParents.pop();
     mSubtreeProcessor.notifyEndElement(node);
   }
 
@@ -211,7 +211,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void text(final Atomic content) throws DocumentException {
     try {
       processText(content.stringValue());
-      mSubtreeProcessor.notifyText(new DBNode(mWtx, mCollection));
+      mSubtreeProcessor.notifyText(new XmlDBNode(mWtx, mCollection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
@@ -222,7 +222,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
     try {
       mWtx.insertAttribute(name, value.stringValue());
       mWtx.moveToParent();
-      mSubtreeProcessor.notifyAttribute(new DBNode(mWtx, mCollection));
+      mSubtreeProcessor.notifyAttribute(new XmlDBNode(mWtx, mCollection));
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }

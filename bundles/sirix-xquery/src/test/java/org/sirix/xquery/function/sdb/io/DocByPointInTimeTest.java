@@ -42,8 +42,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.BasicDBStore;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBNode;
 import junit.framework.TestCase;
 
 /**
@@ -76,7 +76,7 @@ public final class DocByPointInTimeTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();
@@ -90,7 +90,7 @@ public final class DocByPointInTimeTest extends TestCase {
 
       final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
       // query.serialize(ctx, System.out);
-      final DBNode node = (DBNode) query.evaluate(ctx);
+      final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());
     }

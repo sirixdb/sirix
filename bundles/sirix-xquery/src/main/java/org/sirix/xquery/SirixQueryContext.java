@@ -12,8 +12,8 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.xquery.node.XmlDBStore;
 
 /**
  * Query context for Sirix.
@@ -40,7 +40,7 @@ public final class SirixQueryContext extends QueryContext {
    *
    * @param store the database storage to use
    */
-  public SirixQueryContext(final DBStore store) {
+  public SirixQueryContext(final XmlDBStore store) {
     this(store, CommitStrategy.AUTO);
   }
 
@@ -50,7 +50,7 @@ public final class SirixQueryContext extends QueryContext {
    * @param store the database storage to use
    * @param commitStrategy the commit strategy to use
    */
-  public SirixQueryContext(final DBStore store, final CommitStrategy commitStrategy) {
+  public SirixQueryContext(final XmlDBStore store, final CommitStrategy commitStrategy) {
     super(store);
     mCommitStrategy = checkNotNull(commitStrategy);
   }
@@ -66,8 +66,8 @@ public final class SirixQueryContext extends QueryContext {
 
       if (!updateList.isEmpty()) {
         final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
-          if (sequence instanceof DBNode) {
-            return ((DBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
+          if (sequence instanceof XmlDBNode) {
+            return ((XmlDBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
           }
 
           return Optional.empty();

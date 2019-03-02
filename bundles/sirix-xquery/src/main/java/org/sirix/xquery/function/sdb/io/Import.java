@@ -22,9 +22,9 @@ import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.BasicDBStore;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -63,8 +63,8 @@ public final class Import extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final BasicDBStore store = (BasicDBStore) ctx.getStore();
-    final DBCollection coll = store.lookup(((Str) args[0]).stringValue());
+    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getStore();
+    final XmlDBCollection coll = store.lookup(((Str) args[0]).stringValue());
 
     if (coll == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -73,7 +73,7 @@ public final class Import extends AbstractFunction {
     final String resName = ((Str) args[1]).stringValue();
     final String resToImport = ((Str) args[2]).stringValue();
 
-    DBNode doc = null;
+    XmlDBNode doc = null;
     final XmlNodeReadOnlyTrx trx;
 
     try {
@@ -107,6 +107,6 @@ public final class Import extends AbstractFunction {
       doc.getTrx().close();
     }
 
-    return new DBNode(trx, coll);
+    return new XmlDBNode(trx, coll);
   }
 }

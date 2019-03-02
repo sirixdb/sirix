@@ -17,7 +17,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -52,7 +52,7 @@ public final class FindCASIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
-    final DBNode doc = (DBNode) args[0];
+    final XmlDBNode doc = (XmlDBNode) args[0];
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
         (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());

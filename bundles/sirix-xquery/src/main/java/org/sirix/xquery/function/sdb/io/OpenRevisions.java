@@ -14,8 +14,8 @@ import org.brackit.xquery.sequence.ItemSequence;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 
 public final class OpenRevisions extends AbstractFunction {
 
@@ -38,7 +38,7 @@ public final class OpenRevisions extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final var col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -62,7 +62,7 @@ public final class OpenRevisions extends AbstractFunction {
     var startRevision = startDocNode.getTrx().getRevisionNumber();
     final int endRevision = endDocNode.getTrx().getRevisionNumber();
 
-    final var documentNodes = new ArrayList<DBNode>();
+    final var documentNodes = new ArrayList<XmlDBNode>();
     documentNodes.add(startDocNode);
 
     while (++startRevision < endRevision) {
@@ -71,6 +71,6 @@ public final class OpenRevisions extends AbstractFunction {
 
     documentNodes.add(endDocNode);
 
-    return new ItemSequence(documentNodes.toArray(new DBNode[documentNodes.size()]));
+    return new ItemSequence(documentNodes.toArray(new XmlDBNode[documentNodes.size()]));
   }
 }

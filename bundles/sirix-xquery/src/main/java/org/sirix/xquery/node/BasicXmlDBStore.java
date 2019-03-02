@@ -23,8 +23,8 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
@@ -36,7 +36,7 @@ import org.sirix.service.xml.shredder.InsertPosition;
  * @author Johannes Lichtenberger
  *
  */
-public final class BasicDBStore implements Store, AutoCloseable, DBStore {
+public final class BasicXmlDBStore implements Store, AutoCloseable, XmlDBStore {
 
   /** User home directory. */
   private static final String USER_HOME = System.getProperty("user.home");
@@ -48,7 +48,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   private final Set<Database<XmlResourceManager>> mDatabases;
 
   /** Mapping sirix databases to collections. */
-  private final ConcurrentMap<Database<XmlResourceManager>, DBCollection> mCollections;
+  private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> mCollections;
 
   /** {@link StorageType} instance. */
   private final StorageType mStorageType;
@@ -110,12 +110,12 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     }
 
     /**
-     * Create a new {@link BasicDBStore} instance
+     * Create a new {@link BasicXmlDBStore} instance
      *
-     * @return new {@link BasicDBStore} instance
+     * @return new {@link BasicXmlDBStore} instance
      */
-    public BasicDBStore build() {
-      return new BasicDBStore(this);
+    public BasicXmlDBStore build() {
+      return new BasicXmlDBStore(this);
     }
   }
 
@@ -124,7 +124,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
    *
    * @param builder builder instance
    */
-  private BasicDBStore(final Builder builder) {
+  private BasicXmlDBStore(final Builder builder) {
     mDatabases = Collections.synchronizedSet(new HashSet<>());
     mCollections = new ConcurrentHashMap<>();
     mStorageType = builder.mStorageType;
@@ -138,7 +138,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public DBCollection lookup(final String name) throws DocumentException {
+  public XmlDBCollection lookup(final String name) {
     final Path dbPath = mLocation.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
@@ -149,7 +149,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
           return mCollections.get(storedCollection.get());
         }
         mDatabases.add(database);
-        final DBCollection collection = new DBCollection(name, database);
+        final XmlDBCollection collection = new XmlDBCollection(name, database);
         mCollections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
@@ -160,7 +160,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public DBCollection create(final String name) throws DocumentException {
+  public XmlDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
     try {
       if (Databases.createXmlDatabase(dbConf)) {
@@ -170,7 +170,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       final var database = Databases.openXmlDatabase(dbConf.getFile());
       mDatabases.add(database);
 
-      final DBCollection collection = new DBCollection(name, database);
+      final XmlDBCollection collection = new XmlDBCollection(name, database);
       mCollections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
@@ -179,13 +179,12 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public DBCollection create(final String collName, final SubtreeParser parser) throws DocumentException {
+  public XmlDBCollection create(final String collName, final SubtreeParser parser) {
     return create(collName, null, parser);
   }
 
   @Override
-  public DBCollection create(final String collName, final String optResName, final SubtreeParser parser)
-      throws DocumentException {
+  public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser) {
     final Path dbPath = mLocation.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -202,7 +201,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                                                    .buildPathSummary(mBuildPathSummary)
                                                    .storageType(mStorageType)
                                                    .build());
-      final DBCollection collection = new DBCollection(collName, database);
+      final XmlDBCollection collection = new XmlDBCollection(collName, database);
       mCollections.put(database, collection);
 
       try (final XmlResourceManager manager = database.openResourceManager(resName);
@@ -217,14 +216,8 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     }
   }
 
-  /*
-   * (non-Javadoc)
-   *
-   * @see org.sirix.xquery.node.DBStore#create(java.lang.String, org.brackit.xquery.xdm.Stream)
-   */
   @Override
-  public DBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers)
-      throws DocumentException {
+  public XmlDBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers) {
     if (parsers != null) {
       final Path dbPath = mLocation.resolve(collName);
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
@@ -249,7 +242,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                                                            .build());
               try (final XmlResourceManager manager = database.openResourceManager(resourceName);
                   final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-                final DBCollection collection = new DBCollection(collName, database);
+                final XmlDBCollection collection = new XmlDBCollection(collName, database);
                 mCollections.put(database, collection);
                 nextParser.parse(
                     new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
@@ -264,7 +257,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
         }
         pool.shutdown();
         pool.awaitTermination(5, TimeUnit.SECONDS);
-        return new DBCollection(collName, database);
+        return new XmlDBCollection(collName, database);
       } catch (final SirixRuntimeException | InterruptedException e) {
         throw new DocumentException(e.getCause());
       }
@@ -273,7 +266,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public void drop(final String name) throws DocumentException {
+  public void drop(final String name) {
     final Path dbPath = mLocation.resolve(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (Databases.existsDatabase(dbPath)) {
@@ -290,7 +283,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public void makeDir(final String path) throws DocumentException {
+  public void makeDir(final String path) {
     try {
       Files.createDirectory(java.nio.file.Paths.get(path));
     } catch (final IOException e) {
@@ -299,7 +292,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   }
 
   @Override
-  public void close() throws DocumentException {
+  public void close() {
     try {
       for (final var database : mDatabases) {
         database.close();

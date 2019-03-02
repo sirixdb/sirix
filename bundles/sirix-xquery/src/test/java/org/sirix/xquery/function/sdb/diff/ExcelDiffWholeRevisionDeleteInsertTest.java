@@ -33,7 +33,7 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.BasicXmlDBStore;
 import junit.framework.TestCase;
 
 public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
@@ -137,7 +137,7 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
     // Initialize query context and store.
     final var database = PATHS.PATH1.getFile();
 
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.getFileName().toString();
