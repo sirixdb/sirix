@@ -83,7 +83,7 @@ public final class DiffTest extends TestCase {
     final Path databasePath = PATHS.PATH2.getFile();
 
     final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
 
     try (final var database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE).build());

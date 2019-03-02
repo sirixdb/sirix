@@ -247,7 +247,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   public static void main(final String... args) {
     final Path path = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
     final var database = Databases.openXmlDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded").build());
     try (final XmlResourceManager resource = database.openResourceManager("shredded")) {

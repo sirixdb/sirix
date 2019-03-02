@@ -54,7 +54,7 @@ public final class NodeReadTrxImplTest {
   @Test
   public void testEmptyRtx() {
     assertFalse(Files.exists(PATHS.PATH2.getFile()));
-    Databases.createXdmDatabase(PATHS.PATH2.getConfig());
+    Databases.createXmlDatabase(PATHS.PATH2.getConfig());
 
     try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
       db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());

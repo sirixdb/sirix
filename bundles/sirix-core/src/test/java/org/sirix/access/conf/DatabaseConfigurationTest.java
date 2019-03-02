@@ -39,7 +39,7 @@ public class DatabaseConfigurationTest {
   @Test
   public void testDeSerialize() throws SirixIOException {
     DatabaseConfiguration conf = new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile());
-    assertTrue(Databases.createXdmDatabase(conf));
+    assertTrue(Databases.createXmlDatabase(conf));
     DatabaseConfiguration serializedConf =
         DatabaseConfiguration.deserialize(XdmTestHelper.PATHS.PATH1.getFile());
     assertEquals(conf.toString(), serializedConf.toString());

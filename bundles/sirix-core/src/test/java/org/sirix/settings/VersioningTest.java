@@ -47,7 +47,7 @@ public class VersioningTest {
   @Before
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
-    Databases.createXdmDatabase(new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile()));
+    Databases.createXmlDatabase(new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile()));
     mDatabase = Databases.openXmlDatabase(XdmTestHelper.PATHS.PATH1.getFile());
   }
 
