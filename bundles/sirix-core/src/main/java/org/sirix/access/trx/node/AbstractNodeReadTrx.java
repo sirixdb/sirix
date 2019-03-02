@@ -341,7 +341,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final Kind lastChildKind = node.getKind();
+      final Kind lastChildKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return lastChildKind;
     }
@@ -355,7 +355,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof StructNode && hasFirstChild()) {
       final long nodeKey = node.getNodeKey();
       moveToFirstChild();
-      final Kind firstChildKind = node.getKind();
+      final Kind firstChildKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return firstChildKind;
     }
@@ -369,7 +369,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final long lastChildNodeKey = node.getNodeKey();
+      final long lastChildNodeKey = mCurrentNode.getNodeKey();
       moveTo(nodeKey);
       return lastChildNodeKey;
     }
@@ -407,7 +407,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof StructNode && hasRightSibling()) {
       final long nodeKey = node.getNodeKey();
       moveToRightSibling();
-      final Kind rightSiblKind = node.getKind();
+      final Kind rightSiblKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return rightSiblKind;
     }

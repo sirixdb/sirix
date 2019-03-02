@@ -269,8 +269,6 @@ public final class FMSETest extends XMLTestCase {
           serializer.call();
           final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
 
-          // System.out.println(out.toString());
-
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
           @SuppressWarnings("unchecked")
@@ -285,6 +283,16 @@ public final class FMSETest extends XMLTestCase {
           assertTrue("but are they identical? " + diff, diff.identical());
         }
       }
+
+      // try (final var baos = new ByteArrayOutputStream(); final var writer = new PrintStream(baos)) {
+      // final XmlSerializer serializer =
+      // new XmlSerializerBuilder(resource, writer, -1).prettyPrint().serializeTimestamp(true).build();
+      // serializer.call();
+      //
+      // final var content = baos.toString(StandardCharsets.UTF_8);
+      //
+      // System.out.println(content);
+      // }
     }
   }
 }
