@@ -634,7 +634,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         case NAMESPACE:
           // Note that the insertion is right (localPart as prefix).
           try {
-            wtx.insertNamespace(new QNm(rtx.getName().getNamespaceURI(), rtx.getName().getLocalName(), ""));
+            final QNm qName = rtx.getName();
+            wtx.insertNamespace(new QNm(qName.getNamespaceURI(), qName.getPrefix(), qName.getLocalName()));
           } catch (final SirixUsageException e) {
             mTotalMatching.remove(wtx.getNodeKey());
           }
@@ -1176,6 +1177,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     public boolean isEqual(final Long firstNode, final Long secondNode) {
       assert firstNode != null;
       assert secondNode != null;
+
+      if (firstNode.longValue() == secondNode.longValue() && firstNode.longValue() == 1L)
+        System.out.println();
 
       mWtx.moveTo(firstNode);
       mRtx.moveTo(secondNode);
