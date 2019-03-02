@@ -37,21 +37,21 @@ import org.brackit.xquery.xdm.Stream;
  *
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public interface DBStore extends Store, AutoCloseable {
+public interface XmlDBStore extends Store, AutoCloseable {
   @Override
-  DBCollection lookup(String name) throws DocumentException;
+  XmlDBCollection lookup(String name) throws DocumentException;
 
   @Override
-  DBCollection create(String name) throws DocumentException;
+  XmlDBCollection create(String name) throws DocumentException;
 
   @Override
-  DBCollection create(String collName, SubtreeParser parser) throws DocumentException;
+  XmlDBCollection create(String collName, SubtreeParser parser) throws DocumentException;
 
-  DBCollection create(String collName, String optionalResourceName, SubtreeParser parser)
+  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser)
       throws DocumentException;
 
   @Override
-  DBCollection create(String collName, Stream<SubtreeParser> parsers) throws DocumentException;
+  XmlDBCollection create(String collName, Stream<SubtreeParser> parsers) throws DocumentException;
 
   @Override
   void drop(String name) throws DocumentException;

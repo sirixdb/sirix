@@ -3,35 +3,35 @@ package org.sirix.rest
 import io.vertx.ext.auth.User
 import org.brackit.xquery.node.parser.SubtreeParser
 import org.brackit.xquery.xdm.Stream
-import org.sirix.xquery.node.DBCollection
-import org.sirix.xquery.node.DBStore
+import org.sirix.xquery.node.XmlDBCollection
+import org.sirix.xquery.node.XmlDBStore
 
-class SessionDBStore(private val dbStore: DBStore, private val user: User) : DBStore by dbStore {
-    override fun lookup(name: String): DBCollection {
+class SessionDBStore(private val dbStore: XmlDBStore, private val user: User) : XmlDBStore by dbStore {
+    override fun lookup(name: String): XmlDBCollection {
         checkIfAuthorized(name, "view")
 
         return dbStore.lookup(name)
     }
 
-    override fun create(name: String): DBCollection {
+    override fun create(name: String): XmlDBCollection {
         checkIfAuthorized(name, "create")
 
         return dbStore.create(name)
     }
 
-    override fun create(name: String, parser: SubtreeParser): DBCollection {
+    override fun create(name: String, parser: SubtreeParser): XmlDBCollection {
         checkIfAuthorized(name, "create")
 
         return dbStore.create(name, parser)
     }
 
-    override fun create(name: String, parsers: Stream<SubtreeParser>): DBCollection {
+    override fun create(name: String, parsers: Stream<SubtreeParser>): XmlDBCollection {
         checkIfAuthorized(name, "create")
 
         return dbStore.create(name, parsers)
     }
 
-    override fun create(dbName: String, resourceName: String, parsers: SubtreeParser): DBCollection {
+    override fun create(dbName: String, resourceName: String, parsers: SubtreeParser): XmlDBCollection {
         checkIfAuthorized(dbName, "create")
 
         return dbStore.create(dbName, resourceName, parsers)

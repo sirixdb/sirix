@@ -26,8 +26,8 @@ import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.SirixQueryContext.CommitStrategy;
-import org.sirix.xquery.node.BasicDBStore;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you would use a logger
@@ -81,7 +81,7 @@ public final class XQueryUsage {
     final Path doc = Paths.get("src", "main", "resources", "test.xml");
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       // Use XQuery to load sample document into store.
@@ -113,7 +113,7 @@ public final class XQueryUsage {
     final Path doc = Paths.get("src", "main", "resources", "orga.xml");
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       // Use XQuery to load sample document into store.
@@ -147,7 +147,7 @@ public final class XQueryUsage {
     final Path doc = generateSampleDoc("sample");
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new SirixQueryContext(store);
 
       // Use XQuery to load sample document into store.
@@ -177,7 +177,7 @@ public final class XQueryUsage {
    */
   private static void loadDocumentAndQueryTemporal() throws QueryException, IOException, SirixException {
     // Initialize query context and store (implicit transaction commit).
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx1 = new SirixQueryContext(store);
       final CompileChain compileChain = new SirixCompileChain(store);
 
@@ -254,7 +254,7 @@ public final class XQueryUsage {
     // System.out.println();
     // }
 
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new QueryContext(store);
       System.out.println();
       System.out.println("Query loaded document:");
@@ -265,7 +265,7 @@ public final class XQueryUsage {
       q.serialize(ctx, System.out);
     }
 
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new SirixQueryContext(store);
       System.out.println();
       System.out.println("Query loaded document:");
@@ -314,7 +314,7 @@ public final class XQueryUsage {
     // }
 
     // Create and commit CAS indexes on all attribute- and text-nodes.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx3 = new QueryContext(store);
       System.out.println();
       System.out.println(
@@ -331,7 +331,7 @@ public final class XQueryUsage {
     }
 
     // Create and commit path index on all elements.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx3 = new QueryContext(store);
       System.out.println();
       System.out.println("Create path index for all elements (all paths):");
@@ -344,7 +344,7 @@ public final class XQueryUsage {
     }
 
     // Create and commit name index on all elements with QName 'src' or 'msg'.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx3 = new SirixQueryContext(store, CommitStrategy.EXPLICIT);
       System.out.println();
       System.out.println("Create name index for all elements with name 'src' or 'msg':");
@@ -358,7 +358,7 @@ public final class XQueryUsage {
     }
 
     // Query CAS index.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       System.out.println("");
       System.out.println("Find CAS index for all attribute values.");
       final QueryContext ctx3 = new SirixQueryContext(store);
@@ -380,7 +380,7 @@ public final class XQueryUsage {
     }
 
     // Query CAS index.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       System.out.println("");
       System.out.println("Find CAS index for all text values which are integers between 10 and 100.");
       final QueryContext ctx3 = new SirixQueryContext(store);
@@ -402,11 +402,11 @@ public final class XQueryUsage {
     }
 
     // Query path index which are children of the log-element (only elements).
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       System.out.println("");
       System.out.println("Find path index for all elements which are children of the log-element (only elements).");
       final QueryContext ctx3 = new SirixQueryContext(store);
-      final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store), "doc('mydocs.col')").execute(ctx3);
+      final XmlDBNode node = (XmlDBNode) new XQuery(new SirixCompileChain(store), "doc('mydocs.col')").execute(ctx3);
       final Optional<IndexDef> index = node.getTrx()
                                            .getResourceManager()
                                            .getRtxIndexController(node.getTrx().getRevisionNumber())
@@ -428,7 +428,7 @@ public final class XQueryUsage {
     }
 
     // Query name index.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       System.out.println("");
       System.out.println("Query name index (src-element).");
       final QueryContext ctx3 = new QueryContext(store);
@@ -440,7 +440,7 @@ public final class XQueryUsage {
       q.serialize(ctx3, System.out);
     }
 
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final QueryContext ctx = new SirixQueryContext(store);
       System.out.println();
       System.out.println("Query loaded document:");
@@ -479,7 +479,7 @@ public final class XQueryUsage {
       System.out.println();
     }
 
-    try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
       final Path doc = Paths.get("src", "main", "resources", "test.xml");
 
       final QueryContext ctx = new SirixQueryContext(store);

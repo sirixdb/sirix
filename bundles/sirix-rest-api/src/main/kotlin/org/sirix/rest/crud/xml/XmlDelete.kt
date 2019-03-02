@@ -15,7 +15,7 @@ import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.SessionDBStore
-import org.sirix.xquery.node.BasicDBStore
+import org.sirix.xquery.node.BasicXmlDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -27,7 +27,7 @@ class XdmDelete(private val location: Path) {
 
         if (dbName == null) {
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), ctx.get("user") as User)
+            val dbStore = SessionDBStore(BasicXmlDBStore.newBuilder().build(), ctx.get("user") as User)
 
             ctx.vertx().executeBlockingAwait(Handler<Future<Nothing>> {
                 val databases = Files.list(location)

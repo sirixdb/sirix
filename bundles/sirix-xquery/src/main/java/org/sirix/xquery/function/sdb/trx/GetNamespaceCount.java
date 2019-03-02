@@ -9,7 +9,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -40,7 +40,7 @@ public final class GetNamespaceCount extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
-    final DBNode doc = ((DBNode) args[0]);
+    final XmlDBNode doc = ((XmlDBNode) args[0]);
 
     return new Int32(doc.getTrx().getNamespaceCount());
   }

@@ -20,11 +20,11 @@ import org.sirix.xquery.SirixCompileChain;
 public final class SirixXMarkTest extends XMarkTest {
 
   /** Sirix database store. */
-  private BasicDBStore mStore;
+  private BasicXmlDBStore mStore;
 
   @Override
   protected Store createStore() throws Exception {
-    mStore = BasicDBStore.newBuilder().build();
+    mStore = BasicXmlDBStore.newBuilder().build();
     return mStore;
   }
 

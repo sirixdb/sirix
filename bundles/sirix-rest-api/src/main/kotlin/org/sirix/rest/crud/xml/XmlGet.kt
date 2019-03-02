@@ -23,9 +23,9 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.node.BasicDBStore
-import org.sirix.xquery.node.DBCollection
-import org.sirix.xquery.node.DBNode
+import org.sirix.xquery.node.BasicXmlDBStore
+import org.sirix.xquery.node.XmlDBCollection
+import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
@@ -149,7 +149,7 @@ class XdmGet(private val location: Path) {
                                       revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
                                       nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
-            val dbCollection = DBCollection(dbName, database)
+            val dbCollection = XmlDBCollection(dbName, database)
 
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
@@ -164,7 +164,7 @@ class XdmGet(private val location: Path) {
                         else
                             trx.moveTo(nodeId.toLong())
 
-                        val dbNode = DBNode(trx, dbCollection)
+                        val dbNode = XmlDBNode(trx, dbCollection)
 
                         xquery(query, dbNode, ctx, vertxContext, user)
                     }
@@ -189,11 +189,11 @@ class XdmGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context,
+    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
+            val dbStore = SessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext(dbStore)

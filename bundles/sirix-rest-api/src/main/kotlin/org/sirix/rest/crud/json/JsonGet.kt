@@ -12,7 +12,7 @@ import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.JsonSerializeHelper
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.xquery.node.DBNode
+import org.sirix.xquery.node.XmlDBNode
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -187,7 +187,7 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: DBNode?, routingContext: RoutingContext, vertxContext: Context,
+    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
         // TODO
         /* vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->

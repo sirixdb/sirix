@@ -24,7 +24,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -65,7 +65,7 @@ public final class CreateCASIndex extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final DBNode doc = ((DBNode) args[0]);
+    final XmlDBNode doc = ((XmlDBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
         (XmlIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);

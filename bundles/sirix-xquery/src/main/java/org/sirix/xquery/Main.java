@@ -46,7 +46,7 @@ import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
 import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.TemporalCollection;
-import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.BasicXmlDBStore;
 
 /**
  * @author Sebastian Baechle
@@ -94,7 +94,7 @@ public final class Main {
   public static void main(final String[] args) {
     try {
       final Config config = parseParams(args);
-      try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
+      try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
         final QueryContext ctx = new SirixQueryContext(store);
 
         final String file = config.getValue("-f");

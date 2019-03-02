@@ -27,8 +27,8 @@ import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBStore;
 
 /**
  * <p>
@@ -97,12 +97,12 @@ public final class Store extends AbstractFunction {
               ? false
               : true);
 
-      final DBStore store = (DBStore) ctx.getStore();
+      final XmlDBStore store = (XmlDBStore) ctx.getStore();
       if (createNew) {
         create(store, collName, resName, nodes);
       } else {
         try {
-          final DBCollection coll = store.lookup(collName);
+          final XmlDBCollection coll = store.lookup(collName);
           add(store, coll, resName, nodes);
         } catch (final DocumentException e) {
           // collection does not exist
@@ -116,7 +116,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final DBStore store, final DBCollection coll, final String resName,
+  private static void add(final XmlDBStore store, final XmlDBCollection coll, final String resName,
       final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
@@ -133,7 +133,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final DBStore store, final String collName, final String resName,
+  private static void create(final XmlDBStore store, final String collName, final String resName,
       final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;

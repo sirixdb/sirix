@@ -25,7 +25,7 @@ import org.sirix.index.IndexType;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
@@ -53,7 +53,7 @@ public final class ScanPathIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
-    final DBNode doc = ((DBNode) args[0]);
+    final XmlDBNode doc = ((XmlDBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
         (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
@@ -81,7 +81,7 @@ public final class ScanPathIndex extends AbstractFunction {
         : null;
 
     final XmlIndexController ic = controller;
-    final DBNode node = doc;
+    final XmlDBNode node = doc;
 
     return new LazySequence() {
       @Override
