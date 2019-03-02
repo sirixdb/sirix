@@ -68,7 +68,7 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createXdmDatabase(config);
+      Databases.createXmlDatabase(config);
     }
     final var database = Databases.openXmlDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).useDeweyIDs(true).build());
@@ -89,7 +89,7 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createXdmDatabase(config);
+      Databases.createXmlDatabase(config);
     }
     final var database = Databases.openXmlDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).buildPathSummary(true).build());

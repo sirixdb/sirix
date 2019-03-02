@@ -465,7 +465,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
     try (final var db = Databases.openXmlDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 

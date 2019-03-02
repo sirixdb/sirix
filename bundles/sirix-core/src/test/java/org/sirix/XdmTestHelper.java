@@ -122,7 +122,7 @@ public final class XdmTestHelper {
       try {
         final DatabaseConfiguration config = new DatabaseConfiguration(file);
         if (!Files.exists(file)) {
-          Databases.createXdmDatabase(config);
+          Databases.createXmlDatabase(config);
         }
         final var database = Databases.openXmlDatabase(file);
         database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
@@ -150,7 +150,7 @@ public final class XdmTestHelper {
       try {
         final DatabaseConfiguration config = new DatabaseConfiguration(file);
         if (!Files.exists(file)) {
-          Databases.createXdmDatabase(config);
+          Databases.createXmlDatabase(config);
         }
         final var database = Databases.openXmlDatabase(file);
         database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());

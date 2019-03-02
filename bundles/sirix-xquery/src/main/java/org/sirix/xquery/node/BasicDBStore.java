@@ -163,7 +163,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   public DBCollection create(final String name) throws DocumentException {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
     try {
-      if (Databases.createXdmDatabase(dbConf)) {
+      if (Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
@@ -190,7 +190,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
-      Databases.createXdmDatabase(dbConf);
+      Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       mDatabases.add(database);
       final String resName = optResName != null
@@ -230,7 +230,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
         Databases.removeDatabase(dbPath);
-        Databases.createXdmDatabase(dbConf);
+        Databases.createXmlDatabase(dbConf);
         final var database = Databases.openXmlDatabase(dbConf.getFile());
         mDatabases.add(database);
         final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());

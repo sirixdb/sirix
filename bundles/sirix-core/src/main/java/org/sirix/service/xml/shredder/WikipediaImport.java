@@ -138,7 +138,7 @@ public final class WikipediaImport implements Import<StartElement> {
     }
 
     final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
     mDatabase = Databases.openXmlDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
     mResourceManager = mDatabase.openResourceManager("shredded");
@@ -275,7 +275,7 @@ public final class WikipediaImport implements Import<StartElement> {
     final Path path = Files.createTempDirectory("sdbtmp");
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
     Databases.removeDatabase(path);
-    Databases.createXdmDatabase(dbConf);
+    Databases.createXmlDatabase(dbConf);
     final var db = Databases.openXmlDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki").build());
     final XmlResourceManager resourceManager = db.openResourceManager("wiki");

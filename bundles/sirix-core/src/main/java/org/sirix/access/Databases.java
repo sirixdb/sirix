@@ -54,14 +54,14 @@ public final class Databases {
   }
 
   /**
-   * Creates an XDM-database. This includes loading the database configuration, building up the
+   * Creates an XML-database. This includes loading the database configuration, building up the
    * structure and preparing everything for login.
    *
    * @param dbConfig config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
    */
-  public static synchronized boolean createXdmDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
+  public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XML));
   }
 

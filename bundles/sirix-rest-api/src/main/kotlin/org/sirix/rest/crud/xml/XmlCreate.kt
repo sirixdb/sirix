@@ -134,7 +134,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
             val dbConfig = DatabaseConfiguration(dbFile)
 
             if (!Databases.existsDatabase(dbFile)) {
-                Databases.createXdmDatabase(dbConfig)
+                Databases.createXmlDatabase(dbConfig)
             }
 
             it.complete(dbConfig)

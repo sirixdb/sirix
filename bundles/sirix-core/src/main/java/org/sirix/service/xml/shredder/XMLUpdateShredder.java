@@ -1151,7 +1151,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final Path target = Paths.get(args[1]);
 
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
     final var db = Databases.openXmlDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded").build());
     try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
