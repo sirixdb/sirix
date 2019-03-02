@@ -33,8 +33,8 @@ import javax.xml.stream.XMLStreamException;
 import org.mockito.InOrder;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
@@ -70,7 +70,7 @@ public final class DiffTestHelper {
         new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
       new XmlShredder.Builder(holder.getXdmNodeWriteTrx(), XmlShredder.createFileReader(fis),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
-      final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
+      final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.moveToFirstChild();
@@ -107,10 +107,10 @@ public final class DiffTestHelper {
 
   static void setUpSeventh(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
-    final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -120,10 +120,10 @@ public final class DiffTestHelper {
 
   static void setUpEighth(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
-    final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
     XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);

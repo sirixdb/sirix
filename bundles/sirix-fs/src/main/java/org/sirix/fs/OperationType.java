@@ -8,7 +8,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import com.google.common.base.Optional;
@@ -20,10 +20,10 @@ import com.google.common.base.Optional;
  *
  */
 @Nonnull
-enum OperationType implements Operation<XdmNodeTrx> {
+enum OperationType implements Operation<XmlNodeTrx> {
   INSERT {
     @Override
-    public void execute(final XdmNodeTrx wtx, final Visitor<XdmNodeTrx> visitor,
+    public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
       checkNotNull(wtx);
@@ -49,7 +49,7 @@ enum OperationType implements Operation<XdmNodeTrx> {
 
   UPDATE {
     @Override
-    public void execute(final XdmNodeTrx wtx, final Visitor<XdmNodeTrx> visitor,
+    public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
       checkNotNull(wtx);
@@ -66,7 +66,7 @@ enum OperationType implements Operation<XdmNodeTrx> {
 
   DELETE {
     @Override
-    public void execute(final XdmNodeTrx wtx, final Visitor<XdmNodeTrx> visitor,
+    public void execute(final XmlNodeTrx wtx, final Visitor<XmlNodeTrx> visitor,
         final Map<Path, org.sirix.fs.FileSystemPath> index, final Path child)
         throws SirixException {
       checkNotNull(wtx);
@@ -83,10 +83,10 @@ enum OperationType implements Operation<XdmNodeTrx> {
    * Process changed {@link Path} with an optional visitor if present.
    *
    * @param visitor optional visitor
-   * @param wtx sirix {@link XdmNodeTrx}
+   * @param wtx sirix {@link XmlNodeTrx}
    * @param path {@link Path} reference
    */
-  private static void processVisitor(Visitor<XdmNodeTrx> visitor, final XdmNodeTrx wtx,
+  private static void processVisitor(Visitor<XmlNodeTrx> visitor, final XmlNodeTrx wtx,
       final Path path) {
     assert path != null;
     if (visitor != null) {

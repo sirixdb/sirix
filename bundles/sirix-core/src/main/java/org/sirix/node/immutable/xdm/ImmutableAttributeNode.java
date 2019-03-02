@@ -5,14 +5,14 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.settings.Constants;
 
@@ -22,7 +22,7 @@ import org.sirix.settings.Constants;
  * @author Johannes Lichtenberger
  *
  */
-public final class ImmutableAttributeNode implements ImmutableValueNode, ImmutableNameNode, ImmutableXdmNode {
+public final class ImmutableAttributeNode implements ImmutableValueNode, ImmutableNameNode, ImmutableXmlNode {
 
   /** Mutable {@link AttributeNode}. */
   private final AttributeNode mNode;
@@ -57,7 +57,7 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(this);
   }
 

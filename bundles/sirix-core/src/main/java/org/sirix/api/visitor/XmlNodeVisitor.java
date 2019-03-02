@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -19,11 +19,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node.xdm;
+package org.sirix.api.visitor;
 
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.immutable.xdm.ImmutableComment;
 import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
@@ -33,73 +30,73 @@ import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.immutable.xdm.ImmutableText;
 
 /**
- * <h1>AbstractVisitor</h1>
- * 
- * <p>
- * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
- * implementing inheritance or when using anonymous inner classes to create simple {@link XdmNodeVisitor}
- * implementations.
- * </p>
- * 
- * <h2>Usage Examples:</h2>
- * 
- * <code><pre>
- * final Visitor visitor = new NamespaceChangeVisitor(session);
- * for (final long nodeKey : new DescendantAxis.Builder(rtx).includeSelf().build()) {
- *      rtx.acceptVisitor(visitor);
- * }
- * </pre></code>
- * 
- * <code><pre>
- * // MyVisitor extends AbstractVisitor.
- * final Visitor visitor = new MyVisitor(rtx) {
- *   public void visit(final ImmutableElement node) {
- *     rtx.moveTo(pNode.getKey());
- *     LOGGER.info("Element name: " + mRtx.getName().getLocalName());
- *   }     
- * };
- * 
- * for (final long nodeKey : new DescendantAxis(rtx);) {
- *   rtx.acceptVisitor(visitor);
- * }
- * </pre></code>
- * 
+ * Interface which must be implemented from visitors to implement functionality based on the visitor
+ * pattern.
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
-public abstract class AbstractXdmNodeVisitor implements XdmNodeVisitor {
-  @Override
-  public VisitResult visit(final ImmutablePI node) {
+public interface XmlNodeVisitor extends NodeVisitor {
+  /**
+   * Do something when visiting a {@link ImmutablePI}.
+   *
+   * @param node the {@link ImmutablePI}
+   */
+  default VisitResult visit(ImmutablePI node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableComment node) {
+  /**
+   * Do something when visiting a {@link ImmutableComment}.
+   *
+   * @param node the {@link ImmutableComment}
+   */
+  default VisitResult visit(ImmutableComment node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableElement node) {
+  /**
+   * Do something when visiting an {@link ImmutableElement}.
+   *
+   * @param node the {@link ImmutableElement}
+   */
+  default VisitResult visit(ImmutableElement node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableText node) {
+  /**
+   * Do something when visiting a {@link ImmutableAttributeNode}.
+   *
+   * @param node the {@link ImmutableAttributeNode}
+   */
+  default VisitResult visit(ImmutableAttributeNode node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableDocumentNode node) {
+  /**
+   * ImmutableDocumentRoot Do something when visiting a {@link ImmutableNamespace}.
+   *
+   * @param node the {@link ImmutableNamespace}
+   */
+  default VisitResult visit(ImmutableNamespace node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableAttributeNode node) {
+  /**
+   * Do something when visiting a {@link ImmutableText}.
+   *
+   * @param node the {@link ImmutableText}
+   */
+  default VisitResult visit(ImmutableText node) {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResult visit(final ImmutableNamespace node) {
+  /**
+   * Do something when visiting the {@link ImmutableDocumentNode}.
+   *
+   * @param node the {@link ImmutableDocumentNode}
+   */
+  default VisitResult visit(ImmutableDocumentNode node) {
     return VisitResultType.CONTINUE;
   }
 }

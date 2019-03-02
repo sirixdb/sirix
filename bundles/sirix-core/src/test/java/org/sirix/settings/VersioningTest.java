@@ -33,22 +33,22 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 
 /** Test revisioning. */
 public class VersioningTest {
 
   /** {@link Database} instance. */
-  private Database<XdmResourceManager> mDatabase;
+  private Database<XmlResourceManager> mDatabase;
 
   @Before
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
     Databases.createXdmDatabase(new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile()));
-    mDatabase = Databases.openXdmDatabase(XdmTestHelper.PATHS.PATH1.getFile());
+    mDatabase = Databases.openXmlDatabase(XdmTestHelper.PATHS.PATH1.getFile());
   }
 
   @After
@@ -172,8 +172,8 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
-      try (final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final XmlResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
           wtx.insertElementAsFirstChild(new QNm("foo"));
         }
@@ -191,7 +191,7 @@ public class VersioningTest {
         fillNodePage(wtx);
         wtx.commit();
         assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
-        try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
+        try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild().hasMoved());
           }
@@ -210,8 +210,8 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test1() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
-      XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
+      XmlNodeTrx wtx = manager.beginNodeTrx();
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("foo"));
       }
@@ -241,7 +241,7 @@ public class VersioningTest {
       fillNodePage(wtx);
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
+      try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertEquals(new QNm("foobar"), rtx.getName());
         assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -260,8 +260,8 @@ public class VersioningTest {
    * @throws SirixException if anything in Sirix fails
    */
   public void test2() throws SirixException {
-    try (final XdmResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
-      XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = mDatabase.openResourceManager(XdmTestHelper.RESOURCE)) {
+      XmlNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();
       wtx.insertElementAsFirstChild(new QNm("foo"));
@@ -273,7 +273,7 @@ public class VersioningTest {
       wtx.insertElementAsFirstChild(new QNm("foo"));
       wtx.commit();
       wtx.close();
-      try (final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
+      try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());
         assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -286,10 +286,10 @@ public class VersioningTest {
   /**
    * Set the second {@link QNm} in the first node page.
    *
-   * @param wtx {@link XdmNodeTrx} instance
+   * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setFoooo(final XdmNodeTrx wtx) throws SirixException {
+  private void setFoooo(final XmlNodeTrx wtx) throws SirixException {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
@@ -299,10 +299,10 @@ public class VersioningTest {
   /**
    * Set the first {@link QNm} in the first node page.
    *
-   * @param wtx {@link XdmNodeTrx} instance
+   * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setFooBar(final XdmNodeTrx wtx) throws SirixException {
+  private void setFooBar(final XmlNodeTrx wtx) throws SirixException {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.setName(new QNm("foobar"));
@@ -311,10 +311,10 @@ public class VersioningTest {
   /**
    * Set the last {@link QNm} in the first node page.
    *
-   * @param wtx {@link XdmNodeTrx} instance
+   * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void setBaaaz(final XdmNodeTrx wtx) throws SirixException {
+  private void setBaaaz(final XmlNodeTrx wtx) throws SirixException {
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
@@ -326,10 +326,10 @@ public class VersioningTest {
   /**
    * Fill node page.
    *
-   * @param wtx {@link XdmNodeTrx} instance
+   * @param wtx {@link XmlNodeTrx} instance
    * @throws SirixException if inserting elements fails
    */
-  private void fillNodePage(final XdmNodeTrx wtx) throws SirixException {
+  private void fillNodePage(final XmlNodeTrx wtx) throws SirixException {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       wtx.insertElementAsFirstChild(new QNm("foo"));
     }
@@ -338,10 +338,10 @@ public class VersioningTest {
   /**
    * Move through all nodes in a node page.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} instance
+   * @param rtx {@link XmlNodeReadOnlyTrx} instance
    * @throws SirixException if movement fails
    */
-  private void move(final XdmNodeReadOnlyTrx rtx) throws SirixException {
+  private void move(final XmlNodeReadOnlyTrx rtx) throws SirixException {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       assertTrue(rtx.moveToFirstChild().hasMoved());
     }

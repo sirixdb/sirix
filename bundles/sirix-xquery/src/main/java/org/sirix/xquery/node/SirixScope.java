@@ -5,8 +5,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -18,8 +18,8 @@ import org.sirix.settings.Fixed;
  */
 public final class SirixScope implements Scope {
 
-  /** Sirix {@link XdmNodeReadOnlyTrx}. */
-  private final XdmNodeReadOnlyTrx mRtx;
+  /** Sirix {@link XmlNodeReadOnlyTrx}. */
+  private final XmlNodeReadOnlyTrx mRtx;
 
   /**
    * Constructor.
@@ -60,8 +60,8 @@ public final class SirixScope implements Scope {
 
   @Override
   public void addPrefix(final String prefix, final String uri) throws DocumentException {
-    if (mRtx instanceof XdmNodeTrx) {
-      final XdmNodeTrx wtx = (XdmNodeTrx) mRtx;
+    if (mRtx instanceof XmlNodeTrx) {
+      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
       try {
         wtx.insertNamespace(new QNm(uri, prefix, ""));
       } catch (final SirixException e) {

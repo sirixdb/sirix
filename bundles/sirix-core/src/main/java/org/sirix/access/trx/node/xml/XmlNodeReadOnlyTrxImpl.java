@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -36,10 +36,10 @@ import org.sirix.api.ItemList;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -56,7 +56,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
 import org.sirix.node.xdm.ElementNode;
@@ -73,18 +73,18 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * <h1>XdmNodeReadTrxImpl</h1>
+ * <h1>XmlNodeReadOnlyTrxImpl</h1>
  *
  * <p>
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  * </p>
  */
-public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeReadOnlyTrx>
-    implements InternalXdmNodeReadTrx {
+public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeReadOnlyTrx>
+    implements InternalXmlNodeReadTrx {
 
   /** Resource manager this write transaction is bound to. */
-  protected final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> mResourceManager;
+  protected final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> mResourceManager;
 
   /** Tracks whether the transaction is closed. */
   private boolean mClosed;
@@ -103,8 +103,8 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
    * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
    * @param documentNode the document node
    */
-  XdmNodeReadOnlyTrxImpl(final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> resourceManager,
-      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXdmNode documentNode) {
+  XmlNodeReadOnlyTrxImpl(final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+      final @Nonnegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode);
     mResourceManager = checkNotNull(resourceManager);
     checkArgument(trxId >= 0);
@@ -114,17 +114,17 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public void setCurrentNode(final @Nullable ImmutableXdmNode currentNode) {
+  public void setCurrentNode(final @Nullable ImmutableXmlNode currentNode) {
     assertNotClosed();
     mCurrentNode = currentNode;
   }
 
   @Override
-  public Move<XdmNodeReadOnlyTrx> moveTo(final long nodeKey) {
+  public Move<XmlNodeReadOnlyTrx> moveTo(final long nodeKey) {
     assertNotClosed();
 
     // Remember old node and fetch new one.
-    final ImmutableXdmNode oldNode = (ImmutableXdmNode) mCurrentNode;
+    final ImmutableXmlNode oldNode = (ImmutableXmlNode) mCurrentNode;
     Optional<? extends Record> newNode;
     try {
       // Immediately return node from item list if node key negative.
@@ -143,7 +143,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = (ImmutableXdmNode) newNode.get();
+      mCurrentNode = (ImmutableXmlNode) newNode.get();
       return Move.moved(this);
     } else {
       mCurrentNode = oldNode;
@@ -152,7 +152,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public ImmutableXdmNode getNode() {
+  public ImmutableXmlNode getNode() {
     switch (mCurrentNode.getKind()) {
       case ELEMENT:
         return ImmutableElement.of((ElementNode) mCurrentNode);
@@ -187,12 +187,12 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToAttribute(final int index) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getAttributeCount() > index) {
-        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(element.getAttributeKey(index));
+        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(element.getAttributeKey(index));
         return moved;
       } else {
         return Move.notMoved();
@@ -203,12 +203,12 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToNamespace(final int index) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(final int index) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getNamespaceCount() > index) {
-        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(element.getNamespaceKey(index));
+        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(element.getNamespaceKey(index));
         return moved;
       } else {
         return Move.notMoved();
@@ -240,7 +240,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   @Override
   public String getType() {
     assertNotClosed();
-    return mPageReadTrx.getName(((ImmutableXdmNode) mCurrentNode).getTypeKey(), mCurrentNode.getKind());
+    return mPageReadTrx.getName(((ImmutableXmlNode) mCurrentNode).getTypeKey(), mCurrentNode.getKind());
   }
 
   @Override
@@ -277,13 +277,13 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
     assertNotClosed();
     if (mCurrentNode.getKind() == Kind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       final Optional<Long> attrKey = element.getAttributeKeyByName(name);
       if (attrKey.isPresent()) {
-        final Move<? extends XdmNodeReadOnlyTrx> moved = moveTo(attrKey.get());
+        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(attrKey.get());
         return moved;
       }
     }
@@ -292,8 +292,8 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XdmNodeReadOnlyTrxImpl) {
-      final XdmNodeReadOnlyTrxImpl rtx = (XdmNodeReadOnlyTrxImpl) obj;
+    if (obj instanceof XmlNodeReadOnlyTrxImpl) {
+      final XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) obj;
       return mCurrentNode.getNodeKey() == rtx.mCurrentNode.getNodeKey()
           && mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx.getRevisionNumber();
     }
@@ -306,7 +306,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  protected XdmNodeReadOnlyTrx thisInstance() {
+  protected XmlNodeReadOnlyTrx thisInstance() {
     return this;
   }
 
@@ -357,13 +357,13 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   @Override
   public int getTypeKey() {
     assertNotClosed();
-    return ((ImmutableXdmNode) mCurrentNode).getTypeKey();
+    return ((ImmutableXmlNode) mCurrentNode).getTypeKey();
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableXdmNode) mCurrentNode).acceptVisitor(visitor);
+    return ((ImmutableXmlNode) mCurrentNode).acceptVisitor(visitor);
   }
 
   @Override
@@ -475,7 +475,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   @Override
   public Optional<SirixDeweyID> getDeweyID() {
     assertNotClosed();
-    return ((ImmutableXdmNode) mCurrentNode).getDeweyID();
+    return ((ImmutableXmlNode) mCurrentNode).getDeweyID();
   }
 
   @Override
@@ -614,9 +614,9 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public XdmResourceManager getResourceManager() {
+  public XmlResourceManager getResourceManager() {
     assertNotClosed();
-    return (XdmResourceManager) mResourceManager;
+    return (XmlResourceManager) mResourceManager;
   }
 
   @Override
@@ -627,7 +627,7 @@ public final class XdmNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XdmNodeRea
   }
 
   @Override
-  public ImmutableXdmNode getCurrentNode() {
-    return (ImmutableXdmNode) mCurrentNode;
+  public ImmutableXmlNode getCurrentNode() {
+    return (ImmutableXmlNode) mCurrentNode;
   }
 }

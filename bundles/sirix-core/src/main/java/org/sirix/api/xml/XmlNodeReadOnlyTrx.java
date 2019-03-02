@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.api.xdm;
+package org.sirix.api.xml;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,13 +35,13 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
 import org.sirix.node.xdm.XdmDocumentRootNode;
@@ -124,7 +124,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *
  * </p>
  */
-public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
+public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the page reading transaction.
    *
@@ -151,10 +151,10 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Accept a visitor.
    *
-   * @param visitor {@link XdmNodeVisitor} implementation
+   * @param visitor {@link XmlNodeVisitor} implementation
    * @return {@link VisitResultType} value
    */
-  VisitResult acceptVisitor(XdmNodeVisitor visitor);
+  VisitResult acceptVisitor(XmlNodeVisitor visitor);
 
   /**
    * Get the immutable node where the cursor currently is located.
@@ -162,7 +162,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return the immutable node instance
    */
   @Override
-  ImmutableXdmNode getNode();
+  ImmutableXmlNode getNode();
 
   /**
    * Move cursor to attribute by its index.
@@ -171,7 +171,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadOnlyTrx> moveToAttribute(@Nonnegative int index);
+  Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(@Nonnegative int index);
 
   /**
    * Move cursor to attribute by its name key.
@@ -180,7 +180,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return {@link Moved} instance if the attribute node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadOnlyTrx> moveToAttributeByName(QNm name);
+  Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(QNm name);
 
   /**
    * Move cursor to namespace declaration by its index.
@@ -189,7 +189,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return {@link Moved} instance if the namespace node is selected, {@code NotMoved} instance
    *         otherwise
    */
-  Move<? extends XdmNodeReadOnlyTrx> moveToNamespace(@Nonnegative int index);
+  Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@Nonnegative int index);
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -240,7 +240,7 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean isClosed();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToNextFollowing();
+  Move<? extends XmlNodeReadOnlyTrx> moveToNextFollowing();
 
   /**
    * Get the left {@link SirixDeweyID} of the currently selected node.
@@ -465,31 +465,31 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   String getNamespaceURI();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveTo(long nodeKey);
+  Move<? extends XmlNodeReadOnlyTrx> moveTo(long nodeKey);
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToDocumentRoot();
+  Move<? extends XmlNodeReadOnlyTrx> moveToDocumentRoot();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToFirstChild();
+  Move<? extends XmlNodeReadOnlyTrx> moveToFirstChild();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToLastChild();
+  Move<? extends XmlNodeReadOnlyTrx> moveToLastChild();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToLeftSibling();
+  Move<? extends XmlNodeReadOnlyTrx> moveToLeftSibling();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToParent();
+  Move<? extends XmlNodeReadOnlyTrx> moveToParent();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToRightSibling();
+  Move<? extends XmlNodeReadOnlyTrx> moveToRightSibling();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToPrevious();
+  Move<? extends XmlNodeReadOnlyTrx> moveToPrevious();
 
   @Override
-  Move<? extends XdmNodeReadOnlyTrx> moveToNext();
+  Move<? extends XmlNodeReadOnlyTrx> moveToNext();
 
   /**
    * Determines if current node is an {@link ElementNode}.
@@ -561,5 +561,5 @@ public interface XdmNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return the resource manager
    */
   @Override
-  XdmResourceManager getResourceManager();
+  XmlResourceManager getResourceManager();
 }

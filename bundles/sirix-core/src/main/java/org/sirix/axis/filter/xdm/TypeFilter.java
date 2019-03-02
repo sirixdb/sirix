@@ -21,7 +21,7 @@
 
 package org.sirix.axis.filter.xdm;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
@@ -31,7 +31,7 @@ import org.sirix.axis.filter.AbstractFilter;
  * Only match nodes with the specified value type.
  * </p>
  */
-public class TypeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public class TypeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /** Type information. */
   private final int mType;
@@ -42,7 +42,7 @@ public class TypeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
    * @param rtx transaction this filter is bound to
    * @param type type to match
    */
-  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final int type) {
+  public TypeFilter(final XmlNodeReadOnlyTrx rtx, final int type) {
     super(rtx);
     mType = type;
   }
@@ -53,7 +53,7 @@ public class TypeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
    * @param rtx transaction this filter is bound to
    * @param typeName name of the type to match
    */
-  public TypeFilter(final XdmNodeReadOnlyTrx rtx, final String typeName) {
+  public TypeFilter(final XmlNodeReadOnlyTrx rtx, final String typeName) {
     this(rtx, rtx.keyForName(typeName));
   }
 

@@ -13,8 +13,8 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -42,20 +42,20 @@ public class HierarchyFileVisitor extends AbstractShredder
   /**
    * Mapping of {@link Database} to {@link HierarchyFileVisitor} shared among all instances.
    */
-  private static final ConcurrentMap<XdmNodeTrx, HierarchyFileVisitor> INSTANCES =
+  private static final ConcurrentMap<XmlNodeTrx, HierarchyFileVisitor> INSTANCES =
       new ConcurrentHashMap<>();
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER =
       new LogWrapper(LoggerFactory.getLogger(HierarchyFileVisitor.class));
 
-  /** sirix {@link XdmNodeTrx}. */
-  private final XdmNodeTrx mWtx;
+  /** sirix {@link XmlNodeTrx}. */
+  private final XmlNodeTrx mWtx;
 
   /**
    * Visitor which simply can be plugged in to create a more thorough XML representation.
    */
-  private final Optional<Visitor<XdmNodeTrx>> mVisitor;
+  private final Optional<Visitor<XmlNodeTrx>> mVisitor;
 
   /** Index entries {@code String} representation to {@link Path} value. */
   private final Map<Path, org.sirix.fs.FileSystemPath> mIndex;
@@ -63,18 +63,18 @@ public class HierarchyFileVisitor extends AbstractShredder
   /** Simple Builder. */
   public static class Builder {
 
-    /** sirix {@link XdmNodeTrx}. */
-    private final XdmNodeTrx mWtx;
+    /** sirix {@link XmlNodeTrx}. */
+    private final XmlNodeTrx mWtx;
 
     /** Implementation of the {@link Visitor} interface. */
-    private Optional<Visitor<XdmNodeTrx>> mVisitor = Optional.absent();
+    private Optional<Visitor<XmlNodeTrx>> mVisitor = Optional.absent();
 
     /**
      * Constructor.
      *
-     * @param pDatabase sirix {@link XdmNodeTrx}
+     * @param pDatabase sirix {@link XmlNodeTrx}
      */
-    public Builder(final XdmNodeTrx pWtx) {
+    public Builder(final XmlNodeTrx pWtx) {
       mWtx = checkNotNull(pWtx);
     }
 
@@ -84,7 +84,7 @@ public class HierarchyFileVisitor extends AbstractShredder
      * @param pVisitor {@link Visitor} implementation
      * @return this builder instance
      */
-    public Builder setVisitor(final Visitor<XdmNodeTrx> pVisitor) {
+    public Builder setVisitor(final Visitor<XmlNodeTrx> pVisitor) {
       mVisitor = Optional.fromNullable(pVisitor);
       return this;
     }
@@ -145,7 +145,7 @@ public class HierarchyFileVisitor extends AbstractShredder
    * </p>
    * <p>
    * An optional visitor can be used to add further attributes or metadata. The sirix
-   * {@link XdmNodeTrx} is located on the new directory before and after using a pluggable
+   * {@link XmlNodeTrx} is located on the new directory before and after using a pluggable
    * visitor.
    * </p>
    *
@@ -187,7 +187,7 @@ public class HierarchyFileVisitor extends AbstractShredder
    * </p>
    * <p>
    * An optional visitor can be used to add further attributes or metadata. The sirix
-   * {@link XdmNodeTrx} is located on the new directory before and after using a pluggable
+   * {@link XmlNodeTrx} is located on the new directory before and after using a pluggable
    * visitor.
    * </p>
    *
@@ -218,11 +218,11 @@ public class HierarchyFileVisitor extends AbstractShredder
    * Process a directory.
    *
    * @param pVisitor an optional visitor implementing {@link Visitor}
-   * @param pWtx sirix {@link XdmNodeTrx}
-   * @see Visitor#processDirectory(XdmNodeReadOnlyTrx) processDirectory(IReadTransaction)
+   * @param pWtx sirix {@link XmlNodeTrx}
+   * @see Visitor#processDirectory(XmlNodeReadOnlyTrx) processDirectory(IReadTransaction)
    */
-  private void processDirectory(final Optional<Visitor<XdmNodeTrx>> pVisitor,
-      final XdmNodeTrx pWtx, final Path pDir, final BasicFileAttributes pAttrs) {
+  private void processDirectory(final Optional<Visitor<XmlNodeTrx>> pVisitor,
+      final XmlNodeTrx pWtx, final Path pDir, final BasicFileAttributes pAttrs) {
     assert pVisitor != null;
     assert pWtx != null;
     if (pVisitor.isPresent()) {
@@ -234,11 +234,11 @@ public class HierarchyFileVisitor extends AbstractShredder
    * Process a file.
    *
    * @param pVisitor an optional visitor implementing {@link Visitor}
-   * @param pWtx sirix {@link XdmNodeTrx}
-   * @see Visitor#processFile(XdmNodeReadOnlyTrx) processFile(IReadTransaction)
+   * @param pWtx sirix {@link XmlNodeTrx}
+   * @see Visitor#processFile(XmlNodeReadOnlyTrx) processFile(IReadTransaction)
    */
-  private void processFile(final Optional<Visitor<XdmNodeTrx>> pVisitor,
-      final XdmNodeTrx pWtx, final Path pFile, final BasicFileAttributes pAttrs) {
+  private void processFile(final Optional<Visitor<XmlNodeTrx>> pVisitor,
+      final XmlNodeTrx pWtx, final Path pFile, final BasicFileAttributes pAttrs) {
     assert pVisitor != null;
     assert pWtx != null;
     if (pVisitor.isPresent()) {

@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
@@ -97,7 +97,7 @@ public final class XPathAxis extends AbstractAxis {
    * @throws SirixXPathException throw a sirix xpath exception.
    */
   @Deprecated
-  public XPathAxis(final XdmNodeReadOnlyTrx pRtx, final String pQuery) throws SirixXPathException {
+  public XPathAxis(final XmlNodeReadOnlyTrx pRtx, final String pQuery) throws SirixXPathException {
     super(pRtx);
 
     // /** Initializing executor service with fixed thread pool. */

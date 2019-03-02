@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -28,24 +28,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalXdmDatabase;
+import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.xdm.XdmResourceStore;
+import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -56,26 +56,26 @@ import org.sirix.page.UnorderedKeyValuePage;
  * Makes sure that there only is a single resource manager instance per thread bound to a resource.
  * </p>
  */
-public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx>
-    implements XdmResourceManager, InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> {
+public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx>
+    implements XmlResourceManager, InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
-  /** {@link XdmIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, XdmIndexController> mRtxIndexControllers;
+  /** {@link XmlIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, XmlIndexController> mRtxIndexControllers;
 
-  /** {@link XdmIndexController}s used for this session. */
-  private final ConcurrentMap<Integer, XdmIndexController> mWtxIndexControllers;
+  /** {@link XmlIndexController}s used for this session. */
+  private final ConcurrentMap<Integer, XmlIndexController> mWtxIndexControllers;
 
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalXdmDatabase} for centralized operations on related sessions
+   * @param database {@link LocalXmlDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
    * @throws SirixException if Sirix encounters an exception
    */
-  public XdmResourceManagerImpl(final Database<XdmResourceManager> database,
-      final @Nonnull XdmResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
+  public XmlResourceManagerImpl(final Database<XmlResourceManager> database,
+      final @Nonnull XmlResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
       final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock) {
     super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock);
@@ -85,41 +85,41 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   }
 
   @Override
-  public XdmNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
-    return new XdmNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXdmNode) documentNode);
+  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
   }
 
   @Override
-  public XdmNodeTrx createNodeReadWriteTrx(long nodeTrxId,
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
       PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
       Node documentNode) {
     // The node read-only transaction.
-    final InternalXdmNodeReadTrx nodeReadTrx =
-        new XdmNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXdmNode) documentNode);
+    final InternalXmlNodeReadTrx nodeReadTrx =
+        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final XdmNodeFactory nodeFactory = new XdmNodeFactoryImpl(pageWriteTrx);
+    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(pageWriteTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
-    final PathSummaryWriter<XdmNodeReadOnlyTrx> pathSummaryWriter;
+    final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
       pathSummaryWriter = new PathSummaryWriter<>(pageWriteTrx, this, nodeFactory, nodeReadTrx);
     } else {
       pathSummaryWriter = null;
     }
 
-    return new XdmNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
+    return new XmlNodeTrxImpl(nodeTrxId, this, nodeReadTrx, pathSummaryWriter, maxNodeCount, timeUnit, maxTime,
         documentNode, nodeFactory);
   }
 
   // TODO: Change for Java9 and above.
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized XdmIndexController getRtxIndexController(final int revision) {
-    XdmIndexController controller = mRtxIndexControllers.get(revision);
+  public synchronized XmlIndexController getRtxIndexController(final int revision) {
+    XmlIndexController controller = mRtxIndexControllers.get(revision);
     if (controller == null) {
-      controller = new XdmIndexController();
+      controller = new XmlIndexController();
       mRtxIndexControllers.put(revision, controller);
     }
     return controller;
@@ -128,10 +128,10 @@ public final class XdmResourceManagerImpl extends AbstractResourceManager<XdmNod
   // TODO: Change for Java9 and above.
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized XdmIndexController getWtxIndexController(final int revision) {
-    XdmIndexController controller = mWtxIndexControllers.get(revision);
+  public synchronized XmlIndexController getWtxIndexController(final int revision) {
+    XmlIndexController controller = mWtxIndexControllers.get(revision);
     if (controller == null) {
-      controller = new XdmIndexController();
+      controller = new XmlIndexController();
       mWtxIndexControllers.put(revision, controller);
     }
     return controller;

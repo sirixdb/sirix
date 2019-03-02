@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
@@ -41,14 +41,14 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.access.trx.node.Movement;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
@@ -71,7 +71,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
 import org.sirix.node.xdm.ElementNode;
@@ -114,7 +114,7 @@ import com.google.common.hash.Hashing;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implements XdmNodeTrx {
+final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implements XmlNodeTrx {
 
   /** Hash-function. */
   private final HashFunction mHash = Hashing.sha256();
@@ -135,22 +135,22 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   private final ScheduledExecutorService mPool =
       Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
 
-  /** {@link InternalXdmNodeReadTrx} reference. */
-  final InternalXdmNodeReadTrx mNodeReadOnlyTrx;
+  /** {@link InternalXmlNodeReadTrx} reference. */
+  final InternalXmlNodeReadTrx mNodeReadOnlyTrx;
 
   /** Determines if a bulk insert operation is done. */
   private boolean mBulkInsert;
 
   /** {@link PathSummaryWriter} instance. */
-  private PathSummaryWriter<XdmNodeReadOnlyTrx> mPathSummaryWriter;
+  private PathSummaryWriter<XmlNodeReadOnlyTrx> mPathSummaryWriter;
 
   /**
    * Determines if a path summary should be built and kept up-to-date or not.
    */
   private final boolean mBuildPathSummary;
 
-  /** {@link XdmNodeFactory} to be able to create nodes. */
-  private XdmNodeFactory mNodeFactory;
+  /** {@link XmlNodeFactory} to be able to create nodes. */
+  private XmlNodeFactory mNodeFactory;
 
   /** An optional lock for all methods, if an automatic commit is issued. */
   private final Lock mLock;
@@ -162,12 +162,12 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   private final boolean mCompression;
 
   /**
-   * The {@link XdmIndexController} used within the session this {@link XdmNodeTrx} is bound to.
+   * The {@link XmlIndexController} used within the session this {@link XmlNodeTrx} is bound to.
    */
-  private final XdmIndexController mIndexController;
+  private final XmlIndexController mIndexController;
 
   /** The resource manager. */
-  private final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> mResourceManager;
+  private final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> mResourceManager;
 
   /** The page write trx. */
   private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
@@ -192,11 +192,11 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   @SuppressWarnings("unchecked")
-  XdmNodeTrxImpl(final @Nonnegative long transactionID,
-      final InternalResourceManager<XdmNodeReadOnlyTrx, XdmNodeTrx> resourceManager,
-      final InternalXdmNodeReadTrx nodeReadTrx, final PathSummaryWriter<XdmNodeReadOnlyTrx> pathSummaryWriter,
+  XmlNodeTrxImpl(final @Nonnegative long transactionID,
+      final InternalResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+      final InternalXmlNodeReadTrx nodeReadTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @Nonnegative int maxNodeCount, final TimeUnit timeUnit, final @Nonnegative int maxTime,
-      final @Nonnull Node documentNode, final XdmNodeFactory nodeFactory) {
+      final @Nonnull Node documentNode, final XmlNodeFactory nodeFactory) {
     // Do not accept negative values.
     Preconditions.checkArgument(maxNodeCount >= 0 && maxTime >= 0,
         "Negative arguments for maxNodeCount and maxTime are not accepted.");
@@ -240,7 +240,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToFirstChild(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       Preconditions.checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
@@ -308,7 +308,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    *
    * @return {@link Node} implementation
    */
-  private ImmutableXdmNode getCurrentNode() {
+  private ImmutableXmlNode getCurrentNode() {
     return mNodeReadOnlyTrx.getCurrentNode();
   }
 
@@ -433,7 +433,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToLeftSibling(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       if (mNodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
@@ -449,7 +449,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey) {
+  public XmlNodeTrx moveSubtreeToRightSibling(final @Nonnegative long fromKey) {
     acquireLock();
     try {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
@@ -521,7 +521,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    */
   private void adaptHashesForMove(final StructNode nodeToMove) throws SirixIOException {
     assert nodeToMove != null;
-    mNodeReadOnlyTrx.setCurrentNode((ImmutableXdmNode) nodeToMove);
+    mNodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) nodeToMove);
     adaptHashesWithRemove();
   }
 
@@ -635,7 +635,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertElementAsFirstChild(final QNm name) {
+  public XmlNodeTrx insertElementAsFirstChild(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -671,7 +671,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertElementAsLeftSibling(final QNm name) {
+  public XmlNodeTrx insertElementAsLeftSibling(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -711,7 +711,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertElementAsRightSibling(final QNm name) {
+  public XmlNodeTrx insertElementAsRightSibling(final QNm name) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -751,21 +751,21 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
+  public XmlNodeTrx insertSubtreeAsFirstChild(final XMLEventReader reader) {
     return insertSubtree(reader, InsertPosition.AS_FIRST_CHILD);
   }
 
   @Override
-  public XdmNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
+  public XmlNodeTrx insertSubtreeAsRightSibling(final XMLEventReader reader) {
     return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
-  public XdmNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
+  public XmlNodeTrx insertSubtreeAsLeftSibling(final XMLEventReader reader) {
     return insertSubtree(reader, InsertPosition.AS_LEFT_SIBLING);
   }
 
-  private XdmNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition) {
+  private XmlNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition) {
     checkNotNull(reader);
     assert insertionPosition != null;
     acquireLock();
@@ -814,17 +814,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertPIAsLeftSibling(final String target, final String content) {
+  public XmlNodeTrx insertPIAsLeftSibling(final String target, final String content) {
     return pi(target, content, InsertPosition.AS_LEFT_SIBLING);
   }
 
   @Override
-  public XdmNodeTrx insertPIAsRightSibling(final String target, final String content) {
+  public XmlNodeTrx insertPIAsRightSibling(final String target, final String content) {
     return pi(target, content, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
-  public XdmNodeTrx insertPIAsFirstChild(final String target, final String content) {
+  public XmlNodeTrx insertPIAsFirstChild(final String target, final String content) {
     return pi(target, content, InsertPosition.AS_FIRST_CHILD);
   }
 
@@ -836,7 +836,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeTrx pi(final String target, final String content, final InsertPosition insert) {
+  private XmlNodeTrx pi(final String target, final String content, final InsertPosition insert) {
     final byte[] targetBytes = getBytes(target);
     if (!XMLToken.isNCName(checkNotNull(targetBytes))) {
       throw new IllegalArgumentException("The target is not valid!");
@@ -904,17 +904,17 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertCommentAsLeftSibling(final String value) {
+  public XmlNodeTrx insertCommentAsLeftSibling(final String value) {
     return comment(value, InsertPosition.AS_LEFT_SIBLING);
   }
 
   @Override
-  public XdmNodeTrx insertCommentAsRightSibling(final String value) {
+  public XmlNodeTrx insertCommentAsRightSibling(final String value) {
     return comment(value, InsertPosition.AS_RIGHT_SIBLING);
   }
 
   @Override
-  public XdmNodeTrx insertCommentAsFirstChild(final String value) {
+  public XmlNodeTrx insertCommentAsFirstChild(final String value) {
     return comment(value, InsertPosition.AS_FIRST_CHILD);
   }
 
@@ -925,7 +925,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @param insert insertion location
    * @throws SirixException if any unexpected error occurs
    */
-  private XdmNodeTrx comment(final String value, final InsertPosition insert) {
+  private XmlNodeTrx comment(final String value, final InsertPosition insert) {
     // Produces a NPE if value is null (what we want).
     if (value.contains("--")) {
       throw new SirixUsageException("Character sequence \"--\" is not allowed in comment content!");
@@ -992,7 +992,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertTextAsFirstChild(final String value) {
+  public XmlNodeTrx insertTextAsFirstChild(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1040,7 +1040,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertTextAsLeftSibling(final String value) {
+  public XmlNodeTrx insertTextAsLeftSibling(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1107,7 +1107,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertTextAsRightSibling(final String value) {
+  public XmlNodeTrx insertTextAsRightSibling(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1285,12 +1285,12 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertAttribute(final QNm name, final String value) {
+  public XmlNodeTrx insertAttribute(final QNm name, final String value) {
     return insertAttribute(name, value, Movement.NONE);
   }
 
   @Override
-  public XdmNodeTrx insertAttribute(final QNm name, final String value, final Movement move) {
+  public XmlNodeTrx insertAttribute(final QNm name, final String value, final Movement move) {
     checkNotNull(value);
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
@@ -1353,12 +1353,12 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx insertNamespace(final QNm name) {
+  public XmlNodeTrx insertNamespace(final QNm name) {
     return insertNamespace(name, Movement.NONE);
   }
 
   @Override
-  public XdmNodeTrx insertNamespace(final QNm name, final Movement move) {
+  public XmlNodeTrx insertNamespace(final QNm name, final Movement move) {
     if (!XMLToken.isValidQName(checkNotNull(name))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1421,7 +1421,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx remove() {
+  public XmlNodeTrx remove() {
     checkAccessAndCommit();
     acquireLock();
     try {
@@ -1449,7 +1449,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
         // Adapt hashes and neighbour nodes as well as the name from the
         // NamePage mapping if it's not a text node.
-        final ImmutableXdmNode xdmNode = (ImmutableXdmNode) node;
+        final ImmutableXmlNode xdmNode = (ImmutableXmlNode) node;
         mNodeReadOnlyTrx.setCurrentNode(xdmNode);
         adaptHashesWithRemove();
         adaptForRemove(node, PageKind.RECORDPAGE);
@@ -1555,7 +1555,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx setName(final QNm name) {
+  public XmlNodeTrx setName(final QNm name) {
     checkNotNull(name);
     acquireLock();
     try {
@@ -1603,7 +1603,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
               ? mPathSummaryWriter.getNodeKey()
               : 0);
 
-          mNodeReadOnlyTrx.setCurrentNode((ImmutableXdmNode) node);
+          mNodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
           adaptHashedWithUpdate(oldHash);
         }
 
@@ -1617,7 +1617,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx setValue(final String value) {
+  public XmlNodeTrx setValue(final String value) {
     checkNotNull(value);
     acquireLock();
     try {
@@ -1646,7 +1646,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
                 PageKind.RECORDPAGE, -1);
         node.setValue(byteVal);
 
-        mNodeReadOnlyTrx.setCurrentNode((ImmutableXdmNode) node);
+        mNodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
         adaptHashedWithUpdate(oldHash);
 
         // Index new value.
@@ -1663,7 +1663,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx revertTo(final @Nonnegative int revision) {
+  public XmlNodeTrx revertTo(final @Nonnegative int revision) {
     acquireLock();
     try {
       mNodeReadOnlyTrx.assertNotClosed();
@@ -1682,7 +1682,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
 
       // Reset node factory.
       mNodeFactory = null;
-      mNodeFactory = new XdmNodeFactoryImpl(mPageWriteTrx);
+      mNodeFactory = new XmlNodeFactoryImpl(mPageWriteTrx);
 
       // New index instances.
       reInstantiateIndexes();
@@ -1731,7 +1731,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx rollback() {
+  public XmlNodeTrx rollback() {
     acquireLock();
     try {
       mNodeReadOnlyTrx.assertNotClosed();
@@ -1762,7 +1762,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
       mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);
 
       mNodeFactory = null;
-      mNodeFactory = new XdmNodeFactoryImpl(mPageWriteTrx);
+      mNodeFactory = new XmlNodeFactoryImpl(mPageWriteTrx);
 
       reInstantiateIndexes();
 
@@ -1783,7 +1783,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx commit() {
+  public XmlNodeTrx commit() {
     return commit(null);
   }
 
@@ -1860,7 +1860,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     switch (mHashKind) {
       case ROLLING:
         // Setup.
-        final ImmutableXdmNode startNode = getCurrentNode();
+        final ImmutableXmlNode startNode = getCurrentNode();
         final long oldDescendantCount = mNodeReadOnlyTrx.getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0
             ? 1
@@ -2136,7 +2136,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    */
   private void postorderAdd() {
     // start with hash to add
-    final ImmutableXdmNode startNode = getCurrentNode();
+    final ImmutableXmlNode startNode = getCurrentNode();
     // long for adapting the hash of the parent
     long hashCodeForParent = 0;
     // adapting the parent if the current node is no structural one.
@@ -2193,7 +2193,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @throws SirixIOException if anything weird happened
    */
   private void rollingUpdate(final long oldHash) {
-    final ImmutableXdmNode newNode = getCurrentNode();
+    final ImmutableXmlNode newNode = getCurrentNode();
     final long hash = newNode.hashCode();
     final long newNodeHash = hash;
     long resultNew = hash;
@@ -2221,7 +2221,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    * @throws SirixIOException if anything weird happened
    */
   private void rollingRemove() {
-    final ImmutableXdmNode startNode = getCurrentNode();
+    final ImmutableXmlNode startNode = getCurrentNode();
     long hashToRemove = startNode.getHash();
     long hashToAdd = 0;
     long newHash = 0;
@@ -2271,7 +2271,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
    */
   private void rollingAdd() throws SirixIOException {
     // start with hash to add
-    final ImmutableXdmNode startNode = mNodeReadOnlyTrx.getCurrentNode();
+    final ImmutableXmlNode startNode = mNodeReadOnlyTrx.getCurrentNode();
     final long oldDescendantCount = mNodeReadOnlyTrx.getStructuralNode().getDescendantCount();
     final long descendantCount = oldDescendantCount == 0
         ? 1
@@ -2328,7 +2328,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx copySubtreeAsFirstChild(final XdmNodeReadOnlyTrx rtx) {
+  public XmlNodeTrx copySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2344,7 +2344,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx copySubtreeAsLeftSibling(final XdmNodeReadOnlyTrx rtx) {
+  public XmlNodeTrx copySubtreeAsLeftSibling(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2360,7 +2360,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx copySubtreeAsRightSibling(final XdmNodeReadOnlyTrx rtx) {
+  public XmlNodeTrx copySubtreeAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2378,14 +2378,14 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   /**
    * Helper method for copy-operations.
    *
-   * @param rtx the source {@link XdmNodeReadOnlyTrx}
+   * @param rtx the source {@link XmlNodeReadOnlyTrx}
    * @param insert the insertion strategy
    * @throws SirixException if anything fails in sirix
    */
-  private void copy(final XdmNodeReadOnlyTrx trx, final InsertPosition insert) {
+  private void copy(final XmlNodeReadOnlyTrx trx, final InsertPosition insert) {
     assert trx != null;
     assert insert != null;
-    final XdmNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadOnlyTrx(trx.getRevisionNumber());
+    final XmlNodeReadOnlyTrx rtx = trx.getResourceManager().beginNodeReadOnlyTrx(trx.getRevisionNumber());
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();
@@ -2454,7 +2454,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx replaceNode(final XMLEventReader reader) {
+  public XmlNodeTrx replaceNode(final XMLEventReader reader) {
     checkNotNull(reader);
     acquireLock();
     try {
@@ -2498,7 +2498,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx replaceNode(final XdmNodeReadOnlyTrx rtx) {
+  public XmlNodeTrx replaceNode(final XmlNodeReadOnlyTrx rtx) {
     checkNotNull(rtx);
     acquireLock();
     try {
@@ -2553,7 +2553,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     }
   }
 
-  private ImmutableNode removeAndThenInsert(final XdmNodeReadOnlyTrx rtx) {
+  private ImmutableNode removeAndThenInsert(final XmlNodeReadOnlyTrx rtx) {
     assert rtx != null;
     final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
     long key = currentNode.getNodeKey();
@@ -2573,7 +2573,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     return mNodeReadOnlyTrx.getCurrentNode();
   }
 
-  private ImmutableNode insertAndThenRemove(final XdmNodeReadOnlyTrx rtx) {
+  private ImmutableNode insertAndThenRemove(final XmlNodeReadOnlyTrx rtx) {
     assert rtx != null;
     final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
     long key = currentNode.getNodeKey();
@@ -2607,14 +2607,14 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  protected XdmNodeReadOnlyTrx delegate() {
+  protected XmlNodeReadOnlyTrx delegate() {
     return mNodeReadOnlyTrx;
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof XdmNodeTrxImpl) {
-      final XdmNodeTrxImpl wtx = (XdmNodeTrxImpl) obj;
+    if (obj instanceof XmlNodeTrxImpl) {
+      final XmlNodeTrxImpl wtx = (XmlNodeTrxImpl) obj;
       return Objects.equal(mNodeReadOnlyTrx, wtx.mNodeReadOnlyTrx);
     }
     return false;
@@ -2650,7 +2650,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx addPreCommitHook(final PreCommitHook hook) {
+  public XmlNodeTrx addPreCommitHook(final PreCommitHook hook) {
     acquireLock();
     try {
       mPreCommitHooks.add(checkNotNull(hook));
@@ -2661,7 +2661,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx addPostCommitHook(final PostCommitHook hook) {
+  public XmlNodeTrx addPostCommitHook(final PostCommitHook hook) {
     acquireLock();
     try {
       mPostCommitHooks.add(checkNotNull(hook));
@@ -2672,7 +2672,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx truncateTo(final int revision) {
+  public XmlNodeTrx truncateTo(final int revision) {
     mNodeReadOnlyTrx.assertNotClosed();
 
     // TODO
@@ -2688,7 +2688,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
   }
 
   @Override
-  public XdmNodeTrx commit(final String commitMessage) {
+  public XmlNodeTrx commit(final String commitMessage) {
     mNodeReadOnlyTrx.assertNotClosed();
 
     // Optionally lock while commiting and assigning new instances.
@@ -2738,7 +2738,7 @@ final class XdmNodeTrxImpl extends AbstractForwardingXdmNodeReadOnlyTrx implemen
     mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);
 
     mNodeFactory = null;
-    mNodeFactory = new XdmNodeFactoryImpl(mPageWriteTrx);
+    mNodeFactory = new XmlNodeFactoryImpl(mPageWriteTrx);
 
     reInstantiateIndexes();
   }

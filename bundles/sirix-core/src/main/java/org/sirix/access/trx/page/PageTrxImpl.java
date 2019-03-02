@@ -37,7 +37,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.Restore;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
@@ -98,7 +98,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   /** Determines if transaction is closed. */
   private boolean mIsClosed;
 
-  /** {@link XdmIndexController} instance. */
+  /** {@link XmlIndexController} instance. */
   private final IndexController<?, ?> mIndexController;
 
   /** The tree modifier. */

@@ -31,7 +31,7 @@ import java.util.Stack;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.ForAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PredicateFilterAxis;
@@ -111,7 +111,7 @@ public final class PipelineBuilder {
    * @param mTransaction transaction to operate on
    * @param mNum number of singleExpressions that will be added to the sequence
    */
-  public void finishExpr(final XdmNodeReadOnlyTrx mTransaction, final int mNum) {
+  public void finishExpr(final XmlNodeReadOnlyTrx mTransaction, final int mNum) {
 
     // all singleExpression that are on the stack will be combined in the
     // sequence, so the number of singleExpressions in the sequence and the
@@ -227,11 +227,11 @@ public final class PipelineBuilder {
    * 
    * @param mTransaction Transaction to operate with.
    */
-  public void addIfExpression(final XdmNodeReadOnlyTrx mTransaction) {
+  public void addIfExpression(final XmlNodeReadOnlyTrx mTransaction) {
 
     assert getPipeStack().size() >= 3;
 
-    final XdmNodeReadOnlyTrx rtx = mTransaction;
+    final XmlNodeReadOnlyTrx rtx = mTransaction;
 
     final Axis elseExpr = getPipeStack().pop().getExpr();
     final Axis thenExpr = getPipeStack().pop().getExpr();
@@ -250,11 +250,11 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mComp Comparator type.
    */
-  public void addCompExpression(final XdmNodeReadOnlyTrx mTransaction, final String mComp) {
+  public void addCompExpression(final XmlNodeReadOnlyTrx mTransaction, final String mComp) {
 
     assert getPipeStack().size() >= 2;
 
-    final XdmNodeReadOnlyTrx rtx = mTransaction;
+    final XmlNodeReadOnlyTrx rtx = mTransaction;
 
     final Axis paramOperandTwo = getPipeStack().pop().getExpr();
     final Axis paramOperandOne = getPipeStack().pop().getExpr();
@@ -330,11 +330,11 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mOperator Operator type.
    */
-  public void addOperatorExpression(final XdmNodeReadOnlyTrx mTransaction, final String mOperator) {
+  public void addOperatorExpression(final XmlNodeReadOnlyTrx mTransaction, final String mOperator) {
 
     assert getPipeStack().size() >= 1;
 
-    final XdmNodeReadOnlyTrx rtx = mTransaction;
+    final XmlNodeReadOnlyTrx rtx = mTransaction;
 
     final Axis mOperand2 = getPipeStack().pop().getExpr();
 
@@ -374,7 +374,7 @@ public final class PipelineBuilder {
    * 
    * @param mTransaction Transaction to operate with.
    */
-  public void addUnionExpression(final XdmNodeReadOnlyTrx mTransaction) {
+  public void addUnionExpression(final XmlNodeReadOnlyTrx mTransaction) {
 
     assert getPipeStack().size() >= 2;
 
@@ -392,7 +392,7 @@ public final class PipelineBuilder {
    * 
    * @param mTransaction Transaction to operate with.
    */
-  public void addAndExpression(final XdmNodeReadOnlyTrx mTransaction) {
+  public void addAndExpression(final XmlNodeReadOnlyTrx mTransaction) {
     assert getPipeStack().size() >= 2;
 
     final Axis mOperand2 = getPipeStack().pop().getExpr();
@@ -408,7 +408,7 @@ public final class PipelineBuilder {
    * 
    * @param mTransaction Transaction to operate with.
    */
-  public void addOrExpression(final XdmNodeReadOnlyTrx mTransaction) {
+  public void addOrExpression(final XmlNodeReadOnlyTrx mTransaction) {
 
     assert getPipeStack().size() >= 2;
 
@@ -427,11 +427,11 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mIsIntersect true, if expression is an intersection
    */
-  public void addIntExcExpression(final XdmNodeReadOnlyTrx mTransaction, final boolean mIsIntersect) {
+  public void addIntExcExpression(final XmlNodeReadOnlyTrx mTransaction, final boolean mIsIntersect) {
 
     assert getPipeStack().size() >= 2;
 
-    final XdmNodeReadOnlyTrx rtx = mTransaction;
+    final XmlNodeReadOnlyTrx rtx = mTransaction;
 
     final Axis mOperand2 = getPipeStack().pop().getExpr();
     final Axis mOperand1 = getPipeStack().pop().getExpr();
@@ -451,7 +451,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mItemKey key of the literal expression.
    */
-  public void addLiteral(final XdmNodeReadOnlyTrx mTransaction, final int mItemKey) {
+  public void addLiteral(final XmlNodeReadOnlyTrx mTransaction, final int mItemKey) {
     // addExpressionSingle();
     getExpression().add(new LiteralExpr(mTransaction, mItemKey));
   }
@@ -497,7 +497,7 @@ public final class PipelineBuilder {
    * 
    * @param pRtx transaction to operate with
    */
-  public void addPredicate(final XdmNodeReadOnlyTrx pRtx) {
+  public void addPredicate(final XmlNodeReadOnlyTrx pRtx) {
     assert getPipeStack().size() >= 2;
 
     final Axis predicate = getPipeStack().pop().getExpr();
@@ -546,7 +546,7 @@ public final class PipelineBuilder {
    * @param mIsSome defines whether a some- or an EveryExpression is used.
    * @param mVarNum number of binding variables
    */
-  public void addQuantifierExpr(final XdmNodeReadOnlyTrx mTransaction, final boolean mIsSome,
+  public void addQuantifierExpr(final XmlNodeReadOnlyTrx mTransaction, final boolean mIsSome,
       final int mVarNum) {
 
     assert getPipeStack().size() >= (mVarNum + 1);
@@ -575,7 +575,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mSingleType single type the context item will be casted to.
    */
-  public void addCastableExpr(final XdmNodeReadOnlyTrx mTransaction, final SingleType mSingleType) {
+  public void addCastableExpr(final XmlNodeReadOnlyTrx mTransaction, final SingleType mSingleType) {
 
     assert getPipeStack().size() >= 1;
 
@@ -594,7 +594,7 @@ public final class PipelineBuilder {
    * 
    * @param mTransaction Transaction to operate with.
    */
-  public void addRangeExpr(final XdmNodeReadOnlyTrx mTransaction) {
+  public void addRangeExpr(final XmlNodeReadOnlyTrx mTransaction) {
 
     assert getPipeStack().size() >= 2;
 
@@ -615,7 +615,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mSingleType single type the context item will be casted to.
    */
-  public void addCastExpr(final XdmNodeReadOnlyTrx mTransaction, final SingleType mSingleType) {
+  public void addCastExpr(final XmlNodeReadOnlyTrx mTransaction, final SingleType mSingleType) {
 
     assert getPipeStack().size() >= 1;
 
@@ -635,7 +635,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mSequenceType sequence type the context item should match.
    */
-  public void addInstanceOfExpr(final XdmNodeReadOnlyTrx mTransaction,
+  public void addInstanceOfExpr(final XmlNodeReadOnlyTrx mTransaction,
       final SequenceType mSequenceType) {
 
     assert getPipeStack().size() >= 1;
@@ -669,7 +669,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mVarName name of the variable
    */
-  public void addVariableExpr(final XdmNodeReadOnlyTrx mTransaction, final String mVarName) {
+  public void addVariableExpr(final XmlNodeReadOnlyTrx mTransaction, final String mVarName) {
 
     assert getPipeStack().size() >= 1;
 
@@ -692,7 +692,7 @@ public final class PipelineBuilder {
    * @param mNum The number of arguments that are passed to the function
    * @throws SirixXPathException if function can't be added
    */
-  public void addFunction(final XdmNodeReadOnlyTrx mTransaction, final String mFuncName, final int mNum)
+  public void addFunction(final XmlNodeReadOnlyTrx mTransaction, final String mFuncName, final int mNum)
       throws SirixXPathException {
 
     assert getPipeStack().size() >= mNum;
@@ -720,7 +720,7 @@ public final class PipelineBuilder {
 
     // parameter types of the function's constructor
     final Class<?>[] paramTypes =
-        {XdmNodeReadOnlyTrx.class, List.class, Integer.TYPE, Integer.TYPE, Integer.TYPE};
+        {XmlNodeReadOnlyTrx.class, List.class, Integer.TYPE, Integer.TYPE, Integer.TYPE};
 
     try {
       // instantiate function class with right constructor
@@ -753,7 +753,7 @@ public final class PipelineBuilder {
    * @param mTransaction the transaction to operate on.
    * @param mVarName the name of the variable
    */
-  public void addVarRefExpr(final XdmNodeReadOnlyTrx mTransaction, final String mVarName) {
+  public void addVarRefExpr(final XmlNodeReadOnlyTrx mTransaction, final String mVarName) {
 
     final VariableAxis axis = (VariableAxis) mVarRefMap.get(mVarName);
     if (axis != null) {

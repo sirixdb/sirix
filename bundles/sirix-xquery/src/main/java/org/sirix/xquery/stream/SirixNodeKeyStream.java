@@ -5,7 +5,7 @@ import java.util.Iterator;
 import java.util.Set;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
@@ -14,10 +14,10 @@ public final class SirixNodeKeyStream implements Stream<DBNode> {
 
   private final Iterator<NodeReferences> mIter;
   private final DBCollection mCollection;
-  private final XdmNodeReadOnlyTrx mRtx;
+  private final XmlNodeReadOnlyTrx mRtx;
 
   public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final DBCollection collection,
-      final XdmNodeReadOnlyTrx rtx) {
+      final XmlNodeReadOnlyTrx rtx) {
     mIter = checkNotNull(iter);
     mCollection = checkNotNull(collection);
     mRtx = checkNotNull(rtx);

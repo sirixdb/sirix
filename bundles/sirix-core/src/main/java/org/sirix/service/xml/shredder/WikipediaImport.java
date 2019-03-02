@@ -51,9 +51,9 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -80,10 +80,10 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient XMLEventReader mReader;
 
   /** Resource manager instance. */
-  private final XdmResourceManager mResourceManager;
+  private final XmlResourceManager mResourceManager;
 
   /** sirix {@link NodeTrx}. */
-  private transient XdmNodeTrx mWtx;
+  private transient XmlNodeTrx mWtx;
 
   /** {@link XMLEvent}s which specify the page metadata. */
   private transient Deque<XMLEvent> mPageEvents;
@@ -101,7 +101,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient String mTimestamp;
 
   /** Sirix {@link Database}. */
-  private final Database<XdmResourceManager> mDatabase;
+  private final Database<XmlResourceManager> mDatabase;
 
   /** Revision-timespan by date. */
   public enum DateBy {
@@ -139,7 +139,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
     final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
     Databases.createXdmDatabase(config);
-    mDatabase = Databases.openXdmDatabase(sirixDatabase);
+    mDatabase = Databases.openXmlDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
     mResourceManager = mDatabase.openResourceManager("shredded");
     mWtx = mResourceManager.beginNodeTrx();
@@ -276,21 +276,21 @@ public final class WikipediaImport implements Import<StartElement> {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(path);
     Databases.removeDatabase(path);
     Databases.createXdmDatabase(dbConf);
-    final var db = Databases.openXdmDatabase(path);
+    final var db = Databases.openXmlDatabase(path);
     db.createResource(new ResourceConfiguration.Builder("wiki").build());
-    final XdmResourceManager resourceManager = db.openResourceManager("wiki");
+    final XmlResourceManager resourceManager = db.openResourceManager("wiki");
     if (mPageEvents.peek().isStartElement()
         && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
       mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
       mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
     }
-    final XdmNodeTrx wtx = resourceManager.beginNodeTrx();
+    final XmlNodeTrx wtx = resourceManager.beginNodeTrx();
     final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
         InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
     shredder.call();
     wtx.close();
     mPageEvents = new ArrayDeque<>();
-    final XdmNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     final long nodeKey = mWtx.getNodeKey();

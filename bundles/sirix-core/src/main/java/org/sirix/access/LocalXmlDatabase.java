@@ -23,11 +23,11 @@ package org.sirix.access;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.sirix.access.xdm.XdmResourceStore;
+import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
@@ -44,13 +44,13 @@ import com.google.common.base.MoreObjects;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceManager> {
+public final class LocalXmlDatabase extends AbstractLocalDatabase<XmlResourceManager> {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXdmDatabase.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(LocalXmlDatabase.class));
 
   /** The resource store to open/close resource-managers. */
-  private final XdmResourceStore mResourceStore;
+  private final XmlResourceStore mResourceStore;
 
   /**
    * Package private constructor.
@@ -58,7 +58,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
    * @throws SirixException if something weird happens
    */
-  LocalXdmDatabase(final DatabaseConfiguration dbConfig, final XdmResourceStore store) {
+  LocalXmlDatabase(final DatabaseConfiguration dbConfig, final XmlResourceStore store) {
     super(dbConfig);
     mResourceStore = store;
   }
@@ -80,7 +80,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
   }
 
   @Override
-  public synchronized XdmResourceManager openResourceManager(final String resource) {
+  public synchronized XmlResourceManager openResourceManager(final String resource) {
     assertNotClosed();
 
     final Path resourceFile =
@@ -105,7 +105,7 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
     if (!mBufferManagers.containsKey(resourceFile))
       mBufferManagers.put(resourceFile, new BufferManagerImpl());
 
-    final XdmResourceManager resourceManager =
+    final XmlResourceManager resourceManager =
         mResourceStore.openResource(this, resourceConfig, mBufferManagers.get(resourceFile), resourceFile);
 
     return resourceManager;
@@ -121,9 +121,9 @@ public final class LocalXdmDatabase extends AbstractLocalDatabase<XdmResourceMan
     boolean returnVal = true;
 
     try (
-        final XdmResourceManager resourceTrxManager =
+        final XmlResourceManager resourceTrxManager =
             openResourceManager(resConfig.getResource().getFileName().toString());
-        final XdmNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
+        final XmlNodeTrx wtx = resourceTrxManager.beginNodeTrx()) {
       wtx.commit();
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);

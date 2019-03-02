@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.HashSet;
 import java.util.Set;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -54,7 +54,7 @@ public class IntersectAxis extends AbstractAxis {
    * @param mOperand1 First operand
    * @param mOperand2 Second operand
    */
-  public IntersectAxis(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+  public IntersectAxis(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;

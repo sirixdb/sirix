@@ -27,7 +27,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 
 /**
@@ -125,7 +125,7 @@ public final class DiffFactory {
    * @param observers {@link Set} of observers
    * @return new {@link Builder} instance
    */
-  public static Builder builder(final XdmResourceManager resourceManager, final @Nonnegative int newRev,
+  public static Builder builder(final XmlResourceManager resourceManager, final @Nonnegative int newRev,
       final @Nonnegative int oldRev, final DiffOptimized diffKind, final Set<DiffObserver> observers) {
     return new Builder(resourceManager, newRev, oldRev, diffKind, observers);
   }
@@ -134,7 +134,7 @@ public final class DiffFactory {
   public static final class Builder {
 
     /** {@link ResourceManager} reference. */
-    final XdmResourceManager mResMgr;
+    final XmlResourceManager mResMgr;
 
     /** Start key of new revision. */
     transient long mNewStartKey;
@@ -181,7 +181,7 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final XdmResourceManager resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
+    public Builder(final XmlResourceManager resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
       mResMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");

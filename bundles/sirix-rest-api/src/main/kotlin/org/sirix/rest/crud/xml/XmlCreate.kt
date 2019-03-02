@@ -14,7 +14,7 @@ import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
-import org.sirix.api.xdm.XdmResourceManager
+import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
@@ -58,7 +58,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        val database = Databases.openXdmDatabase(dbFile)
+        val database = Databases.openXmlDatabase(dbFile)
 
         database.use {
             ctx.fileUploads().forEach { fileUpload ->
@@ -92,7 +92,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
                                        resFileToStore: String,
                                        context: Context,
                                        ctx: RoutingContext) {
-        val database = Databases.openXdmDatabase(dbFile)
+        val database = Databases.openXmlDatabase(dbFile)
 
         database.use {
             val resConfig = ResourceConfiguration.Builder(resPathName).build()
@@ -108,7 +108,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
         }
     }
 
-    private suspend fun serializeXdm(manager: XdmResourceManager, vertxContext: Context,
+    private suspend fun serializeXdm(manager: XmlResourceManager, vertxContext: Context,
                                      routingCtx:
                                   RoutingContext) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
@@ -141,7 +141,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
         })
     }
 
-    private suspend fun createOrRemoveAndCreateResource(database: Database<XdmResourceManager>,
+    private suspend fun createOrRemoveAndCreateResource(database: Database<XmlResourceManager>,
                                                         resConfig: ResourceConfiguration?,
                                                         resPathName: String, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
@@ -152,7 +152,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
         }
     }
 
-    private suspend fun insertXdmSubtreeAsFirstChild(manager: XdmResourceManager, resFileToStore: String, context: Context) {
+    private suspend fun insertXdmSubtreeAsFirstChild(manager: XmlResourceManager, resFileToStore: String, context: Context) {
         context.executeBlockingAwait(Handler<Future<Nothing>> {
             val wtx = manager.beginNodeTrx()
             wtx.use {

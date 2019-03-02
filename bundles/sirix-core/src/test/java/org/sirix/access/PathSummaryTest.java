@@ -33,7 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
@@ -54,8 +54,8 @@ public class PathSummaryTest {
   /** {@link Holder} reference. */
   private Holder holder;
 
-  /** {@link XdmNodeTrx} implementation. */
-  private XdmNodeTrx wtx;
+  /** {@link XmlNodeTrx} implementation. */
+  private XmlNodeTrx wtx;
 
   @Before
   public void setUp() throws SirixException {

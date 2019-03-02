@@ -44,8 +44,8 @@ import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XdmDocumentCreator;
@@ -85,10 +85,10 @@ public final class DiffTest extends TestCase {
     final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
     Databases.createXdmDatabase(config);
 
-    try (final var database = Databases.openXdmDatabase(databasePath)) {
+    try (final var database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE).build());
-      try (final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
-          final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+      try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));

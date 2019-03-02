@@ -6,7 +6,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
-import org.sirix.api.xdm.XdmNodeTrx
+import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
@@ -16,27 +16,27 @@ import javax.xml.stream.XMLEventReader
 
 enum class XdmInsertionMode {
     ASFIRSTCHILD {
-        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
         }
     },
     ASRIGHTSIBLING {
-        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsRightSibling(xmlReader)
         }
     },
     ASLEFTSIBLING {
-        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsLeftSibling(xmlReader)
         }
     },
     REPLACE {
-        override fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader) {
+        override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.replaceNode(xmlReader)
         }
     };
 
-    abstract fun insert(wtx: XdmNodeTrx, xmlReader: XMLEventReader)
+    abstract fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader)
 
     companion object {
         fun getInsertionModeByName(name: String) = valueOf(name.toUpperCase())
@@ -69,7 +69,7 @@ class XdmUpdate(private val location: Path) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
             val dbFile = location.resolve(dbPathName)
 
-            val database = Databases.openXdmDatabase(dbFile)
+            val database = Databases.openXmlDatabase(dbFile)
 
             database.use {
                 val manager = database.openResourceManager(resPathName)

@@ -11,7 +11,7 @@ import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Sequence;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 
@@ -65,7 +65,7 @@ public final class SirixQueryContext extends QueryContext {
           : getUpdateList().list();
 
       if (!updateList.isEmpty()) {
-        final Function<Sequence, Optional<XdmNodeTrx>> mapDBNodeToWtx = sequence -> {
+        final Function<Sequence, Optional<XmlNodeTrx>> mapDBNodeToWtx = sequence -> {
           if (sequence instanceof DBNode) {
             return ((DBNode) sequence).getTrx().getResourceManager().getNodeWriteTrx();
           }
@@ -80,7 +80,7 @@ public final class SirixQueryContext extends QueryContext {
                   .map(mapDBNodeToWtx)
                   .flatMap(Optional::stream)
                   .filter(trx -> trxIDs.add(trx.getId()))
-                  .forEach(XdmNodeTrx::commit);
+                  .forEach(XmlNodeTrx::commit);
       }
     }
   }

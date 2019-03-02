@@ -23,8 +23,8 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
@@ -45,10 +45,10 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
   /** {@link Set} of databases. */
-  private final Set<Database<XdmResourceManager>> mDatabases;
+  private final Set<Database<XmlResourceManager>> mDatabases;
 
   /** Mapping sirix databases to collections. */
-  private final ConcurrentMap<Database<XdmResourceManager>, DBCollection> mCollections;
+  private final ConcurrentMap<Database<XmlResourceManager>, DBCollection> mCollections;
 
   /** {@link StorageType} instance. */
   private final StorageType mStorageType;
@@ -142,8 +142,8 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     final Path dbPath = mLocation.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        final var database = Databases.openXdmDatabase(dbPath);
-        final Optional<Database<XdmResourceManager>> storedCollection =
+        final var database = Databases.openXmlDatabase(dbPath);
+        final Optional<Database<XmlResourceManager>> storedCollection =
             mDatabases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
           return mCollections.get(storedCollection.get());
@@ -167,7 +167,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
-      final var database = Databases.openXdmDatabase(dbConf.getFile());
+      final var database = Databases.openXmlDatabase(dbConf.getFile());
       mDatabases.add(database);
 
       final DBCollection collection = new DBCollection(name, database);
@@ -191,7 +191,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     try {
       Databases.removeDatabase(dbPath);
       Databases.createXdmDatabase(dbConf);
-      final var database = Databases.openXdmDatabase(dbPath);
+      final var database = Databases.openXmlDatabase(dbPath);
       mDatabases.add(database);
       final String resName = optResName != null
           ? optResName
@@ -205,8 +205,8 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       final DBCollection collection = new DBCollection(collName, database);
       mCollections.put(database, collection);
 
-      try (final XdmResourceManager manager = database.openResourceManager(resName);
-          final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+      try (final XmlResourceManager manager = database.openResourceManager(resName);
+          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
 
         wtx.commit();
@@ -231,7 +231,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
       try {
         Databases.removeDatabase(dbPath);
         Databases.createXdmDatabase(dbConf);
-        final var database = Databases.openXdmDatabase(dbConf.getFile());
+        final var database = Databases.openXmlDatabase(dbConf.getFile());
         mDatabases.add(database);
         final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
         int i = database.listResources().size() + 1;
@@ -247,8 +247,8 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
                                                            .useTextCompression(true)
                                                            .buildPathSummary(true)
                                                            .build());
-              try (final XdmResourceManager manager = database.openResourceManager(resourceName);
-                  final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+              try (final XmlResourceManager manager = database.openResourceManager(resourceName);
+                  final XmlNodeTrx wtx = manager.beginNodeTrx()) {
                 final DBCollection collection = new DBCollection(collName, database);
                 mCollections.put(database, collection);
                 nextParser.parse(
@@ -279,7 +279,7 @@ public final class BasicDBStore implements Store, AutoCloseable, DBStore {
     if (Databases.existsDatabase(dbPath)) {
       try {
         Databases.removeDatabase(dbPath);
-        final var database = Databases.openXdmDatabase(dbConfig.getFile());
+        final var database = Databases.openXmlDatabase(dbConfig.getFile());
         mDatabases.remove(database);
         mCollections.remove(database);
       } catch (final SirixRuntimeException e) {

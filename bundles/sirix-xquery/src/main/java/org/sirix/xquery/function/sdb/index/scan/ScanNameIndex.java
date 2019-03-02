@@ -18,7 +18,7 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
@@ -55,8 +55,8 @@ public final class ScanNameIndex extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final XmlIndexController controller =
+        (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -81,7 +81,7 @@ public final class ScanNameIndex extends AbstractFunction {
         ? controller.createNameFilter(names.split(";"))
         : null;
 
-    final XdmIndexController ic = controller;
+    final XmlIndexController ic = controller;
     final DBNode node = doc;
 
     return new LazySequence() {

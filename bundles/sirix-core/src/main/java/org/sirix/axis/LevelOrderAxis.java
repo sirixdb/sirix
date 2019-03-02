@@ -26,7 +26,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -237,8 +237,8 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /** Process an element node. */
   private void processElement() {
-    if (getCursor() instanceof XdmNodeReadOnlyTrx) {
-      final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+    if (getCursor() instanceof XmlNodeReadOnlyTrx) {
+      final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
       if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
         for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
           rtx.moveToNamespace(i);

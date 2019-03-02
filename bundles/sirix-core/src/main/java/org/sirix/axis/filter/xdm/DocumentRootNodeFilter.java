@@ -21,7 +21,7 @@
 
 package org.sirix.axis.filter.xdm;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
@@ -32,14 +32,14 @@ import org.sirix.node.Kind;
  * Only match ROOT nodes.
  * </p>
  */
-public final class DocumentRootNodeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class DocumentRootNodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx Transaction this filter is bound to.
    */
-  public DocumentRootNodeFilter(final XdmNodeReadOnlyTrx rtx) {
+  public DocumentRootNodeFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 

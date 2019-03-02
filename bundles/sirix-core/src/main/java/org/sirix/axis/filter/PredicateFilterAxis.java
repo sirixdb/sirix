@@ -24,7 +24,7 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 
 /**
@@ -93,8 +93,8 @@ public final class PredicateFilterAxis extends AbstractAxis {
    * @return {@code true}, if item is boolean typed atomic value with type "false".
    */
   private boolean isBooleanFalse() {
-    if (getTrx() instanceof XdmNodeReadOnlyTrx) {
-      final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+    if (getTrx() instanceof XmlNodeReadOnlyTrx) {
+      final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
       if (rtx.getNodeKey() >= 0) {
         return false;
       } else { // is AtomicValue

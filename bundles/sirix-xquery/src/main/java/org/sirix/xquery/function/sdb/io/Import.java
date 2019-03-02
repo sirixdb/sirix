@@ -15,9 +15,9 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
@@ -74,12 +74,12 @@ public final class Import extends AbstractFunction {
     final String resToImport = ((Str) args[2]).stringValue();
 
     DBNode doc = null;
-    final XdmNodeReadOnlyTrx trx;
+    final XmlNodeReadOnlyTrx trx;
 
     try {
       doc = coll.getDocument(resName);
 
-      try (final XdmNodeTrx wtx = doc.getTrx()
+      try (final XmlNodeTrx wtx = doc.getTrx()
                                           .getResourceManager()
                                           .getNodeWriteTrx()
                                           .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
@@ -93,9 +93,9 @@ public final class Import extends AbstractFunction {
           throw new QueryException(new QNm("XML stream exception: " + e.getMessage()), e);
         }
 
-        try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
-            final XdmResourceManager resourceNew = databaseNew.openResourceManager("shredded");
-            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
+        try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
+            final XmlResourceManager resourceNew = databaseNew.openResourceManager("shredded");
+            final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);
         }

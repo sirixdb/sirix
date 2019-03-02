@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -80,7 +80,7 @@ public class AndExpr extends AbstractExpression {
    * @param mOperand1 First operand
    * @param mOperand2 Second operand
    */
-  public AndExpr(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+  public AndExpr(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;

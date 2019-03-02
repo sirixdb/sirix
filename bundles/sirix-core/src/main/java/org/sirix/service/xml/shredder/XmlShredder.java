@@ -47,8 +47,8 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.xdm.ElementNode;
@@ -58,7 +58,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeTrx} . The content of the
+ * This class appends a given {@link XMLStreamReader} to a {@link XmlNodeTrx} . The content of the
  * stream is added as a subtree. Based on an enum which identifies the point of insertion, the
  * subtree is either added as first child or as right sibling.
  *
@@ -72,8 +72,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlShredder.class));
 
-  /** {@link XdmNodeTrx}. */
-  protected final XdmNodeTrx mWtx;
+  /** {@link XmlNodeTrx}. */
+  protected final XmlNodeTrx mWtx;
 
   /** {@link XMLEventReader}. */
   protected final XMLEventReader mReader;
@@ -95,8 +95,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    */
   public static class Builder {
 
-    /** {@link XdmNodeTrx} implementation. */
-    private final XdmNodeTrx mWtx;
+    /** {@link XmlNodeTrx} implementation. */
+    private final XmlNodeTrx mWtx;
 
     /** {@link XMLEventReader} implementation. */
     private final XMLEventReader mReader;
@@ -118,11 +118,11 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     /**
      * Constructor.
      *
-     * @param wtx {@link XdmNodeTrx} implementation
+     * @param wtx {@link XmlNodeTrx} implementation
      * @param reader {@link XMLEventReader} implementation
      * @param insert insertion position
      */
-    public Builder(final XdmNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
+    public Builder(final XmlNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
       mWtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
       mInsert = checkNotNull(insert);
@@ -317,10 +317,10 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     Databases.removeDatabase(target);
     Databases.createXdmDatabase(config);
 
-    try (final var db = Databases.openXdmDatabase(target)) {
+    try (final var db = Databases.openXmlDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
-      try (final XdmResourceManager resMgr = db.openResourceManager("shredded");
-          final XdmNodeTrx wtx = resMgr.beginNodeTrx();
+      try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
+          final XmlNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3

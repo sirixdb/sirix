@@ -1,6 +1,6 @@
 package org.sirix.index.path.xdm;
 
-import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.path.PathIndexBuilder;
 import org.sirix.node.immutable.xdm.ImmutableAttributeNode;

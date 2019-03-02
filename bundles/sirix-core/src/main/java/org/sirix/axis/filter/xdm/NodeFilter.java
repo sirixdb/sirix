@@ -21,7 +21,7 @@
 
 package org.sirix.axis.filter.xdm;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
@@ -32,14 +32,14 @@ import org.sirix.node.Kind;
  * Only match ELEMENT and TEXT nodes.
  * </p>
  */
-public final class NodeFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class NodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx transaction this filter is bound to
    */
-  public NodeFilter(final XdmNodeReadOnlyTrx rtx) {
+  public NodeFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 

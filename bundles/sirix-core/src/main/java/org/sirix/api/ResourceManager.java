@@ -29,9 +29,9 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -117,7 +117,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Begin a read-only transaction on the latest committed revision.
    *
    * @throws SirixException if can't begin Read Transaction
-   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    */
   R beginNodeReadOnlyTrx();
 
@@ -128,7 +128,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    */
   R beginNodeReadOnlyTrx(@Nonnegative int revision);
 
@@ -139,7 +139,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    */
   R beginNodeReadOnlyTrx(@Nonnull Instant pointInTime);
 
@@ -149,7 +149,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param trx the transaction to use
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    */
   W beginNodeTrx();
 
@@ -160,7 +160,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    */
   W beginNodeTrx(final @Nonnegative int maxNodes);
 
@@ -173,7 +173,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    */
   W beginNodeTrx(final TimeUnit timeUnit, final int maxTime);
 
@@ -187,12 +187,12 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
+   * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    */
   W beginNodeTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.
    *
    * @param revision revision key to read from
    * @return {@link PathSummaryReader} instance
@@ -201,7 +201,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   PathSummaryReader openPathSummary(@Nonnegative int revision);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.
    *
    * @return {@link PathSummaryReader} instance
    * @throws SirixException if can't open path summary
@@ -249,23 +249,23 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   int getMostRecentRevisionNumber();
 
   /**
-   * Get available number of {@link XdmNodeReadOnlyTrx}s.
+   * Get available number of {@link XmlNodeReadOnlyTrx}s.
    *
-   * @return available number of {@link XdmNodeReadOnlyTrx}s
+   * @return available number of {@link XmlNodeReadOnlyTrx}s
    */
   int getAvailableNodeReadTrx();
 
   /**
    * Get the index controller.
    *
-   * @return the {@link XdmIndexController} instance
+   * @return the {@link XmlIndexController} instance
    */
   <C extends IndexController<R, W>> C getRtxIndexController(int revision);
 
   /**
    * Get the index controller.
    *
-   * @return the {@link XdmIndexController} instance
+   * @return the {@link XmlIndexController} instance
    */
   <C extends IndexController<R, W>> C getWtxIndexController(int revision);
 

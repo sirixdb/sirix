@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -19,7 +19,7 @@ import org.sirix.node.xdm.TextNode;
  * @author Johannes Lichtenberger
  *
  */
-public interface XdmNodeFactory extends NodeFactory {
+public interface XmlNodeFactory extends NodeFactory {
   /**
    * Create a {@link PINode}.
    *

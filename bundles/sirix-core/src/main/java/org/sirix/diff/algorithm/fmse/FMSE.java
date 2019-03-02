@@ -32,9 +32,9 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
@@ -144,23 +144,23 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    */
   private Map<Long, Long> mDescendantsNewRev;
 
-  /** {@link XdmNodeVisitor} implementation on old revision. */
-  private XdmNodeVisitor mOldRevVisitor;
+  /** {@link XmlNodeVisitor} implementation on old revision. */
+  private XmlNodeVisitor mOldRevVisitor;
 
-  /** {@link XdmNodeVisitor} implementation on new revision. */
-  private XdmNodeVisitor mNewRevVisitor;
+  /** {@link XmlNodeVisitor} implementation on new revision. */
+  private XmlNodeVisitor mNewRevVisitor;
 
-  /** {@link XdmNodeVisitor} implementation to collect label/nodes on old revision. */
+  /** {@link XmlNodeVisitor} implementation to collect label/nodes on old revision. */
   private LabelFMSEVisitor mLabelOldRevVisitor;
 
-  /** {@link XdmNodeVisitor} implementation to collect label/nodes on new revision. */
+  /** {@link XmlNodeVisitor} implementation to collect label/nodes on new revision. */
   private LabelFMSEVisitor mLabelNewRevVisitor;
 
-  /** Sirix {@link XdmNodeTrx}. */
-  private XdmNodeTrx mWtx;
+  /** Sirix {@link XmlNodeTrx}. */
+  private XmlNodeTrx mWtx;
 
-  /** Sirix {@link XdmNodeReadOnlyTrx}. */
-  private XdmNodeReadOnlyTrx mRtx;
+  /** Sirix {@link XmlNodeReadOnlyTrx}. */
+  private XmlNodeReadOnlyTrx mRtx;
 
   /** Start key of old revision. */
   private long mOldStartKey;
@@ -169,7 +169,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private long mNewStartKey;
 
   @Override
-  public void diff(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) throws SirixException {
+  public void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) throws SirixException {
     mWtx = checkNotNull(wtx);
     mRtx = checkNotNull(rtx);
     mOldStartKey = mWtx.getNodeKey();
@@ -200,10 +200,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * First step of the edit script algorithm. Combines the update, insert, align and move phases.
    *
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revisionso
-   * @param pRtxn {@link XdmNodeReadOnlyTrx} implementation reference o new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revisionso
+   * @param pRtxn {@link XmlNodeReadOnlyTrx} implementation reference o new revision
    */
-  private void firstFMESStep(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
+  private void firstFMESStep(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert wtx != null;
     assert rtx != null;
 
@@ -223,11 +223,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Do the actual first step of FSME.
    *
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @throws SirixException if anything in sirix fails
    */
-  private void doFirstFSMEStep(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
+  private void doFirstFSMEStep(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert wtx != null;
     assert rtx != null;
     // 2(a) - Parent of x.
@@ -286,10 +286,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Second step of the edit script algorithm. This is the delete phase.
    *
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    */
-  private void secondFMESStep(final XdmNodeTrx wtx, final NodeReadOnlyTrx rtx) throws SirixException {
+  private void secondFMESStep(final XmlNodeTrx wtx, final NodeReadOnlyTrx rtx) throws SirixException {
     assert wtx != null;
     assert rtx != null;
     wtx.moveTo(mOldStartKey);
@@ -305,10 +305,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    *
    * @param w node in the first document
    * @param x node in the second document
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    */
-  private void alignChildren(final long w, final long x, final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
+  private void alignChildren(final long w, final long x, final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert w >= 0;
     assert x >= 0;
     assert wtx != null;
@@ -359,10 +359,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Mark children out of order.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} reference
    * @param inOrder {@link Map} to put all children out of order
    */
-  private static void markOutOfOrder(final XdmNodeReadOnlyTrx rtx, final Map<Long, Boolean> inOrder) {
+  private static void markOutOfOrder(final XmlNodeReadOnlyTrx rtx, final Map<Long, Boolean> inOrder) {
     for (final AbstractAxis axis = new ChildAxis(rtx); axis.hasNext();) {
       axis.next();
       inOrder.put(axis.asXdmNodeReadTrx().getNodeKey(), false);
@@ -374,13 +374,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    *
    * @param n parent node in a document tree
    * @param o corresponding parent node in the other tree
-   * @param firstRtx {@link XdmNodeReadOnlyTrx} on pN node
-   * @param secondRtx {@link XdmNodeReadOnlyTrx} on pO node
+   * @param firstRtx {@link XmlNodeReadOnlyTrx} on pN node
+   * @param secondRtx {@link XmlNodeReadOnlyTrx} on pO node
    * @param reverse determines if reverse partners need to be found
    * @return {@link List} of common child nodes
    */
-  private List<Long> commonChildren(final long n, final long o, final XdmNodeReadOnlyTrx firstRtx,
-      final XdmNodeReadOnlyTrx secondRtx, final ReverseMap reverse) {
+  private List<Long> commonChildren(final long n, final long o, final XmlNodeReadOnlyTrx firstRtx,
+      final XmlNodeReadOnlyTrx secondRtx, final ReverseMap reverse) {
     assert n >= 0;
     assert o >= 0;
     assert firstRtx != null;
@@ -416,11 +416,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param child child node to move
    * @param parent node where to insert the moved subtree
    * @param pos position among the childs to move to
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    */
-  private long emitMove(final long child, final long parent, final int pos, final XdmNodeTrx wtx,
-      final XdmNodeReadOnlyTrx rtx) {
+  private long emitMove(final long child, final long parent, final int pos, final XmlNodeTrx wtx,
+      final XmlNodeReadOnlyTrx rtx) {
     assert child >= 0;
     assert parent >= 0;
     assert wtx != null;
@@ -514,7 +514,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     return wtx.getNodeKey();
   }
 
-  private void checkFromNodeForTextRemoval(final XdmNodeTrx wtx, final long child) {
+  private void checkFromNodeForTextRemoval(final XmlNodeTrx wtx, final long child) {
     final boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child
         ? true
         : false;
@@ -550,12 +550,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    *
    * @param fromNode the node to update
    * @param toNode the new node
-   * @param pWtxnull {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param pWtxnull {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @return updated {@link Node}
    */
-  private static long emitUpdate(final long fromNode, final long toNode, final XdmNodeTrx wtx,
-      final XdmNodeReadOnlyTrx rtx) {
+  private static long emitUpdate(final long fromNode, final long toNode, final XmlNodeTrx wtx,
+      final XmlNodeReadOnlyTrx rtx) {
     assert fromNode >= 0;
     assert toNode >= 0;
     assert wtx != null;
@@ -599,13 +599,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param parent parent of the current {@link Node} implementation reference to insert
    * @param child the current node to insert
    * @param pos position of the insert
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @return inserted {@link Node} implementation reference
    * @throws SirixException if anything in sirix fails
    */
-  private long emitInsert(final long child, final long parent, final int pos, final XdmNodeTrx wtx,
-      final XdmNodeReadOnlyTrx rtx) {
+  private long emitInsert(final long child, final long parent, final int pos, final XmlNodeTrx wtx,
+      final XmlNodeReadOnlyTrx rtx) {
     assert child >= 0;
     assert parent >= 0;
     assert wtx != null;
@@ -697,8 +697,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
             oldAxis.next();
             newAxis.next();
-            final XdmNodeReadOnlyTrx oldRtx = oldAxis.asXdmNodeReadTrx();
-            final XdmNodeReadOnlyTrx newRtx = newAxis.asXdmNodeReadTrx();
+            final XmlNodeReadOnlyTrx oldRtx = oldAxis.asXdmNodeReadTrx();
+            final XmlNodeReadOnlyTrx newRtx = newAxis.asXdmNodeReadTrx();
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
@@ -748,10 +748,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Remove right sibling text node from the storage as well as from the matching.
    *
-   * @param wtx sirix {@link XdmNodeTrx}
+   * @param wtx sirix {@link XmlNodeTrx}
    * @throws SirixException if removing of node in the storage fails
    */
-  private void removeRightSiblingTextNode(final XdmNodeTrx wtx) throws SirixException {
+  private void removeRightSiblingTextNode(final XmlNodeTrx wtx) throws SirixException {
     assert wtx != null;
     if (wtx.hasRightSibling()) {
       final long nodeKey = wtx.getNodeKey();
@@ -790,11 +790,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * The position of node x in the destination tree (tree2).
    *
    * @param x a node in the second (new) document
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @return it's position, with respect to already inserted/deleted nodes
    */
-  private int findPos(final long x, final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
+  private int findPos(final long x, final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert x > 0;
     assert wtx != null;
     assert rtx != null;
@@ -869,12 +869,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * The fast match algorithm. Try to resolve the "good matching problem".
    *
-   * @param wtx {@link XdmNodeTrx} implementation reference on old revision
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @return {@link Matching} reference with matched nodes
    * @throws SirixException if anything in sirix fails
    */
-  private Matching fastMatch(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) {
+  private Matching fastMatch(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert wtx != null;
     assert rtx != null;
 
@@ -987,11 +987,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Initialize data structures.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} reference on old revision
-   * @param visitor {@link XdmNodeVisitor} reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} reference on old revision
+   * @param visitor {@link XmlNodeVisitor} reference
    * @throws SirixException if anything in sirix fails
    */
-  private static void init(final XdmNodeReadOnlyTrx rtx, final XdmNodeVisitor visitor) {
+  private static void init(final XmlNodeReadOnlyTrx rtx, final XmlNodeVisitor visitor) {
     assert visitor != null;
 
     final long nodeKey = rtx.getNodeKey();
@@ -1010,10 +1010,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * tree, we use post-order-traversal (wrong in paper). For each node type (element, attribute, text,
    * comment, ...) there is a separate list.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} reference
    * @param visitor {@link LabelFMSEVisitor} used to save node type/list
    */
-  private static void getLabels(final XdmNodeReadOnlyTrx rtx, final LabelFMSEVisitor visitor) {
+  private static void getLabels(final XmlNodeReadOnlyTrx rtx, final LabelFMSEVisitor visitor) {
     assert rtx != null;
     assert visitor != null;
 
@@ -1034,12 +1034,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    *
    * @param x first node
    * @param y second node
-   * @param pRtx {@link XdmNodeReadOnlyTrx} implementation reference
-   * @param pWtx {@link XdmNodeTrx} implementation reference
+   * @param pRtx {@link XmlNodeReadOnlyTrx} implementation reference
+   * @param pWtx {@link XmlNodeTrx} implementation reference
    * @return true iff the values of the nodes are equal
    */
-  private static boolean nodeValuesEqual(final long x, final long y, final XdmNodeReadOnlyTrx rtxOld,
-      final XdmNodeReadOnlyTrx rtxNew) {
+  private static boolean nodeValuesEqual(final long x, final long y, final XmlNodeReadOnlyTrx rtxOld,
+      final XmlNodeReadOnlyTrx rtxNew) {
     assert x >= 0;
     assert y >= 0;
     assert rtxOld != null;
@@ -1058,10 +1058,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * {@code prefix:localName} or the value of {@link TextNode}s.
    *
    * @param nodeKey node from which to get the value
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference
    * @return string value of current node
    */
-  private static String getNodeValue(final long nodeKey, final XdmNodeReadOnlyTrx rtx) {
+  private static String getNodeValue(final long nodeKey, final XmlNodeReadOnlyTrx rtx) {
     assert nodeKey >= 0;
     assert rtx != null;
     rtx.moveTo(nodeKey);
@@ -1160,8 +1160,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
      * Constructor.
      *
      * @param matching {@link Matching} reference
-     * @param pWtx {@link XdmNodeTrx} implementation reference on old revision
-     * @param pRtx {@link XdmNodeReadOnlyTrx} implementation reference on new revision
+     * @param pWtx {@link XmlNodeTrx} implementation reference on old revision
+     * @param pRtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
      */
     public InnerNodeEqual(final Matching matching) {
       assert matching != null;

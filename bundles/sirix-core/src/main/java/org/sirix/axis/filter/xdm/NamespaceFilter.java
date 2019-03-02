@@ -21,7 +21,7 @@
 
 package org.sirix.axis.filter.xdm;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
@@ -31,14 +31,14 @@ import org.sirix.axis.filter.AbstractFilter;
  * Only match NAMESPACE nodes.
  * </p>
  */
-public final class NamespaceFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class NamespaceFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx Transaction this filter is bound to.
    */
-  public NamespaceFilter(final XdmNodeReadOnlyTrx rtx) {
+  public NamespaceFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 

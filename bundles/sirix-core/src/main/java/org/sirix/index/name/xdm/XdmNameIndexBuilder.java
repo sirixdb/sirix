@@ -1,7 +1,7 @@
 package org.sirix.index.name.xdm;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.name.NameIndexBuilder;
 import org.sirix.node.immutable.xdm.ImmutableElement;

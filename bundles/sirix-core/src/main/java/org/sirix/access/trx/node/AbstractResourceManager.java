@@ -18,10 +18,10 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalXdmDatabase;
+import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
@@ -31,7 +31,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -98,7 +98,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalXdmDatabase} for centralized operations on related sessions
+   * @param database {@link LocalXmlDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
@@ -229,7 +229,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * A commit file which is used by a {@link XdmNodeTrx} to denote if it's currently commiting or not.
+   * A commit file which is used by a {@link XmlNodeTrx} to denote if it's currently commiting or not.
    */
   @Override
   public Path getCommitFile() {
@@ -296,8 +296,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     if (!mClosed) {
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : mNodeReaderMap.values()) {
-        if (rtx instanceof XdmNodeTrx) {
-          ((XdmNodeTrx) rtx).rollback();
+        if (rtx instanceof XmlNodeTrx) {
+          ((XmlNodeTrx) rtx).rollback();
         }
         rtx.close();
         rtx = null;
@@ -328,7 +328,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * Checks for valid revision.
    *
    * @param revision revision number to check
-   * @throws IllegalStateException if {@link XdmResourceManagerImpl} is already closed
+   * @throws IllegalStateException if {@link XmlResourceManagerImpl} is already closed
    * @throws IllegalArgumentException if revision isn't valid
    */
   @Override

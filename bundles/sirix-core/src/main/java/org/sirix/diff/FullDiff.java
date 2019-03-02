@@ -23,7 +23,7 @@ package org.sirix.diff;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
@@ -47,7 +47,7 @@ final class FullDiff extends AbstractDiff {
   }
 
   @Override
-  boolean checkNodes(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx) {
+  boolean checkNodes(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
     boolean found = false;
     if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
         && newRtx.getKind() == oldRtx.getKind()) {
@@ -78,7 +78,7 @@ final class FullDiff extends AbstractDiff {
   }
 
   @Override
-  void emitNonStructuralDiff(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx,
+  void emitNonStructuralDiff(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx,
       final DiffDepth depth, final DiffType diff) {
     if (newRtx.isElement() || oldRtx.isElement()) {
       if (diff == DiffType.SAME) {

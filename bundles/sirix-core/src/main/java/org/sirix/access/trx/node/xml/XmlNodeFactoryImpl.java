@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
@@ -36,7 +36,7 @@ import com.google.common.collect.HashBiMap;
  * @author Johannes Lichtenberger
  *
  */
-final class XdmNodeFactoryImpl implements XdmNodeFactory {
+final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
   /** {@link PageTrx} implementation. */
   private final PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
@@ -47,7 +47,7 @@ final class XdmNodeFactoryImpl implements XdmNodeFactory {
    * @param pageWriteTrx {@link PageTrx} implementation
    * @throws SirixIOException if an I/O exception occured due to name key creation
    */
-  XdmNodeFactoryImpl(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+  XmlNodeFactoryImpl(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mPageWriteTrx = checkNotNull(pageWriteTrx);
     mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
     mPageWriteTrx.createNameKey("xs:untyped", Kind.NAMESPACE);
