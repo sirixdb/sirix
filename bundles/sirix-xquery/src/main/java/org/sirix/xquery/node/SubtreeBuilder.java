@@ -45,19 +45,18 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   /** Stack of namespace mappings. */
   private final Deque<QNm> mNamespaces;
 
+  /** Stack of namespace mappings. */
+  private final Deque<String> mInsertedNamespacePrefixes;
+
   /**
    * Constructor.
    *
    * @param wtx Sirix {@link IWriteTransaction}
    * @param insertPos determines how to insert (as a right sibling, first child or left sibling)
    * @param listeners listeners which implement
-   * @throws SirixException if constructor couldn't be fully constructed because building a new
-   *         reading transaction failed (might indicate that a few
    */
-  public SubtreeBuilder(final DBCollection collection, final XdmNodeTrx wtx,
-      final InsertPosition insertPos,
-      final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
-      throws SirixException {
+  public SubtreeBuilder(final DBCollection collection, final XdmNodeTrx wtx, final InsertPosition insertPos,
+      final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners) {
     super(wtx, insertPos);
     mCollection = checkNotNull(collection);
     mSubtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
@@ -65,6 +64,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
     mParents = new ArrayDeque<>();
     mFirst = true;
     mNamespaces = new ArrayDeque<>();
+    mInsertedNamespacePrefixes = new ArrayDeque<>();
   }
 
   /**
@@ -148,7 +148,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
 
   @Override
   public void endMapping(final String prefix) throws DocumentException {
-    // mNamespaces.remove();
+    mInsertedNamespacePrefixes.pop();
   }
 
   @Override
@@ -166,8 +166,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   }
 
   @Override
-  public void processingInstruction(final QNm target, final Atomic content)
-      throws DocumentException {
+  public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
     try {
       processPI(content.asStr().stringValue(), target.getLocalName());
       mSubtreeProcessor.notifyProcessingInstruction(new DBNode(mWtx, mCollection));
@@ -182,7 +181,12 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
       processStartTag(name);
       while (!mNamespaces.isEmpty()) {
         final QNm namespace = mNamespaces.pop();
-        mWtx.insertNamespace(namespace).moveToParent();
+
+        if (!mInsertedNamespacePrefixes.contains(namespace.getPrefix())) {
+          mWtx.insertNamespace(namespace).moveToParent();
+        }
+
+        mInsertedNamespacePrefixes.push(namespace.getPrefix());
       }
       if (mFirst) {
         mFirst = false;

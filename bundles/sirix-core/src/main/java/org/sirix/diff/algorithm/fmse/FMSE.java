@@ -251,8 +251,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } else if (x != wtx.getNodeKey()) {
       // 2(c) not the root (x has a partner in M').
       if (wtx.moveTo(w).hasMoved() && rtx.moveTo(x).hasMoved() && wtx.getKind() == rtx.getKind()
-          && (!nodeValuesEqual(w, x, wtx, rtx)
-              || (rtx.getKind() == Kind.ATTRIBUTE && !rtx.getValue().equals(wtx.getValue())))) {
+          && (!nodeValuesEqual(w, x, wtx, rtx) || (rtx.isAttribute() && !rtx.getValue().equals(wtx.getValue())))) {
         // Either QNames differ or the values in case of attribute nodes.
         emitUpdate(w, x, wtx, rtx);
       }
@@ -263,7 +262,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         assert z != null;
         mInOrderNewRev.put(x, true);
         rtx.moveTo(x);
-        if (rtx.getKind() == Kind.NAMESPACE || rtx.getKind() == Kind.ATTRIBUTE) {
+        if (rtx.isNamespace() || rtx.isAttribute()) {
           wtx.moveTo(w);
           try {
             mTotalMatching.remove(w);
@@ -1120,19 +1119,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           if (ratio > FMESF) {
             mWtx.moveToParent();
             mRtx.moveToParent();
-            // final QName oldQName = mWtx.getQNameOfCurrentNode();
-            // final QName newQName = mRtx.getQNameOfCurrentNode();
-            // if (oldQName.equals(newQName) &&
-            // oldQName.getPrefix().equals(newQName.getPrefix())) {
-            // ratio = checkAncestors(mWtx.getItem().getKey(),
-            // mRtx.getItem().getKey()) ? 1 : 0;
-            // } else {
+
             ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
-            // if (ratio > FMESF) {
-            // ratio = checkAncestors(mWtx.getItem().getKey(),
-            // mRtx.getItem().getKey()) ? 1 : 0;
-            // }
-            // }
+
+            if (checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey()))
+              ratio = 1;
           }
         }
       } else {
@@ -1141,6 +1132,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         } else {
           ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
         }
+
+        if (ratio <= FMESF
+            && mWtx.moveToParent().getCursor().getPathNodeKey() == mRtx.moveToParent().getCursor().getPathNodeKey())
+          ratio = 1;
 
         if (ratio <= FMESF && checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())) {
           ratio = 1;
@@ -1264,6 +1259,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } else {
       retVal = false;
     }
+
     return retVal;
   }
 

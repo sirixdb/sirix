@@ -419,11 +419,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           if (!first.isPresent() && !second.isPresent())
             return 0;
 
-          return first.get().toBytes().length == second.get().toBytes().length
-              ? 0
-              : first.get().toBytes().length > second.get().toBytes().length
-                  ? 1
-                  : -1;
+          return first.get().compareTo(second.get());
         }
 
         return -1;
