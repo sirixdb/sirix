@@ -171,10 +171,11 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
           switch (diffType) {
             case INSERTED:
-              if (newRtx.getKind() == Kind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+              if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              mBuf.append("  insert nodes ");
+              if (newRtx.isElement())
+                mBuf.append("  insert nodes ");
               mBuf.append(printSubtreeNode(newRtx));
 
               if (oldRtx.isDocumentRoot()) {
@@ -191,12 +192,19 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(System.getProperty("line.separator"));
               break;
             case DELETED:
+              if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+                continue;
+
               mBuf.append("  delete nodes sdb:select-node($doc");
               mBuf.append(", ");
               mBuf.append(diffTuple.getOldNodeKey());
               mBuf.append(")");
-              if (i != length - 1)
+
+              anotherTupleToEmit = determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
+
+              if (anotherTupleToEmit.isPresent())
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               break;
             case REPLACEDNEW:
@@ -228,8 +236,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               else
                 mBuf.append(") as ");
               mBuf.append(printNode(newRtx));
-              if (i != length - 1)
+
+              anotherTupleToEmit = determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
+
+              if (anotherTupleToEmit.isPresent())
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               // $CASES-OMITTED$
             default:
@@ -268,9 +280,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
 
   private Predicate<DiffTuple> diffTuplePredicate(final Set<Long> nodeKeysOfInserts, final XdmNodeReadOnlyTrx newRtx) {
     final Predicate<DiffTuple> filter = tuple -> {
-      if ((tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
-          && newRtx.moveTo(tuple.getNewNodeKey()).hasMoved() && newRtx.getKind() == Kind.ATTRIBUTE
-          && nodeKeysOfInserts.contains(newRtx.getParentKey())) {
+      if ((tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW
+          || tuple.getDiff() == DiffType.DELETED) && newRtx.moveTo(tuple.getNewNodeKey()).hasMoved()
+          && (newRtx.isAttribute() || newRtx.isNamespace()) && nodeKeysOfInserts.contains(newRtx.getParentKey())) {
         return false;
       } else {
         return true;

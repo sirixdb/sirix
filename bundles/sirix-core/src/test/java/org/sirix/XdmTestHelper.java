@@ -136,6 +136,34 @@ public final class XdmTestHelper {
   }
 
   /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static final Database<XdmResourceManager> getDatabaseWithDeweyIDsEnabled(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createXdmDatabase(config);
+        }
+        final var database = Databases.openXdmDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
    * Deleting all resources as defined in the enum {@link PATHS}.
    *
    * @throws SirixException

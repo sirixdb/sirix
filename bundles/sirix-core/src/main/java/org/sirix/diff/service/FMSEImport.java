@@ -71,7 +71,7 @@ public final class FMSEImport {
     Databases.createXdmDatabase(conf);
 
     try (final var db = Databases.openXdmDatabase(newRev)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded").build());
+      db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
       try (final var resMgr = db.openResourceManager("shredded");
           final var wtx = resMgr.beginNodeTrx();
           final var fis = new FileInputStream(resNewRev.toFile())) {
