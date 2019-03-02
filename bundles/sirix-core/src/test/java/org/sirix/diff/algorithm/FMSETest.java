@@ -79,6 +79,10 @@ public final class FMSETest extends XMLTestCase {
 
   private static final Path XMLLINGUISTICS = RESOURCES.resolve("linguistics");
 
+  private static final Path XMLSHEETS = RESOURCES.resolve("sheets");
+
+  private static final Path XMLSHEETSSECOND = RESOURCES.resolve("sheets2");
+
   static {
     XMLUnit.setIgnoreComments(true);
     XMLUnit.setIgnoreWhitespace(true);
@@ -201,6 +205,16 @@ public final class FMSETest extends XMLTestCase {
     test(XMLLINGUISTICS);
   }
 
+  @Test
+  public void testSheets() throws Exception {
+    test(XMLSHEETS);
+  }
+
+  @Test
+  public void testSheetsSecond() throws Exception {
+    test(XMLSHEETSSECOND);
+  }
+
   /**
    * Test a folder of XML files.
    *
@@ -254,6 +268,8 @@ public final class FMSETest extends XMLTestCase {
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
           serializer.call();
           final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
+
+          // System.out.println(out.toString());
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
