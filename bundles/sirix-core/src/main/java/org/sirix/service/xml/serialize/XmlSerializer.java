@@ -49,6 +49,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.node.Kind;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
@@ -194,7 +195,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
           } else {
             mOut.write(CharsForSerializing.SLASH_CLOSE.getBytes());
           }
-          if (mIndent) {
+          if (mIndent && !(rtx.getFirstChildKind() == Kind.TEXT && rtx.getChildCount() == 1)) {
             mOut.write(CharsForSerializing.NEWLINE.getBytes());
           }
           break;
@@ -208,9 +209,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
           mOut.write(CharsForSerializing.CLOSECOMMENT.getBytes());
           break;
         case TEXT:
-          indent();
+          if (rtx.hasRightSibling() || rtx.hasLeftSibling())
+            indent();
           mOut.write(XMLToken.escapeContent(rtx.getValue()).getBytes(Constants.DEFAULT_ENCODING));
-          if (mIndent) {
+          if (mIndent && (rtx.hasRightSibling() || rtx.hasLeftSibling())) {
             mOut.write(CharsForSerializing.NEWLINE.getBytes());
           }
           break;
@@ -242,7 +244,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   @Override
   protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
     try {
-      indent();
+      if (mIndent && !(rtx.getFirstChildKind() == Kind.TEXT && rtx.getChildCount() == 1))
+        indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
       writeQName(rtx);
       mOut.write(CharsForSerializing.CLOSE.getBytes());

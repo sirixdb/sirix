@@ -1178,9 +1178,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       assert firstNode != null;
       assert secondNode != null;
 
-      if (firstNode.longValue() == secondNode.longValue() && firstNode.longValue() == 1L)
-        System.out.println();
-
       mWtx.moveTo(firstNode);
       mRtx.moveTo(secondNode);
 
