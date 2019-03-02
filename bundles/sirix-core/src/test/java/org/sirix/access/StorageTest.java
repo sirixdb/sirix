@@ -19,15 +19,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.io;
+package org.sirix.access;
 
 import static org.testng.AssertJUnit.assertEquals;
 import java.io.IOException;
 import java.nio.file.Files;
 import org.sirix.XdmTestHelper;
-import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.Reader;
+import org.sirix.io.Storage;
+import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
@@ -105,12 +107,13 @@ public final class StorageTest {
    * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
    *
    * @return different classes of the {@link ByteHandler}
-   * @throws SirixIOException if an I/O error occurs
    */
   @DataProvider(name = "instantiateStorages")
-  public Object[][] instantiateStorages() throws SirixIOException {
+  public Object[][] instantiateStorages() {
+    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile());
     Object[][] returnVal =
-        {{Storage.class, new Storage[] {new FileStorage(mResourceConfig), new RAMStorage(mResourceConfig)}}};
+        {{Storage.class, new Storage[] {new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
+            new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig))}}};
     return returnVal;
   }
 
