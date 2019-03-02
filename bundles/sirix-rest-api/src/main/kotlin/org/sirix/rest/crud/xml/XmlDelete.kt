@@ -12,8 +12,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.xdm.XdmNodeTrx
-import org.sirix.api.xdm.XdmResourceManager
+import org.sirix.api.xml.XmlNodeTrx
+import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.SessionDBStore
 import org.sirix.xquery.node.BasicDBStore
 import java.nio.file.Files
@@ -56,7 +56,7 @@ class XdmDelete(private val location: Path) {
             return
         }
 
-        val database = Databases.openXdmDatabase(dbFile)
+        val database = Databases.openXmlDatabase(dbFile)
 
         database.use {
             if (nodeId == null) {
@@ -78,7 +78,7 @@ class XdmDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<XdmResourceManager>,
+    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<XmlResourceManager>,
                                        resPathName: String?,
                                        ctx: RoutingContext): Any? {
         return try {
@@ -90,8 +90,8 @@ class XdmDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: XdmResourceManager, nodeId: Long, context: Context): XdmNodeTrx? {
-        return context.executeBlockingAwait(Handler<Future<XdmNodeTrx>> {
+    private suspend fun removeSubtree(manager: XmlResourceManager, nodeId: Long, context: Context): XmlNodeTrx? {
+        return context.executeBlockingAwait(Handler<Future<XmlNodeTrx>> {
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 

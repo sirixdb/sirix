@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Filter;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -13,11 +13,11 @@ import org.sirix.axis.AbstractTemporalAxis;
  * @author Johannes Lichtenberger
  *
  */
-public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnlyTrx>>
-    extends AbstractTemporalAxis<XdmNodeReadOnlyTrx> {
+public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XmlNodeReadOnlyTrx>>
+    extends AbstractTemporalAxis<XmlNodeReadOnlyTrx> {
 
   /** Axis to test. */
-  private final AbstractTemporalAxis<XdmNodeReadOnlyTrx> mAxis;
+  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx> mAxis;
 
   /** Test to apply to axis. */
   private final List<F> mAxisFilter;
@@ -30,7 +30,7 @@ public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnl
    * @param axisTest tests to perform for each node found with axis
    */
   @SafeVarargs
-  public TemporalXdmNodeReadFilterAxis(final AbstractTemporalAxis<XdmNodeReadOnlyTrx> axis, final F firstAxisTest,
+  public TemporalXdmNodeReadFilterAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis, final F firstAxisTest,
       final F... axisTest) {
     checkNotNull(firstAxisTest);
     mAxis = axis;
@@ -45,9 +45,9 @@ public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnl
   }
 
   @Override
-  protected XdmNodeReadOnlyTrx computeNext() {
+  protected XmlNodeReadOnlyTrx computeNext() {
     while (mAxis.hasNext()) {
-      final XdmNodeReadOnlyTrx rtx = mAxis.next();
+      final XmlNodeReadOnlyTrx rtx = mAxis.next();
       boolean filterResult = true;
       for (final F filter : mAxisFilter) {
         filter.setTrx(rtx);
@@ -68,12 +68,12 @@ public final class TemporalXdmNodeReadFilterAxis<F extends Filter<XdmNodeReadOnl
    *
    * @return the axis
    */
-  public AbstractTemporalAxis<XdmNodeReadOnlyTrx> getAxis() {
+  public AbstractTemporalAxis<XmlNodeReadOnlyTrx> getAxis() {
     return mAxis;
   }
 
   @Override
-  public XdmNodeReadOnlyTrx getTrx() {
+  public XmlNodeReadOnlyTrx getTrx() {
     return mAxis.getTrx();
   }
 }

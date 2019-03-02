@@ -26,12 +26,12 @@ import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -46,7 +46,7 @@ import org.sirix.utils.TypedValue;
  * 1.1</a>. (Definition: Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public final class AtomicValue implements Node, ValueNode, ImmutableXdmNode {
+public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
 
   /** Value of the item as byte array. */
   private byte[] mValue;
@@ -287,7 +287,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXdmNode {
   }
 
   @Override
-  public VisitResult acceptVisitor(XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
     throw new UnsupportedOperationException();
   }
 }

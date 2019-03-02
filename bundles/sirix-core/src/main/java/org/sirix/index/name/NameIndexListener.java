@@ -4,7 +4,7 @@ import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.AVLTreeWriter;

@@ -30,8 +30,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -47,37 +47,37 @@ public class HashTest {
 
   @Test
   public void testPostorderInsertRemove() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testPostorderDeep() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
     testDeepTree(wtx);
   }
 
   @Test
   public void testPostorderSetter() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
+    final XmlNodeTrx wtx = createWtx(HashType.POSTORDER);
     testSetter(wtx);
   }
 
   @Test
   public void testRollingInsertRemove() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testRollingDeep() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
     testDeepTree(wtx);
   }
 
   @Test
   public void testRollingSetter() throws SirixException {
-    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
+    final XmlNodeTrx wtx = createWtx(HashType.ROLLING);
     testSetter(wtx);
   }
 
@@ -100,7 +100,7 @@ public class HashTest {
    * @throws TTException
    */
   @Ignore
-  private void testHashTreeWithInsertAndRemove(final XdmNodeTrx wtx) throws SirixException {
+  private void testHashTreeWithInsertAndRemove(final XmlNodeTrx wtx) throws SirixException {
 
     // inserting a element as root
     wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -151,7 +151,7 @@ public class HashTest {
   }
 
   @Ignore
-  private void testDeepTree(final XdmNodeTrx wtx) throws SirixException {
+  private void testDeepTree(final XmlNodeTrx wtx) throws SirixException {
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     final long oldHash = wtx.getHash();
@@ -173,7 +173,7 @@ public class HashTest {
   }
 
   @Ignore
-  private void testSetter(final XdmNodeTrx wtx) throws SirixException {
+  private void testSetter(final XmlNodeTrx wtx) throws SirixException {
 
     // Testing node inheritance
     wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -215,11 +215,11 @@ public class HashTest {
     assertFalse(hashRoot4 == hashLeaf3);
   }
 
-  private XdmNodeTrx createWtx(final HashType kind) throws SirixException {
+  private XmlNodeTrx createWtx(final HashType kind) throws SirixException {
     final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-    final XdmResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
-    final XdmNodeTrx wTrx = manager.beginNodeTrx();
+    final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+    final XmlNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }
 

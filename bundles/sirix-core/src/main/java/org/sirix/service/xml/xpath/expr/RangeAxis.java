@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
@@ -68,7 +68,7 @@ public class RangeAxis extends AbstractAxis {
    * @param mFrom start of the range
    * @param mTo the end of the range
    */
-  public RangeAxis(final XdmNodeReadOnlyTrx rtx, final Axis mFrom, final Axis mTo) {
+  public RangeAxis(final XmlNodeReadOnlyTrx rtx, final Axis mFrom, final Axis mTo) {
 
     super(rtx);
     this.mFrom = mFrom;
@@ -86,12 +86,12 @@ public class RangeAxis extends AbstractAxis {
 
     if (mFirst) {
       mFirst = false;
-      if (mFrom.hasNext() && Type.getType(((XdmNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
-        mStart = Integer.parseInt(((XdmNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getValue());
+      if (mFrom.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        mStart = Integer.parseInt(((XmlNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getValue());
 
-        if (mTo.hasNext() && Type.getType(((XdmNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        if (mTo.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
 
-          mEnd = Integer.parseInt(((XdmNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getValue());
+          mEnd = Integer.parseInt(((XmlNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getValue());
 
         } else {
           // at least one operand is the empty sequence

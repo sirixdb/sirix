@@ -7,7 +7,7 @@ import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.index.AtomicUtil;

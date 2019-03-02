@@ -46,9 +46,9 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.node.Kind;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
@@ -66,7 +66,7 @@ import org.slf4j.LoggerFactory;
  * buffer it again outside of this class.
  * </p>
  */
-public final class XmlSerializer extends org.sirix.service.AbstractSerializer<XdmNodeReadOnlyTrx, XdmNodeTrx> {
+public final class XmlSerializer extends org.sirix.service.AbstractSerializer<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlSerializer.class));
@@ -117,7 +117,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XmlSerializer(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+  private XmlSerializer(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
       final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
     super(resourceMgr, nodeKey, revision, revsions);
@@ -136,10 +136,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Emit node (start element or characters).
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   @Override
-  protected void emitNode(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       switch (rtx.getKind()) {
         case XDM_DOCUMENT:
@@ -239,10 +239,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Emit end element.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   @Override
-  protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       if (mIndent && !(rtx.getFirstChildKind() == Kind.TEXT && rtx.getChildCount() == 1))
         indent();
@@ -258,7 +258,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   // Write a QName.
-  private void writeQName(final XdmNodeReadOnlyTrx rtx) throws IOException {
+  private void writeQName(final XmlNodeReadOnlyTrx rtx) throws IOException {
     if (rtx.getPrefixKey() != -1) {
       mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
       mOut.write(CharsForSerializing.COLON.getBytes());
@@ -324,7 +324,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   @Override
-  protected void emitRevisionStartNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()
@@ -376,7 +376,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   @Override
-  protected void emitRevisionEndNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
           ? (int) mResMgr.getMostRecentRevisionNumber()
@@ -466,10 +466,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
     final Path databaseFile = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
     Databases.createXdmDatabase(config);
-    try (final var db = Databases.openXdmDatabase(databaseFile)) {
+    try (final var db = Databases.openXmlDatabase(databaseFile)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
-      try (final XdmResourceManager resMgr = db.openResourceManager("shredded");
+      try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XmlSerializer serializer = XmlSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
@@ -486,7 +486,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
    * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XdmResourceManager resMgr, final OutputStream stream,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final OutputStream stream,
       final int... revisions) {
     return new XmlSerializerBuilder(resMgr, stream, revisions);
   }
@@ -500,7 +500,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XdmResourceManager resMgr, final @Nonnegative long nodeKey,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceManager resMgr, final @Nonnegative long nodeKey,
       final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
     return new XmlSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -540,7 +540,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
     private final OutputStream mStream;
 
     /** Resource manager to use. */
-    private final XdmResourceManager mResourceMgr;
+    private final XmlResourceManager mResourceMgr;
 
     /** Further revisions to serialize. */
     private int[] mVersions;
@@ -564,7 +564,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XdmResourceManager resourceMgr, final OutputStream stream,
+    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
@@ -589,7 +589,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xd
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XdmResourceManager resourceMgr, final @Nonnegative long nodeKey,
+    public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);

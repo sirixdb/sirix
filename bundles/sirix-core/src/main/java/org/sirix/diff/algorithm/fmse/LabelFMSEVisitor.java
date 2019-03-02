@@ -25,9 +25,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutableText;
@@ -40,8 +40,8 @@ import org.sirix.node.immutable.xdm.ImmutableText;
  */
 public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
 
-  /** {@link XdmNodeReadOnlyTrx} implementation. */
-  private final XdmNodeReadOnlyTrx mRtx;
+  /** {@link XmlNodeReadOnlyTrx} implementation. */
+  private final XmlNodeReadOnlyTrx mRtx;
 
   /** For each node type: list of inner nodes. */
   private final Map<Kind, List<Long>> mLabels;
@@ -54,7 +54,7 @@ public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
    *
    * @param readTrx a read only transaction
    */
-  public LabelFMSEVisitor(final XdmNodeReadOnlyTrx readTrx) {
+  public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
     mRtx = checkNotNull(readTrx);
     mLabels = new HashMap<>();
     mLeafLabels = new HashMap<>();

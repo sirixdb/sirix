@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -7,9 +7,9 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.trx.node.AbstractIndexController;
 import org.sirix.api.PageTrx;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
@@ -28,7 +28,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Johannes Lichtenberger
  *
  */
-public final class XdmIndexController extends AbstractIndexController<XdmNodeReadOnlyTrx, XdmNodeTrx> {
+public final class XmlIndexController extends AbstractIndexController<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /** Type of change. */
   public enum ChangeType {
@@ -42,12 +42,12 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
   /**
    * Constructor.
    */
-  public XdmIndexController() {
+  public XmlIndexController() {
     super(new Indexes(), new HashSet<>(), new XdmPathIndexImpl(), new XdmCASIndexImpl(), new XdmNameIndexImpl());
   }
 
   @Override
-  public XdmIndexController createIndexes(final Set<IndexDef> indexDefs, final XdmNodeTrx nodeWriteTrx) {
+  public XmlIndexController createIndexes(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -61,13 +61,13 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
    * Create index builders.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XdmNodeTrx}
+   * @param nodeWriteTrx the {@link XmlNodeTrx}
    *
    * @return the created index builder instances
    */
-  Set<XdmNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XdmNodeTrx nodeWriteTrx) {
+  Set<XmlNodeVisitor> createIndexBuilders(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
     // Index builders for all index definitions.
-    final var indexBuilders = new HashSet<XdmNodeVisitor>(indexDefs.size());
+    final var indexBuilders = new HashSet<XmlNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
       switch (indexDef.getType()) {
         case PATH:
@@ -88,26 +88,26 @@ public final class XdmIndexController extends AbstractIndexController<XdmNodeRea
   }
 
   @Override
-  public PathFilter createPathFilter(final String[] queryString, final XdmNodeReadOnlyTrx rtx) throws PathException {
+  public PathFilter createPathFilter(final String[] queryString, final XmlNodeReadOnlyTrx rtx) throws PathException {
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
       paths.add(Path.parse(path));
     return new PathFilter(paths, new XdmPCRCollector(rtx));
   }
 
-  private XdmNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return (XdmNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
+    return (XmlNodeVisitor) mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private XdmNodeVisitor createCASIndexBuilder(final XdmNodeReadOnlyTrx nodeReadTrx,
+  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx,
       final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
-    return (XdmNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
+    return (XmlNodeVisitor) mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private XdmNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  private XmlNodeVisitor createNameIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
-    return (XdmNodeVisitor) mNameIndex.createBuilder(pageWriteTrx, indexDef);
+    return (XmlNodeVisitor) mNameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }

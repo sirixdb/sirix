@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 public class NonStructuralWrapperAxisTest {
@@ -48,7 +48,7 @@ public class NonStructuralWrapperAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     AbsAxisTest.testIAxisConventions(
         new NonStructuralWrapperAxis(new DescendantAxis(rtx)),

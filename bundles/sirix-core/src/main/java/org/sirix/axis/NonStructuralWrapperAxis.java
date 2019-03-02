@@ -23,7 +23,7 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.settings.Fixed;
 
 /**
@@ -72,7 +72,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 
   @Override
   protected long nextKey() {
-    final XdmNodeReadOnlyTrx trx = mParentAxis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx trx = mParentAxis.asXdmNodeReadTrx();
     if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
       final long nodeKey = nonStructural(trx);
       if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -94,10 +94,10 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
   /**
    * Determine if non structural nodes must be emitted.
    *
-   * @param trx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param trx Sirix {@link XmlNodeReadOnlyTrx}
    * @return the node key of the non structural node, or the {@code NULL_NODE_KEY}
    */
-  private long nonStructural(final XdmNodeReadOnlyTrx trx) {
+  private long nonStructural(final XmlNodeReadOnlyTrx trx) {
     if (trx.isNamespace()) {
       trx.moveToParent();
     }

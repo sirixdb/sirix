@@ -23,8 +23,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
@@ -72,7 +72,7 @@ public final class ExcelDiffEmptyTest extends TestCase {
    */
   private void test(final Path folder) throws Exception {
     try (final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XdmResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
+      XmlResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -99,7 +99,7 @@ public final class ExcelDiffEmptyTest extends TestCase {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XdmNodeTrx wtx = resource.beginNodeTrx();
+            try (final XmlNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
                   InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

@@ -14,7 +14,7 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;

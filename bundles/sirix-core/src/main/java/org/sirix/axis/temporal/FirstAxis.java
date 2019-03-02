@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
@@ -30,7 +30,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx> extends AbstractTemporal
   /**
    * Constructor.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   public FirstAxis(final R rtx) {
     mResourceManager = checkNotNull(rtx.getResourceManager());

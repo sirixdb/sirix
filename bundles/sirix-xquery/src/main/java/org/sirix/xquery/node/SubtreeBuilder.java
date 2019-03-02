@@ -10,7 +10,7 @@ import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -27,8 +27,8 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   /** {@link SubtreeProcessor} for listeners. */
   private final SubtreeProcessor<AbstractTemporalNode<DBNode>> mSubtreeProcessor;
 
-  /** Sirix {@link XdmNodeTrx}. */
-  private final XdmNodeTrx mWtx;
+  /** Sirix {@link XmlNodeTrx}. */
+  private final XmlNodeTrx mWtx;
 
   /** Stack for saving the parent nodes. */
   private final Deque<DBNode> mParents;
@@ -55,7 +55,7 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
    * @param insertPos determines how to insert (as a right sibling, first child or left sibling)
    * @param listeners listeners which implement
    */
-  public SubtreeBuilder(final DBCollection collection, final XdmNodeTrx wtx, final InsertPosition insertPos,
+  public SubtreeBuilder(final DBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
       final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners) {
     super(wtx, insertPos);
     mCollection = checkNotNull(collection);

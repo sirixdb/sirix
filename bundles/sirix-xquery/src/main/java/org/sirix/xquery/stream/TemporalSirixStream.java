@@ -5,7 +5,7 @@ import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
@@ -20,7 +20,7 @@ import com.google.common.base.MoreObjects;
 public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>> {
 
   /** Temporal axis. */
-  private final AbstractTemporalAxis<XdmNodeReadOnlyTrx> mAxis;
+  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx> mAxis;
 
   /** The {@link DBCollection} reference. */
   private DBCollection mCollection;
@@ -31,7 +31,7 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>>
    * @param axis Sirix {@link Axis}
    * @param collection {@link DBCollection} the nodes belong to
    */
-  public TemporalSirixStream(final AbstractTemporalAxis<XdmNodeReadOnlyTrx> axis, final DBCollection collection) {
+  public TemporalSirixStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis, final DBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
   }

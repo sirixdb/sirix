@@ -21,7 +21,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -41,7 +41,7 @@ public final class AttributeAxis extends AbstractAxis {
    *
    * @param paramRtx exclusive (immutable) mTrx to iterate with
    */
-  public AttributeAxis(final XdmNodeReadOnlyTrx rtx) {
+  public AttributeAxis(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
@@ -61,7 +61,7 @@ public final class AttributeAxis extends AbstractAxis {
     }
 
     if (asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
-      final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) asXdmNodeReadTrx();
+      final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXdmNodeReadTrx();
       if (mNextIndex < rtx.getAttributeCount()) {
         final long key = rtx.getAttributeKey(mNextIndex);
         mNextIndex += 1;

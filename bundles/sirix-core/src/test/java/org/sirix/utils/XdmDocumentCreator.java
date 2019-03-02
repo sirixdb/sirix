@@ -29,8 +29,8 @@ import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -156,10 +156,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds.
    *
-   * @param wtx {@link XdmNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything weird happens
    */
-  public static void createCommentPI(final XdmNodeTrx wtx) throws SirixException {
+  public static void createCommentPI(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
@@ -199,10 +199,10 @@ public final class XdmDocumentCreator {
    * Create simple test document containing all supported node kinds except comment- and processing
    * instructions.
    *
-   * @param wtx {@link XdmNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything weird happens
    */
-  public static void create(final XdmNodeTrx wtx) throws SirixException {
+  public static void create(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
@@ -238,10 +238,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple revision test in current database.
    *
-   * @param wtx {@link XdmNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersioned(final XdmNodeTrx wtx) throws SirixException {
+  public static void createVersioned(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -257,10 +257,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple revision test in current database.
    *
-   * @param wtx {@link XdmNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersionedWithUpdatesAndDeletes(final XdmNodeTrx wtx) throws SirixException {
+  public static void createVersionedWithUpdatesAndDeletes(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -285,10 +285,10 @@ public final class XdmDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds except the attributes.
    *
-   * @param paramWtx {@link XdmNodeTrx} to write to
+   * @param paramWtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createWithoutAttributes(final XdmNodeTrx wtx) throws SirixException {
+  public static void createWithoutAttributes(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     wtx.moveToDocumentRoot();
     wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
@@ -310,10 +310,10 @@ public final class XdmDocumentCreator {
    * Create simple test document containing all supported node kinds, but ignoring their namespace
    * prefixes.
    *
-   * @param wtx {@link XdmNodeTrx} to write to
+   * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createWithoutNamespace(final XdmNodeTrx wtx) throws SirixException {
+  public static void createWithoutNamespace(final XmlNodeTrx wtx) throws SirixException {
     assertNotNull(wtx);
     wtx.moveToDocumentRoot();
     wtx.insertElementAsFirstChild(new QNm("a"));
@@ -342,17 +342,17 @@ public final class XdmDocumentCreator {
    * @throws XMLStreamException if StAX reader couldn't be created
    * @throws IOException if reading XML string fails
    */
-  public static void createRevisioned(final Database<XdmResourceManager> database)
+  public static void createRevisioned(final Database<XmlResourceManager> database)
       throws SirixException, IOException, XMLStreamException {
 
-    try (final XdmResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE)) {
-      try (final XdmNodeTrx firstWtx = resMgr.beginNodeTrx()) {
+    try (final XmlResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XmlNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 
-      try (final XdmNodeTrx secondWtx = resMgr.beginNodeTrx()) {
+      try (final XmlNodeTrx secondWtx = resMgr.beginNodeTrx()) {
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();
         secondWtx.moveToFirstChild();

@@ -32,8 +32,8 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -81,7 +81,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     /** Optional visitor. */
     private NodeVisitor mVisitor;
 
-    /** Sirix {@link XdmNodeReadOnlyTrx}. */
+    /** Sirix {@link XmlNodeReadOnlyTrx}. */
     private final NodeCursor mRtx;
 
     /** Determines if current node should be included or not. */
@@ -151,8 +151,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     VisitResult result = null;
 
     if (mVisitor != null) {
-      if (getTrx() instanceof XdmNodeReadOnlyTrx)
-        result = asXdmNodeReadTrx().acceptVisitor((XdmNodeVisitor) mVisitor);
+      if (getTrx() instanceof XmlNodeReadOnlyTrx)
+        result = asXdmNodeReadTrx().acceptVisitor((XmlNodeVisitor) mVisitor);
       else if (getTrx() instanceof JsonNodeReadOnlyTrx)
         result = asJsonNodeReadTrx().acceptVisitor((JsonNodeVisitor) mVisitor);
       else

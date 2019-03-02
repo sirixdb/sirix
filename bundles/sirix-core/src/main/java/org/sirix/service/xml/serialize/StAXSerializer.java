@@ -37,7 +37,7 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
@@ -94,7 +94,7 @@ public final class StAXSerializer implements XMLEventReader {
    */
   private long mLastKey;
 
-  /** Determines if {@link XdmNodeReadOnlyTrx} should be closed afterwards. */
+  /** Determines if {@link XmlNodeReadOnlyTrx} should be closed afterwards. */
   private final boolean mCloseRtx;
 
   /** First call. */
@@ -121,9 +121,9 @@ public final class StAXSerializer implements XMLEventReader {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read. Do not serialize the tank ids.
    *
-   * @param pAxis {@link XdmNodeReadOnlyTrx} which is used to iterate over and generate StAX events
+   * @param pAxis {@link XmlNodeReadOnlyTrx} which is used to iterate over and generate StAX events
    */
-  public StAXSerializer(final XdmNodeReadOnlyTrx rtx) {
+  public StAXSerializer(final XmlNodeReadOnlyTrx rtx) {
     this(rtx, true);
   }
 
@@ -134,7 +134,7 @@ public final class StAXSerializer implements XMLEventReader {
    * @param pAxis {@link pRtx} which is used to iterate over and generate StAX events
    * @param pCloseRtx Determines if rtx should be closed afterwards.
    */
-  public StAXSerializer(final XdmNodeReadOnlyTrx pRtx, final boolean pCloseRtx) {
+  public StAXSerializer(final XmlNodeReadOnlyTrx pRtx, final boolean pCloseRtx) {
     mNextTag = false;
     mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
     mCloseRtx = pCloseRtx;
@@ -149,9 +149,9 @@ public final class StAXSerializer implements XMLEventReader {
   /**
    * Emit end tag.
    *
-   * @param rtx Sirix reading transaction {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix reading transaction {@link XmlNodeReadOnlyTrx}
    */
-  private void emitEndTag(final XdmNodeReadOnlyTrx rtx) {
+  private void emitEndTag(final XmlNodeReadOnlyTrx rtx) {
     final long nodeKey = rtx.getNodeKey();
     final QNm qName = rtx.getName();
     mEvent = mFac.createEndElement(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()),
@@ -162,9 +162,9 @@ public final class StAXSerializer implements XMLEventReader {
   /**
    * Emit a node.
    *
-   * @param rtx Sirix reading transaction {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix reading transaction {@link XmlNodeReadOnlyTrx}
    */
-  private void emitNode(final XdmNodeReadOnlyTrx rtx) {
+  private void emitNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case XDM_DOCUMENT:
         mEvent = mFac.createStartDocument();
@@ -200,7 +200,7 @@ public final class StAXSerializer implements XMLEventReader {
 
   @Override
   public String getElementText() throws XMLStreamException {
-    final XdmNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
     final long nodeKey = rtx.getNodeKey();
 
     /*
@@ -295,7 +295,7 @@ public final class StAXSerializer implements XMLEventReader {
   @Override
   public XMLEvent peek() throws XMLStreamException {
     final long currNodeKey = mAxis.asXdmNodeReadTrx().getNodeKey();
-    final XdmNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = mAxis.asXdmNodeReadTrx();
 
     if (!mHasNext && mEmitEndDocument) {
       mEvent = mFac.createEndDocument();
@@ -386,7 +386,7 @@ public final class StAXSerializer implements XMLEventReader {
    * @param rtx Read Transaction.
    * @throws IOException if any I/O error occurred
    */
-  private void emit(final XdmNodeReadOnlyTrx rtx) throws IOException {
+  private void emit(final XmlNodeReadOnlyTrx rtx) throws IOException {
     assert rtx != null;
     // Emit pending end elements.
     if (mCloseElements) {
@@ -440,9 +440,9 @@ public final class StAXSerializer implements XMLEventReader {
   private static final class AttributeIterator implements Iterator<Attribute> {
 
     /**
-     * {@link XdmNodeReadOnlyTrx} implementation.
+     * {@link XmlNodeReadOnlyTrx} implementation.
      */
-    private final XdmNodeReadOnlyTrx mRtx;
+    private final XmlNodeReadOnlyTrx mRtx;
 
     /** Number of attribute nodes. */
     private final int mAttCount;
@@ -459,9 +459,9 @@ public final class StAXSerializer implements XMLEventReader {
     /**
      * Constructor.
      *
-     * @param rtx reference implementing the {@link XdmNodeReadOnlyTrx} interface
+     * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
-    public AttributeIterator(final XdmNodeReadOnlyTrx rtx) {
+    public AttributeIterator(final XmlNodeReadOnlyTrx rtx) {
       mRtx = checkNotNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;
@@ -507,9 +507,9 @@ public final class StAXSerializer implements XMLEventReader {
   private static final class NamespaceIterator implements Iterator<Namespace> {
 
     /**
-     * Sirix {@link XdmNodeReadOnlyTrx}.
+     * Sirix {@link XmlNodeReadOnlyTrx}.
      */
-    private final XdmNodeReadOnlyTrx mRtx;
+    private final XmlNodeReadOnlyTrx mRtx;
 
     /** Number of namespace nodes. */
     private final int mNamespCount;
@@ -526,9 +526,9 @@ public final class StAXSerializer implements XMLEventReader {
     /**
      * Constructor.
      *
-     * @param rtx reference implementing the {@link XdmNodeReadOnlyTrx} interface
+     * @param rtx reference implementing the {@link XmlNodeReadOnlyTrx} interface
      */
-    public NamespaceIterator(final XdmNodeReadOnlyTrx rtx) {
+    public NamespaceIterator(final XmlNodeReadOnlyTrx rtx) {
       mRtx = checkNotNull(rtx);
       mNodeKey = mRtx.getNodeKey();
       mIndex = 0;

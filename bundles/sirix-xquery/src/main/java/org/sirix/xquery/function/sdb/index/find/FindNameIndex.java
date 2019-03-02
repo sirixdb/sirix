@@ -13,7 +13,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -52,8 +52,8 @@ public final class FindNameIndex extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     final DBNode doc = (DBNode) args[0];
     final NodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final XmlIndexController controller =
+        (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

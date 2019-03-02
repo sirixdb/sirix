@@ -27,7 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xdm.XdmNameFilter;
 import org.sirix.axis.filter.xdm.NodeFilter;
@@ -53,18 +53,18 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
 
     // XPath expression /p:a/b/text()
     // Part: /p:a
-    final Axis childA = new FilterAxis<XdmNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "p:a"));
+    final Axis childA = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "p:a"));
     // Part: /b
-    final Axis childB = new FilterAxis<XdmNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "b"));
+    final Axis childB = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "b"));
     // Part: /text()
-    final Axis text = new FilterAxis<XdmNodeReadOnlyTrx>(new ChildAxis(rtx), new TextFilter(rtx));
+    final Axis text = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new TextFilter(rtx));
     // Part: /p:a/b/text()
     final Axis axis = new NestedAxis(new NestedAxis(childA, childB), text);
 
@@ -73,7 +73,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest2() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
@@ -94,7 +94,7 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest3() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     // Find desceFndants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();

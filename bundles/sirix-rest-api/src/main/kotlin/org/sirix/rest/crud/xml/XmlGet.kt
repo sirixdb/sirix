@@ -14,11 +14,11 @@ import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx
-import org.sirix.api.xdm.XdmResourceManager
+import org.sirix.api.xml.XmlNodeReadOnlyTrx
+import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.XdmSerializeHelper
 import org.sirix.rest.SessionDBStore
+import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -89,16 +89,16 @@ class XdmGet(private val location: Path) {
 
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        val database: Database<XdmResourceManager>
+        val database: Database<XmlResourceManager>
         try {
-            database = Databases.openXdmDatabase(location.resolve(dbName))
+            database = Databases.openXmlDatabase(location.resolve(dbName))
         } catch (e: SirixUsageException) {
             ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
         }
 
         database.use {
-            val manager: XdmResourceManager
+            val manager: XmlResourceManager
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
@@ -133,7 +133,7 @@ class XdmGet(private val location: Path) {
     }
 
     private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
-                                        endRevisionTimestamp: String?, manager: XdmResourceManager, revision: String?,
+                                        endRevisionTimestamp: String?, manager: XmlResourceManager, revision: String?,
                                         revisionTimestamp: String?): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
@@ -145,8 +145,8 @@ class XdmGet(private val location: Path) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database<XdmResourceManager>, revision: String?,
-                                      revisionTimestamp: String?, manager: XdmResourceManager, ctx: RoutingContext,
+    private suspend fun queryResource(dbName: String?, database: Database<XmlResourceManager>, revision: String?,
+                                      revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
                                       nodeId: String?, query: String, vertxContext: Context, user: User) {
         withContext(vertxContext.dispatcher()) {
             val dbCollection = DBCollection(dbName, database)
@@ -154,7 +154,7 @@ class XdmGet(private val location: Path) {
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                val trx: XdmNodeReadOnlyTrx
+                val trx: XmlNodeReadOnlyTrx
                 try {
                     trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
@@ -175,7 +175,7 @@ class XdmGet(private val location: Path) {
         }
     }
 
-    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XdmResourceManager): Array<Int> {
+    private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceManager): Array<Int> {
         return if (rev != null) {
             arrayOf(rev.toInt())
         } else if (revTimestamp != null) {
@@ -222,13 +222,13 @@ class XdmGet(private val location: Path) {
         })
     }
 
-    private fun getRevisionNumber(manager: XdmResourceManager, revision: String): Int {
+    private fun getRevisionNumber(manager: XmlResourceManager, revision: String): Int {
         val revisionDateTime = LocalDateTime.parse(revision)
         val zdt = revisionDateTime.atZone(ZoneId.systemDefault())
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: XdmResourceManager,
+    private fun getRevisionNumbers(manager: XmlResourceManager,
                                    revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
@@ -241,7 +241,7 @@ class XdmGet(private val location: Path) {
         return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
     }
 
-    private fun serializeResource(manager: XdmResourceManager, revisions: Array<Int>, nodeId: Long?,
+    private fun serializeResource(manager: XmlResourceManager, revisions: Array<Int>, nodeId: Long?,
                                   ctx: RoutingContext) {
         val out = ByteArrayOutputStream()
 

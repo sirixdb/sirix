@@ -2,10 +2,10 @@ package org.sirix.node.interfaces.immutable;
 
 import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.SirixDeweyID;
 
-public interface ImmutableXdmNode extends ImmutableNode {
+public interface ImmutableXmlNode extends ImmutableNode {
   /**
    * Get the optional dewey ID
    *
@@ -23,8 +23,8 @@ public interface ImmutableXdmNode extends ImmutableNode {
   /**
    * Accept a visitor and use double dispatching to invoke the visitor method.
    *
-   * @param visitor implementation of the {@link XdmNodeVisitor} interface
+   * @param visitor implementation of the {@link XmlNodeVisitor} interface
    * @return the result of a visit
    */
-  VisitResult acceptVisitor(XdmNodeVisitor visitor);
+  VisitResult acceptVisitor(XmlNodeVisitor visitor);
 }

@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.Kind;
@@ -50,19 +50,19 @@ public final class Matching {
    */
   private final ConnectionMap<Long> mIsInSubtree;
 
-  /** {@link XdmNodeReadOnlyTrx} reference on old revision. */
-  private final XdmNodeReadOnlyTrx mRtxOld;
+  /** {@link XmlNodeReadOnlyTrx} reference on old revision. */
+  private final XmlNodeReadOnlyTrx mRtxOld;
 
-  /** {@link XdmNodeReadOnlyTrx} reference on new revision. */
-  private final XdmNodeReadOnlyTrx mRtxNew;
+  /** {@link XmlNodeReadOnlyTrx} reference on new revision. */
+  private final XmlNodeReadOnlyTrx mRtxNew;
 
   /**
    * Creates a new matching.
    *
-   * @param rtxOld {@link XdmNodeReadOnlyTrx} reference on old revision
-   * @param rtxNew {@link XdmNodeReadOnlyTrx} reference on new revision.
+   * @param rtxOld {@link XmlNodeReadOnlyTrx} reference on old revision
+   * @param rtxNew {@link XmlNodeReadOnlyTrx} reference on new revision.
    */
-  public Matching(final XdmNodeReadOnlyTrx rtxOld, final XdmNodeReadOnlyTrx rtxNew) {
+  public Matching(final XmlNodeReadOnlyTrx rtxOld, final XmlNodeReadOnlyTrx rtxNew) {
     mMapping = new HashMap<>();
     mReverseMapping = new HashMap<>();
     mIsInSubtree = new ConnectionMap<>();
@@ -117,9 +117,9 @@ public final class Matching {
    * For each anchestor of n: n is in it's subtree.
    *
    * @param key key of node in subtree
-   * @param rtx {@link XdmNodeReadOnlyTrx} reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} reference
    */
-  private void updateSubtreeMap(final @Nonnegative long key, final XdmNodeReadOnlyTrx rtx) {
+  private void updateSubtreeMap(final @Nonnegative long key, final XmlNodeReadOnlyTrx rtx) {
     assert key >= 0;
     assert rtx != null;
 

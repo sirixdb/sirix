@@ -30,7 +30,7 @@ public final class ResourceTransactionUsage {
     }
     Databases.createXdmDatabase(config);
 
-    try (var database = Databases.openXdmDatabase(file)) {
+    try (var database = Databases.openXmlDatabase(file)) {
       database.createResource(new ResourceConfiguration.Builder("resource").build());
 
       try (var resourceMgr = database.openResourceManager("resource");

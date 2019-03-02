@@ -1,4 +1,4 @@
-package org.sirix.access.xdm;
+package org.sirix.access.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
@@ -9,9 +9,9 @@ import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
@@ -22,17 +22,17 @@ import org.sirix.page.UberPage;
  *
  * @author Johannes Lichtenberger
  */
-public final class XdmResourceStore extends AbstractResourceStore<XdmResourceManager> {
+public final class XmlResourceStore extends AbstractResourceStore<XmlResourceManager> {
 
   /**
    * Default constructor.
    */
-  public XdmResourceStore() {
+  public XmlResourceStore() {
     super(new ConcurrentHashMap<>());
   }
 
   @Override
-  public XdmResourceManager openResource(final @Nonnull Database<XdmResourceManager> database,
+  public XmlResourceManager openResource(final @Nonnull Database<XmlResourceManager> database,
       final @Nonnull ResourceConfiguration resourceConfig, final @Nonnull BufferManager bufferManager,
       final @Nonnull Path resourceFile) {
     checkNotNull(database);
@@ -50,7 +50,7 @@ public final class XdmResourceStore extends AbstractResourceStore<XdmResourceMan
       final Lock writeLock = Databases.computeWriteLockIfAbsent(resourceConfig.getResource());
 
       // Create the resource manager instance.
-      final XdmResourceManager resourceManager = new XdmResourceManagerImpl(database, this, resourceConfig,
+      final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock);
 
       // Put it in the databases cache.

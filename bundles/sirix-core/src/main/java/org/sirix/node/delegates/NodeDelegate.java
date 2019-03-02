@@ -25,7 +25,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
@@ -119,7 +119,7 @@ public class NodeDelegate implements Node {
     mHash = pHash;
   }
 
-  public VisitResultType acceptVisitor(final XdmNodeVisitor pVisitor) {
+  public VisitResultType acceptVisitor(final XmlNodeVisitor pVisitor) {
     return VisitResultType.CONTINUE;
   }
 

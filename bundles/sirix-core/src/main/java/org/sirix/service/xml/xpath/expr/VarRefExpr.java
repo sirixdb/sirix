@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import javax.annotation.Nonnull;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
  * <h1>VarRefExpr</h1>
@@ -41,7 +41,7 @@ public class VarRefExpr extends AbstractExpression implements IObserver {
    * @param pRtx exclusive (immutable) trx to iterate with
    * @param pVariable reference the variable expression that computes the items the variable holds
    */
-  public VarRefExpr(final XdmNodeReadOnlyTrx pRtx, @Nonnull final VariableAxis pVariable) {
+  public VarRefExpr(final XmlNodeReadOnlyTrx pRtx, @Nonnull final VariableAxis pVariable) {
     super(pRtx);
     pVariable.addObserver(this);
     mVarKey = -1;

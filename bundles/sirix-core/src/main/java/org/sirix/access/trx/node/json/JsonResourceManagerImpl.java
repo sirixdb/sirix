@@ -32,7 +32,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -59,10 +59,10 @@ import org.sirix.page.UnorderedKeyValuePage;
 public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx>
     implements JsonResourceManager, InternalResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
-  /** {@link XdmIndexController}s used for this session. */
+  /** {@link XmlIndexController}s used for this session. */
   private final ConcurrentMap<Integer, JsonIndexController> mRtxIndexControllers;
 
-  /** {@link XdmIndexController}s used for this session. */
+  /** {@link XmlIndexController}s used for this session. */
   private final ConcurrentMap<Integer, JsonIndexController> mWtxIndexControllers;
 
   /**

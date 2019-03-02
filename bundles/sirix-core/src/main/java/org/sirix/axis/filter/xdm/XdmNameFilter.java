@@ -22,7 +22,7 @@
 package org.sirix.axis.filter.xdm;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
@@ -32,7 +32,7 @@ import org.sirix.axis.filter.AbstractFilter;
  * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public final class XdmNameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class XdmNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /** Key of local name to test. */
   private final int mLocalNameKey;
@@ -46,7 +46,7 @@ public final class XdmNameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
    * @param rtx the node trx/node cursor this filter is bound to
    * @param name name to check
    */
-  public XdmNameFilter(final XdmNodeReadOnlyTrx rtx, final QNm name) {
+  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
     mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
         ? -1
@@ -57,10 +57,10 @@ public final class XdmNameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
   /**
    * Default constructor.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
+   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
    * @param name name to check
    */
-  public XdmNameFilter(final XdmNodeReadOnlyTrx rtx, final String name) {
+  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
     final int index = name.indexOf(":");
     if (index != -1) {

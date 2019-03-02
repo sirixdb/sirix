@@ -70,7 +70,7 @@ public final class FMSEImport {
     Databases.removeDatabase(newRev);
     Databases.createXdmDatabase(conf);
 
-    try (final var db = Databases.openXdmDatabase(newRev)) {
+    try (final var db = Databases.openXmlDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
       try (final var resMgr = db.openResourceManager("shredded");
           final var wtx = resMgr.beginNodeTrx();
@@ -97,10 +97,10 @@ public final class FMSEImport {
       }
       shredder(checkNotNull(resNewRev), newRevTarget);
 
-      try (final var databaseOld = Databases.openXdmDatabase(resOldRev);
+      try (final var databaseOld = Databases.openXmlDatabase(resOldRev);
           final var resMgrOld = databaseOld.openResourceManager("shredded");
           final var wtx = resMgrOld.beginNodeTrx();
-          final var databaseNew = Databases.openXdmDatabase(newRevTarget);
+          final var databaseNew = Databases.openXmlDatabase(newRevTarget);
           final var resourceNew = databaseNew.openResourceManager("shredded");
           final var rtx = resourceNew.beginNodeReadOnlyTrx();
           final var fmes = new FMSE()) {

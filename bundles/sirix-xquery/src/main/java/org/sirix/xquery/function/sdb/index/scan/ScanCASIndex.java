@@ -21,8 +21,8 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -62,8 +62,8 @@ public final class ScanCASIndex extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final DBNode doc = (DBNode) args[0];
-    final XdmNodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
+    final XmlNodeReadOnlyTrx rtx = doc.getTrx();
+    final XmlIndexController controller =
         rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -130,7 +130,7 @@ public final class ScanCASIndex extends AbstractFunction {
         ? controller.createCASFilter(paths.split(";"), key, mode, new XdmPCRCollector(rtx))
         : controller.createCASFilter(new String[] {}, key, mode, new XdmPCRCollector(rtx));
 
-    final XdmIndexController ic = controller;
+    final XmlIndexController ic = controller;
     final DBNode node = doc;
 
     return new LazySequence() {

@@ -6,7 +6,7 @@ import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -16,7 +16,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -28,7 +28,7 @@ import com.google.common.base.Objects;
  * Node representing a processing instruction.
  * </p>
  */
-public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode, ImmutableXdmNode {
+public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -68,7 +68,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutablePI.of(this));
   }
 

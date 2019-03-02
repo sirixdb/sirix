@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node.xdm;
+package org.sirix.access.trx.node.xml;
 
 import java.time.Instant;
 import java.util.List;
@@ -11,14 +11,14 @@ import org.sirix.access.trx.node.Move;
 import org.sirix.api.ItemList;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import com.google.common.collect.ForwardingObject;
 
@@ -28,13 +28,13 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObject implements XdmNodeReadOnlyTrx {
+public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObject implements XmlNodeReadOnlyTrx {
 
   /** Constructor for use by subclasses. */
-  protected AbstractForwardingXdmNodeReadOnlyTrx() {}
+  protected AbstractForwardingXmlNodeReadOnlyTrx() {}
 
   @Override
-  protected abstract XdmNodeReadOnlyTrx delegate();
+  protected abstract XmlNodeReadOnlyTrx delegate();
 
   @Override
   public ItemList<AtomicValue> getItemList() {
@@ -82,7 +82,7 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public XdmResourceManager getResourceManager() {
+  public XmlResourceManager getResourceManager() {
     return delegate().getResourceManager();
   }
 
@@ -112,67 +112,67 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveTo(final long key) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveTo(final long key) {
     return delegate().moveTo(key);
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToAttribute(final @Nonnegative int index) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToAttribute(final @Nonnegative int index) {
     return delegate().moveToAttribute(index);
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToAttributeByName(final QNm name) {
     return delegate().moveToAttributeByName(name);
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToDocumentRoot() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToDocumentRoot() {
     return delegate().moveToDocumentRoot();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToFirstChild() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToFirstChild() {
     return delegate().moveToFirstChild();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToLeftSibling() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToLeftSibling() {
     return delegate().moveToLeftSibling();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToNamespace(@Nonnegative final int index) {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToNamespace(@Nonnegative final int index) {
     return delegate().moveToNamespace(index);
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToNextFollowing() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToNextFollowing() {
     return delegate().moveToNextFollowing();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToParent() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToParent() {
     return delegate().moveToParent();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToRightSibling() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToRightSibling() {
     return delegate().moveToRightSibling();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToLastChild() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToLastChild() {
     return delegate().moveToLastChild();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToPrevious() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToPrevious() {
     return delegate().moveToPrevious();
   }
 
   @Override
-  public Move<? extends XdmNodeReadOnlyTrx> moveToNext() {
+  public Move<? extends XmlNodeReadOnlyTrx> moveToNext() {
     return delegate().moveToNext();
   }
 
@@ -312,7 +312,7 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return delegate().acceptVisitor(visitor);
   }
 
@@ -337,7 +337,7 @@ public abstract class AbstractForwardingXdmNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public ImmutableXdmNode getNode() {
+  public ImmutableXmlNode getNode() {
     return delegate().getNode();
   }
 

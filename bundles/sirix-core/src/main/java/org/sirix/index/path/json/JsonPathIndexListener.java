@@ -1,6 +1,6 @@
 package org.sirix.index.path.json;
 
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.path.PathIndexListener;
 import org.sirix.node.Kind;

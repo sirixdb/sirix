@@ -24,9 +24,9 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.Transaction;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -50,7 +50,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
   /** {@link Sirix} database. */
-  private final Database<XdmResourceManager> mDatabase;
+  private final Database<XmlResourceManager> mDatabase;
 
   /** Unique ID. */
   private final int mID;
@@ -61,7 +61,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
    * @param name collection name
    * @param database Sirix {@link Database} reference
    */
-  public DBCollection(final String name, final Database<XdmResourceManager> database) {
+  public DBCollection(final String name, final Database<XmlResourceManager> database) {
     super(Preconditions.checkNotNull(name));
     mDatabase = Preconditions.checkNotNull(database);
     mID = ID_SEQUENCE.incrementAndGet();
@@ -102,7 +102,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
    *
    * @return Sirix {@link Database}
    */
-  public Database<XdmResourceManager> getDatabase() {
+  public Database<XmlResourceManager> getDatabase() {
     return mDatabase;
   }
 
@@ -131,13 +131,13 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   private DBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
-    final XdmResourceManager resource = mDatabase.openResourceManager(resName);
+    final XmlResourceManager resource = mDatabase.openResourceManager(resName);
 
-    XdmNodeReadOnlyTrx trx;
+    XmlNodeReadOnlyTrx trx;
 
     if (updatable) {
       if (resource.hasRunningNodeWriteTrx()) {
-        final Optional<XdmNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
+        final Optional<XmlNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();
@@ -151,7 +151,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       final int revision = resource.getRevisionNumber(pointInTime);
 
       if (revision < resource.getMostRecentRevisionNumber()) {
-        final XdmNodeTrx wtx = (XdmNodeTrx) trx;
+        final XmlNodeTrx wtx = (XmlNodeTrx) trx;
         if (wtx.revertTo(revision).getRevisionTimestamp().isAfter(pointInTime)) {
           if (revision - 1 >= 1) {
             wtx.revertTo(revision - 1);
@@ -209,11 +209,11 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throw new DocumentException("More than one document stored in database/collection!");
     }
     try {
-      final XdmResourceManager manager = mDatabase.openResourceManager(resources.get(0).getFileName().toString());
+      final XmlResourceManager manager = mDatabase.openResourceManager(resources.get(0).getFileName().toString());
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
-      final XdmNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
+      final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
       return new DBNode(rtx, this);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
@@ -230,8 +230,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final XdmResourceManager manager = mDatabase.openResourceManager(resource);
-      final XdmNodeTrx wtx = manager.beginNodeTrx();
+      final XmlResourceManager manager = mDatabase.openResourceManager(resource);
+      final XmlNodeTrx wtx = manager.beginNodeTrx();
       final SubtreeHandler handler =
           new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
@@ -258,8 +258,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
-      final XdmNodeTrx wtx = resource.beginNodeTrx();
+      final XmlResourceManager resource = mDatabase.openResourceManager(resourceName);
+      final XmlNodeTrx wtx = resource.beginNodeTrx();
 
       final SubtreeHandler handler =
           new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
@@ -281,8 +281,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       throws OperationNotSupportedException, DocumentException {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-      final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
-      final XdmNodeTrx wtx = resource.beginNodeTrx();
+      final XmlResourceManager resource = mDatabase.openResourceManager(resourceName);
+      final XmlNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
       return new DBNode(wtx, this);
@@ -332,15 +332,15 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
   }
 
   private DBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
-    final XdmResourceManager resource = mDatabase.openResourceManager(resName);
+    final XmlResourceManager resource = mDatabase.openResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
         : revision;
 
-    final XdmNodeReadOnlyTrx trx;
+    final XmlNodeReadOnlyTrx trx;
     if (updatable) {
       if (resource.hasRunningNodeWriteTrx()) {
-        final Optional<XdmNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
+        final Optional<XmlNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
 
         if (optionalWriteTrx.isPresent()) {
           trx = optionalWriteTrx.get();
@@ -352,7 +352,7 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
       }
 
       if (version < resource.getMostRecentRevisionNumber())
-        ((XdmNodeTrx) trx).revertTo(version);
+        ((XmlNodeTrx) trx).revertTo(version);
     } else {
       trx = resource.beginNodeReadOnlyTrx(version);
     }
@@ -381,8 +381,8 @@ public final class DBCollection extends AbstractCollection<AbstractTemporalNode<
     resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
-        final XdmResourceManager resource = mDatabase.openResourceManager(resourceName);
-        final XdmNodeReadOnlyTrx trx = updatable
+        final XmlResourceManager resource = mDatabase.openResourceManager(resourceName);
+        final XmlNodeReadOnlyTrx trx = updatable
             ? resource.beginNodeTrx()
             : resource.beginNodeReadOnlyTrx();
         documents.add(new DBNode(trx, this));
