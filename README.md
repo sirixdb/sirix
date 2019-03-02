@@ -380,10 +380,10 @@ var file = Paths.get("sirix-database");
 
 // Create the database.
 var config = new DatabaseConfiguration(file);
-Databases.createXdmDatabase(config);
+Databases.createXmlDatabase(config);
 
 // Open the database.
-try (var database = Databases.openXdmDatabase(file)) {
+try (var database = Databases.openXmlDatabase(file)) {
   /* 
    * Create a resource in the database with the name "resource".
    * Store deweyIDs (hierarchical node labels), use text node compression,
@@ -468,9 +468,9 @@ There are also several ways to start the single read/write-transaction:
    *
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx();
+  XmlNodeTrx beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -479,9 +479,9 @@ There are also several ways to start the single read/write-transaction:
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmlNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
+  XmlNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -492,9 +492,9 @@ There are also several ways to start the single read/write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmlNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
+  XmlNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -508,7 +508,7 @@ There are also several ways to start the single read/write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
+  XmlNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 ```
 
 With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
@@ -525,10 +525,10 @@ And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
 ```java
-var axis = new FutureAxis<XdmNodeReadTrx>(rtx)
+var axis = new FutureAxis<XmlNodeReadTrx>(rtx)
 ```
 ```java
-var axis = new PastAxis<XdmNodeReadTrx>(rtx)
+var axis = new PastAxis<XmlNodeReadTrx>(rtx)
 ```
 
 and many more as well.
@@ -541,7 +541,7 @@ For instance after storing one revision in Sirix, we can import only the differe
 var resOldRev = Paths.get("sirix-resource-to-update");
 var resNewRev = Paths.get("new-revision-as-xml-file");
 
-FMSEImport.xdmDataImport(resOldRev, resNewRev);
+FMSEImport.xmlDataImport(resOldRev, resNewRev);
 ```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
