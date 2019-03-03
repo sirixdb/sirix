@@ -22,7 +22,7 @@
 
 <p>&nbsp;</p>
 
-**Discuss it on the [Mailing List](https://groups.google.com/d/forum/sirix-discuss)**
+**Discuss it in the [Community Forum](https://sirix.discourse.group)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
 We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples.
