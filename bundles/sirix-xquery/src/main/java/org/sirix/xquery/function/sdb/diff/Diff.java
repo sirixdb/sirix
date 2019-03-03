@@ -49,8 +49,8 @@ import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffFactory.DiffOptimized;
@@ -174,14 +174,20 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              if (newRtx.isElement())
-                mBuf.append("  insert nodes ");
-              mBuf.append(printSubtreeNode(newRtx));
-
-              if (oldRtx.isDocumentRoot()) {
-                buildUpdateStatement(newRtx);
+              if (newRtx.isAttribute()) {
+                mBuf.append("  insert node " + printNode(newRtx) + " into sdb:select-node($doc");
+                mBuf.append(",");
+                mBuf.append(newRtx.getParentKey());
+                mBuf.append(")");
               } else {
-                buildUpdateStatement(oldRtx);
+                mBuf.append("  insert nodes ");
+                mBuf.append(printSubtreeNode(newRtx));
+
+                if (oldRtx.isDocumentRoot()) {
+                  buildUpdateStatement(newRtx);
+                } else {
+                  buildUpdateStatement(oldRtx);
+                }
               }
 
               anotherTupleToEmit = determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
@@ -255,11 +261,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append(System.getProperty("line.separator"));
 
     return new Str(mBuf.toString());
+
   }
 
   private void buildUpdateStatement(final XmlNodeReadOnlyTrx rtx) {
     if (rtx.hasLeftSibling()) {
-      mBuf.append(" before into sdb:select-node($doc");
+      mBuf.append(" before sdb:select-node($doc");
     } else {
       rtx.moveToParent();
       mBuf.append(" as first into sdb:select-node($doc");
@@ -323,7 +330,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         serializer.call();
         return out.toString();
       case ATTRIBUTE:
-        return "attribute { '" + rtx.getName() + "' } { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { " + rtx.getValue() + " }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";
@@ -335,7 +342,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       case ELEMENT:
         return "<" + rtx.getName() + "/>";
       case ATTRIBUTE:
-        return "attribute { '" + rtx.getName() + "' } { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { " + rtx.getValue() + " }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";

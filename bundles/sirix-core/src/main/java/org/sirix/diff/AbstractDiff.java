@@ -212,7 +212,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       // Nodes deleted in old rev at the end of the tree.
       if (mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
         mRootKey = mOldRootKey;
-        // First time it might be EDiff.INSERTED where the cursor doesn't move.
+        // First time it might be DiffType.INSERTED where the cursor doesn't move.
         if (mDiff == DiffType.INSERTED) {
           mDiff = DiffType.DELETED;
           final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
@@ -264,7 +264,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     mIsFirst = false;
 
     if (mSkipSubtrees) {
-      mOldRtx.moveToNextFollowing();
+      moveToFollowingNode(mOldRtx, Revision.OLD);
     } else {
       while (moveCursor(mOldRtx, Revision.OLD, Move.DOCUMENT_ORDER)) {
         final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
@@ -284,7 +284,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     mIsFirst = false;
 
     if (mSkipSubtrees) {
-      mNewRtx.moveToNextFollowing();
+      moveToFollowingNode(mNewRtx, Revision.NEW);
     } else {
       while (moveCursor(mNewRtx, Revision.NEW, Move.DOCUMENT_ORDER)) {
         final DiffDepth depth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
@@ -514,7 +514,11 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     } else if (checkUpdate(newRtx, oldRtx)) { // Check if node has been updated.
       diff = DiffType.UPDATED;
       final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
-      fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+      if (checkName(newRtx, oldRtx)) {
+        fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+      } else {
+        fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+      }
       emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
     } else if (checkReplace(newRtx, oldRtx)) { // Check if node has been replaced.
       diff = DiffType.REPLACED;
@@ -574,7 +578,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
       fireDiff(diff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), diffDepth);
       emitNonStructuralDiff(mNewRtx, mOldRtx, diffDepth, diff);
-      rtx.moveToNextFollowing();
+      moveToFollowingNode(rtx, revision);
     } else {
       do {
         final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
@@ -599,11 +603,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     if (newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
         case ELEMENT:
+        case PROCESSING_INSTRUCTION:
           if (newRtx.getPrefixKey() == oldRtx.getPrefixKey() && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
             found = true;
           }
           break;
         case TEXT:
+        case COMMENT:
           if (newRtx.getValue().equals(oldRtx.getValue())) {
             found = true;
           }
