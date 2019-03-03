@@ -46,6 +46,7 @@ import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.diff.algorithm.ImportDiff;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.xdm.TextNode;
@@ -171,6 +172,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /** Unique identifier for elements. */
   private final QNm mIdName;
 
+  /** Path summary reader for the old revision. */
+  private PathSummaryReader mOldPathSummary;
+
+  /** Path summary reader for the new revision. */
+  private PathSummaryReader mNewPathSummary;
+
   /**
    * Private constructor.
    *
@@ -210,6 +217,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     mInOrderOldRev = new HashMap<>();
     mInOrderNewRev = new HashMap<>();
     mAlreadyInserted = new HashMap<>();
+    mOldPathSummary = mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
+    mNewPathSummary = mWtx.getPathSummary();
 
     mOldRevVisitor = new FMSEVisitor(mWtx, mInOrderOldRev, mDescendantsOldRev);
     mNewRevVisitor = new FMSEVisitor(mRtx, mInOrderNewRev, mDescendantsNewRev);
@@ -1155,15 +1164,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
             // Also check QNames of the parents.
             if (ratio > FMESF) {
-              // mWtx.moveToParent();
-              // mRtx.moveToParent();
-              //
-              // ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
-              //
-              // if (ratio > FMESF)
-              ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
-                  ? 1
-                  : 0;
+              ratio = checkPaths();
+
+              if (ratio == -1)
+                ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
+                    ? 1
+                    : 0;
             }
           }
         }
@@ -1178,12 +1184,16 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           mWtx.moveToParent();
           mRtx.moveToParent();
 
-          ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
+          ratio = calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx));
 
-          if (ratio > FMESF)
-            ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
-                ? 1
-                : 0;
+          if (ratio > FMESF) {
+            ratio = checkPaths();
+
+            if (ratio == -1)
+              ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
+                  ? 1
+                  : 0;
+          }
         }
       }
 
@@ -1197,6 +1207,28 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       mRtx.moveTo(secondNode);
 
       return ratio > FMESF;
+    }
+
+    private int checkPaths() {
+      if (mWtx.getPathNodeKey() == 0 || mRtx.getPathNodeKey() == 0)
+        return 1;
+
+      final var oldPathNode = mNewPathSummary.getPathNodeForPathNodeKey(mWtx.getPathNodeKey());
+      final var oldPath = oldPathNode.getPath(mNewPathSummary);
+
+      final var newPathNode = mOldPathSummary.getPathNodeForPathNodeKey(mRtx.getPathNodeKey());
+      final var newPath = newPathNode.getPath(mOldPathSummary);
+
+      final int retVal;
+
+      if (oldPath.getLength() != newPath.getLength())
+        retVal = 0;
+      else if (oldPath.matches(newPath))
+        retVal = 1;
+      else
+        retVal = -1;
+
+      return retVal;
     }
   }
 
@@ -1391,7 +1423,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   @Override
-  public void close() throws SirixException {
+  public void close() {
     mWtx.commit();
+    mOldPathSummary.close();
+    mNewPathSummary.close();
   }
 }
