@@ -236,9 +236,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pathNodeKey path node key
    * @return path node corresponding to the provided key
    */
-  public StructNode getPathNodeForPathNodeKey(final @Nonnegative long pathNodeKey) {
+  public PathNode getPathNodeForPathNodeKey(final @Nonnegative long pathNodeKey) {
     assertNotClosed();
-    return mPathNodeMapping.get(pathNodeKey);
+
+    if (pathNodeKey <= 0)
+      throw new IllegalArgumentException("Key not supported.");
+    return (PathNode) mPathNodeMapping.get(pathNodeKey);
   }
 
   @Override
@@ -529,23 +532,23 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     PathNode node = getPathNode();
     final long nodeKey = getNodeKey();
     moveTo(node.getNodeKey());
-    final PathNode[] path = new PathNode[node.getLevel()];
+    final PathNode[] paths = new PathNode[node.getLevel()];
     for (int i = node.getLevel() - 1; i >= 0; i--) {
-      path[i] = node;
+      paths[i] = node;
       node = moveToParent().getCursor().getPathNode();
     }
 
-    final Path<QNm> p = new Path<QNm>();
-    for (final PathNode n : path) {
-      moveTo(n.getNodeKey());
-      if (n.getPathKind() == Kind.ELEMENT) {
-        p.child(getName());
+    final Path<QNm> path = new Path<QNm>();
+    for (final PathNode pathNode : paths) {
+      moveTo(pathNode.getNodeKey());
+      if (pathNode.getPathKind() == Kind.ELEMENT) {
+        path.child(getName());
       } else {
-        p.attribute(getName());
+        path.attribute(getName());
       }
     }
     moveTo(nodeKey);
-    return p;
+    return path;
   }
 
   @Override
