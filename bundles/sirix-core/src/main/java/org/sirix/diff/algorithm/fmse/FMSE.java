@@ -168,8 +168,39 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /** Start key of new revision. */
   private long mNewStartKey;
 
+  /** Unique identifier for elements. */
+  private final QNm mIdName;
+
+  /**
+   * Private constructor.
+   *
+   * @param idName unique identifier for elements
+   */
+  private FMSE(final QNm idName) {
+    mIdName = idName;
+  }
+
+  /**
+   * Create a new instance with a unique identifier used to match element nodes.
+   *
+   * @param idName the unique identifier name
+   * @return a new instance
+   */
+  public static final FMSE createWithIdentifier(final QNm idName) {
+    return new FMSE(idName);
+  }
+
+  /**
+   * Create a new instance.
+   *
+   * @return a new instance
+   */
+  public static final FMSE createInstance() {
+    return new FMSE(null);
+  }
+
   @Override
-  public void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) throws SirixException {
+  public void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     mWtx = checkNotNull(wtx);
     mRtx = checkNotNull(rtx);
     mOldStartKey = mWtx.getNodeKey();
@@ -596,8 +627,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /**
    * Emit an insert operation.
    *
-   * @param parent parent of the current {@link Node} implementation reference to insert
    * @param child the current node to insert
+   * @param parent parent of the current node to insert
    * @param pos position of the insert
    * @param wtx {@link XmlNodeTrx} implementation reference on old revision
    * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
@@ -626,7 +657,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             wtx.insertAttribute(rtx.getName(), rtx.getValue());
           } catch (final SirixUsageException e) {
             mTotalMatching.remove(wtx.getNodeKey());
-            wtx.setValue(rtx.getValue());
+            if (!rtx.getValue().isEmpty())
+              wtx.setValue(rtx.getValue());
           }
           process(wtx.getNodeKey(), rtx.getNodeKey());
           break;
@@ -765,7 +797,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   /**
-   * Process nodes and add update data structures.
+   * Process nodes and update data structures.
    *
    * @param oldKey {@link Node} in old revision
    * @param newKey {@link Node} in new revision
@@ -885,7 +917,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     // Do the matching job on the leaf nodes.
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
-    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching, new LeafEqual());
+    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
+        new LeafNodeEqualilty(mIdName));
 
     // Remove roots ('/') from labels and append them to mapping.
     final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
@@ -899,7 +932,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
 
-    match(oldLabels, newLabels, matching, new InnerNodeEqual(matching));
+    match(oldLabels, newLabels, matching, new InnerNodeEquality(matching));
 
     return matching;
   }
@@ -1091,7 +1124,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * (characteristic) string for two nodes. If the strings are sufficient similar, the nodes are
    * considered to be equal.
    */
-  private final class LeafEqual implements Comparator<Long> {
+  private final class LeafNodeEqualilty implements Comparator<Long> {
+
+    private final QNm mId;
+
+    public LeafNodeEqualilty(final QNm id) {
+      mId = id;
+    }
 
     @Override
     public boolean isEqual(final Long firstNode, final Long secondNode) {
@@ -1107,28 +1146,25 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       assert mWtx.getKind() == mRtx.getKind();
       double ratio = 0;
 
-      if (mWtx.getDeweyID().isPresent() && mRtx.getDeweyID().isPresent()) {
-        if (mWtx.getDeweyID().get().equals(mRtx.getDeweyID().get()))
-          ratio = 1;
-        else
-          ratio = 0;
-      } else if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
+      if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
           || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
         if (mWtx.getName().equals(mRtx.getName())) {
           ratio = 1;
           if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
             ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
-          }
 
-          // Also check QNames of the parents.
-          if (ratio > FMESF) {
-            mWtx.moveToParent();
-            mRtx.moveToParent();
-
-            ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
-
-            if (ratio > FMESF && checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey()))
-              ratio = 1;
+            // Also check QNames of the parents.
+            if (ratio > FMESF) {
+              // mWtx.moveToParent();
+              // mRtx.moveToParent();
+              //
+              // ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
+              //
+              // if (ratio > FMESF)
+              ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
+                  ? 1
+                  : 0;
+            }
           }
         }
       } else {
@@ -1138,14 +1174,27 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
         }
 
-        if (ratio <= FMESF
-            && mWtx.moveToParent().getCursor().getPathNodeKey() == mRtx.moveToParent().getCursor().getPathNodeKey())
-          ratio = 1;
+        if (ratio > FMESF) {
+          mWtx.moveToParent();
+          mRtx.moveToParent();
 
-        if (ratio <= FMESF && checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())) {
-          ratio = 1;
+          ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
+
+          if (ratio > FMESF)
+            ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
+                ? 1
+                : 0;
         }
       }
+
+      if (ratio > FMESF && mId != null && checkIfAncestorIdsMatch(mWtx.getNodeKey(), mRtx.getNodeKey(), mId))
+        ratio = 1;
+
+      // Old.
+      mWtx.moveTo(firstNode);
+
+      // New.
+      mRtx.moveTo(secondNode);
 
       return ratio > FMESF;
     }
@@ -1156,7 +1205,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * leaf nodes and inner nodes. This class compares two nodes by calculating the number of common
    * children (i.e. children contained in the matching) in relation to the total number of children.
    */
-  private final class InnerNodeEqual implements Comparator<Long> {
+  private final class InnerNodeEquality implements Comparator<Long> {
 
     /** {@link Matching} reference. */
     private final Matching mMatching;
@@ -1165,10 +1214,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
      * Constructor.
      *
      * @param matching {@link Matching} reference
-     * @param pWtx {@link XmlNodeTrx} implementation reference on old revision
-     * @param pRtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
+     * @param id optional name of id to use for matching nodes
      */
-    public InnerNodeEqual(final Matching matching) {
+    public InnerNodeEquality(final Matching matching) {
       assert matching != null;
       mMatching = matching;
     }
@@ -1185,13 +1233,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
       boolean retVal = false;
 
-      if (mWtx.getDeweyID().isPresent() && mRtx.getDeweyID().isPresent()) {
-        if (mWtx.getDeweyID().get().equals(mRtx.getDeweyID().get()))
+      if (mIdName != null && mWtx.isElement() && mRtx.isElement() && mWtx.moveToAttributeByName(mIdName).hasMoved()
+          && mRtx.moveToAttributeByName(mIdName).hasMoved()) {
+        if (mRtx.getValue().equals(mWtx.getValue()))
           retVal = true;
         else
           retVal = false;
-      } else if ((mWtx.hasFirstChild() || mWtx.getAttributeCount() > 0 || mWtx.getNamespaceCount() > 0)
-          && (mRtx.hasFirstChild() || mRtx.getAttributeCount() > 0 || mRtx.getNamespaceCount() > 0)) {
+      } else if ((mWtx.hasFirstChild() || mWtx.hasAttributes() || mWtx.hasNamespaces())
+          && (mRtx.hasFirstChild() || mRtx.hasAttributes() || mRtx.hasNamespaces())) {
         final long common = mMatching.containedDescendants(firstNode, secondNode);
         final long maxFamilySize = Math.max(mDescendantsOldRev.get(firstNode), mDescendantsNewRev.get(secondNode));
         if (common == 0 && maxFamilySize == 1) {
@@ -1240,23 +1289,30 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   /**
-   * Check if ancestors are equal.
+   * Check if ancestors are considered equal (with attributes).
    *
    * @param oldKey start key in old revision
    * @param newKey start key in new revision
-   * @return {@code true} if all ancestors up to the start keys of the FMSE-algorithm, {@code false}
+   * @return {@code true} if all ancestors up to the start keys are considered equal, {@code false}
    *         otherwise
    */
   private boolean checkAncestors(final long oldKey, final long newKey) {
     assert oldKey >= 0;
     assert newKey >= 0;
+
     mWtx.moveTo(oldKey);
     mRtx.moveTo(newKey);
+
     boolean retVal = true;
+
     if (mWtx.hasParent() && mRtx.hasParent()) {
       do {
         mWtx.moveToParent();
         mRtx.moveToParent();
+
+        if (mWtx.hasAttributes() && mRtx.hasAttributes() && !checkAttributes()) {
+          return false;
+        }
       } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey && mWtx.hasParent()
           && mRtx.hasParent()
           && calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx)) >= 0.7f);
@@ -1268,6 +1324,64 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       }
     } else {
       retVal = false;
+    }
+
+    mWtx.moveTo(oldKey);
+    mRtx.moveTo(newKey);
+
+    return retVal;
+  }
+
+  private boolean checkAttributes() {
+    final long newNodeKey = mRtx.getNodeKey();
+    final long oldNodeKey = mWtx.getNodeKey();
+    for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
+      final QNm name = mWtx.moveToAttribute(i).getCursor().getName();
+
+      if (mRtx.moveToAttributeByName(name).hasMoved()
+          && (calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx)) < 0.7f
+              || calculateRatio(mWtx.getValue(), mRtx.getValue()) < 0.7f)) {
+        mRtx.moveTo(newNodeKey);
+        mWtx.moveTo(oldNodeKey);
+        return false;
+      }
+
+      mRtx.moveTo(newNodeKey);
+      mWtx.moveTo(oldNodeKey);
+    }
+
+    mRtx.moveTo(newNodeKey);
+    mWtx.moveTo(oldNodeKey);
+    return true;
+  }
+
+  /**
+   * Check if ancestors are equal.
+   *
+   * @param oldKey start key in old revision
+   * @param newKey start key in new revision
+   * @return {@code true} if all ancestors up to the start keys of the FMSE-algorithm, {@code false}
+   *         otherwise
+   */
+  private boolean checkIfAncestorIdsMatch(final long oldKey, final long newKey, final QNm id) {
+    assert oldKey >= 0;
+    assert newKey >= 0;
+    mWtx.moveTo(oldKey);
+    mRtx.moveTo(newKey);
+    boolean retVal = false;
+    if (mWtx.hasParent() && mRtx.hasParent()) {
+      do {
+        mWtx.moveToParent();
+        mRtx.moveToParent();
+
+        if (mWtx.isElement() && mRtx.isElement() && mWtx.moveToAttributeByName(id).hasMoved()
+            && mRtx.moveToAttributeByName(id).hasMoved()) {
+          if (mRtx.getValue().equals(mWtx.getValue()))
+            retVal = true;
+          break;
+        }
+      } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey && mWtx.hasParent()
+          && mRtx.hasParent());
     }
 
     mWtx.moveTo(oldKey);
