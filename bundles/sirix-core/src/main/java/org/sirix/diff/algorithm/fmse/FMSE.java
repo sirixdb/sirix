@@ -1107,7 +1107,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       assert mWtx.getKind() == mRtx.getKind();
       double ratio = 0;
 
-      if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
+      if (mWtx.getDeweyID().isPresent() && mRtx.getDeweyID().isPresent()) {
+        if (mWtx.getDeweyID().get().equals(mRtx.getDeweyID().get()))
+          ratio = 1;
+        else
+          ratio = 0;
+      } else if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
           || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
         if (mWtx.getName().equals(mRtx.getName())) {
           ratio = 1;
@@ -1122,7 +1127,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
             ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
 
-            if (checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey()))
+            if (ratio > FMESF && checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey()))
               ratio = 1;
           }
         }
@@ -1180,7 +1185,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
       boolean retVal = false;
 
-      if ((mWtx.hasFirstChild() || mWtx.getAttributeCount() > 0 || mWtx.getNamespaceCount() > 0)
+      if (mWtx.getDeweyID().isPresent() && mRtx.getDeweyID().isPresent()) {
+        if (mWtx.getDeweyID().get().equals(mRtx.getDeweyID().get()))
+          retVal = true;
+        else
+          retVal = false;
+      } else if ((mWtx.hasFirstChild() || mWtx.getAttributeCount() > 0 || mWtx.getNamespaceCount() > 0)
           && (mRtx.hasFirstChild() || mRtx.getAttributeCount() > 0 || mRtx.getNamespaceCount() > 0)) {
         final long common = mMatching.containedDescendants(firstNode, secondNode);
         final long maxFamilySize = Math.max(mDescendantsOldRev.get(firstNode), mDescendantsNewRev.get(secondNode));
@@ -1259,6 +1269,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } else {
       retVal = false;
     }
+
+    mWtx.moveTo(oldKey);
+    mRtx.moveTo(newKey);
 
     return retVal;
   }
