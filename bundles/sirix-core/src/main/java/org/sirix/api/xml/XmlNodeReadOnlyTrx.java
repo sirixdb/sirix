@@ -44,11 +44,11 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
 import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**

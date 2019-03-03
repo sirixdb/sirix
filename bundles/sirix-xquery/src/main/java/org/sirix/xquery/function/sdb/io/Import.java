@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -15,9 +14,9 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
@@ -80,23 +79,20 @@ public final class Import extends AbstractFunction {
       doc = coll.getDocument(resName);
 
       try (final XmlNodeTrx wtx = doc.getTrx()
-                                          .getResourceManager()
-                                          .getNodeWriteTrx()
-                                          .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
+                                     .getResourceManager()
+                                     .getNodeWriteTrx()
+                                     .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
         final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
         }
-        try {
-          FMSEImport.shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
-        } catch (final XMLStreamException e) {
-          throw new QueryException(new QNm("XML stream exception: " + e.getMessage()), e);
-        }
+
+        new FMSEImport().shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
 
         try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
             final XmlResourceManager resourceNew = databaseNew.openResourceManager("shredded");
             final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-            final FMSE fmes = new FMSE()) {
+            final FMSE fmes = FMSE.createInstance()) {
           fmes.diff(wtx, rtx);
         }
       } catch (final IOException e) {

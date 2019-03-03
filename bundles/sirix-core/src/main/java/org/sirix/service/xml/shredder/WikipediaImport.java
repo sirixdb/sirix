@@ -51,9 +51,9 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -294,7 +294,7 @@ public final class WikipediaImport implements Import<StartElement> {
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     final long nodeKey = mWtx.getNodeKey();
-    try (final FMSE fmse = new FMSE()) {
+    try (final FMSE fmse = FMSE.createInstance()) {
       fmse.diff(mWtx, rtx);
     }
     mWtx.moveTo(nodeKey);
