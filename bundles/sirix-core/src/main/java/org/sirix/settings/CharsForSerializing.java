@@ -59,6 +59,9 @@ public enum CharsForSerializing {
   /** " rest:"". */
   REST_PREFIX(SPACE.getBytes(), new byte[] {114, 101, 115, 116, 58}),
 
+  /** " sid:"". */
+  SID_PREFIX(SPACE.getBytes(), new byte[] {115, 100, 98, 58}),
+
   /** "id". */
   ID(new byte[] {105, 100}),
 

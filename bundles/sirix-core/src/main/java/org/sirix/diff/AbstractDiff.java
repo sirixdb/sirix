@@ -155,10 +155,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
   /**
    * Do the diff.
-   *
-   * @throws SirixException if setting up transactions failes
    */
-  void diffMovement() throws SirixException {
+  void diffMovement() {
     assert mHashKind != null;
     assert mNewRtx != null;
     assert mOldRtx != null;
@@ -678,9 +676,6 @@ abstract class AbstractDiff extends AbstractDiffObservable {
           fireDiff(DiffType.REPLACEDOLD, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
           fireDiff(DiffType.REPLACEDNEW, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
           emitNonStructuralDiff(newRtx, oldRtx, diffDepth, DiffType.REPLACEDOLD);
-
-          newRtx.moveToNext();
-          oldRtx.moveToNext();
         } else {
           final long newNodeKey = newRtx.getNodeKey();
           final long oldNodeKey = oldRtx.getNodeKey();
@@ -710,44 +705,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
           newRtx.moveTo(newNodeKey);
           oldRtx.moveTo(oldNodeKey);
+
           mDiff = DiffType.REPLACED;
-          // final IAxis oldAxis = new DescendantAxis(pOldRtx, EIncludeSelf.YES);
-          // final IAxis newAxis = new DescendantAxis(pNewRtx, EIncludeSelf.YES);
-          // if (pNewRtx.getDescendantCount() >= pOldRtx
-          // .getDescendantCount()) {
-          // while (newAxis.hasNext()) {
-          // newAxis.next();
-          // boolean moved = false;
-          // if (oldAxis.hasNext()) {
-          // oldAxis.next();
-          // moved = true;
-          // }
-          // fireDiff(EDiff.REPLACEDNEW, pNewRtx, pOldRtx,
-          // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
-          // if (moved) {
-          // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
-          // }
-          // }
-          //
-          // } else {
-          // while (oldAxis.hasNext()) {
-          // oldAxis.next();
-          // boolean moved = false;
-          // if (newAxis.hasNext()) {
-          // newAxis.next();
-          // moved = true;
-          // }
-          // fireDiff(EDiff.REPLACEDOLD, pNewRtx, pOldRtx,
-          // new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
-          // if (moved) {
-          // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
-          // }
-          // }
-          // }
-          newRtx.moveTo(newNodeKey);
-          oldRtx.moveTo(oldNodeKey);
         }
       }
     }

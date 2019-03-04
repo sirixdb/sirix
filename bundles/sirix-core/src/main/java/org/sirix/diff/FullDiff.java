@@ -58,6 +58,40 @@ final class FullDiff extends AbstractDiff {
               && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
               && newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
             found = true;
+
+            final long newNodeKey = newRtx.getNodeKey();
+            final long oldNodeKey = oldRtx.getNodeKey();
+
+            for (final long nsp : newRtx.getNamespaceKeys()) {
+              newRtx.moveTo(nsp);
+              oldRtx.moveTo(nsp);
+
+              if (!(newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+                  && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI()))) {
+                found = false;
+                break;
+              }
+            }
+            newRtx.moveTo(newNodeKey);
+            oldRtx.moveTo(oldNodeKey);
+
+            if (found) {
+              for (final long attr : newRtx.getAttributeKeys()) {
+                newRtx.moveTo(attr);
+                oldRtx.moveTo(attr);
+
+                if (!(newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+                    && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI())
+                    && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+                    && Objects.equals(newRtx.getValue(), oldRtx.getValue()))) {
+                  found = false;
+                  break;
+                }
+              }
+
+              newRtx.moveTo(newNodeKey);
+              oldRtx.moveTo(oldNodeKey);
+            }
           }
           break;
         case PROCESSING_INSTRUCTION:
@@ -82,29 +116,20 @@ final class FullDiff extends AbstractDiff {
     if (newRtx.isElement() || oldRtx.isElement()) {
       if (diff == DiffType.SAME) {
         for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
-          newRtx.moveToNamespace(i);
-          oldRtx.moveToNamespace(i);
+          final long newNodeKey = newRtx.moveToNamespace(i).getCursor().getNodeKey();
+          oldRtx.moveTo(newNodeKey);
 
-          if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-              && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI()))
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-          else
-            fireDiff(DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 
           newRtx.moveToParent();
           oldRtx.moveToParent();
         }
 
         for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
-          newRtx.moveToAttribute(i);
-          oldRtx.moveToAttribute(i);
+          final long newNodeKey = newRtx.moveToAttribute(i).getCursor().getNodeKey();
+          oldRtx.moveTo(newNodeKey);
 
-          if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-              && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI())
-              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey() && newRtx.getValue().equals(oldRtx.getValue()))
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-          else
-            fireDiff(DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 
           newRtx.moveToParent();
           oldRtx.moveToParent();
@@ -121,6 +146,7 @@ final class FullDiff extends AbstractDiff {
           newRtx.moveTo(nsp);
           fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }
+        newRtx.moveTo(newNodeKey);
 
         final List<Long> removedNamespaces = new ArrayList<>(oldRtx.getNamespaceKeys());
         removedNamespaces.removeAll(newRtx.getNamespaceKeys());
@@ -129,6 +155,7 @@ final class FullDiff extends AbstractDiff {
           oldRtx.moveTo(nsp);
           fireDiff(DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }
+        oldRtx.moveTo(oldNodeKey);
 
         final List<Long> insertedAttributes = new ArrayList<>(newRtx.getAttributeKeys());
         insertedAttributes.removeAll(oldRtx.getAttributeKeys());
@@ -137,6 +164,7 @@ final class FullDiff extends AbstractDiff {
           newRtx.moveTo(attribute);
           fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }
+        newRtx.moveTo(newNodeKey);
 
         final List<Long> removedAttributes = new ArrayList<>(oldRtx.getAttributeKeys());
         removedAttributes.removeAll(newRtx.getAttributeKeys());
@@ -145,6 +173,7 @@ final class FullDiff extends AbstractDiff {
           oldRtx.moveTo(attribute);
           fireDiff(DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }
+        oldRtx.moveTo(oldNodeKey);
 
         // Emit same.
         final List<Long> sameNamespaces = new ArrayList<>(newRtx.getNamespaceKeys());
@@ -156,10 +185,12 @@ final class FullDiff extends AbstractDiff {
 
           if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
               && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI()))
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+            fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
           else
             fireDiff(DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }
+        newRtx.moveTo(newNodeKey);
+        oldRtx.moveTo(oldNodeKey);
 
         final List<Long> sameAttributes = new ArrayList<>(newRtx.getAttributeKeys());
         sameAttributes.retainAll(oldRtx.getAttributeKeys());
@@ -170,8 +201,9 @@ final class FullDiff extends AbstractDiff {
 
           if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
               && Objects.equals(newRtx.getNamespaceURI(), oldRtx.getNamespaceURI())
-              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey() && newRtx.getValue().equals(oldRtx.getValue()))
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+              && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+            fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
           else
             fireDiff(DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
         }

@@ -46,9 +46,9 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.node.Kind;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
@@ -171,6 +171,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           if (mSerializeId) {
             if (mSerializeRest) {
               mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
+            } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
+              mOut.write(CharsForSerializing.SID_PREFIX.getBytes());
             } else {
               mOut.write(CharsForSerializing.SPACE.getBytes());
             }
