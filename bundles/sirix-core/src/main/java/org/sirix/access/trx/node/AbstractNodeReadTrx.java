@@ -174,6 +174,12 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
+  public long getHash() {
+    assertNotClosed();
+    return mCurrentNode.getHash();
+  }
+
+  @Override
   public Kind getKind() {
     assertNotClosed();
     return mCurrentNode.getKind();

@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
@@ -35,7 +36,7 @@ import org.sirix.exception.SirixException;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-final class FullDiff extends AbstractDiff {
+final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /**
    * Constructor.
@@ -43,7 +44,7 @@ final class FullDiff extends AbstractDiff {
    * @param builder {@link Builder} reference
    * @throws SirixException if anything goes wrong while setting up sirix transactions
    */
-  FullDiff(final Builder builder) throws SirixException {
+  XmlFullDiff(final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder) throws SirixException {
     super(builder);
   }
 

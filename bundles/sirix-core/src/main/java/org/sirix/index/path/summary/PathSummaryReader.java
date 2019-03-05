@@ -817,4 +817,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
     return -1;
   }
+
+  @Override
+  public long getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public String getValue() {
+    throw new UnsupportedOperationException();
+  }
 }

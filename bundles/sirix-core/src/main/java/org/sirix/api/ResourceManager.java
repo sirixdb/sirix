@@ -46,8 +46,8 @@ import org.sirix.page.UnorderedKeyValuePage;
  *
  * <p>
  * Each resource is bound to a {@code ResourceManager}. Readers/Writers can then be started from
- * this instance. There can only be one {@code XdmNodeWriter} at the time. However, multiple
- * {@code XdmNodeReader}s can coexist concurrently.
+ * this instance. There can only be one write transaction at a time. However, multiple read-only
+ * transactions can coexist concurrently.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz

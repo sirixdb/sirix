@@ -21,51 +21,55 @@
 
 package org.sirix.diff;
 
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import java.util.Objects;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
-import org.sirix.exception.SirixException;
 
 /**
- * Structural diff, thus no attributes and namespace nodes are taken into account.
+ * Json diff.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-final class StructuralDiff extends AbstractDiff {
+final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /**
    * Constructor.
    *
    * @param builder {@link Builder} reference
-   * @throws SirixException
    */
-  public StructuralDiff(final Builder builder) throws SirixException {
+  public JsonDiff(final Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> builder) {
     super(builder);
   }
 
   @Override
-  boolean checkNodes(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
+  boolean checkNodes(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
     boolean found = false;
     if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
         && newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
-        case ELEMENT:
-          if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
-            found = true;
-          }
+        case ARRAY:
+        case OBJECT:
+        case NULL_VALUE:
+          found = true;
           break;
-        case PROCESSING_INSTRUCTION:
-          found = newRtx.getValue().equals(oldRtx.getValue())
-              && newRtx.getPrefixKey() == oldRtx.getPrefixKey()
-              && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey();
-          break;
-        case COMMENT:
-        case TEXT:
-          if (newRtx.getValue().equals(oldRtx.getValue())) {
+        case OBJECT_RECORD:
+          if (newRtx.getName().equals(oldRtx.getName()))
             found = true;
-          }
+          break;
+        case BOOLEAN_VALUE:
+          if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
+            found = true;
+          break;
+        case NUMBER_VALUE:
+          if (newRtx.getNumberValue().equals(oldRtx.getNumberValue()))
+            found = true;
+          break;
+        case STRING_VALUE:
+          if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+            found = true;
           break;
         // $CASES-OMITTED$
         default:
@@ -76,6 +80,6 @@ final class StructuralDiff extends AbstractDiff {
   }
 
   @Override
-  void emitNonStructuralDiff(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx, final DiffDepth depth,
+  void emitNonStructuralDiff(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx, final DiffDepth depth,
       final DiffType diff) {}
 }

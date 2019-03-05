@@ -157,4 +157,8 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    * @return {@code true}, if the current node has children, {@code false} otherwise
    */
   boolean hasChildren();
+
+  long getHash();
+
+  String getValue();
 }

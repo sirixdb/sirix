@@ -26,8 +26,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
@@ -113,6 +113,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
         break;
     }
     return returnVal;
+  }
+
+  @Override
+  public boolean getBooleanValue() {
+    assertNotClosed();
+    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE)
+      return ((BooleanNode) mCurrentNode).getValue();
+    throw new IllegalStateException("Current node is no boolean node.");
+  }
+
+  @Override
+  public Number getNumberValue() {
+    assertNotClosed();
+    if (mCurrentNode.getKind() == Kind.NUMBER_VALUE)
+      return ((NumberNode) mCurrentNode).getValue();
+    throw new IllegalStateException("Current node is no number node.");
   }
 
   @Override
