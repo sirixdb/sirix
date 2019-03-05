@@ -49,32 +49,38 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
     boolean found = false;
     if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
         && newRtx.getKind() == oldRtx.getKind()) {
-      switch (newRtx.getKind()) {
-        case ARRAY:
-        case OBJECT:
-        case NULL_VALUE:
+      found = checkNamesOrValues(newRtx, oldRtx);
+    }
+    return found;
+  }
+
+  private boolean checkNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
+    boolean found = false;
+    switch (newRtx.getKind()) {
+      case ARRAY:
+      case OBJECT:
+      case NULL_VALUE:
+        found = true;
+        break;
+      case OBJECT_RECORD:
+        if (newRtx.getName().equals(oldRtx.getName()))
           found = true;
-          break;
-        case OBJECT_RECORD:
-          if (newRtx.getName().equals(oldRtx.getName()))
-            found = true;
-          break;
-        case BOOLEAN_VALUE:
-          if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
-            found = true;
-          break;
-        case NUMBER_VALUE:
-          if (newRtx.getNumberValue().equals(oldRtx.getNumberValue()))
-            found = true;
-          break;
-        case STRING_VALUE:
-          if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
-            found = true;
-          break;
-        // $CASES-OMITTED$
-        default:
-          // Do nothing.
-      }
+        break;
+      case BOOLEAN_VALUE:
+        if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
+          found = true;
+        break;
+      case NUMBER_VALUE:
+        if (newRtx.getNumberValue().equals(oldRtx.getNumberValue()))
+          found = true;
+        break;
+      case STRING_VALUE:
+        if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+          found = true;
+        break;
+      // $CASES-OMITTED$
+      default:
+        // Do nothing.
     }
     return found;
   }
@@ -82,4 +88,9 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
   @Override
   void emitNonStructuralDiff(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx, final DiffDepth depth,
       final DiffType diff) {}
+
+  @Override
+  boolean checkNodeNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
+    return checkNamesOrValues(newRtx, oldRtx);
+  }
 }
