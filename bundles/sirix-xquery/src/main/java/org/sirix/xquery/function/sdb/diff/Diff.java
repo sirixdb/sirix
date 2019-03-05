@@ -131,8 +131,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mLatch = new CountDownLatch(1);
 
     try (final XmlResourceManager resMrg = doc.getTrx().getResourceManager()) {
-      mPool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>(resMrg, rev2, rev1,
-          resMrg.getResourceConfig().hashType == HashType.NONE
+      mPool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>(resMrg,
+          rev2, rev1, resMrg.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,
           ImmutableSet.of(this)).skipSubtrees(true)));
@@ -305,8 +305,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append("  rename node sdb:select-node($doc");
     mBuf.append(", ");
     mBuf.append(diffTuple.getOldNodeKey());
-    mBuf.append(") as ");
+    mBuf.append(") as \"");
     mBuf.append(Utils.buildName(newRtx.getName()));
+    mBuf.append("\"");
   }
 
   private void buildUpdateStatement(final XmlNodeReadOnlyTrx rtx) {
