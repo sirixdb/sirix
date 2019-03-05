@@ -29,7 +29,6 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
@@ -515,7 +514,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     } else if (checkUpdate(newRtx, oldRtx)) { // Check if node has been updated.
       diff = DiffType.UPDATED;
       final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
-      if (checkNodes(newRtx, oldRtx)) {
+      if (checkNodeNamesOrValues(newRtx, oldRtx)) {
         fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
       } else {
         fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
@@ -541,7 +540,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         FoundMatchingNode found = FoundMatchingNode.FALSE;
 
         while (oldRtx.hasRightSibling() && oldRtx.moveToRightSibling().hasMoved() && found == FoundMatchingNode.FALSE) {
-          if (checkNodes(newRtx, oldRtx)) {
+          if (checkNodeNamesOrValuesAndNodeKeys(newRtx, oldRtx)) {
             found = FoundMatchingNode.TRUE;
             break;
           }
@@ -592,13 +591,26 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   /**
-   * Check if nodes are equal excluding subtrees.
+   * Check if nodes are equal excluding subtrees, including namespaces and attributes if full diffing
+   * is done.
    *
-   * @param newRtx {@link XmlNodeReadOnlyTrx} on new revision
-   * @param oldRtx {@link XmlNodeReadOnlyTrx} on old revision
+   * @param newRtx transactional cursor on new revision
+   * @param oldRtx transactional cursor on old revision
    * @return true if nodes are "equal", otherwise false
    */
   abstract boolean checkNodes(final R newRtx, final R oldRtx);
+
+  /**
+   * Check if nodes are equal excluding subtrees, excluding namespaces and attributes if full diffing
+   * is done.
+   *
+   * @param newRtx transactional cursor on new revision
+   * @param oldRtx transactional cursor on old revision
+   * @return true if nodes are "equal", otherwise false
+   */
+  private boolean checkNodeNamesOrValuesAndNodeKeys(R newRtx, R oldRtx) {
+    return newRtx.getNodeKey() == oldRtx.getNodeKey() && checkNodeNamesOrValues(newRtx, oldRtx);
+  }
 
   abstract void emitNonStructuralDiff(final R newRtx, final R oldRtx, final DiffDepth depth, final DiffType diff);
 
@@ -740,4 +752,14 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     return newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
         && mDepth.getNewDepth() == mDepth.getOldDepth();
   }
+
+  /**
+   * Check {@link QName} of nodes.
+   *
+   * @param newRtx read-only transaction on new revision
+   * @param oldRtx read-only transaction on old revision
+   * @return {@code true} if nodes are "equal" according to their {@link QName} s, {@code false}
+   *         otherwise
+   */
+  abstract boolean checkNodeNamesOrValues(R newRtx, R oldRtx);
 }
