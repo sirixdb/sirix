@@ -9,6 +9,7 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 
 public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
+  @Override
   public String getValue();
 
   public boolean isObject();
@@ -70,4 +71,8 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    */
   @Override
   JsonResourceManager getResourceManager();
+
+  boolean getBooleanValue();
+
+  Number getNumberValue();
 }

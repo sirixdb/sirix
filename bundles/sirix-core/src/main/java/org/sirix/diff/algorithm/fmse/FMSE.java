@@ -80,6 +80,16 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     FALSE
   }
 
+  private enum Path {
+    NO_PATH,
+
+    MATCHES,
+
+    PATH_LENGTH_IS_NOT_EQUAL,
+
+    NO_MATCH_NO_LENGTH_EQUALS
+  }
+
   /** Algorithm name. */
   private static final String NAME = "Fast Matching / Edit Script";
 
@@ -1162,14 +1172,22 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
             ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
 
-            // Also check QNames of the parents.
             if (ratio > FMESF) {
-              ratio = checkPaths();
+              final Path paths = checkPaths();
 
-              if (ratio == -1)
+              if (paths != Path.PATH_LENGTH_IS_NOT_EQUAL && mId != null) {
+                ratio = checkIfAncestorIdsMatch(mWtx.getNodeKey(), mRtx.getNodeKey(), mId)
+                    ? 1
+                    : 0;
+              } else if (paths == Path.MATCHES) {
+                ratio = 1;
+              } else if (paths == Path.NO_PATH || paths == Path.NO_MATCH_NO_LENGTH_EQUALS) {
                 ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
                     ? 1
                     : 0;
+              } else {
+                ratio = 0;
+              }
             }
           }
         }
@@ -1187,7 +1205,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           ratio = calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx));
 
           if (ratio > FMESF) {
-            ratio = checkPaths();
+            final var pathCheck = checkPaths();
 
             if (ratio == -1)
               ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
@@ -1209,9 +1227,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       return ratio > FMESF;
     }
 
-    private int checkPaths() {
+    private Path checkPaths() {
       if (mWtx.getPathNodeKey() == 0 || mRtx.getPathNodeKey() == 0)
-        return 1;
+        return Path.NO_PATH;
 
       final var oldPathNode = mNewPathSummary.getPathNodeForPathNodeKey(mWtx.getPathNodeKey());
       final var oldPath = oldPathNode.getPath(mNewPathSummary);
@@ -1219,16 +1237,12 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       final var newPathNode = mOldPathSummary.getPathNodeForPathNodeKey(mRtx.getPathNodeKey());
       final var newPath = newPathNode.getPath(mOldPathSummary);
 
-      final int retVal;
-
       if (oldPath.getLength() != newPath.getLength())
-        retVal = 0;
+        return Path.PATH_LENGTH_IS_NOT_EQUAL;
       else if (oldPath.matches(newPath))
-        retVal = 1;
+        return Path.MATCHES;
       else
-        retVal = -1;
-
-      return retVal;
+        return Path.NO_MATCH_NO_LENGTH_EQUALS;
     }
   }
 
@@ -1388,7 +1402,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   }
 
   /**
-   * Check if ancestors are equal.
+   * Check if one of the ancestors has an id.
    *
    * @param oldKey start key in old revision
    * @param newKey start key in new revision
@@ -1410,6 +1424,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             && mRtx.moveToAttributeByName(id).hasMoved()) {
           if (mRtx.getValue().equals(mWtx.getValue()))
             retVal = true;
+        } else {
+          retVal = false;
           break;
         }
       } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey && mWtx.hasParent()

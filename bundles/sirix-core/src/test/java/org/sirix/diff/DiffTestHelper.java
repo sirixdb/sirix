@@ -328,14 +328,14 @@ public final class DiffTestHelper {
 
   static void checkFullDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) throws SirixException, InterruptedException {
-    DiffFactory.invokeFullDiff(
+    DiffFactory.invokeFullXmlDiff(
         new DiffFactory.Builder(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
   }
 
   static void checkStructuralDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) throws SirixException, InterruptedException {
-    DiffFactory.invokeStructuralDiff(
+    DiffFactory.invokeStructuralXmlDiff(
         new DiffFactory.Builder(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
   }

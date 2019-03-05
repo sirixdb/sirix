@@ -26,7 +26,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Set;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashType;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 
@@ -89,30 +96,53 @@ public final class DiffFactory {
   /** Determines the kind of diff algorithm to invoke. */
   private enum DiffAlgorithm {
     /** Full diff. */
-    FULL {
+    XML_FULL {
       @Override
-      void invoke(final Builder builder) throws SirixException {
-        new FullDiff(builder).diffMovement();
+      <R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> void invoke(
+          final Builder<R, W> builder) {
+        @SuppressWarnings("unchecked")
+        final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> xmlDiffBuilder =
+            (Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>) builder;
+        new XmlFullDiff(xmlDiffBuilder).diffMovement();
       }
     },
 
     /**
      * Structural diff (doesn't recognize differences in namespace and attribute nodes.
      */
-    STRUCTURAL {
+    XML_STRUCTURAL {
       @Override
-      void invoke(final Builder builder) throws SirixException {
-        new StructuralDiff(builder).diffMovement();
+      <R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> void invoke(
+          final Builder<R, W> builder) {
+        @SuppressWarnings("unchecked")
+        final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> xmlDiffBuilder =
+            (Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>) builder;
+        new XmlStructuralDiff(xmlDiffBuilder).diffMovement();
+      }
+    },
+
+    /**
+     * JSON diff.
+     */
+    JSON {
+      @Override
+      <R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> void invoke(
+          final Builder<R, W> builder) {
+        @SuppressWarnings("unchecked")
+        final Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> jsonDiffBuilder =
+            (Builder<JsonNodeReadOnlyTrx, JsonNodeTrx>) builder;
+        new JsonDiff(jsonDiffBuilder).diffMovement();
       }
     };
 
     /**
      * Invoke diff.
      *
-     * @param pBuilder {@link Builder} reference
+     * @param builder {@link Builder} reference
      * @throws SirixException if anything while diffing goes wrong related to sirix
      */
-    abstract void invoke(final Builder pBuilder) throws SirixException;
+    abstract <R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> void invoke(
+        final Builder<R, W> builder);
   }
 
   /**
@@ -125,16 +155,17 @@ public final class DiffFactory {
    * @param observers {@link Set} of observers
    * @return new {@link Builder} instance
    */
-  public static Builder builder(final XmlResourceManager resourceManager, final @Nonnegative int newRev,
-      final @Nonnegative int oldRev, final DiffOptimized diffKind, final Set<DiffObserver> observers) {
-    return new Builder(resourceManager, newRev, oldRev, diffKind, observers);
+  public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceManager resourceManager,
+      final @Nonnegative int newRev, final @Nonnegative int oldRev, final DiffOptimized diffKind,
+      final Set<DiffObserver> observers) {
+    return new Builder<>(resourceManager, newRev, oldRev, diffKind, observers);
   }
 
   /** Builder to simplify static methods. */
-  public static final class Builder {
+  public static final class Builder<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
 
     /** {@link ResourceManager} reference. */
-    final XmlResourceManager mResMgr;
+    final ResourceManager<R, W> mResMgr;
 
     /** Start key of new revision. */
     transient long mNewStartKey;
@@ -181,7 +212,7 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final XmlResourceManager resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
+    public Builder(final ResourceManager<R, W> resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
       mResMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
@@ -198,7 +229,7 @@ public final class DiffFactory {
      * @param isGUI determines if the algorithm is used by the GUI or not
      * @return this builder
      */
-    public Builder isGUI(final boolean isGUI) {
+    public Builder<R, W> isGUI(final boolean isGUI) {
       mIsGUI = isGUI;
       return this;
     }
@@ -209,7 +240,7 @@ public final class DiffFactory {
      * @param oldKey start node key in old revision
      * @return this builder
      */
-    public Builder oldStartKey(final @Nonnegative long oldKey) {
+    public Builder<R, W> oldStartKey(final @Nonnegative long oldKey) {
       checkArgument(oldKey >= 0, "oldKey must be >= 0!");
       mOldStartKey = oldKey;
       return this;
@@ -221,7 +252,7 @@ public final class DiffFactory {
      * @param pNewKey start node key in new revision
      * @return this builder
      */
-    public Builder newStartKey(final @Nonnegative long newKey) {
+    public Builder<R, W> newStartKey(final @Nonnegative long newKey) {
       checkArgument(newKey >= 0, "newKey must be >= 0!");
       mNewStartKey = newKey;
       return this;
@@ -233,7 +264,7 @@ public final class DiffFactory {
      * @param newDepth depth of "root" node in new revision
      * @return this builder
      */
-    public Builder newDepth(final @Nonnegative int newDepth) {
+    public Builder<R, W> newDepth(final @Nonnegative int newDepth) {
       checkArgument(newDepth >= 0, "newDepth must be >= 0!");
       mNewDepth = newDepth;
       return this;
@@ -245,7 +276,7 @@ public final class DiffFactory {
      * @param oldDepth depth of "root" node in old revision
      * @return this builder
      */
-    public Builder oldDepth(final int oldDepth) {
+    public Builder<R, W> oldDepth(final int oldDepth) {
       checkArgument(oldDepth >= 0, "oldDepth must be >= 0!");
       mOldDepth = oldDepth;
       return this;
@@ -254,12 +285,12 @@ public final class DiffFactory {
     /**
      * Set kind of diff-algorithm.
      *
-     * @param pDiffAlgorithm {@link DiffAlgorithm} instance
+     * @param diffAlgorithm {@link DiffAlgorithm} instance
      *
      * @return this builder
      */
-    public Builder diffAlgorithm(final DiffAlgorithm pDiffAlgorithm) {
-      mDiffKind = checkNotNull(pDiffAlgorithm);
+    public Builder<R, W> diffAlgorithm(final DiffAlgorithm diffAlgorithm) {
+      mDiffKind = checkNotNull(diffAlgorithm);
       return this;
     }
 
@@ -269,7 +300,7 @@ public final class DiffFactory {
      * @param kind {@link HashType} instance
      * @return this builder
      */
-    public Builder hashKind(final HashType kind) {
+    public Builder<R, W> hashKind(final HashType kind) {
       mHashKind = checkNotNull(kind);
       return this;
     }
@@ -280,7 +311,7 @@ public final class DiffFactory {
      * @param skipSubtrees {@code true}, if subtrees should be skipped, {@code false} if not
      * @return this builder
      */
-    public Builder skipSubtrees(final boolean skipSubtrees) {
+    public Builder<R, W> skipSubtrees(final boolean skipSubtrees) {
       mSkipSubtrees = skipSubtrees;
       return this;
     }
@@ -295,22 +326,29 @@ public final class DiffFactory {
   }
 
   /**
+   * Do a full JSON diff.
+   *
+   * @param builder {@link Builder} reference
+   */
+  public static synchronized void invokeJsonDiff(final Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> builder) {
+    DiffAlgorithm.JSON.invoke(builder);
+  }
+
+  /**
    * Do a full diff.
    *
    * @param builder {@link Builder} reference
-   * @throws SirixException
    */
-  public static synchronized void invokeFullDiff(final Builder builder) throws SirixException {
-    DiffAlgorithm.FULL.invoke(builder);
+  public static synchronized void invokeFullXmlDiff(final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder) {
+    DiffAlgorithm.XML_FULL.invoke(builder);
   }
 
   /**
    * Do a structural diff.
    *
    * @param builder {@link Builder} reference
-   * @throws SirixException
    */
-  public static synchronized void invokeStructuralDiff(final Builder builder) throws SirixException {
-    DiffAlgorithm.STRUCTURAL.invoke(builder);
+  public static synchronized void invokeStructuralXmlDiff(final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder) {
+    DiffAlgorithm.XML_STRUCTURAL.invoke(builder);
   }
 }

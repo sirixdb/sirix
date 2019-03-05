@@ -50,6 +50,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -130,7 +131,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mLatch = new CountDownLatch(1);
 
     try (final XmlResourceManager resMrg = doc.getTrx().getResourceManager()) {
-      mPool.submit(() -> DiffFactory.invokeFullDiff(new DiffFactory.Builder(resMrg, rev2, rev1,
+      mPool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>(resMrg, rev2, rev1,
           resMrg.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,

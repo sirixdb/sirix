@@ -44,6 +44,16 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
+  public long getHash() {
+    return delegate().getHash();
+  }
+
+  @Override
+  public String getValue() {
+    return delegate().getValue();
+  }
+
+  @Override
   public PageReadOnlyTrx getPageTrx() {
     return delegate().getPageTrx();
   }
