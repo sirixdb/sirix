@@ -1,4 +1,4 @@
-package org.sirix.rest.crud.xdm
+package org.sirix.rest.crud.xml
 
 import io.vertx.core.Future
 import io.vertx.core.Handler

@@ -1,4 +1,4 @@
-package org.sirix.rest.crud.xdm
+package org.sirix.rest.crud.xml
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context

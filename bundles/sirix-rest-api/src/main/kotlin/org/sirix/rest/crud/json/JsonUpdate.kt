@@ -1,24 +1,18 @@
-package org.sirix.rest.crud
+package org.sirix.rest.crud.json
 
+import com.google.gson.stream.JsonReader
 import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
-import org.sirix.api.xml.XmlNodeTrx
-import org.sirix.rest.XdmSerializeHelper
-import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.service.xml.shredder.XmlShredder
-import java.io.ByteArrayOutputStream
-import java.nio.file.Path
-import javax.xml.stream.XMLEventReader
+import org.sirix.api.json.JsonNodeTrx
+import org.sirix.rest.JsonSerializeHelper
+import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
-import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.rest.JsonSerializeHelper
-import com.google.gson.stream.JsonReader
-import org.sirix.api.json.JsonNodeTrx
+import java.nio.file.Path
 
 enum class JsonInsertionMode {
     ASFIRSTCHILD {

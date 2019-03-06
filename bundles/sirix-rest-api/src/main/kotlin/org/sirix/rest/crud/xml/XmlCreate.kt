@@ -1,4 +1,4 @@
-package org.sirix.rest.crud.xdm
+package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
 import io.vertx.core.Future
@@ -57,7 +57,7 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
-
+        
         val database = Databases.openXmlDatabase(dbFile)
 
         database.use {
