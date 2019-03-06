@@ -115,27 +115,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
   void emitNonStructuralDiff(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx, final DiffDepth depth,
       final DiffType diff) {
     if (newRtx.isElement() || oldRtx.isElement()) {
-      if (diff == DiffType.SAME) {
-        for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
-          final long newNodeKey = newRtx.moveToNamespace(i).getCursor().getNodeKey();
-          oldRtx.moveTo(newNodeKey);
-
-          fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-
-          newRtx.moveToParent();
-          oldRtx.moveToParent();
-        }
-
-        for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
-          final long newNodeKey = newRtx.moveToAttribute(i).getCursor().getNodeKey();
-          oldRtx.moveTo(newNodeKey);
-
-          fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-
-          newRtx.moveToParent();
-          oldRtx.moveToParent();
-        }
-      } else if (diff != DiffType.SAMEHASH) {
+      if (diff == DiffType.UPDATED) {
         // Emit diffing.
         final long newNodeKey = newRtx.getNodeKey();
         final long oldNodeKey = oldRtx.getNodeKey();
@@ -212,6 +192,58 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
         // Move back to original element nodes.
         newRtx.moveTo(newNodeKey);
         oldRtx.moveTo(oldNodeKey);
+      } else if (diff == DiffType.SAME) {
+        for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
+          final long newNodeKey = newRtx.moveToNamespace(i).getCursor().getNodeKey();
+          oldRtx.moveTo(newNodeKey);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          newRtx.moveToParent();
+          oldRtx.moveToParent();
+        }
+
+        for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
+          final long newNodeKey = newRtx.moveToAttribute(i).getCursor().getNodeKey();
+          oldRtx.moveTo(newNodeKey);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          newRtx.moveToParent();
+          oldRtx.moveToParent();
+        }
+      } else if (diff == DiffType.DELETED) {
+        for (int i = 0, nspCount = oldRtx.getNamespaceCount(); i < nspCount; i++) {
+          oldRtx.moveToNamespace(i);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          oldRtx.moveToParent();
+        }
+
+        for (int i = 0, attCount = oldRtx.getAttributeCount(); i < attCount; i++) {
+          oldRtx.moveToAttribute(i);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          oldRtx.moveToParent();
+        }
+      } else if (diff == DiffType.INSERTED) {
+        for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
+          newRtx.moveToNamespace(i);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          newRtx.moveToParent();
+        }
+
+        for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
+          newRtx.moveToAttribute(i);
+
+          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+
+          newRtx.moveToParent();
+        }
       }
     }
   }

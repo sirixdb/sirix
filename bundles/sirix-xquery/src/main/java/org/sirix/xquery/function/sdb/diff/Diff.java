@@ -353,7 +353,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         serializer.call();
         return out.toString();
       case ATTRIBUTE:
-        return "attribute " + rtx.getName() + " { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";
@@ -365,7 +365,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       case ELEMENT:
         return "<" + rtx.getName() + "/>";
       case ATTRIBUTE:
-        return "attribute " + rtx.getName() + " { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";

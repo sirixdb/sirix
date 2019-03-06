@@ -41,8 +41,8 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
-import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.access.trx.node.Movement;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
@@ -1312,7 +1312,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           final QNm qName = getName();
           if (name.equals(qName)) {
             if (getValue().equals(value)) {
-              throw new SirixUsageException("Duplicate attribute!");
+              return this;
+              // throw new SirixUsageException("Duplicate attribute!");
             } else {
               setValue(value);
             }
