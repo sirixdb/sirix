@@ -6,10 +6,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
+import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -46,30 +47,35 @@ public final class PastAxisTest {
 
   @Test
   public void testPastOrSelfAxis() throws SirixException {
-    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-    final NodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx, secondRtx, firstRtx),
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(new Pair<>(thirdRtx.getRevisionNumber(), thirdRtx.getNodeKey()),
+            new Pair<>(secondRtx.getRevisionNumber(), secondRtx.getNodeKey()),
+            new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())),
         null) {
       @Override
-      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-        return new PastAxis<>(thirdRtx, IncludeSelf.YES);
+      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        return new PastAxis<>(thirdRtx.getResourceManager(), thirdRtx, IncludeSelf.YES);
       }
     }.test();
   }
 
   @Test
   public void testPastAxis() throws SirixException {
-    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-    final NodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
-    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, firstRtx),
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(new Pair<>(secondRtx.getRevisionNumber(), secondRtx.getNodeKey()),
+            new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())),
         null) {
       @Override
-      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-        return new PastAxis<>(thirdRtx);
+      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        return new PastAxis<>(thirdRtx.getResourceManager(), thirdRtx);
       }
     }.test();
   }
@@ -84,18 +90,21 @@ public final class PastAxisTest {
       wtx.commit();
     }
 
-    try (final NodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
-        final NodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4);
-        final NodeReadOnlyTrx fifthReader = holder.getResourceManager().beginNodeReadOnlyTrx(5)) {
+    try (final XmlNodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4);
+        final XmlNodeReadOnlyTrx fifthReader = holder.getResourceManager().beginNodeReadOnlyTrx(5)) {
       thirdReader.moveTo(16);
       fourthReader.moveTo(16);
       fifthReader.moveTo(16);
 
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(fifthReader, fourthReader, thirdReader), null) {
+          ImmutableList.of(new Pair<>(fifthReader.getRevisionNumber(), fifthReader.getNodeKey()),
+              new Pair<>(fourthReader.getRevisionNumber(), fourthReader.getNodeKey()),
+              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey())),
+          null) {
         @Override
-        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-          return new PastAxis<>(fifthReader, IncludeSelf.YES);
+        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+          return new PastAxis<>(fifthReader.getResourceManager(), fifthReader, IncludeSelf.YES);
         }
       }.test();
     }

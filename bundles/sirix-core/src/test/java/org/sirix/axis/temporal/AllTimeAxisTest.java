@@ -6,9 +6,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -45,14 +46,17 @@ public final class AllTimeAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    try (final NodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-        final NodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-        final NodeReadOnlyTrx thirdReader = holder.getXdmNodeReadTrx()) {
+    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+        final XmlNodeReadOnlyTrx thirdReader = holder.getXdmNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader), null) {
+          ImmutableList.of(new Pair<>(firstReader.getRevisionNumber(), firstReader.getNodeKey()),
+              new Pair<>(secondReader.getRevisionNumber(), secondReader.getNodeKey()),
+              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey())),
+          null) {
         @Override
-        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(holder.getXdmNodeReadTrx());
+        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+          return new AllTimeAxis<>(holder.getResourceManager(), holder.getXdmNodeReadTrx());
         }
       }.test();
     }
@@ -74,10 +78,10 @@ public final class AllTimeAxisTest {
       wtx.commit();
     }
 
-    try (final NodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-        final NodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-        final NodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
-        final NodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
+    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+        final XmlNodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);
@@ -85,10 +89,14 @@ public final class AllTimeAxisTest {
       fourthReader.moveTo(4);
 
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
+          ImmutableList.of(new Pair<>(firstReader.getRevisionNumber(), firstReader.getNodeKey()),
+              new Pair<>(secondReader.getRevisionNumber(), secondReader.getNodeKey()),
+              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey()),
+              new Pair<>(fourthReader.getRevisionNumber(), fourthReader.getNodeKey())),
+          null) {
         @Override
-        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(fourthReader);
+        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+          return new AllTimeAxis<>(fourthReader.getResourceManager(), fourthReader);
         }
       }.test();
     }

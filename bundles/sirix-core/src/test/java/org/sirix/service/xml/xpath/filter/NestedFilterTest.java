@@ -29,12 +29,12 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.NestedFilter;
-import org.sirix.axis.filter.xdm.AttributeFilter;
-import org.sirix.axis.filter.xdm.ElementFilter;
-import org.sirix.axis.filter.xdm.ItemFilter;
-import org.sirix.axis.filter.xdm.NodeFilter;
-import org.sirix.axis.filter.xdm.XdmNameFilter;
-import org.sirix.axis.filter.xdm.TextFilter;
+import org.sirix.axis.filter.xml.AttributeFilter;
+import org.sirix.axis.filter.xml.ElementFilter;
+import org.sirix.axis.filter.xml.ItemFilter;
+import org.sirix.axis.filter.xml.NodeFilter;
+import org.sirix.axis.filter.xml.TextFilter;
+import org.sirix.axis.filter.xml.XdmNameFilter;
 import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {

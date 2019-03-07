@@ -1,6 +1,10 @@
 package org.sirix.axis;
 
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
+import org.sirix.utils.Pair;
 import com.google.common.collect.AbstractIterator;
 
 /**
@@ -9,12 +13,8 @@ import com.google.common.collect.AbstractIterator;
  * @author Johannes Lichtenberger
  *
  */
-public abstract class AbstractTemporalAxis<R extends NodeReadOnlyTrx> extends AbstractIterator<R> {
+public abstract class AbstractTemporalAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    extends AbstractIterator<Pair<Integer, Long>> {
 
-  /**
-   * Get the transaction.
-   *
-   * @return Sirix {@link NodeReadOnlyTrx}
-   */
-  public abstract R getTrx();
+  public abstract ResourceManager<R, W> getResourceManager();
 }

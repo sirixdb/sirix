@@ -19,33 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.Kind;
 
 /**
- * <h1>AttributeFilter</h1>
+ * <h1>NodeAxisTest</h1>
  *
  * <p>
- * Only match ATTRIBUTE nodes.
+ * Only match ROOT nodes.
  * </p>
  */
-public final class AttributeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class DocumentRootNodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx Transaction this filter is bound to.
    */
-  public AttributeFilter(final XmlNodeReadOnlyTrx rtx) {
+  public DocumentRootNodeFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.ATTRIBUTE;
+    return getTrx().getKind() == Kind.XDM_DOCUMENT;
   }
 
 }

@@ -19,32 +19,47 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
 
 /**
- * <h1>NodeAxisTest</h1>
+ * <h1>TypeFilter</h1>
  *
  * <p>
- * Only match ELEMENT nodes.
+ * Only match nodes with the specified value type.
  * </p>
  */
-public final class ElementFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public class TypeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+
+  /** Type information. */
+  private final int mType;
 
   /**
-   * Default constructor.
+   * Constructor. Initializes the internal state.
    *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
+   * @param rtx transaction this filter is bound to
+   * @param type type to match
    */
-  public ElementFilter(final XmlNodeReadOnlyTrx rtx) {
+  public TypeFilter(final XmlNodeReadOnlyTrx rtx, final int type) {
     super(rtx);
+    mType = type;
+  }
+
+  /**
+   * Constructor. Initializes the internal state.
+   *
+   * @param rtx transaction this filter is bound to
+   * @param typeName name of the type to match
+   */
+  public TypeFilter(final XmlNodeReadOnlyTrx rtx, final String typeName) {
+    this(rtx, rtx.keyForName(typeName));
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.ELEMENT;
+    return getTrx().getTypeKey() == mType;
   }
+
 }

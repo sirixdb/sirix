@@ -1,12 +1,12 @@
-package org.sirix.axis.filter.json;
+package org.sirix.axis.filter.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Filter;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.utils.Pair;
 
@@ -16,11 +16,11 @@ import org.sirix.utils.Pair;
  * @author Johannes Lichtenberger
  *
  */
-public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadOnlyTrx>>
-    extends AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> {
+public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnlyTrx>>
+    extends AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   /** Axis to test. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> mAxis;
+  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> mAxis;
 
   /** Test to apply to axis. */
   private final List<F> mAxisFilter;
@@ -33,7 +33,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
    * @param axisTest tests to perform for each node found with axis
    */
   @SafeVarargs
-  public TemporalJsonNodeReadFilterAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
+  public TemporalXmlNodeReadFilterAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     checkNotNull(firstAxisTest);
     mAxis = axis;
@@ -50,9 +50,9 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   @Override
   protected Pair<Integer, Long> computeNext() {
     while (mAxis.hasNext()) {
-      final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = mAxis.getResourceManager();
+      final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = mAxis.getResourceManager();
       final Pair<Integer, Long> pair = mAxis.next();
-      try (final JsonNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
+      try (final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
         rtx.moveTo(pair.getSecond());
         boolean filterResult = true;
         for (final F filter : mAxisFilter) {
@@ -75,12 +75,12 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
    *
    * @return the axis
    */
-  public AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> getAxis() {
+  public AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getAxis() {
     return mAxis;
   }
 
   @Override
-  public ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceManager() {
+  public ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> getResourceManager() {
     return mAxis.getResourceManager();
   }
 }

@@ -21,6 +21,7 @@ import org.brackit.xquery.xdm.TemporalNode;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
@@ -45,6 +46,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
+import org.sirix.utils.Pair;
 import org.sirix.xquery.stream.SirixStream;
 import org.sirix.xquery.stream.TemporalSirixStream;
 import org.slf4j.LoggerFactory;
@@ -1559,7 +1561,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     }
 
     // If dewey-IDs are present it's simply the comparison of dewey-IDs.
-    if (mDeweyID.isPresent()) {
+    if (mDeweyID.isPresent() && ((XmlDBNode) otherNode).mDeweyID.isPresent()) {
       return mDeweyID.get().compareTo(((XmlDBNode) otherNode).mDeweyID.get());
     }
 
@@ -1718,37 +1720,52 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
   @Override
   public XmlDBNode getNext() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new NextAxis<>(mRtx);
-    return axis.hasNext()
-        ? new XmlDBNode(axis.getTrx(), mCollection)
-        : null;
+
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(mRtx.getResourceManager(), mRtx);
+    return moveTemporalAxis(axis);
+  }
+
+  private XmlDBNode moveTemporalAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis) {
+    if (axis.hasNext()) {
+      final Pair<Integer, Long> pair = axis.next();
+
+      final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = axis.getResourceManager();
+      final Optional<XmlNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
+
+      final XmlNodeReadOnlyTrx rtx;
+      if (optionalRtx.isPresent()) {
+        rtx = optionalRtx.get();
+        rtx.moveTo(pair.getSecond());
+      } else {
+        rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst());
+        rtx.moveTo(pair.getSecond());
+      }
+      return new XmlDBNode(rtx, mCollection);
+    }
+
+    return null;
   }
 
   @Override
   public XmlDBNode getPrevious() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new PreviousAxis<>(mRtx);
-    return axis.hasNext()
-        ? new XmlDBNode(axis.getTrx(), mCollection)
-        : null;
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+        new PreviousAxis<>(mRtx.getResourceManager(), mRtx);
+    return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getFirst() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new FirstAxis<>(mRtx);
-    return axis.hasNext()
-        ? new XmlDBNode(axis.getTrx(), mCollection)
-        : null;
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(mRtx.getResourceManager(), mRtx);
+    return moveTemporalAxis(axis);
   }
 
   @Override
   public XmlDBNode getLast() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new LastAxis<>(mRtx);
-    return axis.hasNext()
-        ? new XmlDBNode(axis.getTrx(), mCollection)
-        : null;
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(mRtx.getResourceManager(), mRtx);
+    return moveTemporalAxis(axis);
   }
 
   @Override
@@ -1757,7 +1774,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixStream(new PastAxis<>(mRtx, include), mCollection);
+    return new TemporalSirixStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
   }
 
   @Override
@@ -1766,13 +1783,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixStream(new FutureAxis<>(mRtx, include), mCollection);
+    return new TemporalSirixStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
     moveRtx();
-    return new TemporalSirixStream(new AllTimeAxis<>(mRtx), mCollection);
+    return new TemporalSirixStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }
 
   @Override

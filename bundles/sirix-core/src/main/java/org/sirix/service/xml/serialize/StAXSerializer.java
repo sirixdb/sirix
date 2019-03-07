@@ -41,7 +41,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xdm.TextFilter;
+import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.node.Kind;
 import org.sirix.utils.XMLToken;
 

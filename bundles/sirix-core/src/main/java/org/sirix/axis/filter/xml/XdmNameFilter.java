@@ -19,33 +19,65 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
 
 /**
- * <h1>NodeAxisTest</h1>
+ * <h1>NameAxisTest</h1>
  *
  * <p>
- * Only match ROOT nodes.
+ * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public final class DocumentRootNodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class XdmNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+
+  /** Key of local name to test. */
+  private final int mLocalNameKey;
+
+  /** Key of prefix to test. */
+  private final int mPrefixKey;
 
   /**
    * Default constructor.
    *
-   * @param rtx Transaction this filter is bound to.
+   * @param rtx the node trx/node cursor this filter is bound to
+   * @param name name to check
    */
-  public DocumentRootNodeFilter(final XmlNodeReadOnlyTrx rtx) {
+  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
+    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
+        ? -1
+        : rtx.keyForName(name.getPrefix());
+    mLocalNameKey = rtx.keyForName(name.getLocalName());
+  }
+
+  /**
+   * Default constructor.
+   *
+   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
+   * @param name name to check
+   */
+  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
+    super(rtx);
+    final int index = name.indexOf(":");
+    if (index != -1) {
+      mPrefixKey = rtx.keyForName(name.substring(0, index));
+    } else {
+      mPrefixKey = -1;
+    }
+
+    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
   }
 
   @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.XDM_DOCUMENT;
+  public boolean filter() {
+    boolean returnVal = false;
+    if (getTrx().isNameNode()) {
+      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+    }
+    return returnVal;
   }
-
 }

@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
@@ -29,23 +29,23 @@ import org.sirix.node.Kind;
  * <h1>NodeAxisTest</h1>
  *
  * <p>
- * Only match process instruction nodes.
+ * Only match ELEMENT and TEXT nodes.
  * </p>
  */
-public final class PIFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class NodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx transaction this filter is bound to
    */
-  public PIFilter(final XmlNodeReadOnlyTrx rtx) {
+  public NodeFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
+    return (getTrx().getKind() == Kind.ELEMENT || getTrx().getKind() == Kind.TEXT);
   }
 
 }

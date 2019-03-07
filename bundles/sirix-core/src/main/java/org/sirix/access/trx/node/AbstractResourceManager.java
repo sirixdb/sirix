@@ -527,8 +527,13 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Optional<R> getNodeReadTrx(final long ID) {
+  public Optional<R> getNodeReadTrxByTrxId(final long ID) {
     return Optional.ofNullable(mNodeReaderMap.get(ID));
+  }
+
+  @Override
+  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
+    return mNodeReaderMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
   }
 
   @SuppressWarnings("unchecked")

@@ -6,9 +6,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -45,13 +46,14 @@ public final class LastAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final NodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
-    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx), null) {
+    new IteratorTester<Pair<Integer, Long>>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(new Pair<>(thirdRtx.getRevisionNumber(), thirdRtx.getNodeKey())), null) {
       @Override
-      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-        return new LastAxis<>(firstRtx);
+      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        return new LastAxis<>(firstRtx.getResourceManager(), firstRtx);
       }
     }.test();
   }
