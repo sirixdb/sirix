@@ -658,7 +658,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   public void remove(final NameNode node, final Kind nodeKind, final NamePage page) {
     if (mPathSummaryReader.moveTo(node.getPathNodeKey()).hasMoved()) {
-      if (mPathSummaryReader.getReferences() == 1 && mPathSummaryReader.getChildCount() <= 1) {
+      if (mPathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
       } else {
         assert page.getCount(node.getLocalNameKey(), nodeKind) != 0;

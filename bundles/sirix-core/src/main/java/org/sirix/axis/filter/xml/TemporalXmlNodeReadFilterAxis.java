@@ -2,8 +2,9 @@ package org.sirix.axis.filter.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import org.sirix.api.Filter;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -26,6 +27,8 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   /** Test to apply to axis. */
   private final List<F> mAxisFilter;
 
+  private final Map<Integer, XmlNodeReadOnlyTrx> mCache;
+
   /**
    * Constructor initializing internal state.
    *
@@ -37,6 +40,7 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   public TemporalXmlNodeReadFilterAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     checkNotNull(firstAxisTest);
+    mCache = new HashMap<>();
     mAxis = axis;
     mAxisFilter = new ArrayList<F>();
     mAxisFilter.add(firstAxisTest);
@@ -53,26 +57,19 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
     while (mAxis.hasNext()) {
       final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = mAxis.getResourceManager();
       final Pair<Integer, Long> pair = mAxis.next();
+      final int revision = pair.getFirst();
+      final long nodeKey = pair.getSecond();
 
-      final Optional<XmlNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
-      if (optionalRtx.isPresent()) {
-        final XmlNodeReadOnlyTrx rtx;
-        rtx = optionalRtx.get();
-        rtx.moveTo(pair.getSecond());
-        final boolean filterResult = doFilter(rtx);
-        if (filterResult) {
-          return pair;
-        }
-      } else {
-        try (final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
-          rtx.moveTo(pair.getSecond());
-          final boolean filterResult = doFilter(rtx);
-          if (filterResult) {
-            return pair;
-          }
-        }
+      final XmlNodeReadOnlyTrx rtx =
+          mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
+      rtx.moveTo(nodeKey);
+      final boolean filterResult = doFilter(rtx);
+      if (filterResult) {
+        return pair;
       }
     }
+
+    mCache.forEach((revision, rtx) -> rtx.close());
     return endOfData();
   }
 
