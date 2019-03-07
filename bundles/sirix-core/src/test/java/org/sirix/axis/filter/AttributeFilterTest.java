@@ -27,7 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.axis.filter.xdm.AttributeFilter;
+import org.sirix.axis.filter.xml.AttributeFilter;
 import org.sirix.exception.SirixException;
 
 public class AttributeFilterTest {

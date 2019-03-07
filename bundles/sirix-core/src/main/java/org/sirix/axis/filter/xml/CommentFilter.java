@@ -19,34 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
+import org.sirix.node.Kind;
 
 /**
- * <h1>ItemFilter</h1>
+ * <h1>NodeAxisTest</h1>
  *
  * <p>
- * Match any item type (nodes and atomic values).
+ * Only match comment nodes.
  * </p>
  */
-public final class ItemFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class CommentFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
    * @param rtx Transaction this filter is bound to.
    */
-  public ItemFilter(final XmlNodeReadOnlyTrx rtx) {
+  public CommentFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    // everything that is hold by an transaction is either a node or an
-    // atomic value, so this yields true for all item kinds
-    return true;
+    return getTrx().getKind() == Kind.COMMENT;
   }
 
 }

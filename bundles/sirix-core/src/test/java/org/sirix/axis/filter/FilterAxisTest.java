@@ -30,8 +30,8 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.filter.xdm.ValueFilter;
-import org.sirix.axis.filter.xdm.XdmNameFilter;
+import org.sirix.axis.filter.xml.ValueFilter;
+import org.sirix.axis.filter.xml.XdmNameFilter;
 import org.sirix.exception.SirixException;
 
 public class FilterAxisTest {

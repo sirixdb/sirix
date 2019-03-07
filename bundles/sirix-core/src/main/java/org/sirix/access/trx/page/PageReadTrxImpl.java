@@ -762,7 +762,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
       closeCaches();
       mPageReader.close();
 
-      if (!mResourceManager.getNodeReadTrx(mTrxId).isPresent())
+      if (!mResourceManager.getNodeReadTrxByTrxId(mTrxId).isPresent())
         mResourceManager.closeReadTransaction(mTrxId);
 
       mClosed = true;

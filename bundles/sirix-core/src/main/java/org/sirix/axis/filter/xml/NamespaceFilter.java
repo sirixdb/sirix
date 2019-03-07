@@ -19,33 +19,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
 
 /**
- * <h1>NodeAxisTest</h1>
+ * <h1>NamespaceFilter</h1>
  *
  * <p>
- * Only match ELEMENT and TEXT nodes.
+ * Only match NAMESPACE nodes.
  * </p>
  */
-public final class NodeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class NamespaceFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
-   * @param rtx transaction this filter is bound to
+   * @param rtx Transaction this filter is bound to.
    */
-  public NodeFilter(final XmlNodeReadOnlyTrx rtx) {
+  public NamespaceFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return (getTrx().getKind() == Kind.ELEMENT || getTrx().getKind() == Kind.TEXT);
+    return getTrx().isNamespace();
   }
 
 }

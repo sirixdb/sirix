@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.function.Predicate;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.util.serialize.StringSerializer;
+import org.brackit.xquery.xdm.Iter;
+import org.brackit.xquery.xdm.Sequence;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -186,6 +189,20 @@ public final class ExcelDiffTest1 extends TestCase {
         assertEquals(contentNewRev, contentOldRev);
 
         out.reset();
+
+        final String xq4 = "sdb:doc('" + dbName + "','" + resName + "',3)//c[not(exists(previous::*))]";
+        final Sequence sequence = new XQuery(new SirixCompileChain(store), xq4).execute(ctx);
+        final Iter iter = sequence.iterate();
+
+        StringSerializer serializer = new StringSerializer(System.out);
+
+        for (var item = iter.next(); item != null; item = iter.next()) {
+          serializer.serialize(item);
+          System.out.println();
+        }
+        // final String changes = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        //
+        // System.out.println(changes);
       }
     }
   }

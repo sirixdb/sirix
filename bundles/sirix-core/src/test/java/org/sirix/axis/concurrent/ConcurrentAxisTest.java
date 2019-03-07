@@ -36,7 +36,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xdm.XdmNameFilter;
+import org.sirix.axis.filter.xml.XdmNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;

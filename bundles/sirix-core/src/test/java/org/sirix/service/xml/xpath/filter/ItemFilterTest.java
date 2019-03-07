@@ -27,7 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.xdm.ItemFilter;
+import org.sirix.axis.filter.xml.ItemFilter;
 import org.sirix.exception.SirixException;
 
 public class ItemFilterTest {

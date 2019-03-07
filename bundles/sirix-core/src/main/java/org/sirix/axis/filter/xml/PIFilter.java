@@ -19,32 +19,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
+import org.sirix.node.Kind;
 
 /**
- * <h1>NamespaceFilter</h1>
+ * <h1>NodeAxisTest</h1>
  *
  * <p>
- * Only match NAMESPACE nodes.
+ * Only match process instruction nodes.
  * </p>
  */
-public final class NamespaceFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
+public final class PIFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
-   * @param rtx Transaction this filter is bound to.
+   * @param rtx transaction this filter is bound to
    */
-  public NamespaceFilter(final XmlNodeReadOnlyTrx rtx) {
+  public PIFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().isNamespace();
+    return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
   }
 
 }

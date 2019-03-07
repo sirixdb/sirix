@@ -22,6 +22,7 @@ import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
@@ -36,15 +37,15 @@ import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.PrecedingSiblingAxis;
 import org.sirix.axis.SelfAxis;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xdm.AttributeFilter;
-import org.sirix.axis.filter.xdm.CommentFilter;
-import org.sirix.axis.filter.xdm.DocumentRootNodeFilter;
-import org.sirix.axis.filter.xdm.ElementFilter;
-import org.sirix.axis.filter.xdm.XdmNameFilter;
-import org.sirix.axis.filter.xdm.NamespaceFilter;
-import org.sirix.axis.filter.xdm.PIFilter;
-import org.sirix.axis.filter.xdm.TemporalXdmNodeReadFilterAxis;
-import org.sirix.axis.filter.xdm.TextFilter;
+import org.sirix.axis.filter.xml.AttributeFilter;
+import org.sirix.axis.filter.xml.CommentFilter;
+import org.sirix.axis.filter.xml.DocumentRootNodeFilter;
+import org.sirix.axis.filter.xml.ElementFilter;
+import org.sirix.axis.filter.xml.NamespaceFilter;
+import org.sirix.axis.filter.xml.PIFilter;
+import org.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
+import org.sirix.axis.filter.xml.TextFilter;
+import org.sirix.axis.filter.xml.XdmNameFilter;
 import org.sirix.axis.temporal.AllTimeAxis;
 import org.sirix.axis.temporal.FirstAxis;
 import org.sirix.axis.temporal.FutureAxis;
@@ -87,7 +88,7 @@ public final class SirixTranslator extends TopDownTranslator {
   }
 
   @Override
-  protected Accessor axis(final AST node) throws QueryException {
+  protected Accessor axis(final AST node) {
     if (!OPTIMIZE) {
       return super.axis(node);
     }
@@ -154,18 +155,18 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new LastAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new LastAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new LastAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -187,18 +188,18 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new FirstAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new FirstAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new FirstAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -220,18 +221,18 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new NextAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new NextAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new NextAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -253,18 +254,20 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new PreviousAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new PreviousAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new PreviousAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new PreviousAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -286,18 +289,20 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new AllTimeAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new AllTimeAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new AllTimeAxis<>(rtx);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new AllTimeAxis<>(rtx.getResourceManager(), rtx);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -325,18 +330,20 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new PastAxis<>(rtx, mSelf);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new PastAxis<>(rtx.getResourceManager(), rtx, mSelf);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new PastAxis<>(rtx, mSelf);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new PastAxis<>(rtx.getResourceManager(), rtx, mSelf);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -364,18 +371,20 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new FutureAxis<>(rtx, mSelf);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new FutureAxis<>(rtx.getResourceManager(), rtx, mSelf);
       return new TemporalSirixStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis = new FutureAxis<>(rtx, mSelf);
+      final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
+          new FutureAxis<>(rtx.getResourceManager(), rtx, mSelf);
       return new TemporalSirixStream(axis, dbNode.getCollection());
     }
   }
@@ -397,14 +406,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new PrecedingAxis(rtx)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new PrecedingAxis(rtx), dbNode.getCollection());
@@ -428,14 +437,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new PrecedingSiblingAxis(rtx)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new PrecedingSiblingAxis(rtx), dbNode.getCollection());
@@ -459,14 +468,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new FollowingSiblingAxis(rtx)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new FollowingSiblingAxis(rtx), dbNode.getCollection());
@@ -490,14 +499,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new FollowingAxis(rtx)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new FollowingAxis(rtx), dbNode.getCollection());
@@ -527,14 +536,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new AncestorAxis(rtx, mSelf)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new AncestorAxis(rtx, mSelf), dbNode.getCollection());
@@ -558,14 +567,14 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(SirixTranslator.getAxis(test, rtx, new ParentAxis(rtx)), dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new ParentAxis(rtx), dbNode.getCollection());
@@ -589,15 +598,15 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
-      return new SirixStream(new FilterAxis(new AttributeAxis(rtx), new XdmNameFilter(rtx, test.getQName())),
+      return new SirixStream(new FilterAxis<>(new AttributeAxis(rtx), new XdmNameFilter(rtx, test.getQName())),
           dbNode.getCollection());
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new AttributeAxis(rtx), dbNode.getCollection());
@@ -627,7 +636,7 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceManager().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
@@ -658,7 +667,7 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new ChildAxis(rtx), dbNode.getCollection());
@@ -696,7 +705,7 @@ public final class SirixTranslator extends TopDownTranslator {
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceManager().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
@@ -733,7 +742,7 @@ public final class SirixTranslator extends TopDownTranslator {
             // Match at the next level (single child-path).
             if (matchLevel == level + 1) {
               reader.close();
-              return new SirixStream(new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+              return new SirixStream(new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx),
                   new XdmNameFilter(rtx, test.getQName().toString())), dbNode.getCollection());
             }
             // Match at a level below the child level.
@@ -779,8 +788,8 @@ public final class SirixTranslator extends TopDownTranslator {
               }
 
               axisQueue.push(sameName
-                  ? new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, name))
-                  : new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
+                  ? new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, name))
+                  : new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx)));
             }
 
             org.sirix.api.Axis axis = axisQueue.pop();
@@ -804,7 +813,7 @@ public final class SirixTranslator extends TopDownTranslator {
               }
               // Match at the next level (single child-path).
               else if (matchLevel == level + 1) {
-                axisQueue.addLast(new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx),
+                axisQueue.addLast(new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx),
                     new XdmNameFilter(rtx, test.getQName().toString())));
               }
               // Match at a level below the child level.
@@ -843,63 +852,68 @@ public final class SirixTranslator extends TopDownTranslator {
     // Build the query.
     private static org.sirix.api.Axis buildQuery(final XmlNodeReadOnlyTrx rtx, final Deque<QNm> names) {
       org.sirix.api.Axis axis =
-          new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, names.pop()));
+          new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, names.pop()));
       for (int i = 0, size = names.size(); i < size; i++) {
         axis = new NestedAxis(axis,
-            new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, names.pop())));
+            new FilterAxis<>(new ChildAxis(rtx), new ElementFilter(rtx), new XdmNameFilter(rtx, names.pop())));
       }
       return axis;
     }
 
     @Override
-    public Stream<? extends Node<?>> performStep(final Node<?> node) throws QueryException {
+    public Stream<? extends Node<?>> performStep(final Node<?> node) {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       return new SirixStream(new DescendantAxis(rtx, mSelf), dbNode.getCollection());
     }
   }
 
-  private static org.sirix.axis.AbstractTemporalAxis<XmlNodeReadOnlyTrx> getTemporalAxis(final NodeType test,
-      final XmlNodeReadOnlyTrx trx, final org.sirix.axis.AbstractTemporalAxis<XmlNodeReadOnlyTrx> innerAxis) {
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx> axis;
+  private static org.sirix.axis.AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> getTemporalAxis(
+      final NodeType test, final XmlNodeReadOnlyTrx trx,
+      final org.sirix.axis.AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> innerAxis) {
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
 
     switch (test.getNodeKind()) {
       case COMMENT:
-        axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
+        axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new CommentFilter(trx));
         break;
       case PROCESSING_INSTRUCTION:
         if (test.getQName() == null) {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new PIFilter(trx));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new PIFilter(trx));
         } else {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new PIFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new PIFilter(trx),
+              new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case ELEMENT:
         if (test.getQName() == null) {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx));
         } else {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new ElementFilter(trx),
+              new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case TEXT:
-        axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
+        axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new TextFilter(trx));
         break;
       case NAMESPACE:
         if (test.getQName() == null) {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new NamespaceFilter(trx));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new NamespaceFilter(trx));
         } else {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new NamespaceFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new NamespaceFilter(trx),
+              new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case ATTRIBUTE:
         if (test.getQName() == null) {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx));
         } else {
-          axis = new TemporalXdmNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new TemporalXmlNodeReadFilterAxis<>(innerAxis, new AttributeFilter(trx),
+              new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case DOCUMENT:
-        return new TemporalXdmNodeReadFilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
+        return new TemporalXmlNodeReadFilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
       default:
         throw new AssertionError(); // Must not happen.
     }
@@ -909,45 +923,45 @@ public final class SirixTranslator extends TopDownTranslator {
 
   private static org.sirix.api.Axis getAxis(final NodeType test, final XmlNodeReadOnlyTrx trx,
       final org.sirix.api.Axis innerAxis) {
-    final FilterAxis axis;
+    final FilterAxis<XmlNodeReadOnlyTrx> axis;
 
     switch (test.getNodeKind()) {
       case COMMENT:
-        axis = new FilterAxis(innerAxis, new CommentFilter(trx));
+        axis = new FilterAxis<>(innerAxis, new CommentFilter(trx));
         break;
       case PROCESSING_INSTRUCTION:
         if (test.getQName() == null) {
-          axis = new FilterAxis(innerAxis, new PIFilter(trx));
+          axis = new FilterAxis<>(innerAxis, new PIFilter(trx));
         } else {
-          axis = new FilterAxis(innerAxis, new PIFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new FilterAxis<>(innerAxis, new PIFilter(trx), new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case ELEMENT:
         if (test.getQName() == null) {
-          axis = new FilterAxis(innerAxis, new ElementFilter(trx));
+          axis = new FilterAxis<>(innerAxis, new ElementFilter(trx));
         } else {
-          axis = new FilterAxis(innerAxis, new ElementFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new FilterAxis<>(innerAxis, new ElementFilter(trx), new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case TEXT:
-        axis = new FilterAxis(innerAxis, new TextFilter(trx));
+        axis = new FilterAxis<>(innerAxis, new TextFilter(trx));
         break;
       case NAMESPACE:
         if (test.getQName() == null) {
-          axis = new FilterAxis(innerAxis, new NamespaceFilter(trx));
+          axis = new FilterAxis<>(innerAxis, new NamespaceFilter(trx));
         } else {
-          axis = new FilterAxis(innerAxis, new NamespaceFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new FilterAxis<>(innerAxis, new NamespaceFilter(trx), new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case ATTRIBUTE:
         if (test.getQName() == null) {
-          axis = new FilterAxis(innerAxis, new AttributeFilter(trx));
+          axis = new FilterAxis<>(innerAxis, new AttributeFilter(trx));
         } else {
-          axis = new FilterAxis(innerAxis, new AttributeFilter(trx), new XdmNameFilter(trx, test.getQName()));
+          axis = new FilterAxis<>(innerAxis, new AttributeFilter(trx), new XdmNameFilter(trx, test.getQName()));
         }
         break;
       case DOCUMENT:
-        axis = new FilterAxis(innerAxis, new DocumentRootNodeFilter(trx));
+        axis = new FilterAxis<>(innerAxis, new DocumentRootNodeFilter(trx));
       default:
         throw new AssertionError(); // Must not happen.
     }

@@ -19,65 +19,34 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis.filter.xdm;
+package org.sirix.axis.filter.xml;
 
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
+import org.sirix.node.Kind;
+import org.sirix.node.xdm.TextNode;
 
 /**
- * <h1>NameAxisTest</h1>
+ * <h1>TextFilter</h1>
  *
  * <p>
- * Match qname of ELEMENT or ATTRIBUTE by key.
+ * Only select nodes of kind {@link TextNode}.
  * </p>
  */
-public final class XdmNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
-
-  /** Key of local name to test. */
-  private final int mLocalNameKey;
-
-  /** Key of prefix to test. */
-  private final int mPrefixKey;
+public final class TextFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /**
    * Default constructor.
    *
-   * @param rtx the node trx/node cursor this filter is bound to
-   * @param name name to check
+   * @param rtx transaction this filter is bound to
    */
-  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
+  public TextFilter(final XmlNodeReadOnlyTrx rtx) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
-        ? -1
-        : rtx.keyForName(name.getPrefix());
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
-  }
-
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
-   */
-  public XdmNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
-    super(rtx);
-    final int index = name.indexOf(":");
-    if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
-    } else {
-      mPrefixKey = -1;
-    }
-
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
   }
 
   @Override
-  public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
-    }
-    return returnVal;
+  public final boolean filter() {
+    return getTrx().getKind() == Kind.TEXT;
   }
+
 }
