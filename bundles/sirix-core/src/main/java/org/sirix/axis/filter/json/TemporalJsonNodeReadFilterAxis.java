@@ -2,7 +2,9 @@ package org.sirix.axis.filter.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.sirix.api.Filter;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -25,6 +27,8 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   /** Test to apply to axis. */
   private final List<F> mAxisFilter;
 
+  private final Map<Integer, JsonNodeReadOnlyTrx> mCache;
+
   /**
    * Constructor initializing internal state.
    *
@@ -36,6 +40,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   public TemporalJsonNodeReadFilterAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     checkNotNull(firstAxisTest);
+    mCache = new HashMap<>();
     mAxis = axis;
     mAxisFilter = new ArrayList<F>();
     mAxisFilter.add(firstAxisTest);
@@ -52,22 +57,32 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
     while (mAxis.hasNext()) {
       final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = mAxis.getResourceManager();
       final Pair<Integer, Long> pair = mAxis.next();
-      try (final JsonNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
-        rtx.moveTo(pair.getSecond());
-        boolean filterResult = true;
-        for (final F filter : mAxisFilter) {
-          filter.setTrx(rtx);
-          filterResult = filterResult && filter.filter();
-          if (!filterResult) {
-            break;
-          }
-        }
-        if (filterResult) {
-          return pair;
-        }
+      final int revision = pair.getFirst();
+      final long nodeKey = pair.getSecond();
+
+      final JsonNodeReadOnlyTrx rtx =
+          mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
+      rtx.moveTo(nodeKey);
+      final boolean filterResult = doFilter(rtx);
+      if (filterResult) {
+        return pair;
       }
     }
+
+    mCache.forEach((revision, rtx) -> rtx.close());
     return endOfData();
+  }
+
+  private boolean doFilter(final JsonNodeReadOnlyTrx rtx) {
+    boolean filterResult = true;
+    for (final F filter : mAxisFilter) {
+      filter.setTrx(rtx);
+      filterResult = filterResult && filter.filter();
+      if (!filterResult) {
+        break;
+      }
+    }
+    return filterResult;
   }
 
   /**

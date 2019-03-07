@@ -1,7 +1,8 @@
 package org.sirix.xquery.stream;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
+import java.util.HashMap;
+import java.util.Map;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
@@ -27,7 +28,9 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNod
   private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> mAxis;
 
   /** The {@link XmlDBCollection} reference. */
-  private XmlDBCollection mCollection;
+  private final XmlDBCollection mCollection;
+
+  private final Map<Integer, XmlNodeReadOnlyTrx> mCache;
 
   /**
    * Constructor.
@@ -39,25 +42,26 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNod
       final XmlDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
+    mCache = new HashMap<>();
   }
 
   @Override
   public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
     if (mAxis.hasNext()) {
-      final Pair<Integer, Long> pair = mAxis.next();
       final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = mAxis.getResourceManager();
-      final Optional<XmlNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
+      final Pair<Integer, Long> pair = mAxis.next();
 
-      final XmlNodeReadOnlyTrx rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-        rtx.moveTo(pair.getSecond());
-      } else {
-        rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst());
-        rtx.moveTo(pair.getSecond());
-      }
+      final int revision = pair.getFirst();
+      final long nodeKey = pair.getSecond();
+
+      final XmlNodeReadOnlyTrx rtx =
+          mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
+      rtx.moveTo(nodeKey);
+
       return new XmlDBNode(rtx, mCollection);
     }
+
+    mCache.forEach((revision, rtx) -> rtx.close());
     return null;
   }
 
