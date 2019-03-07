@@ -3,6 +3,7 @@ package org.sirix.axis.filter.xml;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.sirix.api.Filter;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -52,22 +53,39 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
     while (mAxis.hasNext()) {
       final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = mAxis.getResourceManager();
       final Pair<Integer, Long> pair = mAxis.next();
-      try (final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
+
+      final Optional<XmlNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
+      if (optionalRtx.isPresent()) {
+        final XmlNodeReadOnlyTrx rtx;
+        rtx = optionalRtx.get();
         rtx.moveTo(pair.getSecond());
-        boolean filterResult = true;
-        for (final F filter : mAxisFilter) {
-          filter.setTrx(rtx);
-          filterResult = filterResult && filter.filter();
-          if (!filterResult) {
-            break;
-          }
-        }
+        final boolean filterResult = doFilter(rtx);
         if (filterResult) {
           return pair;
+        }
+      } else {
+        try (final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst())) {
+          rtx.moveTo(pair.getSecond());
+          final boolean filterResult = doFilter(rtx);
+          if (filterResult) {
+            return pair;
+          }
         }
       }
     }
     return endOfData();
+  }
+
+  private boolean doFilter(final XmlNodeReadOnlyTrx rtx) {
+    boolean filterResult = true;
+    for (final F filter : mAxisFilter) {
+      filter.setTrx(rtx);
+      filterResult = filterResult && filter.filter();
+      if (!filterResult) {
+        break;
+      }
+    }
+    return filterResult;
   }
 
   /**

@@ -28,8 +28,10 @@ import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -116,6 +118,23 @@ public final class ExcelDiffTest1 extends TestCase {
           resource.close();
           resource = database.openResourceManager(XdmTestHelper.RESOURCE);
 
+          System.out.println();
+          System.out.println();
+          System.out.println();
+          System.out.println();
+
+          final PathSummaryReader pathSummary = resource.openPathSummary();
+          final var pathSummaryAxis = new DescendantAxis(pathSummary);
+
+          while (pathSummaryAxis.hasNext()) {
+            pathSummaryAxis.next();
+
+            System.out.println("nodeKey: " + pathSummary.getNodeKey());
+            System.out.println("path: " + pathSummary.getPath());
+            System.out.println("references: " + pathSummary.getReferences());
+            System.out.println("level: " + pathSummary.getLevel());
+          }
+
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
           serializer.call();
@@ -190,7 +209,7 @@ public final class ExcelDiffTest1 extends TestCase {
 
         out.reset();
 
-        final String xq4 = "sdb:doc('" + dbName + "','" + resName + "',3)//c[not(exists(previous::*))]";
+        final String xq4 = "sdb:doc('" + dbName + "','" + resName + "',3)//*[local-name()='c' and not(previous::*)]";
         final Sequence sequence = new XQuery(new SirixCompileChain(store), xq4).execute(ctx);
         final Iter iter = sequence.iterate();
 
