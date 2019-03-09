@@ -143,7 +143,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
 
-      if (mDiffs.size() == 1 && mDiffs.get(0).getDiff() == DiffType.SAMEHASH) {
+      if (mDiffs.size() == 1 && (mDiffs.get(0).getDiff() == DiffType.SAMEHASH || mDiffs.get(0).getDiff() == DiffType.SAME)) {
         return null;
       }
 
@@ -190,6 +190,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               iter.remove();
           }
         }
+
+        if (mDiffs.isEmpty())
+          return null;
 
         // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a
         // collection).
