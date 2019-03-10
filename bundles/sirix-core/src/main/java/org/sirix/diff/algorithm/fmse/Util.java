@@ -48,7 +48,7 @@ public final class Util {
    * @return lcs, the items in the pairs are equal and taken from list x and list y.
    */
   public static <T> List<Pair<T, T>> longestCommonSubsequence(@Nonnull final List<T> first,
-      @Nonnull final List<T> second, @Nonnull final Comparator<T> cmp) {
+      @Nonnull final List<T> second, @Nonnull final NodeComparator<T> cmp) {
 
     if (first == null || second == null) {
       return new ArrayList<>();

@@ -32,6 +32,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -103,7 +104,7 @@ public final class FMSEImport {
     importData(resOldRev, resNewRev, null);
   }
 
-  private void importData(final Path resOldRev, final Path resNewRev, final QNm name) {
+  private void importData(final Path resOldRev, final Path resNewRev, final QNm idName) {
     try {
       final var newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
       if (Files.exists(newRevTarget)) {
@@ -117,7 +118,9 @@ public final class FMSEImport {
           final var databaseNew = Databases.openXmlDatabase(newRevTarget);
           final var resourceNew = databaseNew.openResourceManager("shredded");
           final var rtx = resourceNew.beginNodeReadOnlyTrx();
-          final var fmes = FMSE.createInstance()) {
+          final var fmes = idName == null
+              ? FMSE.createInstance(new DefaultNodeComparisonFactory())
+              : FMSE.createWithIdentifier(idName, new DefaultNodeComparisonFactory())) {
         fmes.diff(wtx, rtx);
       }
     } catch (final SirixException | IOException e) {

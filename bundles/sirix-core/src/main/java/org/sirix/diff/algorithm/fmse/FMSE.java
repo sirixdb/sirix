@@ -149,32 +149,39 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   /** Path summary reader for the new revision. */
   private PathSummaryReader mNewPathSummary;
 
+  /** The node comparison factory to check leaf/inner nodes for a matching candidate. */
+  private final NodeComparisonFactory mNodeComparisonFactory;
+
   /**
    * Private constructor.
    *
    * @param idName unique identifier for elements
+   * @param nodeComparisonFactory the node comparison factory to use
    */
-  private FMSE(final QNm idName) {
+  private FMSE(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
     mIdName = idName;
+    mNodeComparisonFactory = checkNotNull(nodeComparisonFactory);
   }
 
   /**
    * Create a new instance with a unique identifier used to match element nodes.
    *
    * @param idName the unique identifier name
+   * @param nodeComparisonFactory the node comparison factory to use
    * @return a new instance
    */
-  public static final FMSE createWithIdentifier(final QNm idName) {
-    return new FMSE(idName);
+  public static final FMSE createWithIdentifier(final QNm idName, final NodeComparisonFactory nodeComparisonFactory) {
+    return new FMSE(idName, nodeComparisonFactory);
   }
 
   /**
    * Create a new instance.
    *
+   * @param nodeComparisonFactory the node comparison factory to use
    * @return a new instance
    */
-  public static final FMSE createInstance() {
-    return new FMSE(null);
+  public static final FMSE createInstance(final NodeComparisonFactory nodeComparisonFactory) {
+    return new FMSE(null, nodeComparisonFactory);
   }
 
   @Override
@@ -907,7 +914,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
     match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
-        new LeafNodeEqualilty(mIdName, mWtx, mRtx, mOldPathSummary, mNewPathSummary, nodeComparisonUtils));
+        new LeafNodeComparator(mIdName, mWtx, mRtx, mOldPathSummary, mNewPathSummary, nodeComparisonUtils));
 
     // Remove roots ('/') from labels and append them to mapping.
     final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
@@ -921,8 +928,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
 
-    match(oldLabels, newLabels, matching, new InnerNodeEquality(mIdName, matching, wtx, rtx,
-        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx), mDescendantsOldRev, mDescendantsNewRev));
+    final NodeComparator<Long> innerNodeComparator =
+        mNodeComparisonFactory.createInnerNodeEqualityChecker(mIdName, matching, wtx, rtx,
+            new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx), mDescendantsOldRev, mDescendantsNewRev);
+
+    match(oldLabels, newLabels, matching, innerNodeComparator);
 
     return matching;
   }
@@ -936,7 +946,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param cmp functional class
    */
   private static void match(final Map<Kind, List<Long>> oldLabels, final Map<Kind, List<Long>> newLabels,
-      final Matching matching, final Comparator<Long> cmp) {
+      final Matching matching, final NodeComparator<Long> cmp) {
     final Set<Kind> labels = oldLabels.keySet();
     labels.retainAll(newLabels.keySet()); // intersection
 
