@@ -17,6 +17,7 @@ import org.sirix.access.Databases;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
@@ -92,7 +93,7 @@ public final class Import extends AbstractFunction {
         try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
             final XmlResourceManager resourceNew = databaseNew.openResourceManager("shredded");
             final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-            final FMSE fmes = FMSE.createInstance()) {
+            final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
           fmes.diff(wtx, rtx);
         }
       } catch (final IOException e) {
