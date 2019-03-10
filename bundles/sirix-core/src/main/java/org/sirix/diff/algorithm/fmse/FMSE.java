@@ -27,9 +27,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.Utils;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -49,7 +47,6 @@ import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.xdm.TextNode;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.slf4j.LoggerFactory;
@@ -80,44 +77,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     FALSE
   }
 
-  private enum Path {
-    NO_PATH,
-
-    MATCHES,
-
-    PATH_LENGTH_IS_NOT_EQUAL,
-
-    NO_MATCH_NO_LENGTH_EQUALS
-  }
-
   /** Algorithm name. */
   private static final String NAME = "Fast Matching / Edit Script";
-
-  /**
-   * Matching Criterion 1. For the "good matching problem", the following conditions must hold for
-   * leafs x and y:
-   * <ul>
-   * <li>label(x) == label(y)</li>
-   * <li>compare(value(x), value(y)) <= FMESF</li>
-   * </ul>
-   * where FMESF is in the range [0,1] and compare() computes the cost of updating a leaf node.
-   */
-  private static final double FMESF = 0.5;
-
-  /**
-   * Matching Criterion 2. For the "good matching problem", the following conditions must hold inner
-   * nodes x and y:
-   * <ul>
-   * <li>label(x) == label(y)</li>
-   * <li>|common(x,y)| / max(|x|, |y|) > FMESTHRESHOLD</li>
-   * </ul>
-   * where FMESTHRESHOLD is in the range [0.5, 1] and common(x,y) computes the number of leafs that
-   * can be matched between x and y.
-   */
-  private static final double FMESTHRESHOLD = 0.5;
-
-  /** Max length for Levenshtein comparsion. */
-  private static final int MAX_LENGTH = 50;
 
   /**
    * Used by emitInsert: when inserting a whole subtree - keep track that nodes are not inserted
@@ -227,8 +188,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     mInOrderOldRev = new HashMap<>();
     mInOrderNewRev = new HashMap<>();
     mAlreadyInserted = new HashMap<>();
-    mOldPathSummary = mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
-    mNewPathSummary = mWtx.getPathSummary();
+
+    mOldPathSummary = mWtx.getPathSummary();
+    mNewPathSummary = mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
 
     mOldRevVisitor = new FMSEVisitor(mWtx, mInOrderOldRev, mDescendantsOldRev);
     mNewRevVisitor = new FMSEVisitor(mRtx, mInOrderNewRev, mDescendantsNewRev);
@@ -280,6 +242,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private void doFirstFSMEStep(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert wtx != null;
     assert rtx != null;
+
+    final FMSENodeComparisonUtils nodeComparisonUtils =
+        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, mWtx, mRtx);
+
     // 2(a) - Parent of x.
     final long key = rtx.getNodeKey();
     final long x = rtx.getNodeKey();
@@ -301,7 +267,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } else if (x != wtx.getNodeKey()) {
       // 2(c) not the root (x has a partner in M').
       if (wtx.moveTo(w).hasMoved() && rtx.moveTo(x).hasMoved() && wtx.getKind() == rtx.getKind()
-          && (!nodeValuesEqual(w, x, wtx, rtx) || (rtx.isAttribute() && !rtx.getValue().equals(wtx.getValue())))) {
+          && (!nodeComparisonUtils.nodeValuesEqual(w, x, wtx, rtx)
+              || (rtx.isAttribute() && !rtx.getValue().equals(wtx.getValue())))) {
         // Either QNames differ or the values in case of attribute nodes.
         emitUpdate(w, x, wtx, rtx);
       }
@@ -929,6 +896,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert wtx != null;
     assert rtx != null;
 
+    final FMSENodeComparisonUtils nodeComparisonUtils =
+        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx);
+
     // Chain all nodes with a given label l in tree T together.
     getLabels(wtx, mLabelOldRevVisitor);
     getLabels(rtx, mLabelNewRevVisitor);
@@ -937,7 +907,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
     match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching,
-        new LeafNodeEqualilty(mIdName));
+        new LeafNodeEqualilty(mIdName, mWtx, mRtx, mOldPathSummary, mNewPathSummary, nodeComparisonUtils));
 
     // Remove roots ('/') from labels and append them to mapping.
     final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
@@ -951,7 +921,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
 
-    match(oldLabels, newLabels, matching, new InnerNodeEquality(matching));
+    match(oldLabels, newLabels, matching, new InnerNodeEquality(mIdName, matching, wtx, rtx,
+        new FMSENodeComparisonUtils(mOldStartKey, mNewStartKey, wtx, rtx), mDescendantsOldRev, mDescendantsNewRev));
 
     return matching;
   }
@@ -1080,362 +1051,9 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     rtx.acceptVisitor(visitor);
   }
 
-  /**
-   * Compares the values of two nodes. Values are the text content, if the nodes do have child nodes
-   * or the name for inner nodes such as element or attribute (an attribute has one child: the value).
-   *
-   * @param x first node
-   * @param y second node
-   * @param pRtx {@link XmlNodeReadOnlyTrx} implementation reference
-   * @param pWtx {@link XmlNodeTrx} implementation reference
-   * @return true iff the values of the nodes are equal
-   */
-  private static boolean nodeValuesEqual(final long x, final long y, final XmlNodeReadOnlyTrx rtxOld,
-      final XmlNodeReadOnlyTrx rtxNew) {
-    assert x >= 0;
-    assert y >= 0;
-    assert rtxOld != null;
-    assert rtxNew != null;
-
-    final String a = getNodeValue(x, rtxOld);
-    final String b = getNodeValue(y, rtxNew);
-
-    return a == null
-        ? b == null
-        : a.equals(b);
-  }
-
-  /**
-   * Get node value of current node which is the string representation of {@link QName}s in the form
-   * {@code prefix:localName} or the value of {@link TextNode}s.
-   *
-   * @param nodeKey node from which to get the value
-   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference
-   * @return string value of current node
-   */
-  private static String getNodeValue(final long nodeKey, final XmlNodeReadOnlyTrx rtx) {
-    assert nodeKey >= 0;
-    assert rtx != null;
-    rtx.moveTo(nodeKey);
-    final StringBuilder retVal = new StringBuilder();
-    switch (rtx.getKind()) {
-      case ELEMENT:
-      case NAMESPACE:
-      case ATTRIBUTE:
-        retVal.append(Utils.buildName(rtx.getName()));
-        break;
-      case TEXT:
-      case COMMENT:
-        retVal.append(rtx.getValue());
-        break;
-      case PROCESSING_INSTRUCTION:
-        retVal.append(rtx.getName().getLocalName()).append(" ").append(rtx.getValue());
-        break;
-      // $CASES-OMITTED$
-      default:
-        // Do nothing.
-    }
-    return retVal.toString();
-  }
-
-  /**
-   * This functional class is used to compare leaf nodes. The comparison is done by comparing the
-   * (characteristic) string for two nodes. If the strings are sufficient similar, the nodes are
-   * considered to be equal.
-   */
-  private final class LeafNodeEqualilty implements Comparator<Long> {
-
-    private final QNm mId;
-
-    public LeafNodeEqualilty(final QNm id) {
-      mId = id;
-    }
-
-    @Override
-    public boolean isEqual(final Long firstNode, final Long secondNode) {
-      assert firstNode != null;
-      assert secondNode != null;
-
-      // Old.
-      mWtx.moveTo(firstNode);
-
-      // New.
-      mRtx.moveTo(secondNode);
-
-      assert mWtx.getKind() == mRtx.getKind();
-      double ratio = 0;
-
-      if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
-          || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
-        if (mWtx.getName().equals(mRtx.getName())) {
-          ratio = 1;
-          if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
-            ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
-
-            if (ratio > FMESF) {
-              final Path paths = checkPaths();
-
-              if (paths != Path.PATH_LENGTH_IS_NOT_EQUAL && mId != null) {
-                ratio = checkIfAncestorIdsMatch(mWtx.getNodeKey(), mRtx.getNodeKey(), mId)
-                    ? 1
-                    : 0;
-              } else if (paths == Path.MATCHES) {
-                ratio = 1;
-              } else if (paths == Path.NO_PATH || paths == Path.NO_MATCH_NO_LENGTH_EQUALS) {
-                ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
-                    ? 1
-                    : 0;
-              } else {
-                ratio = 0;
-              }
-            }
-          }
-        }
-      } else {
-        if (nodeValuesEqual(firstNode, secondNode, mWtx, mRtx)) {
-          ratio = 1;
-        } else {
-          ratio = calculateRatio(getNodeValue(firstNode, mWtx), getNodeValue(secondNode, mRtx));
-        }
-
-        if (ratio > FMESF) {
-          mWtx.moveToParent();
-          mRtx.moveToParent();
-
-          ratio = calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx));
-
-          if (ratio > FMESF) {
-            final var pathCheck = checkPaths();
-
-            if (ratio == -1)
-              ratio = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey())
-                  ? 1
-                  : 0;
-          }
-        }
-      }
-
-      if (ratio > FMESF && mId != null && checkIfAncestorIdsMatch(mWtx.getNodeKey(), mRtx.getNodeKey(), mId))
-        ratio = 1;
-
-      // Old.
-      mWtx.moveTo(firstNode);
-
-      // New.
-      mRtx.moveTo(secondNode);
-
-      return ratio > FMESF;
-    }
-
-    private Path checkPaths() {
-      if (mWtx.getPathNodeKey() == 0 || mRtx.getPathNodeKey() == 0)
-        return Path.NO_PATH;
-
-      final var oldPathNode = mNewPathSummary.getPathNodeForPathNodeKey(mWtx.getPathNodeKey());
-      final var oldPath = oldPathNode.getPath(mNewPathSummary);
-
-      final var newPathNode = mOldPathSummary.getPathNodeForPathNodeKey(mRtx.getPathNodeKey());
-      final var newPath = newPathNode.getPath(mOldPathSummary);
-
-      if (oldPath.getLength() != newPath.getLength())
-        return Path.PATH_LENGTH_IS_NOT_EQUAL;
-      else if (oldPath.matches(newPath))
-        return Path.MATCHES;
-      else
-        return Path.NO_MATCH_NO_LENGTH_EQUALS;
-    }
-  }
-
-  /**
-   * This functional class is used to compare inner nodes. FMES uses different comparison criteria for
-   * leaf nodes and inner nodes. This class compares two nodes by calculating the number of common
-   * children (i.e. children contained in the matching) in relation to the total number of children.
-   */
-  private final class InnerNodeEquality implements Comparator<Long> {
-
-    /** {@link Matching} reference. */
-    private final Matching mMatching;
-
-    /**
-     * Constructor.
-     *
-     * @param matching {@link Matching} reference
-     * @param id optional name of id to use for matching nodes
-     */
-    public InnerNodeEquality(final Matching matching) {
-      assert matching != null;
-      mMatching = matching;
-    }
-
-    @Override
-    public boolean isEqual(final Long firstNode, final Long secondNode) {
-      assert firstNode != null;
-      assert secondNode != null;
-
-      mWtx.moveTo(firstNode);
-      mRtx.moveTo(secondNode);
-
-      assert mWtx.getKind() == mRtx.getKind();
-
-      boolean retVal = false;
-
-      if (mIdName != null && mWtx.isElement() && mRtx.isElement() && mWtx.moveToAttributeByName(mIdName).hasMoved()
-          && mRtx.moveToAttributeByName(mIdName).hasMoved()) {
-        if (mRtx.getValue().equals(mWtx.getValue()))
-          retVal = true;
-        else
-          retVal = false;
-      } else if ((mWtx.hasFirstChild() || mWtx.hasAttributes() || mWtx.hasNamespaces())
-          && (mRtx.hasFirstChild() || mRtx.hasAttributes() || mRtx.hasNamespaces())) {
-        final long common = mMatching.containedDescendants(firstNode, secondNode);
-        final long maxFamilySize = Math.max(mDescendantsOldRev.get(firstNode), mDescendantsNewRev.get(secondNode));
-        if (common == 0 && maxFamilySize == 1) {
-          retVal = mWtx.getName().equals(mRtx.getName());
-        } else {
-          retVal = ((double) common / (double) maxFamilySize) >= FMESTHRESHOLD;
-        }
-      } else {
-        final QNm oldName = mWtx.getName();
-        final QNm newName = mRtx.getName();
-        if (oldName.getNamespaceURI().equals(newName.getNamespaceURI())
-            && calculateRatio(oldName.getLocalName(), newName.getLocalName()) > 0.7) {
-          retVal = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey());
-        }
-      }
-
-      return retVal;
-    }
-  }
-
   @Override
   public String getName() {
     return NAME;
-  }
-
-  /**
-   * Calculate ratio between 0 and 1 between two String values for {@code text-nodes} denoted.
-   *
-   * @param pFirstNode node key of first node
-   * @param pSecondNode node key of second node
-   * @return ratio between 0 and 1, whereas 1 is a complete match and 0 denotes that the Strings are
-   *         completely different
-   */
-  private static float calculateRatio(final String oldValue, final String newValue) {
-    assert oldValue != null;
-    assert newValue != null;
-    float ratio;
-
-    if (oldValue.length() > MAX_LENGTH || newValue.length() > MAX_LENGTH) {
-      ratio = Util.quickRatio(oldValue, newValue);
-    } else {
-      ratio = Levenshtein.getSimilarity(oldValue, newValue);
-    }
-
-    return ratio;
-  }
-
-  /**
-   * Check if ancestors are considered equal (with attributes).
-   *
-   * @param oldKey start key in old revision
-   * @param newKey start key in new revision
-   * @return {@code true} if all ancestors up to the start keys are considered equal, {@code false}
-   *         otherwise
-   */
-  private boolean checkAncestors(final long oldKey, final long newKey) {
-    assert oldKey >= 0;
-    assert newKey >= 0;
-
-    mWtx.moveTo(oldKey);
-    mRtx.moveTo(newKey);
-
-    boolean retVal = true;
-
-    if (mWtx.hasParent() && mRtx.hasParent()) {
-      do {
-        mWtx.moveToParent();
-        mRtx.moveToParent();
-
-        if (mWtx.hasAttributes() && mRtx.hasAttributes() && !checkAttributes()) {
-          return false;
-        }
-      } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey && mWtx.hasParent()
-          && mRtx.hasParent()
-          && calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx)) >= 0.7f);
-      if ((mWtx.hasParent() && mWtx.getNodeKey() != mOldStartKey)
-          || (mRtx.hasParent() && mRtx.getNodeKey() != mNewStartKey)) {
-        retVal = false;
-      } else {
-        retVal = true;
-      }
-    } else {
-      retVal = false;
-    }
-
-    mWtx.moveTo(oldKey);
-    mRtx.moveTo(newKey);
-
-    return retVal;
-  }
-
-  private boolean checkAttributes() {
-    final long newNodeKey = mRtx.getNodeKey();
-    final long oldNodeKey = mWtx.getNodeKey();
-    for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
-      final QNm name = mWtx.moveToAttribute(i).getCursor().getName();
-
-      if (mRtx.moveToAttributeByName(name).hasMoved()
-          && (calculateRatio(getNodeValue(mWtx.getNodeKey(), mWtx), getNodeValue(mRtx.getNodeKey(), mRtx)) < 0.7f
-              || calculateRatio(mWtx.getValue(), mRtx.getValue()) < 0.7f)) {
-        mRtx.moveTo(newNodeKey);
-        mWtx.moveTo(oldNodeKey);
-        return false;
-      }
-
-      mRtx.moveTo(newNodeKey);
-      mWtx.moveTo(oldNodeKey);
-    }
-
-    mRtx.moveTo(newNodeKey);
-    mWtx.moveTo(oldNodeKey);
-    return true;
-  }
-
-  /**
-   * Check if one of the ancestors has an id.
-   *
-   * @param oldKey start key in old revision
-   * @param newKey start key in new revision
-   * @return {@code true} if all ancestors up to the start keys of the FMSE-algorithm, {@code false}
-   *         otherwise
-   */
-  private boolean checkIfAncestorIdsMatch(final long oldKey, final long newKey, final QNm id) {
-    assert oldKey >= 0;
-    assert newKey >= 0;
-    mWtx.moveTo(oldKey);
-    mRtx.moveTo(newKey);
-    boolean retVal = false;
-    if (mWtx.hasParent() && mRtx.hasParent()) {
-      do {
-        mWtx.moveToParent();
-        mRtx.moveToParent();
-
-        if (mWtx.isElement() && mRtx.isElement() && mWtx.moveToAttributeByName(id).hasMoved()
-            && mRtx.moveToAttributeByName(id).hasMoved()) {
-          if (mRtx.getValue().equals(mWtx.getValue()))
-            retVal = true;
-        } else {
-          retVal = false;
-          break;
-        }
-      } while (mWtx.getNodeKey() != mOldStartKey && mRtx.getNodeKey() != mNewStartKey && mWtx.hasParent()
-          && mRtx.hasParent());
-    }
-
-    mWtx.moveTo(oldKey);
-    mRtx.moveTo(newKey);
-
-    return retVal;
   }
 
   @Override
