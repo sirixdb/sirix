@@ -9,7 +9,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
  * leaf nodes and inner nodes. This class compares two nodes by calculating the number of common
  * children (i.e. children contained in the matching) in relation to the total number of children.
  */
-final class InnerNodeEquality implements Comparator<Long> {
+final class InnerNodeComparator implements NodeComparator<Long> {
 
   /**
    * Matching Criterion 2. For the "good matching problem", the following conditions must hold inner
@@ -56,7 +56,7 @@ final class InnerNodeEquality implements Comparator<Long> {
    * @param descendantsOldRev number of descendants per node in old revision
    * @param descendantsNewRev number of descendants per node in new revision
    */
-  public InnerNodeEquality(final QNm idName, final Matching matching, final XmlNodeReadOnlyTrx oldRtx,
+  public InnerNodeComparator(final QNm idName, final Matching matching, final XmlNodeReadOnlyTrx oldRtx,
       final XmlNodeReadOnlyTrx newRtx, final FMSENodeComparisonUtils nodeComparisonUtils,
       final Map<Long, Long> descendantsOldRev, final Map<Long, Long> descendantsNewRev) {
     assert matching != null;

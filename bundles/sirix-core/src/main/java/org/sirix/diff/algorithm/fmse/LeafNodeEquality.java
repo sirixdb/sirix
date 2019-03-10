@@ -10,7 +10,7 @@ import org.sirix.node.Kind;
  * (characteristic) string for two nodes. If the strings are sufficient similar, the nodes are
  * considered to be equal.
  */
-final class LeafNodeEqualilty implements Comparator<Long> {
+final class LeafNodeComparator implements NodeComparator<Long> {
 
   /**
    * Matching Criterion 1. For the "good matching problem", the following conditions must hold for
@@ -47,7 +47,7 @@ final class LeafNodeEqualilty implements Comparator<Long> {
 
   private final FMSENodeComparisonUtils mNodeComparisonUtils;
 
-  public LeafNodeEqualilty(final QNm id, final XmlNodeReadOnlyTrx oldRtx, final XmlNodeReadOnlyTrx newRtx,
+  public LeafNodeComparator(final QNm id, final XmlNodeReadOnlyTrx oldRtx, final XmlNodeReadOnlyTrx newRtx,
       final PathSummaryReader oldPathSummary, final PathSummaryReader newPathSummary,
       final FMSENodeComparisonUtils nodeComparisonUtils) {
     mId = id;
