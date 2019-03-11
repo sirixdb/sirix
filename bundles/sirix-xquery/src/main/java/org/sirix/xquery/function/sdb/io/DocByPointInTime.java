@@ -10,7 +10,6 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBCollection;
 
@@ -21,9 +20,6 @@ import org.sirix.xquery.node.XmlDBCollection;
  * </p>
  * <ul>
  * <li><code>sdb:open($coll as xs:string, $res as xs:string, $pointInTime as xs:long) as xs:node</code>
- * </li>
- * <li>
- * <code>sdb:open($coll as xs:string, $res as xs:string, $pointInTime as xs:long, $updatable as xs:boolean?) as xs:node</code>
  * </li>
  * </ul>
  *
@@ -49,7 +45,7 @@ public final class DocByPointInTime extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
-    if (args.length < 3 || args.length > 4) {
+    if (args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
@@ -62,8 +58,7 @@ public final class DocByPointInTime extends AbstractFunction {
     final String expResName = ((Str) args[1]).stringValue();
     final String dateTime = ((DateTime) args[2]).stringValue();
     final Instant pointInTime = Instant.parse(dateTime);
-    final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
 
-    return col.getDocument(pointInTime, expResName, updatable);
+    return col.getDocument(expResName, pointInTime);
   }
 }

@@ -56,8 +56,8 @@ public final class OpenRevisions extends AbstractFunction {
     if (!startPointInTime.isBefore(endPointInTime))
       throw new QueryException(new QNm("No valid arguments specified!"));
 
-    final var startDocNode = col.getDocument(startPointInTime, expResName);
-    final var endDocNode = col.getDocument(endPointInTime, expResName);
+    final var startDocNode = col.getDocument(expResName, startPointInTime);
+    final var endDocNode = col.getDocument(expResName, endPointInTime);
 
     var startRevision = startDocNode.getTrx().getRevisionNumber();
     final int endRevision = endDocNode.getTrx().getRevisionNumber();
@@ -66,7 +66,7 @@ public final class OpenRevisions extends AbstractFunction {
     documentNodes.add(startDocNode);
 
     while (++startRevision < endRevision) {
-      documentNodes.add(col.getDocument(startRevision, expResName));
+      documentNodes.add(col.getDocument(expResName, startRevision));
     }
 
     documentNodes.add(endDocNode);

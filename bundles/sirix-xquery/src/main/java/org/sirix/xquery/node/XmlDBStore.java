@@ -28,7 +28,6 @@
 package org.sirix.xquery.node;
 
 import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
 
@@ -39,26 +38,25 @@ import org.brackit.xquery.xdm.Stream;
  */
 public interface XmlDBStore extends Store, AutoCloseable {
   @Override
-  XmlDBCollection lookup(String name) throws DocumentException;
+  XmlDBCollection lookup(String name);
 
   @Override
-  XmlDBCollection create(String name) throws DocumentException;
+  XmlDBCollection create(String name);
 
   @Override
-  XmlDBCollection create(String collName, SubtreeParser parser) throws DocumentException;
+  XmlDBCollection create(String collName, SubtreeParser parser);
 
-  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser)
-      throws DocumentException;
-
-  @Override
-  XmlDBCollection create(String collName, Stream<SubtreeParser> parsers) throws DocumentException;
+  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser);
 
   @Override
-  void drop(String name) throws DocumentException;
+  XmlDBCollection create(String collName, Stream<SubtreeParser> parsers);
 
   @Override
-  void makeDir(String path) throws DocumentException;
+  void drop(String name);
 
   @Override
-  void close() throws DocumentException;
+  void makeDir(String path);
+
+  @Override
+  void close();
 }

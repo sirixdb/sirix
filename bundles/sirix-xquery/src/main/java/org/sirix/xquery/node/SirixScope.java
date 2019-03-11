@@ -12,7 +12,7 @@ import org.sirix.settings.Fixed;
 
 /**
  * Sirix scope.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
@@ -23,7 +23,7 @@ public final class SirixScope implements Scope {
 
   /**
    * Constructor.
-   * 
+   *
    * @param node database node
    */
   public SirixScope(final XmlDBNode node) {
@@ -33,7 +33,7 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public Stream<String> localPrefixes() throws DocumentException {
+  public Stream<String> localPrefixes() {
     return new Stream<String>() {
       private int mIndex;
 
@@ -54,12 +54,12 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String defaultNS() throws DocumentException {
+  public String defaultNS() {
     return resolvePrefix("");
   }
 
   @Override
-  public void addPrefix(final String prefix, final String uri) throws DocumentException {
+  public void addPrefix(final String prefix, final String uri) {
     if (mRtx instanceof XmlNodeTrx) {
       final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
       try {
@@ -71,8 +71,10 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String resolvePrefix(final @Nullable String prefix) throws DocumentException {
-    final int prefixVocID = (prefix == null || prefix.isEmpty()) ? -1 : mRtx.keyForName(prefix);
+  public String resolvePrefix(final @Nullable String prefix) {
+    final int prefixVocID = (prefix == null || prefix.isEmpty())
+        ? -1
+        : mRtx.keyForName(prefix);
     while (true) {
       // First iterate over all namespaces.
       for (int i = 0, namespaces = mRtx.getNamespaceCount(); i < namespaces; i++) {
@@ -93,11 +95,13 @@ public final class SirixScope implements Scope {
     if (prefix.equals("xml")) {
       return "http://www.w3.org/XML/1998/namespace";
     }
-    return prefixVocID == -1 ? "" : null;
+    return prefixVocID == -1
+        ? ""
+        : null;
   }
 
   @Override
-  public void setDefaultNS(final String uri) throws DocumentException {
+  public void setDefaultNS(final String uri) {
     addPrefix("", uri);
   }
 }
