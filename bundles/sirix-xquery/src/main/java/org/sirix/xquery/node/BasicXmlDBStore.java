@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -36,7 +35,7 @@ import org.sirix.service.xml.shredder.InsertPosition;
  * @author Johannes Lichtenberger
  *
  */
-public final class BasicXmlDBStore implements Store, AutoCloseable, XmlDBStore {
+public final class BasicXmlDBStore implements XmlDBStore {
 
   /** User home directory. */
   private static final String USER_HOME = System.getProperty("user.home");

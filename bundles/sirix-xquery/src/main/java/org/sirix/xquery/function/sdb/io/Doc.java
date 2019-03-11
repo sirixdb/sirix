@@ -21,9 +21,6 @@ import org.sirix.xquery.node.XmlDBCollection;
  * <li><code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as xs:node</code>
  * </li>
  * <li><code>sdb:doc($coll as xs:string, $res as xs:string) as xs:node</code></li>
- * <li>
- * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?, $updatable as xs:boolean?) as xs:node</code>
- * </li>
  * </ul>
  *
  * @author Max Bechtold
@@ -59,8 +56,7 @@ public final class Doc extends AbstractFunction {
 
     final String expResName = ((Str) args[1]).stringValue();
     final int revision = FunUtil.getInt(args, 2, "revision", -1, null, false);
-    final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
 
-    return col.getDocument(revision, expResName, updatable);
+    return col.getDocument(expResName, revision);
   }
 }

@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
@@ -24,9 +23,9 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.Transaction;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -108,77 +107,43 @@ public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNo
 
   @Override
   public XmlDBNode getDocument(Instant pointInTime) {
-    return getDocument(pointInTime, name, false);
+    return getDocumentInternal(name, pointInTime);
   }
 
   @Override
-  public XmlDBNode getDocument(Instant pointInTime, boolean updatable) {
-    return getDocument(pointInTime, name, updatable);
+  public XmlDBNode getDocument(String name, Instant pointInTime) {
+    return getDocumentInternal(name, pointInTime);
   }
 
-  @Override
-  public XmlDBNode getDocument(Instant pointInTime, String name) {
-    return getDocument(pointInTime, name, false);
-  }
-
-  @Override
-  public XmlDBNode getDocument(Instant pointInTime, String name, boolean updatable) {
-    try {
-      return getDocumentInternal(name, pointInTime, updatable);
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
-
-  private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime, final boolean updatable) {
+  private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
     final XmlResourceManager resource = mDatabase.openResourceManager(resName);
 
-    XmlNodeReadOnlyTrx trx;
+    XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-    if (updatable) {
-      if (resource.hasRunningNodeWriteTrx()) {
-        final Optional<XmlNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
+    if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+      final int revision = trx.getRevisionNumber();
 
-        if (optionalWriteTrx.isPresent()) {
-          trx = optionalWriteTrx.get();
-        } else {
-          trx = resource.beginNodeTrx();
-        }
+      if (revision > 1) {
+        trx.close();
+
+        trx = resource.beginNodeReadOnlyTrx(revision - 1);
       } else {
-        trx = resource.beginNodeTrx();
-      }
+        trx.close();
 
-      final int revision = resource.getRevisionNumber(pointInTime);
-
-      if (revision < resource.getMostRecentRevisionNumber()) {
-        final XmlNodeTrx wtx = (XmlNodeTrx) trx;
-        if (wtx.revertTo(revision).getRevisionTimestamp().isAfter(pointInTime)) {
-          if (revision - 1 >= 1) {
-            wtx.revertTo(revision - 1);
-          } else {
-            wtx.close();
-
-            return null;
-          }
-        }
-      }
-    } else {
-      trx = resource.beginNodeReadOnlyTrx(pointInTime);
-
-      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-        final int revision = trx.getRevisionNumber();
-
-        if (revision > 1) {
-          trx.close();
-
-          trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else {
-          trx.close();
-
-          return null;
-        }
+        return null;
       }
     }
+
+    return new XmlDBNode(trx, this);
+  }
+
+  private XmlDBNode getDocumentInternal(final String resName, final int revision) {
+    final XmlResourceManager resource = mDatabase.openResourceManager(resName);
+    final int version = revision == -1
+        ? resource.getMostRecentRevisionNumber()
+        : revision;
+
+    final XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(version);
 
     return new XmlDBNode(trx, this);
   }
@@ -277,8 +242,7 @@ public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNo
     }
   }
 
-  public XmlDBNode add(final String resourceName, final XMLEventReader reader)
-      throws OperationNotSupportedException, DocumentException {
+  public XmlDBNode add(final String resourceName, final XMLEventReader reader) {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
       final XmlResourceManager resource = mDatabase.openResourceManager(resourceName);
@@ -308,73 +272,17 @@ public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNo
   }
 
   @Override
-  public Stream<XmlDBNode> getDocuments() {
-    return getDocuments(false);
-  }
-
-  @Override
-  public XmlDBNode getDocument(final int revision, final String name) {
-    return getDocument(revision, name, false);
+  public XmlDBNode getDocument(final String name, final int revision) {
+    return getDocumentInternal(name, revision);
   }
 
   @Override
   public XmlDBNode getDocument(final String name) {
-    return getDocument(-1, name, false);
+    return getDocument(name, -1);
   }
 
   @Override
-  public XmlDBNode getDocument(final int revision, final String name, final boolean updatable) {
-    try {
-      return getDocumentInternal(name, revision, updatable);
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
-
-  private XmlDBNode getDocumentInternal(final String resName, final int revision, final boolean updatable) {
-    final XmlResourceManager resource = mDatabase.openResourceManager(resName);
-    final int version = revision == -1
-        ? resource.getMostRecentRevisionNumber()
-        : revision;
-
-    final XmlNodeReadOnlyTrx trx;
-    if (updatable) {
-      if (resource.hasRunningNodeWriteTrx()) {
-        final Optional<XmlNodeTrx> optionalWriteTrx = resource.getNodeWriteTrx();
-
-        if (optionalWriteTrx.isPresent()) {
-          trx = optionalWriteTrx.get();
-        } else {
-          trx = resource.beginNodeTrx();
-        }
-      } else {
-        trx = resource.beginNodeTrx();
-      }
-
-      if (version < resource.getMostRecentRevisionNumber())
-        ((XmlNodeTrx) trx).revertTo(version);
-    } else {
-      trx = resource.beginNodeReadOnlyTrx(version);
-    }
-
-    return new XmlDBNode(trx, this);
-  }
-
-  @Override
-  public XmlDBNode getDocument(final int revision, final boolean updatable) {
-    final List<Path> resources = mDatabase.listResources();
-    if (resources.size() > 1) {
-      throw new DocumentException("More than one document stored in database/collection!");
-    }
-    try {
-      return getDocumentInternal(resources.get(0).getFileName().toString(), revision, updatable);
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
-
-  @Override
-  public Stream<XmlDBNode> getDocuments(final boolean updatable) {
+  public Stream<XmlDBNode> getDocuments() {
     final List<Path> resources = mDatabase.listResources();
     final List<XmlDBNode> documents = new ArrayList<>(resources.size());
 
@@ -382,9 +290,7 @@ public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNo
       try {
         final String resourceName = resourcePath.getFileName().toString();
         final XmlResourceManager resource = mDatabase.openResourceManager(resourceName);
-        final XmlNodeReadOnlyTrx trx = updatable
-            ? resource.beginNodeTrx()
-            : resource.beginNodeReadOnlyTrx();
+        final XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
         documents.add(new XmlDBNode(trx, this));
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
@@ -392,10 +298,5 @@ public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNo
     });
 
     return new ArrayStream<>(documents.toArray(new XmlDBNode[documents.size()]));
-  }
-
-  @Override
-  public XmlDBNode getDocument(boolean updatabale) {
-    return getDocument(-1, updatabale);
   }
 }
