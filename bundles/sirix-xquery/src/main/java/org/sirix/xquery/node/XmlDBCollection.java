@@ -9,16 +9,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
-import org.brackit.xquery.node.AbstractCollection;
+import org.brackit.xquery.node.AbstractNodeCollection;
 import org.brackit.xquery.node.parser.CollectionParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.node.stream.ArrayStream;
-import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.TemporalCollection;
+import org.brackit.xquery.xdm.node.AbstractTemporalNode;
+import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
@@ -39,8 +39,8 @@ import com.google.common.base.Preconditions;
  * @author Johannes Lichtenberger
  *
  */
-public final class XmlDBCollection extends AbstractCollection<AbstractTemporalNode<XmlDBNode>>
-    implements TemporalCollection<AbstractTemporalNode<XmlDBNode>>, AutoCloseable {
+public final class XmlDBCollection extends AbstractNodeCollection<AbstractTemporalNode<XmlDBNode>>
+    implements TemporalNodeCollection<AbstractTemporalNode<XmlDBNode>>, AutoCloseable {
 
   /** Logger. */
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));

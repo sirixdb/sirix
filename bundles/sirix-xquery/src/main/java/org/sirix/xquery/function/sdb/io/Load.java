@@ -18,11 +18,11 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.TemporalCollection;
+import org.brackit.xquery.xdm.node.Node;
+import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.ElementType;
@@ -119,7 +119,7 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static TemporalCollection<?> add(final org.brackit.xquery.xdm.Store store,
+  private static TemporalNodeCollection<?> add(final org.brackit.xquery.xdm.node.NodeStore store,
       final XmlDBCollection coll, final String resName, final Sequence resources)
       throws DocumentException, IOException {
     if (resources instanceof Atomic) {

@@ -44,8 +44,8 @@ import org.brackit.xquery.XQuery;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
-import org.brackit.xquery.xdm.Node;
-import org.brackit.xquery.xdm.TemporalCollection;
+import org.brackit.xquery.xdm.node.Node;
+import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.sirix.xquery.node.BasicXmlDBStore;
 
 /**
@@ -104,7 +104,7 @@ public final class Main {
           try {
             final SubtreeParser parser = new DocumentParser(in);
             final String name = uri.toURL().getFile();
-            final TemporalCollection<?> coll = store.create(name, parser);
+            final TemporalNodeCollection<?> coll = store.create(name, parser);
             final Node<?> doc = coll.getDocument();
             ctx.setContextItem(doc);
           } finally {

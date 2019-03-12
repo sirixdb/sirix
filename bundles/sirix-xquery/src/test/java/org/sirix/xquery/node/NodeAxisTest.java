@@ -2,7 +2,7 @@ package org.sirix.xquery.node;
 
 import org.brackit.xquery.node.AxisTest;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Store;
+import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 
 /**
@@ -13,7 +13,7 @@ import org.junit.After;
  */
 public class NodeAxisTest extends AxisTest {
   @Override
-  protected Store createStore() throws Exception {
+  protected NodeStore createStore() throws Exception {
     return BasicXmlDBStore.newBuilder().build();
   }
 

@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Node;
+import org.brackit.xquery.xdm.node.Node;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
