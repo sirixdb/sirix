@@ -25,31 +25,29 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.sirix.xquery.node;
+package org.sirix.xquery.json;
 
-import org.brackit.xquery.node.parser.SubtreeParser;
+import java.nio.file.Path;
 import org.brackit.xquery.xdm.Stream;
-import org.brackit.xquery.xdm.node.NodeStore;
+import org.brackit.xquery.xdm.json.JsonStore;
 
 /**
  * Database store.
  *
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public interface XmlDBStore extends NodeStore, AutoCloseable {
+public interface JsonDBStore extends JsonStore, AutoCloseable {
   @Override
-  XmlDBCollection lookup(String name);
+  JsonDBCollection lookup(String name);
 
   @Override
-  XmlDBCollection create(String name);
+  JsonDBCollection create(String name);
 
   @Override
-  XmlDBCollection create(String collName, SubtreeParser parser);
-
-  XmlDBCollection create(String collName, String optionalResourceName, SubtreeParser parser);
+  JsonDBCollection create(String collName, Path path);
 
   @Override
-  XmlDBCollection create(String collName, Stream<SubtreeParser> parsers);
+  JsonDBCollection create(String collName, Stream<Path> path);
 
   @Override
   void drop(String name);

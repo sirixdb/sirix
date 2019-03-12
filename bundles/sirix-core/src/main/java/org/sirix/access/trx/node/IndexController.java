@@ -12,7 +12,7 @@ import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Node;
+import org.brackit.xquery.xdm.node.Node;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
