@@ -69,6 +69,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<XmlNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
+      mIndexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH:
           indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));

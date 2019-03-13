@@ -91,7 +91,7 @@ public final class OpenRevisionsTest extends TestCase {
 
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
@@ -100,7 +100,7 @@ public final class OpenRevisionsTest extends TestCase {
           + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
           + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
       final Sequence nodes = query.evaluate(ctx);
 
       final Iter iter = nodes.iterate();

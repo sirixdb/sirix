@@ -76,14 +76,14 @@ public final class GetRevisionTimestampTest extends TestCase {
 
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq1 = "sdb:timestamp(sdb:doc('" + dbName + "','" + resName + "'))";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
       assertNotNull(query.evaluate(ctx));
     }
   }

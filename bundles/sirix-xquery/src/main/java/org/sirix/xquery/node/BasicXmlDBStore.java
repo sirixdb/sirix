@@ -55,6 +55,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   /** The location to store created collections/databases. */
   private final Path mLocation;
 
+  /** Determines if a path summary should be built. */
   private boolean mBuildPathSummary;
 
   /** Get a new builder instance. */
@@ -271,9 +272,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
     if (Databases.existsDatabase(dbPath)) {
       try {
         Databases.removeDatabase(dbPath);
-        final var database = Databases.openXmlDatabase(dbConfig.getFile());
-        mDatabases.remove(database);
-        mCollections.remove(database);
+        try (final var database = Databases.openXmlDatabase(dbConfig.getFile())) {
+          mDatabases.remove(database);
+          mCollections.remove(database);
+        }
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }

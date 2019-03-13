@@ -257,7 +257,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   @Override
-  public void close() throws SirixException {
+  public void close() {
     mDatabase.close();
   }
 

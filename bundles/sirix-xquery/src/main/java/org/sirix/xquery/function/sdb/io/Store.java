@@ -44,8 +44,7 @@ import org.sirix.xquery.node.XmlDBStore;
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, "
-        + "a new collection will be created. ",
+        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Store extends AbstractFunction {
 
@@ -70,20 +69,17 @@ public final class Store extends AbstractFunction {
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
       final Sequence nodes = args[2];
@@ -92,12 +88,11 @@ public final class Store extends AbstractFunction {
       final boolean createNew = args.length == 4
           ? args[3].booleanValue()
           : true;
-      final String resName = FunUtil.getString(
-          args, 1, "resName", "resource", null, createNew
-              ? false
-              : true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
+          ? false
+          : true);
 
-      final XmlDBStore store = (XmlDBStore) ctx.getStore();
+      final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
         create(store, collName, resName, nodes);
       } else {
@@ -133,8 +128,8 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final XmlDBStore store, final String collName, final String resName,
-      final Sequence nodes) throws DocumentException, IOException {
+  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes)
+      throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
       store.create(collName, resName, new StoreParser(n));
@@ -200,8 +195,7 @@ public final class Store extends AbstractFunction {
     }
 
     @Override
-    public void processingInstruction(final QNm target, final Atomic content)
-        throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
       handler.processingInstruction(target, content);
     }
 

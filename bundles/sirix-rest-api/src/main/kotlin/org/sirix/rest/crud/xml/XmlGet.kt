@@ -196,7 +196,7 @@ class XdmGet(private val location: Path) {
             val dbStore = SessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
 
             dbStore.use {
-                val queryCtx = SirixQueryContext(dbStore)
+                val queryCtx = SirixQueryContext.createWithNodeStore(dbStore)
 
                 node.let { queryCtx.contextItem = node }
 
@@ -204,7 +204,7 @@ class XdmGet(private val location: Path) {
 
                 out.use {
                     PrintStream(out).use {
-                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx,
+                        XQuery(SirixCompileChain.createWithNodeStore(dbStore), query).prettyPrint().serialize(queryCtx,
                                 DBSerializer(it, true, true))
                     }
 

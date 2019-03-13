@@ -95,7 +95,7 @@ public final class Main {
     try {
       final Config config = parseParams(args);
       try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
-        final QueryContext ctx = new SirixQueryContext(store);
+        final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
         final String file = config.getValue("-f");
         if (file != null) {
@@ -119,7 +119,7 @@ public final class Main {
           query = readStringFromScanner(System.in);
         }
 
-        final XQuery xq = new XQuery(new SirixCompileChain(store), query);
+        final XQuery xq = new XQuery(SirixCompileChain.createWithNodeStore(store), query);
         if (config.isSet("-p")) {
           xq.prettyPrint();
         }

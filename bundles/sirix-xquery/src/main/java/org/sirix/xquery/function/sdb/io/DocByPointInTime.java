@@ -43,13 +43,12 @@ public final class DocByPointInTime extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final XmlDBCollection col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));

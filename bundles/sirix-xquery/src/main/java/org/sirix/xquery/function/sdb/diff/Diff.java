@@ -109,13 +109,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final XmlDBCollection col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -143,7 +142,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
 
-      if (mDiffs.size() == 1 && (mDiffs.get(0).getDiff() == DiffType.SAMEHASH || mDiffs.get(0).getDiff() == DiffType.SAME)) {
+      if (mDiffs.size() == 1
+          && (mDiffs.get(0).getDiff() == DiffType.SAMEHASH || mDiffs.get(0).getDiff() == DiffType.SAME)) {
         return null;
       }
 

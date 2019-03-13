@@ -47,8 +47,9 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
-import org.sirix.xquery.stream.SirixStream;
-import org.sirix.xquery.stream.TemporalSirixStream;
+import org.sirix.xquery.StructuredDBItem;
+import org.sirix.xquery.stream.node.SirixNodeStream;
+import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -59,7 +60,7 @@ import com.google.common.base.Preconditions;
  * @author Johannes Lichtenberger
  *
  */
-public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
+public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements StructuredDBItem<XmlNodeReadOnlyTrx> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlDBNode.class));
@@ -114,7 +115,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
    *
    * @return underlying node
    */
-  public org.sirix.node.interfaces.immutable.ImmutableNode getUnderlyingNode() {
+  private org.sirix.node.interfaces.immutable.ImmutableNode getImmutableNode() {
     moveRtx();
     return mRtx.getNode();
   }
@@ -125,7 +126,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (node.getUnderlyingNode().getNodeKey() == this.getUnderlyingNode().getNodeKey()) {
+      if (node.getImmutableNode().getNodeKey() == this.getImmutableNode().getNodeKey()) {
         return true;
       }
     }
@@ -138,7 +139,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (node.getUnderlyingNode().getParentKey() == mRtx.getNodeKey()) {
+      if (node.getImmutableNode().getParentKey() == mRtx.getNodeKey()) {
         return true;
       }
     }
@@ -152,7 +153,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
       if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
-        if (node.getUnderlyingNode().getNodeKey() == mRtx.getParentKey()) {
+        if (node.getImmutableNode().getNodeKey() == mRtx.getParentKey()) {
           return true;
         }
       }
@@ -174,7 +175,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
         } else {
           for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
             axis.next();
-            if (node.getUnderlyingNode().getNodeKey() == mRtx.getNodeKey()) {
+            if (node.getImmutableNode().getNodeKey() == mRtx.getNodeKey()) {
               retVal = true;
             }
           }
@@ -189,6 +190,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
    *
    * @return transaction handle
    */
+  @Override
   public XmlNodeReadOnlyTrx getTrx() {
     moveRtx();
     return mRtx;
@@ -255,7 +257,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
           return mDeweyID.get().isSiblingOf(node.mDeweyID.get());
         }
         if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
-            && node.getParent().getUnderlyingNode().getNodeKey() == ((XmlDBNode) other.getParent()).getUnderlyingNode()
+            && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
                                                                                                    .getNodeKey()) {
           retVal = true;
         }
@@ -358,7 +360,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
-        if (getParent().getUnderlyingNode().getNodeKey() == node.getUnderlyingNode().getNodeKey()) {
+        if (getParent().getImmutableNode().getNodeKey() == node.getImmutableNode().getNodeKey()) {
           retVal = true;
         }
       } catch (final DocumentException e) {
@@ -584,14 +586,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
   @Override
   public Stream<XmlDBNode> getChildren() {
     moveRtx();
-    return new SirixStream(new ChildAxis(mRtx), mCollection);
+    return new SirixNodeStream(new ChildAxis(mRtx), mCollection);
   }
 
   // Returns all nodes in the subtree _including_ the subtree root.
   @Override
   public Stream<XmlDBNode> getSubtree() {
     moveRtx();
-    return new SirixStream(new NonStructuralWrapperAxis(new DescendantAxis(mRtx, IncludeSelf.YES)), mCollection);
+    return new SirixNodeStream(new NonStructuralWrapperAxis(new DescendantAxis(mRtx, IncludeSelf.YES)), mCollection);
   }
 
   @Override
@@ -1285,7 +1287,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
   @Override
   public Stream<XmlDBNode> getAttributes() throws OperationNotSupportedException, DocumentException {
     moveRtx();
-    return new SirixStream(new AttributeAxis(mRtx), mCollection);
+    return new SirixNodeStream(new AttributeAxis(mRtx), mCollection);
   }
 
   @Override
@@ -1774,7 +1776,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixNodeStream(new PastAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
   }
 
   @Override
@@ -1783,13 +1785,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> {
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
+    return new TemporalSirixNodeStream(new FutureAxis<>(mRtx.getResourceManager(), mRtx, include), mCollection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
     moveRtx();
-    return new TemporalSirixStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
+    return new TemporalSirixNodeStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }
 
   @Override

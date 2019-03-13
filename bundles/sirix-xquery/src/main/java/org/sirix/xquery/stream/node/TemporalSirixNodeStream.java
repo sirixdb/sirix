@@ -1,4 +1,4 @@
-package org.sirix.xquery.stream;
+package org.sirix.xquery.stream.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.HashMap;
@@ -22,7 +22,7 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNode>> {
+public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlDBNode>> {
 
   /** Temporal axis. */
   private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> mAxis;
@@ -38,7 +38,7 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNod
    * @param axis Sirix {@link Axis}
    * @param collection {@link XmlDBCollection} the nodes belong to
    */
-  public TemporalSirixStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
+  public TemporalSirixNodeStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
       final XmlDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
@@ -61,12 +61,13 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<XmlDBNod
       return new XmlDBNode(rtx, mCollection);
     }
 
-    mCache.forEach((revision, rtx) -> rtx.close());
     return null;
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    // mCache.forEach((revision, rtx) -> rtx.close());
+  }
 
   @Override
   public String toString() {

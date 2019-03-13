@@ -8,9 +8,9 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -40,12 +40,11 @@ public final class Rollback extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
-    final XmlDBNode doc = ((XmlDBNode) args[0]);
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    if (doc.getTrx() instanceof XmlNodeTrx) {
-      final XmlNodeTrx wtx = (XmlNodeTrx) doc.getTrx();
+    if (doc.getTrx() instanceof NodeTrx) {
+      final NodeTrx wtx = (NodeTrx) doc.getTrx();
       final long revision = wtx.getRevisionNumber();
       wtx.rollback();
       return new Int64(revision);

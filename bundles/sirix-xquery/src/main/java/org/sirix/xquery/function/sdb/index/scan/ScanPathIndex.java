@@ -26,7 +26,7 @@ import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBNode;
-import org.sirix.xquery.stream.SirixNodeKeyStream;
+import org.sirix.xquery.stream.node.SirixNodeKeyStream;
 
 /**
  * Scan the path index.
@@ -52,7 +52,7 @@ public final class ScanPathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =
@@ -90,7 +90,7 @@ public final class ScanPathIndex extends AbstractFunction {
           Stream<?> s;
 
           @Override
-          public Item next() throws QueryException {
+          public Item next() {
             if (s == null) {
               s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx().getPageTrx(), indexDef, filter),
                   node.getCollection(), node.getTrx());

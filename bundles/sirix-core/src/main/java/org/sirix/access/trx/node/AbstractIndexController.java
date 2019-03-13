@@ -43,7 +43,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
   /** The index types. */
-  private final Indexes mIndexes;
+  protected final Indexes mIndexes;
 
   /** Set of {@link ChangeListener}. */
   private final Set<ChangeListener> mListeners;

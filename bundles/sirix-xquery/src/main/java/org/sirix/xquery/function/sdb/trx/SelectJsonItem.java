@@ -7,10 +7,10 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.xquery.json.JsonDBNode;
 
 /**
  * <p>
@@ -24,7 +24,7 @@ import org.sirix.xquery.node.XmlDBNode;
  * @author Johannes Lichtenberger
  *
  */
-public final class SelectNode extends AbstractFunction {
+public final class SelectJsonItem extends AbstractFunction {
 
   /** Move to function name. */
   public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-node");
@@ -35,18 +35,18 @@ public final class SelectNode extends AbstractFunction {
    * @param name the name of the function
    * @param signature the signature of the function
    */
-  public SelectNode(final QNm name, final Signature signature) {
+  public SelectJsonItem(final QNm name, final Signature signature) {
     super(name, signature, true);
   }
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final XmlDBNode node = ((XmlDBNode) args[0]);
-    final XmlNodeReadOnlyTrx rtx = node.getTrx();
+    final JsonDBNode node = ((JsonDBNode) args[0]);
+    final JsonNodeReadOnlyTrx rtx = node.getTrx();
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
     if (rtx.moveTo(nodeKey).hasMoved()) {
-      return new XmlDBNode(rtx, node.getCollection());
+      return new JsonDBNode(rtx, node.getCollection());
     } else {
       throw new QueryException(new QNm("Couldn't select node."));
     }

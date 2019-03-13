@@ -1,12 +1,11 @@
-package org.sirix.xquery.stream;
+package org.sirix.xquery.stream.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
-import org.sirix.xquery.node.XmlDBCollection;
-import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.xquery.json.JsonDBCollection;
+import org.sirix.xquery.json.JsonDBNode;
 import com.google.common.base.MoreObjects;
 
 /**
@@ -15,29 +14,29 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public final class SirixStream implements Stream<XmlDBNode> {
+public final class SirixJsonStream implements Stream<JsonDBNode> {
   /** Sirix {@link Axis}. */
   private final Axis mAxis;
 
-  /** {@link XmlDBCollection} the nodes belong to. */
-  private final XmlDBCollection mCollection;
+  /** {@link JsonDBCollection} the nodes belong to. */
+  private final JsonDBCollection mCollection;
 
   /**
    * Constructor.
    *
    * @param axis Sirix {@link SirixAxis}
-   * @param collection {@link XmlDBCollection} the nodes belong to
+   * @param collection {@link JsonDBCollection} the nodes belong to
    */
-  public SirixStream(final Axis axis, final XmlDBCollection collection) {
+  public SirixJsonStream(final Axis axis, final JsonDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
   }
 
   @Override
-  public XmlDBNode next() throws DocumentException {
+  public JsonDBNode next() {
     if (mAxis.hasNext()) {
       mAxis.next();
-      return new XmlDBNode(mAxis.asXdmNodeReadTrx(), mCollection);
+      return new JsonDBNode(mAxis.asJsonNodeReadTrx(), mCollection);
     }
     return null;
   }

@@ -138,14 +138,14 @@ public final class ExcelDiffWholeRevisionDeleteInsertTest extends TestCase {
     final var database = PATHS.PATH1.getFile();
 
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.getFileName().toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));

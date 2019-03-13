@@ -47,7 +47,7 @@ public final class FindPathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final XmlDBNode doc = (XmlDBNode) args[0];
     final NodeReadOnlyTrx rtx = doc.getTrx();
     final XmlIndexController controller =

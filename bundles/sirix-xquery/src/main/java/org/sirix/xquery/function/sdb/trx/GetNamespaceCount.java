@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
@@ -38,8 +37,7 @@ public final class GetNamespaceCount extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final XmlDBNode doc = ((XmlDBNode) args[0]);
 
     return new Int32(doc.getTrx().getNamespaceCount());

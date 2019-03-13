@@ -10,16 +10,18 @@ import org.brackit.xquery.util.Cfg;
 import org.sirix.xquery.compiler.optimizer.SirixOptimizer;
 import org.sirix.xquery.compiler.translator.SirixTranslator;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.XmlDBStore;
+import org.sirix.xquery.json.BasicJsonDBStore;
+import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBStore;
 
 /**
  * Compile chain.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class SirixCompileChain extends CompileChain {
+public final class SirixCompileChain extends CompileChain implements AutoCloseable {
   public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.multichild", false);
 
   static {
@@ -27,16 +29,42 @@ public final class SirixCompileChain extends CompileChain {
     SDBFun.register();
   }
 
-  /** The Sirix {@link BasicXmlDBStore}. */
-  private final XmlDBStore mStore;
+  /** The XML node store. */
+  private final XmlDBStore mNodeStore;
+
+  /** The JSON item store. */
+  private final JsonDBStore mJsonItemStore;
+
+  public static final SirixCompileChain create() {
+    return new SirixCompileChain(null, null);
+  }
+
+  public static final SirixCompileChain createWithNodeStore(final XmlDBStore nodeStore) {
+    return new SirixCompileChain(nodeStore, null);
+  }
+
+  public static final SirixCompileChain createWithJsonStore(final JsonDBStore jsonStore) {
+    return new SirixCompileChain(null, jsonStore);
+  }
+
+  public static final SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore,
+      final JsonDBStore jsonStore) {
+    return new SirixCompileChain(nodeStore, jsonStore);
+  }
 
   /**
    * Constructor.
-   * 
-   * @param store the Sirix {@link BasicXmlDBStore}
+   *
+   * @param nodeStore the Sirix {@link BasicXmlDBStore}
+   * @param jsonItemStore the json item store.
    */
-  public SirixCompileChain(final XmlDBStore store) {
-    mStore = store;
+  public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
+    mNodeStore = nodeStore == null
+        ? BasicXmlDBStore.newBuilder().build()
+        : nodeStore;
+    mJsonItemStore = jsonItemStore == null
+        ? BasicJsonDBStore.newBuilder().build()
+        : jsonItemStore;
   }
 
   @Override
@@ -49,6 +77,12 @@ public final class SirixCompileChain extends CompileChain {
     if (!OPTIMIZE) {
       return super.getOptimizer(options);
     }
-    return new SirixOptimizer(options, mStore);
+    return new SirixOptimizer(options, mNodeStore, mJsonItemStore);
+  }
+
+  @Override
+  public void close() throws Exception {
+    mNodeStore.close();
+    mJsonItemStore.close();
   }
 }

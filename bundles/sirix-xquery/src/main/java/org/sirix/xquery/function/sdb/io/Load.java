@@ -29,8 +29,8 @@ import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBCollection;
 
 /**
  * <p>
@@ -46,8 +46,7 @@ import org.sirix.xquery.node.BasicXmlDBStore;
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, "
-        + "a new collection will be created. ",
+        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
@@ -72,20 +71,17 @@ public final class Load extends AbstractFunction {
   public Load(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
       final Sequence resources = args[2];
@@ -94,12 +90,11 @@ public final class Load extends AbstractFunction {
       final boolean createNew = args.length == 4
           ? args[3].booleanValue()
           : true;
-      final String resName = FunUtil.getString(
-          args, 1, "resName", "resource", null, createNew
-              ? false
-              : true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
+          ? false
+          : true);
 
-      final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getStore();
+      final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
       XmlDBCollection coll;
       if (createNew) {
         coll = create(store, collName, resName, resources);
@@ -139,12 +134,11 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName,
-      final String resName, final Sequence resources) throws DocumentException, IOException {
+  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName, final String resName,
+      final Sequence resources) throws DocumentException, IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
-      return store.create(
-          collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+      return store.create(collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
     } else {
       return store.create(collName, new ParserStream(resources));
     }
@@ -207,8 +201,7 @@ public final class Load extends AbstractFunction {
     }
 
     @Override
-    public void processingInstruction(final QNm target, final Atomic content)
-        throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
       handler.processingInstruction(target, content);
     }
 

@@ -97,29 +97,29 @@ public final class DiffTest extends TestCase {
 
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databasePath.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = databasePath.getFileName().toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',3)";
-        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',2)";
-        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
@@ -135,29 +135,29 @@ public final class DiffTest extends TestCase {
 
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "',1,5)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',6)";
-        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',5)";
-        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
