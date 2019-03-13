@@ -171,14 +171,14 @@ public final class ExcelDiffTest1 extends TestCase {
     final var database = PATHS.PATH1.getFile();
 
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.getFileName().toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
@@ -194,15 +194,15 @@ public final class ExcelDiffTest1 extends TestCase {
 
         System.out.println(contentToApply);
 
-        new XQuery(new SirixCompileChain(store), contentToApply).execute(ctx);
+        new XQuery(SirixCompileChain.createWithNodeStore(store), contentToApply).execute(ctx);
 
         final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',2)";
-        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',3)";
-        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
@@ -210,7 +210,7 @@ public final class ExcelDiffTest1 extends TestCase {
         out.reset();
 
         final String xq4 = "sdb:doc('" + dbName + "','" + resName + "',3)//*[local-name()='c' and not(previous::*)]";
-        final Sequence sequence = new XQuery(new SirixCompileChain(store), xq4).execute(ctx);
+        final Sequence sequence = new XQuery(SirixCompileChain.createWithNodeStore(store), xq4).execute(ctx);
         final Iter iter = sequence.iterate();
 
         StringSerializer serializer = new StringSerializer(System.out);

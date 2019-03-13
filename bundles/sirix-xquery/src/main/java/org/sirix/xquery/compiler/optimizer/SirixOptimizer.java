@@ -8,11 +8,12 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.optimizer.Stage;
 import org.brackit.xquery.compiler.optimizer.TopDownOptimizer;
 import org.brackit.xquery.module.StaticContext;
+import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.XmlDBStore;
 
 public final class SirixOptimizer extends TopDownOptimizer {
 
-  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore store) {
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
     super(options);
     // perform index matching as last step
     // getStages().add(new Stage() {
@@ -23,7 +24,7 @@ public final class SirixOptimizer extends TopDownOptimizer {
     // }
     //
     // });
-    getStages().add(new IndexMatching(store));
+    getStages().add(new IndexMatching(nodeStore));
   }
 
   private static class IndexMatching implements Stage {

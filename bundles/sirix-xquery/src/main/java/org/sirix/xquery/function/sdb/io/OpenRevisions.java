@@ -38,7 +38,7 @@ public final class OpenRevisions extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var col = (XmlDBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final var col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));

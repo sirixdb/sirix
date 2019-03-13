@@ -33,11 +33,10 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   private boolean mHasMoved;
 
   /**
-   * Determines private boolean mHasMoved;
+   * Constructor.
    *
-   * /** Constructor.
-   *
-   * @param rtx Sirix {@link NodeReadOnlyTrx}
+   * @param resourceManager the resource manager
+   * @param rtx the read only transactional cursor
    */
   public AllTimeAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
     mResourceManager = checkNotNull(resourceManager);

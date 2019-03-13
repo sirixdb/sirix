@@ -30,7 +30,7 @@ public final class SirixXMarkTest extends XMarkTest {
 
   @Override
   protected XQuery xquery(final String query) throws QueryException {
-    return new XQuery(new SirixCompileChain(mStore), query);
+    return new XQuery(SirixCompileChain.createWithNodeStore(mStore), query);
   }
 
   @Override

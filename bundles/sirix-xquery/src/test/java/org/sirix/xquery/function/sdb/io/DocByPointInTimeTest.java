@@ -77,7 +77,7 @@ public final class DocByPointInTimeTest extends TestCase {
 
     // Initialize query context and store.
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
@@ -88,7 +88,7 @@ public final class DocByPointInTimeTest extends TestCase {
       // "(xs:dateTime(\"2019-05-01T00:00:00-00:00\") - xs:dateTime(\"1970-01-01T00:00:00-00:00\")) div
       // xs:dayTimeDuration('PT0.001S')";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
       // query.serialize(ctx, System.out);
       final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 

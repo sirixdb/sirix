@@ -1,9 +1,8 @@
-package org.sirix.xquery.stream;
+package org.sirix.xquery.stream.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Iterator;
 import java.util.Set;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
@@ -13,7 +12,9 @@ import org.sirix.xquery.node.XmlDBNode;
 public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
 
   private final Iterator<NodeReferences> mIter;
+
   private final XmlDBCollection mCollection;
+
   private final XmlNodeReadOnlyTrx mRtx;
 
   public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final XmlDBCollection collection,
@@ -24,7 +25,7 @@ public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
   }
 
   @Override
-  public XmlDBNode next() throws DocumentException {
+  public XmlDBNode next() {
     while (mIter.hasNext()) {
       final NodeReferences nodeReferences = mIter.next();
       final Set<Long> nodeKeys = nodeReferences.getNodeKeys();

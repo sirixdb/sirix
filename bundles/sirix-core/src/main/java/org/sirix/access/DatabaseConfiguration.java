@@ -148,6 +148,8 @@ public final class DatabaseConfiguration {
   public DatabaseConfiguration(final Path file) {
     mBinaryVersion = BINARY;
     mFile = file;
+    // For temporal axis (for instance we can have a reading trx in principle on every possible
+    // revision) -- all-time axis.
     mMaxResourceReadTrx = 512;
   }
 

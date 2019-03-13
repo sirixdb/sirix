@@ -1,15 +1,14 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -38,8 +37,8 @@ public final class GetHash extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
-    final XmlDBNode doc = ((XmlDBNode) args[0]);
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
     return new Str(String.valueOf(doc.getTrx().getHash()));
   }

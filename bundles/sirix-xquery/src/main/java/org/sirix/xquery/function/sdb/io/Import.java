@@ -57,13 +57,12 @@ public final class Import extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getStore();
+    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
     final XmlDBCollection coll = store.lookup(((Str) args[0]).stringValue());
 
     if (coll == null) {

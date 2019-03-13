@@ -2,7 +2,6 @@ package org.sirix.xquery.function.sdb.index;
 
 import java.util.Comparator;
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.Tuple;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
@@ -21,7 +20,7 @@ import org.sirix.xquery.function.sdb.SDBFun;
  * The signature is:
  * </p>
  * <ul>
- * <li><code>sdb:sort($sequence as xs:anyType*) as xs:anyType*</code></li>
+ * <li><code>sdb:sort($sequence as node()*) as node()*</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -43,8 +42,7 @@ public final class SortByDocOrder extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-      throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final Comparator<Tuple> comparator = (o1, o2) -> ((Node<?>) o1).cmp((Node<?>) o2);
 
     return new SortedNodeSequence(comparator, args[0], true);
