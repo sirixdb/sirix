@@ -17,8 +17,8 @@ import org.sirix.index.cas.xdm.XdmCASIndexImpl;
 import org.sirix.index.name.xdm.XdmNameIndexImpl;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.index.path.xdm.XdmPCRCollector;
-import org.sirix.index.path.xdm.XdmPathIndexImpl;
+import org.sirix.index.path.xml.XmlPCRCollector;
+import org.sirix.index.path.xml.XmlPathIndexImpl;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -43,7 +43,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
    * Constructor.
    */
   public XmlIndexController() {
-    super(new Indexes(), new HashSet<>(), new XdmPathIndexImpl(), new XdmCASIndexImpl(), new XdmNameIndexImpl());
+    super(new Indexes(), new HashSet<>(), new XmlPathIndexImpl(), new XdmCASIndexImpl(), new XdmNameIndexImpl());
   }
 
   @Override
@@ -93,7 +93,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
     for (final String path : queryString)
       paths.add(Path.parse(path));
-    return new PathFilter(paths, new XdmPCRCollector(rtx));
+    return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 
   private XmlNodeVisitor createPathIndexBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
