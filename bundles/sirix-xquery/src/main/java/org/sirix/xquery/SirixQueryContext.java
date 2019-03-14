@@ -237,7 +237,7 @@ public final class SirixQueryContext implements QueryContext {
   }
 
   @Override
-  public JsonDBStore getJsonStore() {
+  public JsonDBStore getJsonItemStore() {
     return mJsonStore;
   }
 }
