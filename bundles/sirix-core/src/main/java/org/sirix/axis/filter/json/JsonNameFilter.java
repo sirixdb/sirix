@@ -27,16 +27,28 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 
 /**
- * <h1>NameAxisTest</h1>
+ * <h1>JsonNameFilter</h1>
  *
  * <p>
- * Match qname of ELEMENT or ATTRIBUTE by key.
+ * Match QNames of json object records.
  * </p>
  */
 public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   /** Key of local name to test. */
   private final QNm mName;
+
+  /**
+   * Default constructor.
+   *
+   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
+   * @param name name to check
+   */
+  public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final QNm name) {
+    super(rtx);
+
+    mName = name;
+  }
 
   /**
    * Default constructor.
