@@ -28,8 +28,8 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 import com.google.gson.stream.JsonReader;
 
-public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNode>
-    implements TemporalJsonCollection<JsonDBNode>, AutoCloseable {
+public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
+    implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
 
   /** Logger. */
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XmlDBCollection.class));
@@ -95,16 +95,16 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
   }
 
   @Override
-  public JsonDBNode getDocument(Instant pointInTime) {
+  public JsonDBItem getDocument(Instant pointInTime) {
     return getDocumentInternal(name, pointInTime);
   }
 
   @Override
-  public JsonDBNode getDocument(String name, Instant pointInTime) {
+  public JsonDBItem getDocument(String name, Instant pointInTime) {
     return getDocumentInternal(name, pointInTime);
   }
 
-  private JsonDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
+  private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
     final JsonResourceManager resource = mDatabase.openResourceManager(resName);
 
     JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
@@ -123,10 +123,10 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
       }
     }
 
-    return new JsonDBNode(trx, this);
+    return new JsonDBItem(trx, this);
   }
 
-  private JsonDBNode getDocumentInternal(final String resName, final int revision) {
+  private JsonDBItem getDocumentInternal(final String resName, final int revision) {
     final JsonResourceManager resource = mDatabase.openResourceManager(resName);
     final int version = revision == -1
         ? resource.getMostRecentRevisionNumber()
@@ -134,7 +134,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
 
     final JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(version);
 
-    return new JsonDBNode(trx, this);
+    return new JsonDBItem(trx, this);
   }
 
   @Override
@@ -157,7 +157,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
   }
 
   @Override
-  public JsonDBNode getDocument(final @Nonnegative int revision) {
+  public JsonDBItem getDocument(final @Nonnegative int revision) {
     final List<Path> resources = mDatabase.listResources();
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
@@ -168,20 +168,20 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
           ? manager.getMostRecentRevisionNumber()
           : revision;
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
-      return new JsonDBNode(rtx, this);
+      return new JsonDBItem(rtx, this);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
   }
 
-  public JsonDBNode add(final String resourceName, final JsonReader reader) {
+  public JsonDBItem add(final String resourceName, final JsonReader reader) {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
       final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
       final JsonNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
-      return new JsonDBNode(wtx, this);
+      return new JsonDBItem(wtx, this);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -199,41 +199,41 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
   }
 
   @Override
-  public JsonDBNode getDocument() {
+  public JsonDBItem getDocument() {
     return getDocument(-1);
   }
 
   @Override
-  public JsonDBNode getDocument(final String name, final int revision) {
+  public JsonDBItem getDocument(final String name, final int revision) {
     return getDocumentInternal(name, revision);
   }
 
   @Override
-  public JsonDBNode getDocument(final String name) {
+  public JsonDBItem getDocument(final String name) {
     return getDocument(name, -1);
   }
 
   @Override
-  public Stream<JsonDBNode> getDocuments() {
+  public Stream<JsonDBItem> getDocuments() {
     final List<Path> resources = mDatabase.listResources();
-    final List<JsonDBNode> documents = new ArrayList<>(resources.size());
+    final List<JsonDBItem> documents = new ArrayList<>(resources.size());
 
     resources.forEach(resourcePath -> {
       try {
         final String resourceName = resourcePath.getFileName().toString();
         final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
         final JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
-        documents.add(new JsonDBNode(trx, this));
+        documents.add(new JsonDBItem(trx, this));
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
     });
 
-    return new ArrayStream<>(documents.toArray(new JsonDBNode[documents.size()]));
+    return new ArrayStream<>(documents.toArray(new JsonDBItem[documents.size()]));
   }
 
   @Override
-  public JsonDBNode add(final Path file) {
+  public JsonDBItem add(final Path file) {
     Preconditions.checkNotNull(file);
 
     try {
@@ -249,7 +249,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBNod
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(file));
 
-      return new JsonDBNode(wtx, this);
+      return new JsonDBItem(wtx, this);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;

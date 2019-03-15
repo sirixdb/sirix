@@ -258,7 +258,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         }
         if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
             && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
-                                                                                                   .getNodeKey()) {
+                                                                                                  .getNodeKey()) {
           retVal = true;
         }
       } catch (final DocumentException e) {
@@ -1909,10 +1909,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
    * Get the path class record (PCR).
    *
    * @return the path class record
-   *
-   * @throws SirixException
+   * @throws SirixException if Sirix fails to get the path class record
    */
-  public long getPCR() throws SirixException {
+  public long getPCR() {
     return mRtx.getPathNodeKey();
   }
 
