@@ -5,4 +5,6 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx;
 
 public interface JsonDBItem extends JsonItem {
   JsonNodeReadOnlyTrx getTrx();
+
+  JsonDBCollection getCollection();
 }

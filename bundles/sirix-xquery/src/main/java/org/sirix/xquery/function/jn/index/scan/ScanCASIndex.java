@@ -31,7 +31,7 @@ import org.sirix.index.path.json.JsonPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.json.JsonDBObject;
+import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.stream.json.SirixJsonItemKeyStream;
 
 /**
@@ -58,7 +58,7 @@ public final class ScanCASIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final JsonDBObject doc = (JsonDBObject) args[0];
+    final JsonDBItem doc = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
     final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
@@ -115,7 +115,7 @@ public final class ScanCASIndex extends AbstractFunction {
         : controller.createCASFilter(new String[] {}, key, mode, new JsonPCRCollector(rtx));
 
     final JsonIndexController ic = controller;
-    final JsonDBObject node = doc;
+    final JsonDBItem node = doc;
 
     return new LazySequence() {
       @Override
