@@ -11,10 +11,10 @@ import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 
-class JsonUtil {
-  JsonUtil() {}
+public final class JsonUtil {
+  public JsonUtil() {}
 
-  Sequence getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+  public Sequence getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     switch (rtx.getKind()) {
       case ARRAY:
         return new JsonDBArray(rtx, collection);
