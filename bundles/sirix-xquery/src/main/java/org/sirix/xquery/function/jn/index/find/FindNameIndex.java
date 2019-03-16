@@ -17,7 +17,7 @@ import org.sirix.access.trx.node.json.JsonIndexController;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.jn.JNFun;
-import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonDBObject;
 
 /**
  * <p>
@@ -50,7 +50,7 @@ public final class FindNameIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
+    final JsonDBObject doc = (JsonDBObject) args[0];
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
     final JsonIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 

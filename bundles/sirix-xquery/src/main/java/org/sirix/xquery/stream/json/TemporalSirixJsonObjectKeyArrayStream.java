@@ -11,7 +11,7 @@ import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.utils.Pair;
 import org.sirix.xquery.json.JsonDBCollection;
-import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonObjectKeyDBArray;
 import org.sirix.xquery.node.XmlDBCollection;
 import com.google.common.base.MoreObjects;
 
@@ -21,7 +21,7 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public final class TemporalSirixJsonStream implements Stream<JsonDBItem> {
+public final class TemporalSirixJsonObjectKeyArrayStream implements Stream<JsonObjectKeyDBArray> {
 
   /** Temporal axis. */
   private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> mAxis;
@@ -37,7 +37,7 @@ public final class TemporalSirixJsonStream implements Stream<JsonDBItem> {
    * @param axis Sirix {@link Axis}
    * @param collection {@link XmlDBCollection} the nodes belong to
    */
-  public TemporalSirixJsonStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
+  public TemporalSirixJsonObjectKeyArrayStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final JsonDBCollection collection) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
@@ -45,7 +45,7 @@ public final class TemporalSirixJsonStream implements Stream<JsonDBItem> {
   }
 
   @Override
-  public JsonDBItem next() {
+  public JsonObjectKeyDBArray next() {
     if (mAxis.hasNext()) {
       final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = mAxis.getResourceManager();
       final Pair<Integer, Long> pair = mAxis.next();
@@ -57,7 +57,7 @@ public final class TemporalSirixJsonStream implements Stream<JsonDBItem> {
           mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
       rtx.moveTo(nodeKey);
 
-      return new JsonDBItem(rtx, mCollection);
+      return new JsonObjectKeyDBArray(rtx, mCollection);
     }
 
     mCache.forEach((revision, rtx) -> rtx.close());

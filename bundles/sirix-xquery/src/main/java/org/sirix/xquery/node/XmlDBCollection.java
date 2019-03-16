@@ -185,17 +185,14 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  public XmlDBNode add(final String resName, SubtreeParser parser)
-      throws OperationNotSupportedException, DocumentException {
+  public XmlDBNode add(final String resName, SubtreeParser parser) {
     try {
-      final String resource =
-          new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
-      mDatabase.createResource(ResourceConfiguration.newBuilder(resource)
+      mDatabase.createResource(ResourceConfiguration.newBuilder(resName)
                                                     .useDeweyIDs(true)
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final XmlResourceManager manager = mDatabase.openResourceManager(resource);
+      final XmlResourceManager manager = mDatabase.openResourceManager(resName);
       final XmlNodeTrx wtx = manager.beginNodeTrx();
       final SubtreeHandler handler =
           new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());

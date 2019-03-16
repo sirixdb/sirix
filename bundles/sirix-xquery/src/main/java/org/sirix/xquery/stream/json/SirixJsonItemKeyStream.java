@@ -7,9 +7,9 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.xquery.json.JsonDBCollection;
-import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonDBObject;
 
-public final class SirixJsonItemKeyStream implements Stream<JsonDBItem> {
+public final class SirixJsonItemKeyStream implements Stream<JsonDBObject> {
 
   private final Iterator<NodeReferences> mIter;
 
@@ -25,13 +25,13 @@ public final class SirixJsonItemKeyStream implements Stream<JsonDBItem> {
   }
 
   @Override
-  public JsonDBItem next() {
+  public JsonDBObject next() {
     while (mIter.hasNext()) {
       final NodeReferences nodeReferences = mIter.next();
       final Set<Long> nodeKeys = nodeReferences.getNodeKeys();
       for (final long nodeKey : nodeKeys) {
         mRtx.moveTo(nodeKey);
-        return new JsonDBItem(mRtx, mCollection);
+        return new JsonDBObject(mRtx, mCollection);
       }
     }
     return null;

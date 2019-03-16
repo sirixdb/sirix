@@ -5,7 +5,7 @@ import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
 import org.sirix.xquery.json.JsonDBCollection;
-import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonDBObject;
 import com.google.common.base.MoreObjects;
 
 /**
@@ -14,7 +14,7 @@ import com.google.common.base.MoreObjects;
  * @author Johannes Lichtenberger
  *
  */
-public final class SirixJsonStream implements Stream<JsonDBItem> {
+public final class SirixJsonStream implements Stream<JsonDBObject> {
   /** Sirix {@link Axis}. */
   private final Axis mAxis;
 
@@ -33,10 +33,10 @@ public final class SirixJsonStream implements Stream<JsonDBItem> {
   }
 
   @Override
-  public JsonDBItem next() {
+  public JsonDBObject next() {
     if (mAxis.hasNext()) {
       mAxis.next();
-      return new JsonDBItem(mAxis.asJsonNodeReadTrx(), mCollection);
+      return new JsonDBObject(mAxis.asJsonNodeReadTrx(), mCollection);
     }
     return null;
   }

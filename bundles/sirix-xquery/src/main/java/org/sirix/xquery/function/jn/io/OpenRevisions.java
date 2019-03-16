@@ -16,6 +16,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonDBObject;
 
 public final class OpenRevisions extends AbstractFunction {
 
@@ -71,6 +72,6 @@ public final class OpenRevisions extends AbstractFunction {
 
     documentNodes.add(endDocNode);
 
-    return new ItemSequence(documentNodes.toArray(new JsonDBItem[documentNodes.size()]));
+    return new ItemSequence(documentNodes.toArray(new JsonDBObject[documentNodes.size()]));
   }
 }

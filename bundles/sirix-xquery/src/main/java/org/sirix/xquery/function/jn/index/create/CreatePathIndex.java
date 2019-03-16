@@ -23,7 +23,7 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.jn.JNFun;
-import org.sirix.xquery.json.JsonDBItem;
+import org.sirix.xquery.json.JsonDBObject;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -60,7 +60,7 @@ public final class CreatePathIndex extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final JsonDBItem doc = ((JsonDBItem) args[0]);
+    final JsonDBObject doc = ((JsonDBObject) args[0]);
     final JsonNodeReadOnlyTrx rtx = doc.getTrx();
     final JsonResourceManager manager = rtx.getResourceManager();
 

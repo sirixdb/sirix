@@ -37,7 +37,7 @@ import com.google.common.base.Preconditions;
  * @author Johannes
  *
  */
-public final class SirixQueryContext implements QueryContext {
+public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   /** Commit strategies. */
   public enum CommitStrategy {
@@ -239,5 +239,11 @@ public final class SirixQueryContext implements QueryContext {
   @Override
   public JsonDBStore getJsonItemStore() {
     return mJsonStore;
+  }
+
+  @Override
+  public void close() {
+    mXmlStore.close();
+    mJsonStore.close();
   }
 }

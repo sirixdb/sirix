@@ -38,7 +38,7 @@ import org.sirix.xquery.node.XmlDBCollection;
  * </p>
  *
  * <pre>
- * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as xs:node</code>
+ * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as node()?</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
@@ -115,8 +115,7 @@ public final class Load extends AbstractFunction {
   }
 
   private static TemporalNodeCollection<?> add(final org.brackit.xquery.xdm.node.NodeStore store,
-      final XmlDBCollection coll, final String resName, final Sequence resources)
-      throws DocumentException, IOException {
+      final XmlDBCollection coll, final String resName, final Sequence resources) throws IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
       coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));

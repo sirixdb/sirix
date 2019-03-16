@@ -9,6 +9,7 @@ import org.brackit.xquery.compiler.translator.Translator;
 import org.brackit.xquery.util.Cfg;
 import org.sirix.xquery.compiler.optimizer.SirixOptimizer;
 import org.sirix.xquery.compiler.translator.SirixTranslator;
+import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBStore;
@@ -27,6 +28,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   static {
     // define function namespaces and functions in these namespaces
     SDBFun.register();
+    JNFun.register();
   }
 
   /** The XML node store. */
@@ -81,7 +83,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     mNodeStore.close();
     mJsonItemStore.close();
   }

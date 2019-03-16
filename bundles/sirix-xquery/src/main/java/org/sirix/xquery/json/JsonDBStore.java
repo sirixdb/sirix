@@ -47,7 +47,19 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   JsonDBCollection create(String collName, Path path);
 
   @Override
-  JsonDBCollection create(String collName, Stream<Path> path);
+  JsonDBCollection createFromPaths(String collName, Stream<Path> path);
+
+  @Override
+  JsonDBCollection create(String collName, String optResName, Path path);
+
+  @Override
+  JsonDBCollection create(String collName, String path);
+
+  @Override
+  JsonDBCollection create(String collName, String optResName, String json);
+
+  @Override
+  JsonDBCollection createFromJsonStrings(String collName, Stream<String> json);
 
   @Override
   void drop(String name);

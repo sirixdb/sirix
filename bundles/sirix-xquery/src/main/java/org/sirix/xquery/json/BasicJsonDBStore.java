@@ -27,6 +27,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.io.StorageType;
 import org.sirix.service.json.shredder.JsonShredder;
+import com.google.gson.stream.JsonReader;
 
 /**
  * Database storage.
@@ -183,7 +184,21 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
+  public JsonDBCollection create(String collName, String json) {
+    return create(collName, null, json);
+  }
+
+  @Override
+  public JsonDBCollection create(String collName, String optResName, String json) {
+    return createCollection(collName, optResName, JsonShredder.createStringReader(json));
+  }
+
+  @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path) {
+    return createCollection(collName, optResName, JsonShredder.createFileReader(path));
+  }
+
+  private JsonDBCollection createCollection(final String collName, final String optResName, final JsonReader reader) {
     final Path dbPath = mLocation.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -205,9 +220,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
       try (final JsonResourceManager manager = database.openResourceManager(resName);
           final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(path));
-
-        wtx.commit();
+        wtx.insertSubtreeAsFirstChild(reader);
       }
       return collection;
     } catch (final SirixException e) {
@@ -216,51 +229,99 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(final String collName, final @Nullable Stream<Path> paths) {
-    if (paths != null) {
-      final Path dbPath = mLocation.resolve(collName);
-      final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+  public JsonDBCollection createFromJsonStrings(String collName, final @Nullable Stream<String> jsonStrings) {
+    if (jsonStrings == null)
+      return null;
+
+    final Path dbPath = mLocation.resolve(collName);
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      Databases.removeDatabase(dbPath);
+      Databases.createJsonDatabase(dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getFile());
+      mDatabases.add(database);
+      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      int i = database.listResources().size() + 1;
       try {
-        Databases.removeDatabase(dbPath);
-        Databases.createJsonDatabase(dbConf);
-        final var database = Databases.openJsonDatabase(dbConf.getFile());
-        mDatabases.add(database);
-        final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        int i = database.listResources().size() + 1;
-        try {
-          Path path = null;
-          while ((path = paths.next()) != null) {
-            final Path currentPath = path;
-            final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
-            pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                           .storageType(mStorageType)
-                                                           .useDeweyIDs(true)
-                                                           .useTextCompression(true)
-                                                           .buildPathSummary(true)
-                                                           .build());
-              try (final JsonResourceManager manager = database.openResourceManager(resourceName);
-                  final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-                final JsonDBCollection collection = new JsonDBCollection(collName, database);
-                mCollections.put(database, collection);
-                wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
-                wtx.commit();
-              }
-              return null;
-            });
-            i++;
-          }
-        } finally {
-          paths.close();
+        String string = null;
+        while ((string = jsonStrings.next()) != null) {
+          final String currentString = string;
+          final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+          pool.submit(() -> {
+            database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                         .storageType(mStorageType)
+                                                         .useDeweyIDs(true)
+                                                         .useTextCompression(true)
+                                                         .buildPathSummary(true)
+                                                         .build());
+            try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+                final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+              final JsonDBCollection collection = new JsonDBCollection(collName, database);
+              mCollections.put(database, collection);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(currentString));
+              wtx.commit();
+            }
+            return null;
+          });
+          i++;
         }
-        pool.shutdown();
-        pool.awaitTermination(5, TimeUnit.SECONDS);
-        return new JsonDBCollection(collName, database);
-      } catch (final SirixRuntimeException | InterruptedException e) {
-        throw new DocumentException(e.getCause());
+      } finally {
+        jsonStrings.close();
       }
+      pool.shutdown();
+      pool.awaitTermination(5, TimeUnit.SECONDS);
+      return new JsonDBCollection(collName, database);
+    } catch (final SirixRuntimeException | InterruptedException e) {
+      throw new DocumentException(e.getCause());
     }
-    return null;
+  }
+
+  @Override
+  public JsonDBCollection createFromPaths(final String collName, final @Nullable Stream<Path> paths) {
+    if (paths == null)
+      return null;
+
+    final Path dbPath = mLocation.resolve(collName);
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      Databases.removeDatabase(dbPath);
+      Databases.createJsonDatabase(dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getFile());
+      mDatabases.add(database);
+      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      int i = database.listResources().size() + 1;
+      try {
+        Path path = null;
+        while ((path = paths.next()) != null) {
+          final Path currentPath = path;
+          final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+          pool.submit(() -> {
+            database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                         .storageType(mStorageType)
+                                                         .useDeweyIDs(true)
+                                                         .useTextCompression(true)
+                                                         .buildPathSummary(true)
+                                                         .build());
+            try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+                final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+              final JsonDBCollection collection = new JsonDBCollection(collName, database);
+              mCollections.put(database, collection);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
+              wtx.commit();
+            }
+            return null;
+          });
+          i++;
+        }
+      } finally {
+        paths.close();
+      }
+      pool.shutdown();
+      pool.awaitTermination(5, TimeUnit.SECONDS);
+      return new JsonDBCollection(collName, database);
+    } catch (final SirixRuntimeException | InterruptedException e) {
+      throw new DocumentException(e.getCause());
+    }
   }
 
   @Override
