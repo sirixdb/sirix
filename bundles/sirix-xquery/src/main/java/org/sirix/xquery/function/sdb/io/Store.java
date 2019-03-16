@@ -120,7 +120,7 @@ public final class Store extends AbstractFunction {
       final ParserStream parsers = new ParserStream(nodes);
       try {
         for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          coll.add(resName, parser);
+          coll.add(parser);
         }
       } finally {
         parsers.close();

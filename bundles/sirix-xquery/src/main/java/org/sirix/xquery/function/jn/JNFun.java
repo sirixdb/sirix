@@ -1,14 +1,16 @@
 package org.sirix.xquery.function.jn;
 
+import static org.sirix.xquery.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
+import static org.sirix.xquery.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
+import static org.sirix.xquery.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindNameIndex.FIND_NAME_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindPathIndex.FIND_PATH_INDEX;
 import static org.sirix.xquery.function.jn.io.Doc.DOC;
 import static org.sirix.xquery.function.jn.io.DocByPointInTime.OPEN;
+import static org.sirix.xquery.function.jn.io.Load.LOAD;
 import static org.sirix.xquery.function.jn.io.OpenRevisions.OPEN_REVISIONS;
-import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
-import static org.sirix.xquery.function.sdb.index.create.CreateNameIndex.CREATE_NAME_INDEX;
-import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
-import static org.sirix.xquery.function.sdb.index.find.FindCASIndex.FIND_CAS_INDEX;
-import static org.sirix.xquery.function.sdb.index.find.FindNameIndex.FIND_NAME_INDEX;
-import static org.sirix.xquery.function.sdb.index.find.FindPathIndex.FIND_PATH_INDEX;
+import static org.sirix.xquery.function.jn.io.Store.STORE;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -28,9 +30,10 @@ import org.sirix.xquery.function.jn.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.jn.index.scan.ScanPathIndex;
 import org.sirix.xquery.function.jn.io.Doc;
 import org.sirix.xquery.function.jn.io.DocByPointInTime;
+import org.sirix.xquery.function.jn.io.Load;
 import org.sirix.xquery.function.jn.io.OpenRevisions;
+import org.sirix.xquery.function.jn.io.Store;
 import org.sirix.xquery.function.jn.trx.SelectJsonItem;
-import org.sirix.xquery.function.sdb.trx.SelectNode;
 
 /**
  * Function definitions.
@@ -62,20 +65,21 @@ public final class JNFun {
     Namespaces.predefine(JNFun.JN_PREFIX, JNFun.JN_NSURI);
 
     // move to
-    Functions.predefine(new SelectNode(SelectJsonItem.SELECT_JSON_ITEM, new Signature(SequenceType.JSON_ITEM,
+    Functions.predefine(new SelectJsonItem(SelectJsonItem.SELECT_JSON_ITEM, new Signature(SequenceType.JSON_ITEM,
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));
 
-    // // store
-    // Functions.predefine(new Store(false));
-    // Functions.predefine(new Store(true));
-    // Functions.predefine(new Store(STORE, false));
-    // Functions.predefine(new Store(STORE, true));
-    //
-    // // load
-    // Functions.predefine(new Load(false));
-    // Functions.predefine(new Load(true));
-    // Functions.predefine(new Load(LOAD, false));
-    // Functions.predefine(new Load(LOAD, true));
+    // store
+    Functions.predefine(new Store(false));
+    Functions.predefine(new Store(true));
+    Functions.predefine(new Store(STORE, false));
+    Functions.predefine(new Store(STORE, true));
+
+    // load
+    Functions.predefine(new Load(false));
+    Functions.predefine(new Load(true));
+    Functions.predefine(new Load(LOAD, false));
+    Functions.predefine(new Load(LOAD, true));
+
 
     // doc
     Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),

@@ -123,7 +123,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       }
     }
 
-    return new JsonDBItem(trx, this);
+    return getItem(trx);
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
@@ -132,9 +132,9 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         ? resource.getMostRecentRevisionNumber()
         : revision;
 
-    final JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(version);
+    final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
 
-    return new JsonDBItem(trx, this);
+    return getItem(rtx);
   }
 
   @Override
@@ -168,10 +168,23 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
           ? manager.getMostRecentRevisionNumber()
           : revision;
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
-      return new JsonDBItem(rtx, this);
+
+      return getItem(rtx);
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
+  }
+
+  private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
+    if (rtx.hasFirstChild()) {
+      rtx.moveToFirstChild();
+      if (rtx.isObject())
+        return new JsonDBObject(rtx, this);
+      else if (rtx.isArray())
+        return new JsonDBArray(rtx, this);
+    }
+
+    return null;
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
@@ -181,7 +194,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       final JsonNodeTrx wtx = resource.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
-      return new JsonDBItem(wtx, this);
+      return getItem(wtx);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -222,8 +235,14 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       try {
         final String resourceName = resourcePath.getFileName().toString();
         final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
-        final JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
-        documents.add(new JsonDBItem(trx, this));
+        final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
+
+        if (rtx.hasFirstChild()) {
+          if (rtx.isObject())
+            documents.add(new JsonDBObject(rtx, this));
+          else if (rtx.isArray())
+            documents.add(new JsonDBArray(rtx, this));
+        }
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
       }
@@ -233,9 +252,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   @Override
-  public JsonDBItem add(final Path file) {
-    Preconditions.checkNotNull(file);
+  public JsonDBItem add(final String json) {
+    Preconditions.checkNotNull(json);
 
+    return add(JsonShredder.createStringReader(json));
+  }
+
+  private JsonDBItem add(final JsonReader reader) {
     try {
       final String resourceName =
           new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
@@ -247,13 +270,20 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
       final JsonNodeTrx wtx = resource.beginNodeTrx();
 
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(file));
+      wtx.insertSubtreeAsFirstChild(reader);
 
-      return new JsonDBItem(wtx, this);
+      return getItem(wtx);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
     }
+  }
+
+  @Override
+  public JsonDBItem add(final Path file) {
+    Preconditions.checkNotNull(file);
+
+    return add(JsonShredder.createFileReader(file));
   }
 
 }
