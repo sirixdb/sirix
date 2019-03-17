@@ -1,25 +1,17 @@
 package org.sirix.xquery.json;
 
-import java.math.BigDecimal;
 import java.util.Optional;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.Dec;
-import org.brackit.xquery.atomic.Flt;
-import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.IntNumeric;
 import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.AbstractItem;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
-import org.brackit.xquery.xdm.type.ArrayType;
 import org.brackit.xquery.xdm.type.ItemType;
 import org.brackit.xquery.xdm.type.ListOrUnionType;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -38,7 +30,6 @@ import org.sirix.axis.temporal.LastAxis;
 import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
-import org.sirix.node.Kind;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.sirix.xquery.stream.json.SirixJsonStream;
@@ -97,6 +88,7 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
     mRtx.moveTo(mNodeKey);
   }
 
+  @Override
   public JsonDBCollection getCollection() {
     return mCollection;
   }
@@ -295,94 +287,61 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
 
   @Override
   public ItemType itemType() {
-    moveRtx();
-
-    switch (mKind) {
-      case OBJECT:
-        return ListOrUnionType.LIST_OR_UNION;
-      case ARRAY:
-        return ArrayType.ARRAY;
-      default:
-        throw new IllegalStateException("Json item type not known.");
-    }
+    return ListOrUnionType.LIST_OR_UNION;
   }
 
   @Override
   public Atomic atomize() {
-    moveRtx();
-
-    switch (mKind) {
-      case OBJECT:
-        throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            "The atomized value of record items is undefined");
-      case ARRAY:
-        throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            "The atomized value of array items is undefined");
-      case STRING_VALUE:
-        return new Str(mRtx.getValue());
-      case NUMBER_VALUE:
-        final Number number = mRtx.getNumberValue();
-
-        if (number instanceof Integer) {
-          return new Int32(number.intValue());
-        } else if (number instanceof Long) {
-          return new Int64(number.intValue());
-        } else if (number instanceof Float) {
-          return new Flt(number.floatValue());
-        } else if (number instanceof Double) {
-          return new Dbl(number.doubleValue());
-        } else if (number instanceof BigDecimal) {
-          return new Dec((BigDecimal) number);
-        }
-
-        new AssertionError();
-      case BOOLEAN_VALUE:
-        return new Bool(mRtx.getBooleanValue());
-      case NULL_VALUE:
-        return null;
-      case OBJECT_RECORD:
-        return mRtx.getName();
-      // $CASES-OMITTED$
-      default:
-        throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            "The atomized value of " + mKind + " items is undefined");
-    }
+    throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The atomized value of record items is undefined");
+    // case ARRAY:
+    // throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
+    // "The atomized value of array items is undefined");
+    // case STRING_VALUE:
+    // return new Str(mRtx.getValue());
+    // case NUMBER_VALUE:
+    // final Number number = mRtx.getNumberValue();
+    //
+    // if (number instanceof Integer) {
+    // return new Int32(number.intValue());
+    // } else if (number instanceof Long) {
+    // return new Int64(number.intValue());
+    // } else if (number instanceof Float) {
+    // return new Flt(number.floatValue());
+    // } else if (number instanceof Double) {
+    // return new Dbl(number.doubleValue());
+    // } else if (number instanceof BigDecimal) {
+    // return new Dec((BigDecimal) number);
+    // }
+    //
+    // new AssertionError();
+    // case BOOLEAN_VALUE:
+    // return new Bool(mRtx.getBooleanValue());
+    // case NULL_VALUE:
+    // return null;
+    // case OBJECT_RECORD:
+    // return mRtx.getName();
+    // // $CASES-OMITTED$
+    // default:
+    // throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
+    // "The atomized value of " + mKind + " items is undefined");
+    // }
   }
 
   @Override
   public boolean booleanValue() {
-    moveRtx();
-
-    switch (mKind) {
-      case OBJECT:
-      case OBJECT_RECORD:
-        throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            "The atomized value of record items is undefined");
-      case ARRAY:
-        throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE,
-            "The atomized value of array items is undefined");
-        // $CASES-OMITTED$
-      default:
-        return mRtx.getBooleanValue();
-    }
+    throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The boolean value of record items is undefined");
   }
 
   @Override
   public Sequence get(QNm field) {
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
-    final var axis = new FilterAxis<JsonNodeReadOnlyTrx>(new ChildAxis(rtx), new JsonNameFilter(rtx, field));;
+    final var axis = new FilterAxis<JsonNodeReadOnlyTrx>(new ChildAxis(mRtx), new JsonNameFilter(mRtx, field));;
 
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx, mCollection);
+      return mJsonUtil.getSequence(mRtx.moveToFirstChild().getCursor(), mCollection);
     }
 
     return null;
@@ -392,15 +351,9 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
   public Sequence value(final IntNumeric intNumericIndex) {
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
     final int index = intNumericIndex.intValue();
 
-    return getValueSequenceAtIndex(rtx, index);
+    return getValueSequenceAtIndex(mRtx, index);
   }
 
   private Sequence getValueSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
@@ -412,7 +365,7 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
     if (axis.hasNext()) {
       axis.next();
 
-      mJsonUtil.getSequence(rtx.moveToFirstChild().getCursor(), mCollection);
+      return mJsonUtil.getSequence(rtx.moveToFirstChild().getCursor(), mCollection);
     }
 
     return null;
@@ -420,73 +373,43 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
 
   @Override
   public Sequence value(final int index) {
-    Preconditions.checkArgument(index > 0);
+    Preconditions.checkArgument(index >= 0);
 
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
-    return getValueSequenceAtIndex(rtx, index);
+    return getValueSequenceAtIndex(mRtx, index);
   }
 
   @Override
   public Array names() {
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
-    return new JsonObjectKeyDBArray(rtx, mCollection);
+    return new JsonObjectKeyDBArray(mRtx, mCollection);
   }
 
   @Override
   public Array values() {
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
     return new JsonObjectValueDBArray(mRtx, mCollection);
   }
 
   @Override
   public QNm name(IntNumeric numericIndex) {
-    Preconditions.checkArgument(numericIndex.intValue() > 0);
+    Preconditions.checkArgument(numericIndex.intValue() >= 0);
 
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
-    return getNameAtIndex(rtx, numericIndex.intValue());
+    return getNameAtIndex(mRtx, numericIndex.intValue());
   }
 
   @Override
-  public QNm name(int index) {
-    Preconditions.checkArgument(index > 0);
+  public QNm name(final int index) {
+    Preconditions.checkArgument(index >= 0);
 
     moveRtx();
 
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-
-    if (rtx.getKind() != Kind.OBJECT) {
-      throw new IllegalStateException("Json item kind is not an object.");
-    }
-
-    return getNameAtIndex(rtx, index);
+    return getNameAtIndex(mRtx, index);
   }
 
   private QNm getNameAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
@@ -508,21 +431,13 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
   public IntNumeric length() {
     moveRtx();
 
-    if (mKind == Kind.OBJECT || mKind == Kind.ARRAY) {
-      return new Int64(mRtx.getChildCount());
-    }
-
-    throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid item kind: %s", mKind);
+    return new Int64(mRtx.getChildCount());
   }
 
   @Override
   public int len() {
     moveRtx();
 
-    if (mKind == Kind.OBJECT || mKind == Kind.ARRAY) {
-      return (int) mRtx.getChildCount();
-    }
-
-    throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid item kind: %s", mKind);
+    return (int) mRtx.getChildCount();
   }
 }
