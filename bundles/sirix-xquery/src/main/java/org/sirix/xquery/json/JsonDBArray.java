@@ -82,6 +82,7 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
     mRtx.moveTo(mNodeKey);
   }
 
+  @Override
   public JsonDBCollection getCollection() {
     return mCollection;
   }
@@ -298,7 +299,8 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
 
     final var axis = new ChildAxis(rtx);
 
-    for (int i = 0; i < index && axis.hasNext(); i++);
+    for (int i = 0; i < index && axis.hasNext(); i++)
+      axis.next();
 
     if (axis.hasNext()) {
       axis.next();

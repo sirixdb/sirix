@@ -262,27 +262,36 @@ public final class JsonShredder implements Callable<Long> {
             final var stringVal = mReader.nextString();
 
             Number number;
-            try {
-              number = Integer.valueOf(stringVal);
-            } catch (final NumberFormatException e) {
-              try {
-                number = Long.valueOf(stringVal);
-              } catch (final NumberFormatException ee) {
+
+            if (stringVal.contains(".")) {
+              if (stringVal.contains("E") || stringVal.contains("e")) {
                 try {
-                  number = new BigInteger(stringVal);
-                } catch (final NumberFormatException eee) {
+                  number = Float.valueOf(stringVal);
+                } catch (final NumberFormatException eeee) {
                   try {
-                    number = Float.valueOf(stringVal);
-                  } catch (final NumberFormatException eeee) {
-                    try {
-                      number = Double.valueOf(stringVal);
-                    } catch (final NumberFormatException eeeee) {
-                      try {
-                        number = new BigDecimal(stringVal);
-                      } catch (final NumberFormatException eeeeee) {
-                        throw new IllegalStateException(eeeeee);
-                      }
-                    }
+                    number = Double.valueOf(stringVal);
+                  } catch (final NumberFormatException eeeee) {
+                    throw new IllegalStateException(eeeee);
+                  }
+                }
+              } else {
+                try {
+                  number = new BigDecimal(stringVal);
+                } catch (final NumberFormatException eeeeee) {
+                  throw new IllegalStateException(eeeeee);
+                }
+              }
+            } else {
+              try {
+                number = Integer.valueOf(stringVal);
+              } catch (final NumberFormatException e) {
+                try {
+                  number = Long.valueOf(stringVal);
+                } catch (final NumberFormatException ee) {
+                  try {
+                    number = new BigInteger(stringVal);
+                  } catch (final NumberFormatException eee) {
+                    throw new IllegalStateException(eee);
                   }
                 }
               }
@@ -301,7 +310,9 @@ public final class JsonShredder implements Callable<Long> {
       }
 
       mWtx.moveTo(insertedRootNodeKey);
-    } catch (final IOException e) {
+    } catch (
+
+    final IOException e) {
       throw new SirixIOException(e);
     }
   }
