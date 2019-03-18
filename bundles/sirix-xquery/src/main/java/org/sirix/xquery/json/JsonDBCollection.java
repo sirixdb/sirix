@@ -190,8 +190,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
     try {
       mDatabase.createResource(ResourceConfiguration.newBuilder(resourceName).useDeweyIDs(true).build());
-      final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
-      final JsonNodeTrx wtx = resource.beginNodeTrx();
+      final JsonResourceManager manager = mDatabase.openResourceManager(resourceName);
+      final JsonNodeTrx wtx = manager.beginNodeTrx();
       wtx.insertSubtreeAsFirstChild(reader);
       wtx.moveToDocumentRoot();
       return getItem(wtx);

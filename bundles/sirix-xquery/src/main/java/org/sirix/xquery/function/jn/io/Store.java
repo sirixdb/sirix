@@ -1,23 +1,31 @@
 package org.sirix.xquery.function.jn.io;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
+import org.brackit.xquery.node.stream.ArrayStream;
+import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.DocumentException;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
+import com.google.gson.stream.JsonReader;
 
 /**
  * <p>
@@ -102,24 +110,52 @@ public final class Store extends AbstractFunction {
 
   private static void add(final JsonDBStore store, final JsonDBCollection coll, final String resName,
       final Sequence nodes) {
-    // if
-    // coll.add
-    // final ParserStream parsers = new ParserStream(nodes);
-    // try {
-    // for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-    // coll.add(resName, parser);
-    // }
-    // } finally {
-    // parsers.close();
-    // }
-    // }
-
+    if (nodes instanceof Str) {
+      try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
+        coll.add(resName, JsonShredder.createStringReader(((Str) nodes).stringValue()));
+      } catch (final Exception e) {
+        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+      }
+    } else if (nodes instanceof FunctionConversionSequence) {
+      final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
+      final Iter iter = seq.iterate();
+      int size = coll.getDatabase().listResources().size();
+      try {
+        for (Item item = null; (item = iter.next()) != null;) {
+          try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
+            coll.add("resource" + size++, reader);
+          } catch (final Exception e) {
+            throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+          }
+        }
+      } finally {
+        iter.close();
+      }
+    }
   }
 
   private static void create(final JsonDBStore store, final String collName, final String resName,
       final Sequence nodes) {
     if (nodes instanceof Str) {
-      store.create(collName, resName, ((Str) nodes).stringValue());
+      try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
+        store.create(collName, resName, ((Str) nodes).stringValue());
+      } catch (final Exception e) {
+        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+      }
+    } else if (nodes instanceof FunctionConversionSequence) {
+      final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
+      final Iter iter = seq.iterate();
+      try {
+        final List<Str> list = new ArrayList<>();
+
+        for (Item item = null; (item = iter.next()) != null;) {
+          list.add((Str) item);
+        }
+
+        store.createFromJsonStrings(collName, new ArrayStream<>(list.toArray(new Str[list.size()])));
+      } finally {
+        iter.close();
+      }
     }
   }
 }
