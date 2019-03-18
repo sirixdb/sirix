@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.DatabaseConfiguration;
@@ -229,7 +230,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection createFromJsonStrings(String collName, final @Nullable Stream<String> jsonStrings) {
+  public JsonDBCollection createFromJsonStrings(String collName, final @Nullable Stream<Str> jsonStrings) {
     if (jsonStrings == null)
       return null;
 
@@ -243,9 +244,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       int i = database.listResources().size() + 1;
       try {
-        String string = null;
+        Str string = null;
         while ((string = jsonStrings.next()) != null) {
-          final String currentString = string;
+          final String currentString = string.stringValue();
           final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
           pool.submit(() -> {
             database.createResource(ResourceConfiguration.newBuilder(resourceName)
