@@ -131,4 +131,31 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       assertEquals("1", buf.toString());
     }
   }
+
+  @Test
+  public void testArrays() {
+    // Initialize query context and store.
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      // Use XQuery to store a JSON string into the store.
+      System.out.println("Storing document:");
+      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",[[\"bar\"]]]')";
+      System.out.println(storeQuery);
+      new XQuery(chain, storeQuery).evaluate(ctx);
+
+      // Use XQuery to load a JSON database/resource.
+      System.out.println("Opening document again:");
+      final String openQuery = "jn:doc('mycol.jn','mydoc.jn')[[1]][[0]][[0]]";
+      System.out.println(openQuery);
+      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
+
+      assertNotNull(seq);
+
+      final PrintStream buf = IOUtils.createBuffer();
+      new StringSerializer(buf).serialize(seq);
+      assertEquals("bar", buf.toString());
+    }
+  }
 }
