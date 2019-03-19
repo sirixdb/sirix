@@ -33,20 +33,19 @@ public final class StoreIntegrationTest extends TestCase {
 
       // Use XQuery to store multiple JSON strings into the store.
       System.out.println("Storing strings:");
-      final String query = "jn:store('mycol.jn','mydoc.jn',('[\"bla\", \"blubb\"]','{\"foo\": true}'))";
+      final String query = "jn:store('mycol.jn',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'))";
       System.out.println(query);
       new XQuery(chain, query).evaluate(ctx);
 
       // Use XQuery to add a JSON string to the collection.
       System.out.println("Storing strings:");
-      final String queryAdd = "jn:store('mycol.jn','mydoc.jn','[\"bla\", \"blubb\"]',false())";
+      final String queryAdd = "jn:store('mycol.jn',(),'[\"bla\", \"blubb\"]',false())";
       System.out.println(queryAdd);
       new XQuery(chain, queryAdd).evaluate(ctx);
 
       // Use XQuery to add a JSON string to the collection.
       System.out.println("Storing strings:");
-      final String queryAddStrings =
-          "jn:store('mycol.jn','mydoc.jn',('[\"bla\", \"blubb\"]','{\"foo\": true}'),false())";
+      final String queryAddStrings = "jn:store('mycol.jn',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false())";
       System.out.println(queryAddStrings);
       new XQuery(chain, queryAddStrings).evaluate(ctx);
     }

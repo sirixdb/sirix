@@ -66,10 +66,10 @@ public final class Store extends AbstractFunction {
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
@@ -85,9 +85,7 @@ public final class Store extends AbstractFunction {
       final boolean createNew = args.length == 4
           ? args[3].booleanValue()
           : true;
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
-          ? false
-          : true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       if (createNew) {
