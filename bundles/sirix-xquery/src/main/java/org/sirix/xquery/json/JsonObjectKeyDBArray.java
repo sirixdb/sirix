@@ -145,7 +145,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   }
 
   @Override
-  public Stream<JsonObjectKeyDBArray> getPast(final boolean includeSelf) {
+  public Stream<JsonObjectKeyDBArray> getEarlier(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES

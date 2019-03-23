@@ -145,7 +145,7 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   }
 
   @Override
-  public Stream<JsonDBArray> getPast(final boolean includeSelf) {
+  public Stream<JsonDBArray> getEarlier(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
