@@ -18,9 +18,9 @@ import org.sirix.xquery.json.JsonDBCollection;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>jn:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as xs:node</code>
+ * <li><code>jn:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as json-item()</code>
  * </li>
- * <li><code>jn:doc($coll as xs:string, $res as xs:string) as xs:node</code></li>
+ * <li><code>jn:doc($coll as xs:string, $res as xs:string) as json-item()</code></li>
  * </ul>
  *
  * @author Max Bechtold
