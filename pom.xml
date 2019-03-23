@@ -244,7 +244,7 @@
 		<dependency>
 			<groupId>com.google.auto.value</groupId>
 			<artifactId>auto-value</artifactId>
-			<version>1.5-SNAPSHOT</version>
+			<version>1.6.2</version>
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
