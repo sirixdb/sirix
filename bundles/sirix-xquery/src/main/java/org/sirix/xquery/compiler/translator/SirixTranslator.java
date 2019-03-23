@@ -127,7 +127,7 @@ public final class SirixTranslator extends TopDownTranslator {
         return new Previous(Axis.PREVIOUS);
       case XQ.NEXT:
         return new Next(Axis.NEXT);
-      case XQ.ALL_TIME:
+      case XQ.ALL_TIMES:
         return new AllTime(Axis.ALL_TIME);
       case XQ.FIRST:
         return new First(Axis.FIRST);

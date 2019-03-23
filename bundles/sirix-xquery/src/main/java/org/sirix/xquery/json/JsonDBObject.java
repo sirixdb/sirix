@@ -151,7 +151,7 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
   }
 
   @Override
-  public Stream<JsonDBObject> getPast(final boolean includeSelf) {
+  public Stream<JsonDBObject> getEarlier(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES

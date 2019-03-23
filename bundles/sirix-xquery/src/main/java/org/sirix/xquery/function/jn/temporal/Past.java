@@ -56,7 +56,7 @@ public final class Past extends AbstractFunction {
           @Override
           public Item next() {
             if (s == null) {
-              s = item.getPast(includeSelf);
+              s = item.getEarlier(includeSelf);
             }
             return (Item) s.next();
           }
