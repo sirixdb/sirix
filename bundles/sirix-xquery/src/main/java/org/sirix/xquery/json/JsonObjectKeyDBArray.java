@@ -145,7 +145,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   }
 
   @Override
-  public Stream<JsonObjectKeyDBArray> getEarlier(final boolean includeSelf) {
+  public Stream<JsonObjectKeyDBArray> getPast(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
@@ -165,7 +165,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   }
 
   @Override
-  public Stream<JsonObjectKeyDBArray> getAllTime() {
+  public Stream<JsonObjectKeyDBArray> getAllTimes() {
     moveRtx();
     return new TemporalSirixJsonObjectKeyArrayStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }

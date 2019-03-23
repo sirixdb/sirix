@@ -15,6 +15,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
@@ -33,6 +34,13 @@ import org.sirix.xquery.function.jn.io.DocByPointInTime;
 import org.sirix.xquery.function.jn.io.Load;
 import org.sirix.xquery.function.jn.io.OpenRevisions;
 import org.sirix.xquery.function.jn.io.Store;
+import org.sirix.xquery.function.jn.temporal.AllTimes;
+import org.sirix.xquery.function.jn.temporal.First;
+import org.sirix.xquery.function.jn.temporal.Future;
+import org.sirix.xquery.function.jn.temporal.Last;
+import org.sirix.xquery.function.jn.temporal.Next;
+import org.sirix.xquery.function.jn.temporal.Past;
+import org.sirix.xquery.function.jn.temporal.Previous;
 import org.sirix.xquery.function.jn.trx.SelectJsonItem;
 
 /**
@@ -68,6 +76,22 @@ public final class JNFun {
     Functions.predefine(new SelectJsonItem(SelectJsonItem.SELECT_JSON_ITEM, new Signature(SequenceType.JSON_ITEM,
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));
 
+    // temporal functions
+    Functions.predefine(new Future(Future.FUTURE, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM,
+        new SequenceType(AtomicType.BOOL, Cardinality.One))));
+    Functions.predefine(new Past(Past.PAST, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM,
+        new SequenceType(AtomicType.BOOL, Cardinality.One))));
+    Functions.predefine(new Next(Next.NEXT,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(new Previous(Previous.PREVIOUS,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(new First(First.FIRST,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(new Last(Last.LAST,
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne), SequenceType.JSON_ITEM)));
+    Functions.predefine(
+        new AllTimes(AllTimes.ALL_TIMES, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
+
     // store
     Functions.predefine(new Store(false));
     Functions.predefine(new Store(true));
@@ -79,7 +103,6 @@ public final class JNFun {
     Functions.predefine(new Load(true));
     Functions.predefine(new Load(LOAD, false));
     Functions.predefine(new Load(LOAD, true));
-
 
     // doc
     Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),

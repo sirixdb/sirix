@@ -146,7 +146,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
   }
 
   @Override
-  public Stream<JsonObjectValueDBArray> getEarlier(final boolean includeSelf) {
+  public Stream<JsonObjectValueDBArray> getPast(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
@@ -166,7 +166,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
   }
 
   @Override
-  public Stream<JsonObjectValueDBArray> getAllTime() {
+  public Stream<JsonObjectValueDBArray> getAllTimes() {
     moveRtx();
     return new TemporalSirixJsonObjectValueArrayStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }

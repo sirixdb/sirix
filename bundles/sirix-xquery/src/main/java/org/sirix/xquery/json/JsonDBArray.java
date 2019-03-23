@@ -145,7 +145,7 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   }
 
   @Override
-  public Stream<JsonDBArray> getEarlier(final boolean includeSelf) {
+  public Stream<JsonDBArray> getPast(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
@@ -163,7 +163,7 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   }
 
   @Override
-  public Stream<JsonDBArray> getAllTime() {
+  public Stream<JsonDBArray> getAllTimes() {
     moveRtx();
     return new TemporalSirixJsonArrayStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }

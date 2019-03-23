@@ -151,7 +151,7 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
   }
 
   @Override
-  public Stream<JsonDBObject> getEarlier(final boolean includeSelf) {
+  public Stream<JsonDBObject> getPast(final boolean includeSelf) {
     moveRtx();
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
@@ -169,7 +169,7 @@ public final class JsonDBObject extends AbstractItem implements TemporalJsonDBIt
   }
 
   @Override
-  public Stream<JsonDBObject> getAllTime() {
+  public Stream<JsonDBObject> getAllTimes() {
     moveRtx();
     return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(mRtx.getResourceManager(), mRtx), mCollection);
   }
