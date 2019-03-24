@@ -199,10 +199,12 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       }
       mDatabase.createResource(ResourceConfiguration.newBuilder(resName).useDeweyIDs(true).build());
       final JsonResourceManager manager = mDatabase.openResourceManager(resName);
-      final JsonNodeTrx wtx = manager.beginNodeTrx();
-      wtx.insertSubtreeAsFirstChild(reader);
-      wtx.moveToDocumentRoot();
-      return getItem(wtx);
+      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(reader);
+      }
+      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+      rtx.moveToDocumentRoot();
+      return getItem(rtx);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;
@@ -275,12 +277,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                     .useTextCompression(true)
                                                     .buildPathSummary(true)
                                                     .build());
-      final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
-      final JsonNodeTrx wtx = resource.beginNodeTrx();
+      final JsonResourceManager manager = mDatabase.openResourceManager(resourceName);
+      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(reader);
+      }
 
-      wtx.insertSubtreeAsFirstChild(reader);
-
-      return getItem(wtx);
+      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+      return getItem(rtx);
     } catch (final SirixException e) {
       LOGGER.error(e.getMessage(), e);
       return null;

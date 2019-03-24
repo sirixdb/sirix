@@ -33,7 +33,7 @@ import com.google.gson.stream.JsonReader;
  * </p>
  *
  * <pre>
- * <code>sdb:store($coll as xs:string, $res as xs:string, $fragment as xs:node, $create-new as xs:boolean?) as ()</code>
+ * <code>jn:store($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as json-item()</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
@@ -112,7 +112,7 @@ public final class Store extends AbstractFunction {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
         coll.add(resName, JsonShredder.createStringReader(((Str) nodes).stringValue()));
       } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+        throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (nodes instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) nodes;
@@ -123,7 +123,7 @@ public final class Store extends AbstractFunction {
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
             coll.add("resource" + size++, reader);
           } catch (final Exception e) {
-            throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+            throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
         }
       } finally {
@@ -136,7 +136,7 @@ public final class Store extends AbstractFunction {
       final Sequence nodes) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        store.create(collName, resName, ((Str) nodes).stringValue());
+        store.create(collName, resName, reader);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
       }

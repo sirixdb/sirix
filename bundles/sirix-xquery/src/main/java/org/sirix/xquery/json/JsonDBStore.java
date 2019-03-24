@@ -28,9 +28,11 @@
 package org.sirix.xquery.json;
 
 import java.nio.file.Path;
+import java.util.Set;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.JsonStore;
+import com.google.gson.stream.JsonReader;
 
 /**
  * Database store.
@@ -58,6 +60,10 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   @Override
   JsonDBCollection create(String collName, String optResName, String json);
+
+  JsonDBCollection create(String collName, String optResName, JsonReader json);
+
+  JsonDBCollection create(String collName, Set<JsonReader> json);
 
   @Override
   JsonDBCollection createFromJsonStrings(String collName, Stream<Str> json);

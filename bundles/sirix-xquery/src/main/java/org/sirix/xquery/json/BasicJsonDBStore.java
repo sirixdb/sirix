@@ -199,7 +199,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createCollection(collName, optResName, JsonShredder.createFileReader(path));
   }
 
-  private JsonDBCollection createCollection(final String collName, final String optResName, final JsonReader reader) {
+  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+      final JsonReader reader) {
     final Path dbPath = mLocation.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -207,10 +208,27 @@ public final class BasicJsonDBStore implements JsonDBStore {
       Databases.createJsonDatabase(dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       mDatabases.add(database);
-      final String resName = optResName != null
-          ? optResName
-          : new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
-      database.createResource(ResourceConfiguration.newBuilder(resName)
+
+      final String resourceName;
+      if (optionalResourceName != null) {
+        final var resources = database.listResources();
+
+        final Optional<Path> hasResourceWithName =
+            resources.stream()
+                     .filter(resource -> resource.getFileName().toString().equals(optionalResourceName))
+                     .findFirst();
+
+        if (hasResourceWithName.isPresent()) {
+          int i = database.listResources().size() + 1;
+          resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+        } else {
+          resourceName = optionalResourceName;
+        }
+      } else {
+        resourceName = new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
+      }
+
+      database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
                                                    .buildPathSummary(mBuildPathSummary)
@@ -219,7 +237,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final JsonDBCollection collection = new JsonDBCollection(collName, database);
       mCollections.put(database, collection);
 
-      try (final JsonResourceManager manager = database.openResourceManager(resName);
+      try (final JsonResourceManager manager = database.openResourceManager(resourceName);
           final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader);
       }
@@ -227,6 +245,36 @@ public final class BasicJsonDBStore implements JsonDBStore {
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
+  }
+
+  @Override
+  public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders) {
+    final Path dbPath = mLocation.resolve(collName);
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      Databases.removeDatabase(dbPath);
+      Databases.createJsonDatabase(dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getFile());
+      mDatabases.add(database);
+      final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      jsonReaders.forEach(jsonReader -> {
+        int i = database.listResources().size() + 1;
+        final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+        pool.submit(() -> {
+          return createResource(collName, database, jsonReader, resourceName);
+        });
+      });
+      pool.shutdown();
+      pool.awaitTermination(15, TimeUnit.SECONDS);
+      return new JsonDBCollection(collName, database);
+    } catch (final SirixRuntimeException | InterruptedException e) {
+      throw new DocumentException(e.getCause());
+    }
+  }
+
+  @Override
+  public JsonDBCollection create(String collectionName, String resourceName, JsonReader jsonReader) {
+    return createCollection(collectionName, resourceName, jsonReader);
   }
 
   @Override
@@ -249,20 +297,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
           final String currentString = string.stringValue();
           final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
           pool.submit(() -> {
-            database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                         .storageType(mStorageType)
-                                                         .useDeweyIDs(true)
-                                                         .useTextCompression(true)
-                                                         .buildPathSummary(true)
-                                                         .build());
-            try (final JsonResourceManager manager = database.openResourceManager(resourceName);
-                final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-              final JsonDBCollection collection = new JsonDBCollection(collName, database);
-              mCollections.put(database, collection);
-              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(currentString));
-              wtx.commit();
-            }
-            return null;
+            return createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName);
           });
           i++;
         }
@@ -270,11 +305,28 @@ public final class BasicJsonDBStore implements JsonDBStore {
         jsonStrings.close();
       }
       pool.shutdown();
-      pool.awaitTermination(5, TimeUnit.SECONDS);
+      pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database);
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }
+  }
+
+  private Void createResource(String collName, final Database<JsonResourceManager> database, final JsonReader reader,
+      final String resourceName) {
+    database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                 .storageType(mStorageType)
+                                                 .useDeweyIDs(true)
+                                                 .useTextCompression(true)
+                                                 .buildPathSummary(true)
+                                                 .build());
+    try (final JsonResourceManager manager = database.openResourceManager(resourceName);
+        final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+      final JsonDBCollection collection = new JsonDBCollection(collName, database);
+      mCollections.put(database, collection);
+      wtx.insertSubtreeAsFirstChild(reader);
+    }
+    return null;
   }
 
   @Override
@@ -308,7 +360,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
               final JsonDBCollection collection = new JsonDBCollection(collName, database);
               mCollections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
-              wtx.commit();
             }
             return null;
           });
@@ -318,7 +369,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         paths.close();
       }
       pool.shutdown();
-      pool.awaitTermination(5, TimeUnit.SECONDS);
+      pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database);
     } catch (final SirixRuntimeException | InterruptedException e) {
       throw new DocumentException(e.getCause());
