@@ -22,6 +22,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.Node;
+import org.brackit.xquery.xdm.node.NodeStore;
 import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -71,10 +72,10 @@ public final class Load extends AbstractFunction {
   public Load(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
@@ -114,8 +115,8 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static TemporalNodeCollection<?> add(final org.brackit.xquery.xdm.node.NodeStore store,
-      final XmlDBCollection coll, final String resName, final Sequence resources) throws IOException {
+  private static TemporalNodeCollection<?> add(final NodeStore store, final XmlDBCollection coll, final String resName,
+      final Sequence resources) throws IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
       coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
@@ -134,7 +135,7 @@ public final class Load extends AbstractFunction {
   }
 
   private static XmlDBCollection create(final BasicXmlDBStore store, final String collName, final String resName,
-      final Sequence resources) throws DocumentException, IOException {
+      final Sequence resources) throws IOException {
     if (resources instanceof Atomic) {
       final Atomic res = (Atomic) resources;
       return store.create(collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
@@ -146,13 +147,13 @@ public final class Load extends AbstractFunction {
   private static class StoreParser extends StreamSubtreeParser {
     private final boolean intercept;
 
-    public StoreParser(final Node<?> node) throws DocumentException {
+    public StoreParser(final Node<?> node) {
       super(node.getSubtree());
       intercept = (node.getKind() != Kind.DOCUMENT);
     }
 
     @Override
-    public void parse(SubtreeHandler handler) throws DocumentException {
+    public void parse(SubtreeHandler handler) {
       if (intercept) {
         handler = new InterceptorHandler(handler);
       }
@@ -168,79 +169,79 @@ public final class Load extends AbstractFunction {
     }
 
     @Override
-    public void beginFragment() throws DocumentException {
+    public void beginFragment() {
       handler.beginFragment();
       handler.startDocument();
     }
 
     @Override
-    public void endFragment() throws DocumentException {
+    public void endFragment() {
       handler.endDocument();
       handler.endFragment();
     }
 
     @Override
-    public void startDocument() throws DocumentException {
+    public void startDocument() {
       handler.startDocument();
     }
 
     @Override
-    public void endDocument() throws DocumentException {
+    public void endDocument() {
       handler.endDocument();
     }
 
     @Override
-    public void text(final Atomic content) throws DocumentException {
+    public void text(final Atomic content) {
       handler.text(content);
     }
 
     @Override
-    public void comment(final Atomic content) throws DocumentException {
+    public void comment(final Atomic content) {
       handler.comment(content);
     }
 
     @Override
-    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content) {
       handler.processingInstruction(target, content);
     }
 
     @Override
-    public void startMapping(final String prefix, final String uri) throws DocumentException {
+    public void startMapping(final String prefix, final String uri) {
       handler.startMapping(prefix, uri);
     }
 
     @Override
-    public void endMapping(final String prefix) throws DocumentException {
+    public void endMapping(final String prefix) {
       handler.endMapping(prefix);
     }
 
     @Override
-    public void startElement(final QNm name) throws DocumentException {
+    public void startElement(final QNm name) {
       handler.startElement(name);
     }
 
     @Override
-    public void endElement(final QNm name) throws DocumentException {
+    public void endElement(final QNm name) {
       handler.endElement(name);
     }
 
     @Override
-    public void attribute(final QNm name, final Atomic value) throws DocumentException {
+    public void attribute(final QNm name, final Atomic value) {
       handler.attribute(name, value);
     }
 
     @Override
-    public void begin() throws DocumentException {
+    public void begin() {
       handler.begin();
     }
 
     @Override
-    public void end() throws DocumentException {
+    public void end() {
       handler.end();
     }
 
     @Override
-    public void fail() throws DocumentException {
+    public void fail() {
       handler.fail();
     }
   }
@@ -253,7 +254,7 @@ public final class Load extends AbstractFunction {
     }
 
     @Override
-    public SubtreeParser next() throws DocumentException {
+    public SubtreeParser next() {
       try {
         final Item i = it.next();
         if (i == null) {

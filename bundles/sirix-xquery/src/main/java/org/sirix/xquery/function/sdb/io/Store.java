@@ -69,10 +69,10 @@ public final class Store extends AbstractFunction {
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);

@@ -1,12 +1,23 @@
 package org.sirix.xquery.function.jn.io;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.util.HashSet;
+import java.util.Set;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
+import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
+import org.brackit.xquery.util.io.URIHandler;
 import org.brackit.xquery.xdm.DocumentException;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
@@ -17,6 +28,7 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
+import com.google.gson.stream.JsonReader;
 
 /**
  * <p>
@@ -57,10 +69,10 @@ public final class Load extends AbstractFunction {
   public Load(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.OneOrMany))
         : new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.OneOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
@@ -76,9 +88,7 @@ public final class Load extends AbstractFunction {
       final boolean createNew = args.length == 4
           ? args[3].booleanValue()
           : true;
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
-          ? false
-          : true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       JsonDBCollection coll;
@@ -100,35 +110,72 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static JsonDBCollection add(final JsonDBStore store, final JsonDBCollection coll, final String resName,
+  private static void add(final JsonDBStore store, final JsonDBCollection coll, final String resName,
       final Sequence resources) {
-    return null;
-    // if (resources instanceof Atomic) {
-    // final Atomic res = (Atomic) resources;
-    // coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
-    // return coll;
-    // } else {
-    // final ParserStream parsers = new ParserStream(resources);
-    // try {
-    // for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-    // coll.add(resName, parser);
-    // }
-    // } finally {
-    // parsers.close();
-    // }
-    // return coll;
-    // }
+    if (resources instanceof Atomic) {
+      final Atomic res = (Atomic) resources;
+      try (final JsonReader reader =
+          new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
+        coll.add(resName, reader);
+      } catch (final Exception e) {
+        throw new QueryException(new QNm(e.getMessage()), e);
+      }
+    } else if (resources instanceof FunctionConversionSequence) {
+      final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
+      final Iter iter = seq.iterate();
+      int size = coll.getDatabase().listResources().size();
+      try {
+        for (Item item = null; (item = iter.next()) != null;) {
+          try (final JsonReader reader =
+              new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
+            coll.add("resource" + size++, reader);
+          } catch (final Exception e) {
+            throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+          }
+        }
+      } finally {
+        iter.close();
+      }
+    }
   }
 
-  private static JsonDBCollection create(final JsonDBStore store, final String collName, final String resName,
-      final Sequence resources) {
+  private JsonDBCollection create(final JsonDBStore store, final String collName, final String resName,
+      final Sequence resources) throws IOException {
+    if (resources instanceof Str) {
+      try (final JsonReader reader =
+          new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) resources).stringValue())))) {
+        return store.create(collName, resName, reader);
+      } catch (final Exception e) {
+        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+      }
+    } else if (resources instanceof FunctionConversionSequence) {
+      final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
+      final Iter iter = seq.iterate();
+      try {
+        final Set<JsonReader> jsonReaders = new HashSet<>();
+
+        for (Item item = null; (item = iter.next()) != null;) {
+          jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+        }
+
+        final JsonDBCollection collection = store.create(collName, jsonReaders);
+
+        jsonReaders.forEach(reader -> closeReader(reader));
+
+        return collection;
+      } finally {
+        iter.close();
+      }
+    }
+
     return null;
-    // if (resources instanceof Atomic) {
-    // final Atomic res = (Atomic) resources;
-    // return store.create(collName, resName, new
-    // DocumentParser(URIHandler.getInputStream(res.stringValue())));
-    // } else {
-    // return store.create(collName, new ParserStream(resources));
-    // }
+  }
+
+  private void closeReader(JsonReader reader) {
+    try {
+      reader.close();
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 }
