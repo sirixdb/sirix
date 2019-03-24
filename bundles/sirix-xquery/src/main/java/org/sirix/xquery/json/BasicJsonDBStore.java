@@ -257,13 +257,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final var database = Databases.openJsonDatabase(dbConf.getFile());
       mDatabases.add(database);
       final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-      jsonReaders.forEach(jsonReader -> {
-        int i = database.listResources().size() + 1;
-        final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+      int numberOfResources = database.listResources().size();
+      for (final var jsonReader : jsonReaders) {
+        numberOfResources++;
+        final String resourceName = new StringBuilder("resource").append(String.valueOf(numberOfResources)).toString();
         pool.submit(() -> {
           return createResource(collName, database, jsonReader, resourceName);
         });
-      });
+      }
       pool.shutdown();
       pool.awaitTermination(15, TimeUnit.SECONDS);
       return new JsonDBCollection(collName, database);
