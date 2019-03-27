@@ -156,6 +156,18 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       final PrintStream buf = IOUtils.createBuffer();
       new StringSerializer(buf).serialize(seq);
       assertEquals("bar", buf.toString());
+
+      // // Use XQuery to load a JSON database/resource.
+      // System.out.println("Opening document again:");
+      // final String query = "jn:doc('mycol.jn','mydoc.jn')[[0:1]]";
+      // System.out.println(openQuery);
+      // final Sequence seqSlice = new XQuery(chain, query).evaluate(ctx);
+      //
+      // assertNotNull(seqSlice);
+      //
+      // final PrintStream bufSlice = IOUtils.createBuffer();
+      // new StringSerializer(bufSlice).serialize(seq);
+      // assertEquals("[\"foo\",[[\"bar\"]]]", buf.toString());
     }
   }
 }
