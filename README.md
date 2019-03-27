@@ -779,5 +779,3 @@ This work is released in the public domain under the BSD 3-clause license
 Sirix is maintained by:
 
 * Johannes Lichtenberger
-
-Your name might follow? ;-)
