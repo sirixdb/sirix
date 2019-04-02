@@ -12,16 +12,16 @@ import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Node;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.brackit.xquery.xdm.node.Node;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixRuntimeException;
@@ -124,9 +124,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Create index listeners.
    *
    * @param indexDefs the {@link IndexDef}s
-   * @param nodeWriteTrx the {@link XdmNodeTrx}
+   * @param nodeWriteTrx the {@link XmlNodeTrx}
    *
-   * @return this {@link XdmIndexController} instance
+   * @return this {@link XmlIndexController} instance
    */
   IndexController<R, W> createIndexListeners(Set<IndexDef> indexDefs, W nodeWriteTrx);
 

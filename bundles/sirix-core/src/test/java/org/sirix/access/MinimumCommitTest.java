@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XdmDocumentCreator;
 
@@ -67,33 +67,33 @@ public final class MinimumCommitTest {
     holder.getXdmNodeWriteTrx().close();
 
     holder = Holder.generateRtx();
-    assertEquals(3L, holder.getNodeReadTrx().getRevisionNumber());
+    assertEquals(3L, holder.getXdmNodeReadTrx().getRevisionNumber());
   }
 
   @Test
   public void testTimestamp() throws SirixException {
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
-      assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.getRevisionTimestamp().toEpochMilli() < (System.currentTimeMillis() + 1));
     }
   }
 
   @Test
   public void testCommitMessage() {
-    try (final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx()) {
+    try (final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx()) {
       wtx.commit("foo");
       wtx.commit("bar");
       wtx.commit("baz");
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
       assertEquals("foo", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(2)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(2)) {
       assertEquals("bar", rtx.getCommitCredentials().getMessage());
     }
 
-    try (final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(3)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(3)) {
       assertEquals("baz", rtx.getCommitCredentials().getMessage());
     }
   }

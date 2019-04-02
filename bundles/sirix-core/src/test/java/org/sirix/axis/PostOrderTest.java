@@ -30,8 +30,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XdmDocumentCreator;
@@ -67,7 +67,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateWhole() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -76,7 +76,7 @@ public class PostOrderTest {
         ImmutableList.of(4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new PostOrderAxis(rtx);
       }
@@ -85,7 +85,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateFirstSubtree() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(5L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {6L, 7L});
@@ -93,7 +93,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
         rtx.moveTo(5L);
         return new PostOrderAxis(rtx);
       }
@@ -102,7 +102,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateZero() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(8L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
@@ -110,7 +110,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
         rtx.moveTo(8L);
         return new PostOrderAxis(rtx);
       }
@@ -119,7 +119,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentFirst() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtreeAsFirstChild(
           XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
@@ -182,7 +182,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentSecond() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtreeAsFirstChild(
           XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));

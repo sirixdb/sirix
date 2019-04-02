@@ -80,7 +80,7 @@ public class JSONObjectNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ObjectNode node2 =
-        (ObjectNode) Kind.JSON_OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
+        (ObjectNode) Kind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
@@ -91,7 +91,7 @@ public class JSONObjectNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(16L, node.getRightSiblingKey());
 
-    assertEquals(Kind.JSON_OBJECT, node.getKind());
+    assertEquals(Kind.OBJECT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

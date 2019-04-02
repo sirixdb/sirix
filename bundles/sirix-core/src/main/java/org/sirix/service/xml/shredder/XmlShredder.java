@@ -44,11 +44,11 @@ import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.xdm.ElementNode;
@@ -58,8 +58,8 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link XdmNodeTrx} . The content of
- * the stream is added as a subtree. Based on an enum which identifies the point of insertion, the
+ * This class appends a given {@link XMLStreamReader} to a {@link XmlNodeTrx} . The content of the
+ * stream is added as a subtree. Based on an enum which identifies the point of insertion, the
  * subtree is either added as first child or as right sibling.
  *
  * @author Marc Kramis, Seabix
@@ -72,8 +72,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XmlShredder.class));
 
-  /** {@link XdmNodeTrx}. */
-  protected final XdmNodeTrx mWtx;
+  /** {@link XmlNodeTrx}. */
+  protected final XmlNodeTrx mWtx;
 
   /** {@link XMLEventReader}. */
   protected final XMLEventReader mReader;
@@ -95,8 +95,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    */
   public static class Builder {
 
-    /** {@link XdmNodeTrx} implementation. */
-    private final XdmNodeTrx mWtx;
+    /** {@link XmlNodeTrx} implementation. */
+    private final XmlNodeTrx mWtx;
 
     /** {@link XMLEventReader} implementation. */
     private final XMLEventReader mReader;
@@ -118,11 +118,11 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     /**
      * Constructor.
      *
-     * @param wtx {@link XdmNodeTrx} implementation
+     * @param wtx {@link XmlNodeTrx} implementation
      * @param reader {@link XMLEventReader} implementation
      * @param insert insertion position
      */
-    public Builder(final XdmNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
+    public Builder(final XmlNodeTrx wtx, final XMLEventReader reader, final InsertPosition insert) {
       mWtx = checkNotNull(wtx);
       mReader = checkNotNull(reader);
       mInsert = checkNotNull(insert);
@@ -315,12 +315,12 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     final Path target = Paths.get(args[1]);
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
     Databases.removeDatabase(target);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
 
-    try (final var db = Databases.openXdmDatabase(target)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
-          final XdmNodeTrx wtx = resMgr.beginNodeTrx();
+    try (final var db = Databases.openXmlDatabase(target)) {
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
+      try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
+          final XmlNodeTrx wtx = resMgr.beginNodeTrx();
           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3
@@ -328,9 +328,9 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
             : false;
         final XmlShredder shredder =
             new XmlShredder.Builder(wtx, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                     .includeComments(includeCoPI)
-                                                                     .includePIs(includeCoPI)
-                                                                     .build();
+                                                                               .includeComments(includeCoPI)
+                                                                               .includePIs(includeCoPI)
+                                                                               .build();
         shredder.call();
       }
     }
@@ -345,7 +345,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @return an {@link XMLEventReader}
    * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createFileReader(final FileInputStream fis) {
+  public static XMLEventReader createFileReader(final FileInputStream fis) {
     checkNotNull(fis);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
@@ -369,7 +369,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @return an {@link XMLEventReader}
    * @throws SirixException if creating the xml event reader fails.
    */
-  public static synchronized XMLEventReader createStringReader(final String xmlString) {
+  public static XMLEventReader createStringReader(final String xmlString) {
     checkNotNull(xmlString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
     setProperties(factory);
@@ -389,8 +389,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
    * @throws IOException if I/O operation fails
    * @throws XMLStreamException if any parsing error occurs
    */
-  public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> events)
-      throws IOException, XMLStreamException {
+  public static XMLEventReader createQueueReader(final Queue<XMLEvent> events) throws IOException, XMLStreamException {
     return new QueueEventReader(checkNotNull(events));
   }
 }

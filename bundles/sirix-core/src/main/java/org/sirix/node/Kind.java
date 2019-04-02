@@ -42,7 +42,7 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.index.AtomicUtil;
 import org.sirix.index.avltree.AVLNode;
@@ -60,8 +60,8 @@ import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
@@ -798,7 +798,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON object node. */
-  JSON_OBJECT((byte) 24, ObjectNode.class) {
+  OBJECT((byte) 24, ObjectNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -834,7 +834,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON array node. */
-  JSON_ARRAY((byte) 25, ArrayNode.class) {
+  ARRAY((byte) 25, ArrayNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -873,7 +873,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON array node. */
-  JSON_OBJECT_KEY((byte) 26, ObjectKeyNode.class) {
+  OBJECT_RECORD((byte) 26, ObjectRecordNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -887,16 +887,16 @@ public enum Kind implements NodePersistenter {
 
       final String name = nameKey == -1
           ? ""
-          : pageReadTrx.getName(nameKey, Kind.JSON_OBJECT_KEY);
+          : pageReadTrx.getName(nameKey, Kind.OBJECT_RECORD);
 
       // Returning an instance.
-      return new ObjectKeyNode(structDel, nameKey, name, pathNodeKey);
+      return new ObjectRecordNode(structDel, nameKey, name, pathNodeKey);
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
-      final ObjectKeyNode node = (ObjectKeyNode) record;
+      final ObjectRecordNode node = (ObjectRecordNode) record;
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -917,7 +917,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON string value node. */
-  JSON_STRING_VALUE((byte) 30, StringNode.class) {
+  STRING_VALUE((byte) 30, StringNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -962,7 +962,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON boolean value node. */
-  JSON_BOOLEAN_VALUE((byte) 27, BooleanNode.class) {
+  BOOLEAN_VALUE((byte) 27, BooleanNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -1000,7 +1000,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON number value node. */
-  JSON_NUMBER_VALUE((byte) 28, NumberNode.class) {
+  NUMBER_VALUE((byte) 28, NumberNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -1103,7 +1103,7 @@ public enum Kind implements NodePersistenter {
     }
   },
   /** JSON null node. */
-  JSON_NULL_VALUE((byte) 29, NullNode.class) {
+  NULL_VALUE((byte) 29, NullNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {

@@ -26,14 +26,14 @@ import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import com.google.common.base.Objects;
 
 /**
@@ -44,7 +44,7 @@ import com.google.common.base.Objects;
  * not be removed.
  * </p>
  */
-public final class XdmDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXdmNode {
+public final class XdmDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXmlNode {
 
   /** {@link NodeDelegate} reference. */
   private final NodeDelegate mNodeDel;
@@ -69,7 +69,7 @@ public final class XdmDocumentRootNode extends AbstractStructForwardingNode impl
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableDocumentNode.of(this));
   }
 

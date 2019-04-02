@@ -17,11 +17,11 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import org.sirix.access.LocalXdmDatabase;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.LocalXmlDatabase;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.PageReadTrxImpl;
 import org.sirix.access.trx.page.PageWriteTrxFactory;
 import org.sirix.api.Database;
@@ -31,7 +31,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -98,7 +98,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalXdmDatabase} for centralized operations on related sessions
+   * @param database {@link LocalXmlDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
    * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
@@ -208,9 +208,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId,
-      PageTrx<Long, Record, UnorderedKeyValuePage> pageReadTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
-      Node documentNode);
+  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageReadTrx,
+      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node documentNode;
@@ -230,8 +229,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * A commit file which is used by a {@link XdmNodeTrx} to denote if it's currently commiting or
-   * not.
+   * A commit file which is used by a {@link XmlNodeTrx} to denote if it's currently commiting or not.
    */
   @Override
   public Path getCommitFile() {
@@ -298,8 +296,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     if (!mClosed) {
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : mNodeReaderMap.values()) {
-        if (rtx instanceof XdmNodeTrx) {
-          ((XdmNodeTrx) rtx).rollback();
+        if (rtx instanceof XmlNodeTrx) {
+          ((XmlNodeTrx) rtx).rollback();
         }
         rtx.close();
         rtx = null;
@@ -330,7 +328,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * Checks for valid revision.
    *
    * @param revision revision number to check
-   * @throws IllegalStateException if {@link XdmResourceManagerImpl} is already closed
+   * @throws IllegalStateException if {@link XmlResourceManagerImpl} is already closed
    * @throws IllegalArgumentException if revision isn't valid
    */
   @Override
@@ -480,8 +478,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(), revision,
-        mFac.createReader(), null, null, mBufferManager);
+    final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
+        revision, mFac.createReader(), null, null, mBufferManager);
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -497,8 +495,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(
-      final @Nonnegative int revision) throws SirixException {
+  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision)
+      throws SirixException {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -529,8 +527,13 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Optional<R> getNodeReadTrx(final long ID) {
+  public Optional<R> getNodeReadTrxByTrxId(final long ID) {
     return Optional.ofNullable(mNodeReaderMap.get(ID));
+  }
+
+  @Override
+  public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
+    return mNodeReaderMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
   }
 
   @SuppressWarnings("unchecked")
@@ -559,8 +562,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
     final R rtxRevision = beginNodeReadOnlyTrx(revision);
 
-    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
-        rtxRevision.getRevisionTimestamp())) {
+    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
+        rtxRevision.getRevisionTimestamp().toEpochMilli())) {
       rtxRevision.close();
       return rtxRevisionMinus1;
     } else {
@@ -609,11 +612,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     else if (revision == getMostRecentRevisionNumber() + 1)
       return getMostRecentRevisionNumber();
 
-    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1); final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
+    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
+        final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
       final int revisionNumber;
 
-      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp()) < timeDiff(timestamp,
-          rtxRevision.getRevisionTimestamp())) {
+      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
+          rtxRevision.getRevisionTimestamp().toEpochMilli())) {
         revisionNumber = rtxRevisionMinus1.getRevisionNumber();
       } else {
         revisionNumber = rtxRevision.getRevisionNumber();

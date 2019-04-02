@@ -4,9 +4,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.json.JsonResourceStore;
-import org.sirix.access.xdm.XdmResourceStore;
+import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -20,12 +19,12 @@ import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 public enum DatabaseType {
-  XDM {
+  XML {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
         DatabaseConfiguration dbConfig, S store) {
-      return (Database<R>) new LocalXdmDatabase(dbConfig, (XdmResourceStore) store);
+      return (Database<R>) new LocalXmlDatabase(dbConfig, (XmlResourceStore) store);
     }
 
     @Override

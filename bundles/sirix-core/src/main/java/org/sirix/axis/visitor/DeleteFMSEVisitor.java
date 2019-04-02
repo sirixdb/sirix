@@ -5,10 +5,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
@@ -37,8 +37,8 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
   /** {@link Matching} reference. */
   private final Matching mMatching;
 
-  /** sirix {@link XdmNodeTrx}. */
-  private final XdmNodeTrx mWtx;
+  /** sirix {@link XmlNodeTrx}. */
+  private final XmlNodeTrx mWtx;
 
   /** Start key. */
   private final long mStartKey;
@@ -46,11 +46,11 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
   /**
    * Constructor. pStartKey
    * 
-   * @param wtx sirix {@link XdmNodeTrx}
+   * @param wtx sirix {@link XmlNodeTrx}
    * @param matching {@link Matching} reference
    * @param startKey start key
    */
-  public DeleteFMSEVisitor(final XdmNodeTrx wtx, final Matching matching,
+  public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching,
       @Nonnegative final long startKey) {
     mWtx = checkNotNull(wtx);
     mMatching = checkNotNull(matching);

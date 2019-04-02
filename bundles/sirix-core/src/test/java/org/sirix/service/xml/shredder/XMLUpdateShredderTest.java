@@ -39,9 +39,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.xml.serialize.XmlSerializer;
@@ -199,8 +199,8 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
   private void test(final Path folder) throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
+    final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
         Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(Collectors.toList());
@@ -225,12 +225,11 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     // Shredder files.
     for (final Path file : files) {
       if (file.getFileName().toString().endsWith(".xml")) {
-        try (final XdmNodeTrx wtx = manager.beginNodeTrx();
+        try (final XmlNodeTrx wtx = manager.beginNodeTrx();
             final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
-            final XmlShredder shredder =
-                new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                    .build();
+            final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+                InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
             shredder.call();
             first = false;
           } else {

@@ -20,8 +20,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
@@ -78,6 +78,10 @@ public final class FMSETest extends XMLTestCase {
   private static final Path XMLALLELEVENTH = RESOURCES.resolve("revXMLsAll10");
 
   private static final Path XMLLINGUISTICS = RESOURCES.resolve("linguistics");
+
+  private static final Path XMLSHEETS = RESOURCES.resolve("sheets");
+
+  private static final Path XMLSHEETSSECOND = RESOURCES.resolve("sheets2");
 
   static {
     XMLUnit.setIgnoreComments(true);
@@ -201,6 +205,16 @@ public final class FMSETest extends XMLTestCase {
     test(XMLLINGUISTICS);
   }
 
+  @Test
+  public void testSheets() throws Exception {
+    test(XMLSHEETS);
+  }
+
+  @Test
+  public void testSheetsSecond() throws Exception {
+    test(XMLSHEETSSECOND);
+  }
+
   /**
    * Test a folder of XML files.
    *
@@ -209,7 +223,7 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final Path folder) throws Exception {
     try (var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+      XmlResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -236,7 +250,7 @@ public final class FMSETest extends XMLTestCase {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XdmNodeTrx wtx = resource.beginNodeTrx();
+            try (final XmlNodeTrx wtx = resource.beginNodeTrx();
                 final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
                   InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
@@ -248,7 +262,7 @@ public final class FMSETest extends XMLTestCase {
           }
 
           resource.close();
-          resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+          resource = database.openResourceManager(XdmTestHelper.RESOURCE);
 
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
@@ -269,6 +283,16 @@ public final class FMSETest extends XMLTestCase {
           assertTrue("but are they identical? " + diff, diff.identical());
         }
       }
+
+      // try (final var baos = new ByteArrayOutputStream(); final var writer = new PrintStream(baos)) {
+      // final XmlSerializer serializer =
+      // new XmlSerializerBuilder(resource, writer, -1).prettyPrint().serializeTimestamp(true).build();
+      // serializer.call();
+      //
+      // final var content = baos.toString(StandardCharsets.UTF_8);
+      //
+      // System.out.println(content);
+      // }
     }
   }
 }

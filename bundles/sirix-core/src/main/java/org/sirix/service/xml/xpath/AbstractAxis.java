@@ -28,8 +28,9 @@ import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
@@ -200,11 +201,24 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public XdmNodeReadOnlyTrx asXdmNodeReadTrx() {
+  public XmlNodeReadOnlyTrx asXdmNodeReadTrx() {
     if (mRtx instanceof NodeReadOnlyTrx) {
-      return (XdmNodeReadOnlyTrx) mRtx;
+      return (XmlNodeReadOnlyTrx) mRtx;
     }
-    throw new IllegalStateException("Node cursor is no XDM node transaction.");
+    throw new ClassCastException("Node cursor is no XDM node transaction.");
+  }
+
+  @Override
+  public JsonNodeReadOnlyTrx asJsonNodeReadTrx() {
+    throw new ClassCastException("Node cursor is no JSON node transaction.");
+  }
+
+  @Override
+  public NodeReadOnlyTrx getTrx() {
+    if (mRtx instanceof NodeReadOnlyTrx) {
+      return (XmlNodeReadOnlyTrx) mRtx;
+    }
+    throw new IllegalStateException("Node cursor is no transaction cursor.");
   }
 
   @Override
@@ -212,7 +226,7 @@ public abstract class AbstractAxis implements Axis {
     if (mRtx instanceof PathSummaryReader) {
       return (PathSummaryReader) mRtx;
     }
-    throw new IllegalStateException("Node cursor is no path summary reader.");
+    throw new ClassCastException("Node cursor is no path summary reader.");
   }
 
   @Override
@@ -285,13 +299,13 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Implements a simple foreach-method.
    *
-   * @param pVisitor {@link XdmNodeVisitor} implementation
+   * @param pVisitor {@link XmlNodeVisitor} implementation
    */
   @Override
-  public final void foreach(final XdmNodeVisitor pVisitor) {
+  public final void foreach(final XmlNodeVisitor pVisitor) {
     checkNotNull(pVisitor);
     for (; hasNext(); next()) {
-      ((XdmNodeReadOnlyTrx) mRtx).acceptVisitor(pVisitor);
+      ((XmlNodeReadOnlyTrx) mRtx).acceptVisitor(pVisitor);
     }
   }
 

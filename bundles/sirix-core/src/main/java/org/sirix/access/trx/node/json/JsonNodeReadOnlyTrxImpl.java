@@ -26,8 +26,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
@@ -95,16 +95,16 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
     final String returnVal;
     switch (mCurrentNode.getKind()) {
-      case JSON_STRING_VALUE:
+      case STRING_VALUE:
         returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
         break;
-      case JSON_BOOLEAN_VALUE:
+      case BOOLEAN_VALUE:
         returnVal = String.valueOf(((BooleanNode) mCurrentNode).getValue());
         break;
-      case JSON_NULL_VALUE:
+      case NULL_VALUE:
         returnVal = "null";
         break;
-      case JSON_NUMBER_VALUE:
+      case NUMBER_VALUE:
         returnVal = String.valueOf(((NumberNode) mCurrentNode).getValue());
         break;
       // $CASES-OMITTED$
@@ -113,6 +113,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
         break;
     }
     return returnVal;
+  }
+
+  @Override
+  public boolean getBooleanValue() {
+    assertNotClosed();
+    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE)
+      return ((BooleanNode) mCurrentNode).getValue();
+    throw new IllegalStateException("Current node is no boolean node.");
+  }
+
+  @Override
+  public Number getNumberValue() {
+    assertNotClosed();
+    if (mCurrentNode.getKind() == Kind.NUMBER_VALUE)
+      return ((NumberNode) mCurrentNode).getValue();
+    throw new IllegalStateException("Current node is no number node.");
   }
 
   @Override
@@ -149,7 +165,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return mCurrentNode instanceof ObjectKeyNode;
+    return mCurrentNode instanceof ObjectRecordNode;
   }
 
   @Override
@@ -221,8 +237,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public QNm getName() {
     assertNotClosed();
 
-    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
-      final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
+    if (mCurrentNode.getKind() == Kind.OBJECT_RECORD) {
+      final int nameKey = ((ObjectRecordNode) mCurrentNode).getNameKey();
       final String localName = nameKey == -1
           ? ""
           : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
@@ -253,12 +269,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == Kind.JSON_OBJECT_KEY) {
+    if (mCurrentNode.getKind() == Kind.OBJECT_RECORD) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (mCurrentNode.getKind() == Kind.JSON_BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.JSON_STRING_VALUE
-        || mCurrentNode.getKind() == Kind.JSON_NUMBER_VALUE) {
+    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.STRING_VALUE
+        || mCurrentNode.getKind() == Kind.NUMBER_VALUE) {
       helper.add("Value of Node", getValue());
     }
 

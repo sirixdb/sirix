@@ -3,6 +3,7 @@ package org.sirix.access.conf;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 import org.sirix.XdmTestHelper;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -30,15 +31,15 @@ public class DatabaseConfigurationTest {
 
   /**
    * Test method for
-   * {@link org.treetank.access.conf.DatabaseConfiguration#serialize(org.treetank.access.conf.DatabaseConfiguration)}
-   * and {@link org.treetank.access.conf.DatabaseConfiguration#deserialize(java.io.File)} .
+   * {@link org.sirix.access.treetank.access.conf.DatabaseConfiguration#serialize(org.sirix.access.treetank.access.conf.DatabaseConfiguration)}
+   * and {@link org.sirix.access.treetank.access.conf.DatabaseConfiguration#deserialize(java.io.File)} .
    * 
    * @throws SirixIOException if an I/O exception occurs
    */
   @Test
   public void testDeSerialize() throws SirixIOException {
     DatabaseConfiguration conf = new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile());
-    assertTrue(Databases.createXdmDatabase(conf));
+    assertTrue(Databases.createXmlDatabase(conf));
     DatabaseConfiguration serializedConf =
         DatabaseConfiguration.deserialize(XdmTestHelper.PATHS.PATH1.getFile());
     assertEquals(conf.toString(), serializedConf.toString());

@@ -30,14 +30,13 @@ package org.sirix.xquery.function.sdb.diff;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -48,9 +47,11 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.access.Utils;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffFactory.DiffOptimized;
@@ -61,8 +62,9 @@ import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
+import com.google.api.client.util.Objects;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -107,13 +109,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final DBCollection col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -122,15 +123,15 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     final String expResName = ((Str) args[1]).stringValue();
     final int rev1 = FunUtil.getInt(args, 2, "revision1", -1, null, false);
     final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
-    final DBNode doc = col.getDocument(expResName);
+    final XmlDBNode doc = col.getDocument(expResName);
 
     mDiffs.clear();
     mBuf.setLength(0);
     mLatch = new CountDownLatch(1);
 
-    try (final XdmResourceManager resMrg = doc.getTrx().getResourceManager()) {
-      mPool.submit(() -> DiffFactory.invokeFullDiff(new DiffFactory.Builder(resMrg, rev2, rev1,
-          resMrg.getResourceConfig().hashType == HashType.NONE
+    try (final XmlResourceManager resMrg = doc.getTrx().getResourceManager()) {
+      mPool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<XmlNodeReadOnlyTrx, XmlNodeTrx>(resMrg,
+          rev2, rev1, resMrg.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,
           ImmutableSet.of(this)).skipSubtrees(true)));
@@ -141,10 +142,21 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
 
+      if (mDiffs.size() == 1
+          && (mDiffs.get(0).getDiff() == DiffType.SAMEHASH || mDiffs.get(0).getDiff() == DiffType.SAME)) {
+        return null;
+      }
+
       final Set<Long> nodeKeysOfInserts =
           mDiffs.stream()
                 .filter(tuple -> tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
                 .map(DiffTuple::getNewNodeKey)
+                .collect(Collectors.toSet());
+
+      final Set<Long> nodeKeysOfDeletes =
+          mDiffs.stream()
+                .filter(tuple -> tuple.getDiff() == DiffType.DELETED || tuple.getDiff() == DiffType.REPLACEDOLD)
+                .map(DiffTuple::getOldNodeKey)
                 .collect(Collectors.toSet());
 
       mBuf.append("let $doc := ");
@@ -153,8 +165,35 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       mBuf.append("return (");
       mBuf.append(System.getProperty("line.separator"));
 
-      try (final XdmNodeReadOnlyTrx oldRtx = resMrg.beginNodeReadOnlyTrx(rev1);
-          final XdmNodeReadOnlyTrx newRtx = resMrg.beginNodeReadOnlyTrx(rev2)) {
+      try (final XmlNodeReadOnlyTrx oldRtx = resMrg.beginNodeReadOnlyTrx(rev1);
+          final XmlNodeReadOnlyTrx newRtx = resMrg.beginNodeReadOnlyTrx(rev2)) {
+
+        final Iterator<DiffTuple> iter = mDiffs.iterator();
+        while (iter.hasNext()) {
+          final DiffTuple tuple = iter.next();
+
+          final DiffType diffType = tuple.getDiff();
+
+          if (diffType == DiffType.SAME || diffType == DiffType.SAMEHASH || diffType == DiffType.REPLACEDOLD) {
+            iter.remove();
+          } else if (diffType == DiffType.INSERTED || diffType == DiffType.REPLACEDNEW) {
+            newRtx.moveTo(tuple.getNewNodeKey());
+
+            if ((newRtx.isAttribute() || newRtx.isNamespace()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+              iter.remove();
+          }
+
+          if (diffType == DiffType.DELETED) {
+            oldRtx.moveTo(tuple.getOldNodeKey());
+
+            if ((oldRtx.isAttribute() || oldRtx.isNamespace()) && nodeKeysOfDeletes.contains(oldRtx.getParentKey()))
+              iter.remove();
+          }
+        }
+
+        if (mDiffs.isEmpty())
+          return null;
+
         // Plain old for-loop as Java is still missing an indexed forEach(...) loop (on a
         // collection).
         for (int i = 0, length = mDiffs.size(); i < length; i++) {
@@ -163,36 +202,44 @@ public final class Diff extends AbstractFunction implements DiffObserver {
           newRtx.moveTo(diffTuple.getNewNodeKey());
           oldRtx.moveTo(diffTuple.getOldNodeKey());
 
-          final Optional<DiffTuple> anotherTupleToEmit;
-
           switch (diffType) {
             case INSERTED:
-              if (newRtx.getKind() == Kind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+              if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              mBuf.append("  insert nodes ");
-              mBuf.append(printSubtreeNode(newRtx));
-
-              if (oldRtx.isDocumentRoot()) {
-                buildUpdateStatement(newRtx);
+              if (newRtx.isAttribute()) {
+                mBuf.append("  insert node " + printNode(newRtx) + " into sdb:select-node($doc");
+                mBuf.append(",");
+                mBuf.append(newRtx.getParentKey());
+                mBuf.append(")");
               } else {
-                buildUpdateStatement(oldRtx);
+                mBuf.append("  insert nodes ");
+                mBuf.append(printSubtreeNode(newRtx));
+
+                if (oldRtx.isDocumentRoot()) {
+                  buildUpdateStatement(newRtx);
+                } else {
+                  buildUpdateStatement(oldRtx);
+                }
               }
 
-              anotherTupleToEmit = determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
-
-              if (anotherTupleToEmit.isPresent())
+              if (i + 1 < length)
                 mBuf.append(",");
 
               mBuf.append(System.getProperty("line.separator"));
               break;
             case DELETED:
+              if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+                continue;
+
               mBuf.append("  delete nodes sdb:select-node($doc");
               mBuf.append(", ");
               mBuf.append(diffTuple.getOldNodeKey());
               mBuf.append(")");
-              if (i != length - 1)
+
+              if (i + 1 < length)
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               break;
             case REPLACEDNEW:
@@ -205,27 +252,33 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(") with ");
               mBuf.append(printSubtreeNode(newRtx));
 
-              anotherTupleToEmit = determineIfAnotherTupleToEmitExists(i + 1, nodeKeysOfInserts, newRtx);
-
-              if (anotherTupleToEmit.isPresent())
+              if (i + 1 < length)
                 mBuf.append(",");
 
               mBuf.append(System.getProperty("line.separator"));
               break;
             case UPDATED:
-              if (oldRtx.isText())
-                mBuf.append("  replace node sdb:select-node($doc");
-              else
-                mBuf.append("  rename node sdb:select-node($doc");
-              mBuf.append(", ");
-              mBuf.append(diffTuple.getOldNodeKey());
-              if (oldRtx.isText())
-                mBuf.append(") with ");
-              else
-                mBuf.append(") as ");
-              mBuf.append(printNode(newRtx));
-              if (i != length - 1)
+              if (oldRtx.isText() || oldRtx.isComment()) {
+                replaceValue(newRtx, diffTuple);
+              } else if (oldRtx.isAttribute()) {
+                final boolean isNameEqual = oldRtx.getName().equals(newRtx.getName());
+                if (!isNameEqual) {
+                  renameNode(newRtx, diffTuple);
+                }
+                if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
+                  if (!isNameEqual) {
+                    mBuf.append(",");
+                    mBuf.append(System.getProperty("line.separator"));
+                  }
+                  replaceValue(newRtx, diffTuple);
+                }
+              } else {
+                renameNode(newRtx, diffTuple);
+              }
+
+              if (i + 1 < length)
                 mBuf.append(",");
+
               mBuf.append(System.getProperty("line.separator"));
               // $CASES-OMITTED$
             default:
@@ -241,9 +294,28 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     return new Str(mBuf.toString());
   }
 
-  private void buildUpdateStatement(final XdmNodeReadOnlyTrx rtx) {
+  private void replaceValue(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
+    mBuf.append("  replace value of node sdb:select-node($doc");
+    mBuf.append(", ");
+    mBuf.append(diffTuple.getOldNodeKey());
+    mBuf.append(") with ");
+    mBuf.append("\"");
+    mBuf.append(newRtx.getValue());
+    mBuf.append("\"");
+  }
+
+  private void renameNode(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
+    mBuf.append("  rename node sdb:select-node($doc");
+    mBuf.append(", ");
+    mBuf.append(diffTuple.getOldNodeKey());
+    mBuf.append(") as \"");
+    mBuf.append(Utils.buildName(newRtx.getName()));
+    mBuf.append("\"");
+  }
+
+  private void buildUpdateStatement(final XmlNodeReadOnlyTrx rtx) {
     if (rtx.hasLeftSibling()) {
-      mBuf.append(" before into sdb:select-node($doc");
+      mBuf.append(" before sdb:select-node($doc");
     } else {
       rtx.moveToParent();
       mBuf.append(" as first into sdb:select-node($doc");
@@ -252,28 +324,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append(", ");
     mBuf.append(rtx.getNodeKey());
     mBuf.append(")");
-  }
-
-  private Optional<DiffTuple> determineIfAnotherTupleToEmitExists(int i, final Set<Long> nodeKeysOfInserts,
-      final XdmNodeReadOnlyTrx newRtx) {
-    final Predicate<DiffTuple> filter = diffTuplePredicate(nodeKeysOfInserts, newRtx);
-
-    final Optional<DiffTuple> anotherTupleToEmit = mDiffs.subList(i, mDiffs.size()).stream().filter(filter).findFirst();
-    return anotherTupleToEmit;
-  }
-
-  private Predicate<DiffTuple> diffTuplePredicate(final Set<Long> nodeKeysOfInserts, final XdmNodeReadOnlyTrx newRtx) {
-    final Predicate<DiffTuple> filter = tuple -> {
-      if ((tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
-          && newRtx.moveTo(tuple.getNewNodeKey()).hasMoved() && newRtx.getKind() == Kind.ATTRIBUTE
-          && nodeKeysOfInserts.contains(newRtx.getParentKey())) {
-        return false;
-      } else {
-        return true;
-      }
-    };
-
-    return filter;
   }
 
   private void createDocString(final Sequence[] args, final int rev1) {
@@ -286,7 +336,6 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mBuf.append(")");
   }
 
-
   @Override
   public void diffListener(final DiffType diffType, final long newNodeKey, final long oldNodeKey,
       final DiffDepth depth) {
@@ -298,7 +347,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     mLatch.countDown();
   }
 
-  private static String printSubtreeNode(final XdmNodeReadOnlyTrx rtx) {
+  private static String printSubtreeNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case ELEMENT:
         final OutputStream out = new ByteArrayOutputStream();
@@ -307,19 +356,19 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         serializer.call();
         return out.toString();
       case ATTRIBUTE:
-        return "attribute { '" + rtx.getName() + "' } { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";
     }
   }
 
-  private static String printNode(final XdmNodeReadOnlyTrx rtx) {
+  private static String printNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case ELEMENT:
         return "<" + rtx.getName() + "/>";
       case ATTRIBUTE:
-        return "attribute { '" + rtx.getName() + "' } { " + rtx.getValue() + " }";
+        return "attribute " + rtx.getName() + " { \"" + rtx.getValue() + "\" }";
       // $CASES-OMITTED$
       default:
         return "\"" + rtx.getValue() + "\"";

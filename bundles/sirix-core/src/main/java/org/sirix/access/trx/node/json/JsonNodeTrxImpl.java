@@ -39,8 +39,9 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager.Abort;
-import org.sirix.access.trx.node.xdm.InsertPos;
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import org.sirix.access.trx.node.xml.InsertPos;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.api.Axis;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
@@ -68,8 +69,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xdm.ElementNode;
 import org.sirix.page.NamePage;
@@ -258,7 +259,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     acquireLock();
     try {
       final var nodeKind = getKind();
-      if (!(nodeKind == Kind.JSON_DOCUMENT || nodeKind == Kind.JSON_ARRAY || nodeKind == Kind.JSON_OBJECT_KEY))
+      if (!(nodeKind == Kind.JSON_DOCUMENT || nodeKind == Kind.ARRAY || nodeKind == Kind.OBJECT))
         throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
 
       checkAccessAndCommit();
@@ -380,7 +381,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_DOCUMENT && kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+      if (kind != Kind.JSON_DOCUMENT && kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
@@ -390,7 +391,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-      final long rightSibKey = structNode.getFirstChildKey();
+      final long rightSibKey = kind == Kind.OBJECT_RECORD
+          ? Fixed.NULL_NODE_KEY.getStandardProperty()
+          : structNode.getFirstChildKey();
 
       final ObjectNode node = mNodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey);
 
@@ -406,7 +409,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertObjectAsRightSibling() {
     acquireLock();
     try {
-      if (getParentKind() != Kind.JSON_ARRAY)
+      if (getParentKind() != Kind.ARRAY)
         throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
 
       checkAccessAndCommit();
@@ -428,13 +431,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   @Override
-  public JsonNodeTrx insertObjectKeyAsFirstChild(final String name) {
-    checkNotNull(name);
+  public JsonNodeTrx insertObjectRecordAsFirstChild(final String key, final ObjectRecordValue<?> value) {
+    checkNotNull(key);
     acquireLock();
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT)
+      if (kind != Kind.OBJECT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
 
       checkAccessAndCommit();
@@ -445,16 +448,55 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), name, Kind.JSON_OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), key, Kind.OBJECT_RECORD);
 
-      final ObjectKeyNode node =
-          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
+      final ObjectRecordNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, key, Fixed.NULL_NODE_KEY.getStandardProperty());
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
+
+      insertValue(value);
+
+      setFirstChildOfObjectKeyNode(node);
 
       return this;
     } finally {
       unLock();
+    }
+  }
+
+  private void setFirstChildOfObjectKeyNode(final ObjectRecordNode node) {
+    final ObjectRecordNode objectKeyNode =
+        (ObjectRecordNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+    objectKeyNode.incrementChildCount();
+    objectKeyNode.setFirstChildKey(getNodeKey());
+  }
+
+  private void insertValue(final ObjectRecordValue<?> value) throws AssertionError {
+    final Kind valueKind = value.getKind();
+
+    switch (valueKind) {
+      case OBJECT:
+        insertObjectAsFirstChild();
+        break;
+      case ARRAY:
+        insertArrayAsFirstChild();
+        break;
+      case STRING_VALUE:
+        insertStringValueAsFirstChild((String) value.getValue());
+        break;
+      case BOOLEAN_VALUE:
+        insertBooleanValueAsFirstChild((Boolean) value.getValue());
+        break;
+      case NUMBER_VALUE:
+        insertNumberValueAsFirstChild((Number) value.getValue());
+        break;
+      case NULL_VALUE:
+        insertNullValueAsFirstChild();
+        break;
+      // $CASES-OMITTED$
+      default:
+        throw new AssertionError("Type not known.");
     }
   }
 
@@ -471,20 +513,20 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private void moveToParentObjectKeyArrayOrDocumentRoot() {
-    while (mNodeReadOnlyTrx.getKind() != Kind.JSON_OBJECT_KEY && mNodeReadOnlyTrx.getKind() != Kind.JSON_ARRAY
+    while (mNodeReadOnlyTrx.getKind() != Kind.OBJECT_RECORD && mNodeReadOnlyTrx.getKind() != Kind.ARRAY
         && mNodeReadOnlyTrx.getKind() != Kind.JSON_DOCUMENT) {
       mNodeReadOnlyTrx.moveToParent();
     }
   }
 
   @Override
-  public JsonNodeTrx insertObjectKeyAsRightSibling(final String name) {
-    checkNotNull(name);
+  public JsonNodeTrx insertObjectRecordAsRightSibling(final String key, final ObjectRecordValue<?> value) {
+    checkNotNull(key);
     acquireLock();
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY)
+      if (kind != Kind.OBJECT_RECORD)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
 
       checkAccessAndCommit();
@@ -495,12 +537,16 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), name, Kind.JSON_OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), key, Kind.OBJECT_RECORD);
 
-      final ObjectKeyNode node =
-          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name);
+      final ObjectRecordNode node =
+          mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1);
 
       insertAsRightSibling(node);
+
+      insertValue(value);
+
+      setFirstChildOfObjectKeyNode(node);
 
       return this;
     } finally {
@@ -513,7 +559,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     acquireLock();
     try {
       final Kind kind = getKind();
-      if (kind != Kind.JSON_DOCUMENT && kind != Kind.JSON_OBJECT_KEY)
+      if (kind != Kind.JSON_DOCUMENT && kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
@@ -525,7 +571,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.JSON_ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.ARRAY);
 
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
@@ -543,7 +589,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind == Kind.JSON_DOCUMENT || kind == Kind.JSON_OBJECT_KEY)
+      if (kind == Kind.JSON_DOCUMENT || kind == Kind.OBJECT_RECORD)
         throw new SirixUsageException(
             "Insert is not allowed if current node is either the document node or an object key node!");
 
@@ -555,7 +601,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.JSON_ARRAY);
+      final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", Kind.ARRAY);
 
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey);
 
@@ -574,7 +620,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+      if (kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or an arry node!");
 
       checkAccessAndCommit();
@@ -616,7 +662,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     acquireLock();
     try {
       final Kind kind = getKind();
-      if (kind == Kind.JSON_OBJECT_KEY || kind == Kind.JSON_DOCUMENT)
+      if (kind == Kind.OBJECT_RECORD || kind == Kind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is the document node or an object node!");
 
       checkAccessAndCommit();
@@ -646,7 +692,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+      if (kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or array node!");
 
       checkAccessAndCommit();
@@ -677,7 +723,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind == Kind.JSON_OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.JSON_ARRAY)
+      if (kind == Kind.OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is the document-, an object- or an array-node!");
 
@@ -708,7 +754,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     // Get the path node key.
     moveToParentObjectKeyArrayOrDocumentRoot();
     final long pathNodeKey = isObjectKey()
-        ? ((ObjectKeyNode) getNode()).getPathNodeKey()
+        ? ((ObjectRecordNode) getNode()).getPathNodeKey()
         : -1;
     moveTo(node.getNodeKey());
 
@@ -725,7 +771,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+      if (kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       checkAccessAndCommit();
@@ -756,7 +802,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind == Kind.JSON_OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.JSON_ARRAY)
+      if (kind == Kind.OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is the document-, an object- or an array-node!");
 
@@ -784,7 +830,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind != Kind.JSON_OBJECT_KEY && kind != Kind.JSON_ARRAY)
+      if (kind != Kind.OBJECT_RECORD && kind != Kind.ARRAY)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       checkAccessAndCommit();
@@ -811,7 +857,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final Kind kind = getKind();
 
-      if (kind == Kind.JSON_OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.JSON_ARRAY)
+      if (kind == Kind.OBJECT || kind == Kind.JSON_DOCUMENT || kind == Kind.ARRAY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is the document-, an object- or an array-node!");
 
@@ -876,7 +922,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       mNodeReadOnlyTrx.setCurrentNode(jsonNode);
 
       // Remove the name of subtree-root.
-      if (node.getKind() == Kind.JSON_OBJECT_KEY) {
+      if (node.getKind() == Kind.OBJECT_RECORD) {
         removeName();
       }
 
@@ -900,7 +946,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
       final long pathNodeKey = moveToParent().hasMoved()
-          ? ((ObjectKeyNode) getNode()).getPathNodeKey()
+          ? ((ObjectRecordNode) getNode()).getPathNodeKey()
           : -1;
       moveTo(nodeKey);
       mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
@@ -933,7 +979,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(name);
     acquireLock();
     try {
-      if (getKind() != Kind.JSON_OBJECT_KEY)
+      if (getKind() != Kind.OBJECT_RECORD)
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
       checkAccessAndCommit();
 
@@ -979,7 +1025,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(value);
     acquireLock();
     try {
-      if (getKind() != Kind.JSON_STRING_VALUE)
+      if (getKind() != Kind.STRING_VALUE)
         throw new SirixUsageException("Not allowed if current node is not a string value node!");
 
       checkAccessAndCommit();
@@ -1016,7 +1062,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(value);
     acquireLock();
     try {
-      if (getKind() != Kind.JSON_BOOLEAN_VALUE)
+      if (getKind() != Kind.BOOLEAN_VALUE)
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
 
       checkAccessAndCommit();
@@ -1052,7 +1098,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode().getKind() == Kind.JSON_NUMBER_VALUE) {
+      if (getCurrentNode().getKind() == Kind.NUMBER_VALUE) {
         checkAccessAndCommit();
 
         final long nodeKey = getNodeKey();

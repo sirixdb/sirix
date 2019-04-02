@@ -30,10 +30,10 @@ import java.util.Map;
 import java.util.Random;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
@@ -117,7 +117,7 @@ public final class JsonTestHelper {
           Databases.createJsonDatabase(config);
         }
         final var database = Databases.openJsonDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {
@@ -163,8 +163,8 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final JsonResourceManager manager = database.getResourceManager(RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    try (final JsonResourceManager manager = database.openResourceManager(RESOURCE);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();

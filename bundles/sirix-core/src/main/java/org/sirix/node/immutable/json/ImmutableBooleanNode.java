@@ -54,6 +54,6 @@ public final class ImmutableBooleanNode extends AbstractImmutableJsonStructuralN
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_BOOLEAN_VALUE;
+    return Kind.BOOLEAN_VALUE;
   }
 }

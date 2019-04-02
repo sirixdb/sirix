@@ -24,7 +24,7 @@ package org.sirix.access.trx.node.json;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableDocumentNode;
@@ -40,7 +40,7 @@ import org.sirix.node.immutable.json.ImmutableStringNode;
  * <p>
  * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
  * implementing inheritance or when using anonymous inner classes to create simple
- * {@link XdmNodeVisitor} implementations.
+ * {@link XmlNodeVisitor} implementations.
  * </p>
  *
  * <h2>Usage Examples:</h2>

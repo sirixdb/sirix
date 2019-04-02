@@ -44,9 +44,9 @@ import org.brackit.xquery.XQuery;
 import org.brackit.xquery.node.parser.DocumentParser;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.io.URIHandler;
-import org.brackit.xquery.xdm.Node;
-import org.brackit.xquery.xdm.TemporalCollection;
-import org.sirix.xquery.node.BasicDBStore;
+import org.brackit.xquery.xdm.node.Node;
+import org.brackit.xquery.xdm.node.TemporalNodeCollection;
+import org.sirix.xquery.node.BasicXmlDBStore;
 
 /**
  * @author Sebastian Baechle
@@ -94,8 +94,8 @@ public final class Main {
   public static void main(final String[] args) {
     try {
       final Config config = parseParams(args);
-      try (final BasicDBStore store = BasicDBStore.newBuilder().build()) {
-        final QueryContext ctx = new SirixQueryContext(store);
+      try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().build()) {
+        final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
         final String file = config.getValue("-f");
         if (file != null) {
@@ -104,7 +104,7 @@ public final class Main {
           try {
             final SubtreeParser parser = new DocumentParser(in);
             final String name = uri.toURL().getFile();
-            final TemporalCollection<?> coll = store.create(name, parser);
+            final TemporalNodeCollection<?> coll = store.create(name, parser);
             final Node<?> doc = coll.getDocument();
             ctx.setContextItem(doc);
           } finally {
@@ -119,7 +119,7 @@ public final class Main {
           query = readStringFromScanner(System.in);
         }
 
-        final XQuery xq = new XQuery(new SirixCompileChain(store), query);
+        final XQuery xq = new XQuery(SirixCompileChain.createWithNodeStore(store), query);
         if (config.isSet("-p")) {
           xq.prettyPrint();
         }

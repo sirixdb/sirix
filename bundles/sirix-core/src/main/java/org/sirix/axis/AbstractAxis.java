@@ -28,8 +28,10 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.visitor.XdmNodeVisitor;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -251,11 +253,19 @@ public abstract class AbstractAxis implements Axis {
   }
 
   @Override
-  public XdmNodeReadOnlyTrx asXdmNodeReadTrx() {
-    if (mNodeCursor instanceof XdmNodeReadOnlyTrx) {
-      return (XdmNodeReadOnlyTrx) mNodeCursor;
+  public XmlNodeReadOnlyTrx asXdmNodeReadTrx() {
+    if (mNodeCursor instanceof XmlNodeReadOnlyTrx) {
+      return (XmlNodeReadOnlyTrx) mNodeCursor;
     }
-    throw new IllegalStateException("Node cursor is no XDM node transaction.");
+    throw new ClassCastException("Node cursor is no XDM node transaction.");
+  }
+
+  @Override
+  public JsonNodeReadOnlyTrx asJsonNodeReadTrx() {
+    if (mNodeCursor instanceof JsonNodeReadOnlyTrx) {
+      return (JsonNodeReadOnlyTrx) mNodeCursor;
+    }
+    throw new ClassCastException("Node cursor is no JSON node transaction.");
   }
 
   @Override
@@ -263,12 +273,20 @@ public abstract class AbstractAxis implements Axis {
     if (mNodeCursor instanceof PathSummaryReader) {
       return (PathSummaryReader) mNodeCursor;
     }
-    throw new IllegalStateException("Node cursor is no path summary reader.");
+    throw new ClassCastException("Node cursor is no path summary reader.");
   }
 
   @Override
   public NodeCursor getCursor() {
     return mNodeCursor;
+  }
+
+  @Override
+  public NodeReadOnlyTrx getTrx() {
+    if (mNodeCursor instanceof NodeReadOnlyTrx) {
+      return (NodeReadOnlyTrx) mNodeCursor;
+    }
+    throw new ClassCastException("Node cursor is no transactional cursor.");
   }
 
   /**
@@ -319,12 +337,12 @@ public abstract class AbstractAxis implements Axis {
    * @param visitor {@link IVisitor} implementation
    */
   @Override
-  public final void foreach(final XdmNodeVisitor visitor) {
+  public final void foreach(final XmlNodeVisitor visitor) {
     checkNotNull(visitor);
-    if (mNodeCursor instanceof XdmNodeReadOnlyTrx) {
+    if (mNodeCursor instanceof XmlNodeReadOnlyTrx) {
       while (hasNext()) {
         next();
-        ((XdmNodeReadOnlyTrx) mNodeCursor).acceptVisitor(visitor);
+        ((XmlNodeReadOnlyTrx) mNodeCursor).acceptVisitor(visitor);
       }
     }
   }

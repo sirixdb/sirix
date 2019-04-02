@@ -80,7 +80,7 @@ public class JSONArrayNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ArrayNode node2 =
-        (ArrayNode) Kind.JSON_ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
+        (ArrayNode) Kind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
@@ -92,7 +92,7 @@ public class JSONArrayNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(18L, node.getPathNodeKey());
 
-    assertEquals(Kind.JSON_ARRAY, node.getKind());
+    assertEquals(Kind.ARRAY, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

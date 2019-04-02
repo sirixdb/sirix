@@ -26,9 +26,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.TypeFilter;
+import org.sirix.axis.filter.xml.TypeFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -53,8 +53,8 @@ public class TypeFilterTest {
   @Test
   public void testFilterConvetions() throws Exception {
 
-    final AbstractAxis axis = new XPathAxis(holder.getNodeReadTrx(), "a");
-    final XdmNodeReadOnlyTrx xtx = ((XdmNodeReadOnlyTrx) axis.asXdmNodeReadTrx());
+    final AbstractAxis axis = new XPathAxis(holder.getXdmNodeReadTrx(), "a");
+    final XmlNodeReadOnlyTrx xtx = ((XmlNodeReadOnlyTrx) axis.asXdmNodeReadTrx());
 
     xtx.moveTo(9L);
     FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);

@@ -5,35 +5,35 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
 /**
  * Sirix scope.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */
 public final class SirixScope implements Scope {
 
-  /** Sirix {@link XdmNodeReadOnlyTrx}. */
-  private final XdmNodeReadOnlyTrx mRtx;
+  /** Sirix {@link XmlNodeReadOnlyTrx}. */
+  private final XmlNodeReadOnlyTrx mRtx;
 
   /**
    * Constructor.
-   * 
+   *
    * @param node database node
    */
-  public SirixScope(final DBNode node) {
+  public SirixScope(final XmlDBNode node) {
     // Assertion instead of checkNotNull(...) (part of internal API).
     assert node != null;
     mRtx = node.getTrx();
   }
 
   @Override
-  public Stream<String> localPrefixes() throws DocumentException {
+  public Stream<String> localPrefixes() {
     return new Stream<String>() {
       private int mIndex;
 
@@ -54,14 +54,14 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String defaultNS() throws DocumentException {
+  public String defaultNS() {
     return resolvePrefix("");
   }
 
   @Override
-  public void addPrefix(final String prefix, final String uri) throws DocumentException {
-    if (mRtx instanceof XdmNodeTrx) {
-      final XdmNodeTrx wtx = (XdmNodeTrx) mRtx;
+  public void addPrefix(final String prefix, final String uri) {
+    if (mRtx instanceof XmlNodeTrx) {
+      final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
       try {
         wtx.insertNamespace(new QNm(uri, prefix, ""));
       } catch (final SirixException e) {
@@ -71,8 +71,10 @@ public final class SirixScope implements Scope {
   }
 
   @Override
-  public String resolvePrefix(final @Nullable String prefix) throws DocumentException {
-    final int prefixVocID = (prefix == null || prefix.isEmpty()) ? -1 : mRtx.keyForName(prefix);
+  public String resolvePrefix(final @Nullable String prefix) {
+    final int prefixVocID = (prefix == null || prefix.isEmpty())
+        ? -1
+        : mRtx.keyForName(prefix);
     while (true) {
       // First iterate over all namespaces.
       for (int i = 0, namespaces = mRtx.getNamespaceCount(); i < namespaces; i++) {
@@ -93,11 +95,13 @@ public final class SirixScope implements Scope {
     if (prefix.equals("xml")) {
       return "http://www.w3.org/XML/1998/namespace";
     }
-    return prefixVocID == -1 ? "" : null;
+    return prefixVocID == -1
+        ? ""
+        : null;
   }
 
   @Override
-  public void setDefaultNS(final String uri) throws DocumentException {
+  public void setDefaultNS(final String uri) {
     addPrefix("", uri);
   }
 }

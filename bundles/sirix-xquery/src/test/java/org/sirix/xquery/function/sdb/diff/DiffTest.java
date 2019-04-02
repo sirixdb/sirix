@@ -41,17 +41,17 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
-import org.sirix.xquery.node.BasicDBStore;
+import org.sirix.xquery.node.BasicXmlDBStore;
 import junit.framework.TestCase;
 
 /**
@@ -83,12 +83,12 @@ public final class DiffTest extends TestCase {
     final Path databasePath = PATHS.PATH2.getFile();
 
     final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
-    Databases.createXdmDatabase(config);
+    Databases.createXmlDatabase(config);
 
-    try (final var database = Databases.openXdmDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE, config).build());
-      try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-          final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+    try (final var database = Databases.openXmlDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE).build());
+      try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
@@ -96,30 +96,30 @@ public final class DiffTest extends TestCase {
     }
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(databasePath.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databasePath.getParent()).build()) {
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = databasePath.getFileName().toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',3)";
-        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',2)";
-        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);
@@ -134,30 +134,30 @@ public final class DiffTest extends TestCase {
     final Path database = PATHS.PATH1.getFile();
 
     // Initialize query context and store.
-    try (final BasicDBStore store = BasicDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = new SirixQueryContext(store);
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
       final String resName = XdmTestHelper.RESOURCE;
 
       final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "',1,5)";
 
-      final XQuery query = new XQuery(new SirixCompileChain(store), xq1);
+      final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
         final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
-        new XQuery(new SirixCompileChain(store), content).execute(ctx);
+        new XQuery(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
         final String xq2 = "sdb:doc('" + dbName + "','" + resName + "',6)";
-        new XQuery(new SirixCompileChain(store), xq2).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
         final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
         out.reset();
 
         final String xq3 = "sdb:doc('" + dbName + "','" + resName + "',5)";
-        new XQuery(new SirixCompileChain(store), xq3).serialize(ctx, new PrintStream(out));
+        new XQuery(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
         final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
         assertEquals(contentNewRev, contentOldRev);

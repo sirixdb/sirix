@@ -4,13 +4,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.CommentNode;
 
 /**
@@ -19,7 +19,7 @@ import org.sirix.node.xdm.CommentNode;
  * @author Johannes Lichtenberger
  *
  */
-public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode, ImmutableXdmNode {
+public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode, ImmutableXmlNode {
 
   /** Mutable {@link CommentNode}. */
   private final CommentNode mNode;
@@ -54,7 +54,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(this);
   }
 

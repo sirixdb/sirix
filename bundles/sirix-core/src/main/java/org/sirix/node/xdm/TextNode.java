@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -35,7 +35,7 @@ import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -48,7 +48,7 @@ import com.google.common.base.Objects;
  * Node representing a text node.
  * </p>
  */
-public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXdmNode {
+public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
   /** Delegate for common value node information. */
   private final ValNodeDelegate mValDel;
@@ -96,7 +96,7 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableText.of(this));
   }
 

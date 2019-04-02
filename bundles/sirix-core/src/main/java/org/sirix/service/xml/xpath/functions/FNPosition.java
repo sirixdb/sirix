@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.utils.TypedValue;
 
@@ -52,7 +52,7 @@ public class FNPosition extends AbstractFunction {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if function check fails
    */
-  public FNPosition(final XdmNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
+  public FNPosition(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
       final int returnType) throws SirixXPathException {
     super(rtx, args, min, max, returnType);
   }

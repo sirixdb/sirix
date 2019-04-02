@@ -56,43 +56,43 @@ public class InstanceOfExprTest {
 
   @Test(expected = NoSuchElementException.class)
   public void testInstanceOfExpr() throws SirixException {
-    final AbstractAxis axis1 = new XPathAxis(holder.getNodeReadTrx(), "1 instance of xs:integer");
+    final AbstractAxis axis1 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 instance of xs:integer");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
     final AbstractAxis axis2 =
-        new XPathAxis(holder.getNodeReadTrx(), "\"hallo\" instance of xs:integer");
+        new XPathAxis(holder.getXdmNodeReadTrx(), "\"hallo\" instance of xs:integer");
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(false, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
     final AbstractAxis axis3 =
-        new XPathAxis(holder.getNodeReadTrx(), "\"hallo\" instance of xs:string ?");
+        new XPathAxis(holder.getXdmNodeReadTrx(), "\"hallo\" instance of xs:string ?");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
 
     final AbstractAxis axis4 =
-        new XPathAxis(holder.getNodeReadTrx(), "\"hallo\" instance of xs:string +");
+        new XPathAxis(holder.getXdmNodeReadTrx(), "\"hallo\" instance of xs:string +");
     assertEquals(true, axis4.hasNext());
     axis4.next();
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
 
     final AbstractAxis axis5 =
-        new XPathAxis(holder.getNodeReadTrx(), "\"hallo\" instance of xs:string *");
+        new XPathAxis(holder.getXdmNodeReadTrx(), "\"hallo\" instance of xs:string *");
     assertEquals(true, axis5.hasNext());
     axis5.next();
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(true, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis5.hasNext());
     axis5.next();
   }

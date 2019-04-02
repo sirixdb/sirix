@@ -80,7 +80,7 @@ public class JSONBooleanNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final BooleanNode node2 = (BooleanNode) Kind.JSON_BOOLEAN_VALUE.deserialize(new DataInputStream(in),
+    final BooleanNode node2 = (BooleanNode) Kind.BOOLEAN_VALUE.deserialize(new DataInputStream(in),
         node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
@@ -93,7 +93,7 @@ public class JSONBooleanNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertTrue(node.getValue());
-    assertEquals(Kind.JSON_BOOLEAN_VALUE, node.getKind());
+    assertEquals(Kind.BOOLEAN_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

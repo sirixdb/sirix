@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;

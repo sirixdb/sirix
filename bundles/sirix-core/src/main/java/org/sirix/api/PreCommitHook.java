@@ -1,6 +1,6 @@
 package org.sirix.api;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
  * Pre commit hook.
@@ -13,7 +13,7 @@ public interface PreCommitHook {
   /**
    * Pre commit hook. Called before a revision is commited.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   void preCommit(NodeReadOnlyTrx rtx);

@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Expression;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
@@ -48,7 +48,7 @@ public abstract class AbstractExpression extends AbstractAxis implements Express
    * 
    * @param rtx exclusive (immutable) trx to iterate with
    */
-  public AbstractExpression(final XdmNodeReadOnlyTrx pRtx) {
+  public AbstractExpression(final XmlNodeReadOnlyTrx pRtx) {
     super(pRtx);
     mIsFirst = true;
   }

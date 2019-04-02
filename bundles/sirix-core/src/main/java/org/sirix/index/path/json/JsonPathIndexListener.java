@@ -1,6 +1,6 @@
 package org.sirix.index.path.json;
 
-import org.sirix.access.trx.node.xdm.XdmIndexController.ChangeType;
+import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.path.PathIndexListener;
 import org.sirix.node.Kind;
@@ -16,7 +16,7 @@ final class JsonPathIndexListener implements ChangeListener {
 
   @Override
   public void listen(final ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    if (node.getKind() == Kind.JSON_OBJECT_KEY) {
+    if (node.getKind() == Kind.OBJECT_RECORD) {
       mPathIndexListener.listen(type, node, pathNodeKey);
     }
   }

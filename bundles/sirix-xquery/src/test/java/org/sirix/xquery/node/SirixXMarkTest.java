@@ -5,9 +5,9 @@ import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.node.parser.DocumentParser;
-import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Store;
+import org.brackit.xquery.xdm.node.NodeCollection;
+import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 import org.sirix.xquery.SirixCompileChain;
 
@@ -20,21 +20,21 @@ import org.sirix.xquery.SirixCompileChain;
 public final class SirixXMarkTest extends XMarkTest {
 
   /** Sirix database store. */
-  private BasicDBStore mStore;
+  private BasicXmlDBStore mStore;
 
   @Override
-  protected Store createStore() throws Exception {
-    mStore = BasicDBStore.newBuilder().build();
+  protected NodeStore createStore() throws Exception {
+    mStore = BasicXmlDBStore.newBuilder().build();
     return mStore;
   }
 
   @Override
   protected XQuery xquery(final String query) throws QueryException {
-    return new XQuery(new SirixCompileChain(mStore), query);
+    return new XQuery(SirixCompileChain.createWithNodeStore(mStore), query);
   }
 
   @Override
-  protected Collection<?> createDoc(final DocumentParser parser) throws DocumentException {
+  protected NodeCollection<?> createDoc(final DocumentParser parser) throws DocumentException {
     return mStore.create("testCollection", parser);
   }
 

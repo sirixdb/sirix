@@ -16,10 +16,10 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -27,8 +27,8 @@ import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBStore;
 
 /**
  * <p>
@@ -44,8 +44,7 @@ import org.sirix.xquery.node.DBStore;
  */
 @FunctionAnnotation(
     description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, "
-        + "a new collection will be created. ",
+        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Store extends AbstractFunction {
 
@@ -70,20 +69,17 @@ public final class Store extends AbstractFunction {
   public Store(final QNm name, final boolean createNew) {
     super(name, createNew
         ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
         : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One)),
         true);
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
       final Sequence nodes = args[2];
@@ -92,17 +88,16 @@ public final class Store extends AbstractFunction {
       final boolean createNew = args.length == 4
           ? args[3].booleanValue()
           : true;
-      final String resName = FunUtil.getString(
-          args, 1, "resName", "resource", null, createNew
-              ? false
-              : true);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, createNew
+          ? false
+          : true);
 
-      final DBStore store = (DBStore) ctx.getStore();
+      final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
         create(store, collName, resName, nodes);
       } else {
         try {
-          final DBCollection coll = store.lookup(collName);
+          final XmlDBCollection coll = store.lookup(collName);
           add(store, coll, resName, nodes);
         } catch (final DocumentException e) {
           // collection does not exist
@@ -116,7 +111,7 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final DBStore store, final DBCollection coll, final String resName,
+  private static void add(final XmlDBStore store, final XmlDBCollection coll, final String resName,
       final Sequence nodes) throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
@@ -125,7 +120,7 @@ public final class Store extends AbstractFunction {
       final ParserStream parsers = new ParserStream(nodes);
       try {
         for (SubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          coll.add(resName, parser);
+          coll.add(parser);
         }
       } finally {
         parsers.close();
@@ -133,8 +128,8 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final DBStore store, final String collName, final String resName,
-      final Sequence nodes) throws DocumentException, IOException {
+  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes)
+      throws DocumentException, IOException {
     if (nodes instanceof Node) {
       final Node<?> n = (Node<?>) nodes;
       store.create(collName, resName, new StoreParser(n));
@@ -200,8 +195,7 @@ public final class Store extends AbstractFunction {
     }
 
     @Override
-    public void processingInstruction(final QNm target, final Atomic content)
-        throws DocumentException {
+    public void processingInstruction(final QNm target, final Atomic content) throws DocumentException {
       handler.processingInstruction(target, content);
     }
 

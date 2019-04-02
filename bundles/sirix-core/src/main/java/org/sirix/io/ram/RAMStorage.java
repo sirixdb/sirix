@@ -3,7 +3,7 @@ package org.sirix.io.ram;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nullable;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -30,10 +30,10 @@ public final class RAMStorage implements Storage {
   private final ConcurrentMap<String, ConcurrentMap<Integer, RevisionRootPage>> mRevisionRootsStorage;
 
   /** Mapping pageKey to the page. */
-  private final ConcurrentMap<Long, Page> mResourceFileStorage;
+  private ConcurrentMap<Long, Page> mResourceFileStorage;
 
   /** Mapping revision to the page. */
-  private final ConcurrentMap<Integer, RevisionRootPage> mResourceRevisionRootsStorage;
+  private ConcurrentMap<Integer, RevisionRootPage> mResourceRevisionRootsStorage;
 
   /** The uber page key. */
   private final ConcurrentMap<Integer, Long> mUberPageKey;
@@ -45,10 +45,13 @@ public final class RAMStorage implements Storage {
   private final RAMAccess mAccess;
 
   /** Determines if the storage already exists or not. */
-  private final boolean mExists;
+  private boolean mExists;
 
   /** The unique page key. */
   private long mPageKey;
+
+  /** The resource configuration. */
+  private final ResourceConfiguration mResourceConfiguration;
 
   /**
    * Constructor
@@ -56,32 +59,40 @@ public final class RAMStorage implements Storage {
    * @param resourceConfig {@link ResourceConfiguration} reference
    */
   public RAMStorage(final ResourceConfiguration resourceConfig) {
+    mResourceConfiguration = resourceConfig;
     mDataStorage = new ConcurrentHashMap<>();
     mRevisionRootsStorage = new ConcurrentHashMap<>();
     mHandler = resourceConfig.byteHandlePipeline;
-    final String resource = resourceConfig.getResource().getFileName().toString();
-    mExists = mDataStorage.containsKey(resource);
-    mDataStorage.putIfAbsent(resource, new ConcurrentHashMap<>());
-    mResourceFileStorage = mDataStorage.get(resource);
-    mRevisionRootsStorage.putIfAbsent(resource, new ConcurrentHashMap<>());
-    mResourceRevisionRootsStorage = mRevisionRootsStorage.get(resource);
     mAccess = new RAMAccess();
     mUberPageKey = new ConcurrentHashMap<>();
     mUberPageKey.put(-1, 0L);
   }
 
   @Override
-  public Writer createWriter() throws SirixIOException {
+  public Writer createWriter() {
+    instantiate();
+
+    return mAccess;
+  }
+
+  private void instantiate() {
+    final String resource = mResourceConfiguration.getResource().getFileName().toString();
+    mExists = mDataStorage.containsKey(resource);
+    mDataStorage.putIfAbsent(resource, new ConcurrentHashMap<>());
+    mResourceFileStorage = mDataStorage.get(resource);
+    mRevisionRootsStorage.putIfAbsent(resource, new ConcurrentHashMap<>());
+    mResourceRevisionRootsStorage = mRevisionRootsStorage.get(resource);
+  }
+
+  @Override
+  public Reader createReader() {
+    instantiate();
+
     return mAccess;
   }
 
   @Override
-  public Reader createReader() throws SirixIOException {
-    return mAccess;
-  }
-
-  @Override
-  public void close() throws SirixIOException {}
+  public void close() {}
 
   @Override
   public ByteHandlePipeline getByteHandler() {
@@ -126,8 +137,7 @@ public final class RAMStorage implements Storage {
     }
 
     @Override
-    public Writer writeUberPageReference(final PageReference pageReference)
-        throws SirixIOException {
+    public Writer writeUberPageReference(final PageReference pageReference) throws SirixIOException {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);

@@ -21,17 +21,17 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilter;
-import org.sirix.index.path.xdm.XdmPCRCollector;
+import org.sirix.index.path.xml.XmlPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.stream.SirixNodeKeyStream;
+import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.xquery.stream.node.SirixNodeKeyStream;
 
 /**
  * Scan the CAS-index for matching nodes.
@@ -44,27 +44,22 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
     parameters = {"$doc", "$idx-no", "$key", "$include-self", "$search-mode", "$paths"})
 public final class ScanCASIndex extends AbstractFunction {
 
-  public final static QNm DEFAULT_NAME =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-cas-index");
+  public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "scan-cas-index");
 
   public ScanCASIndex() {
     super(DEFAULT_NAME,
-        new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-            SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
-            new SequenceType(AtomicType.ANA, Cardinality.One),
-            new SequenceType(AtomicType.BOOL, Cardinality.One),
-            new SequenceType(AtomicType.INR, Cardinality.One),
+        new Signature(new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), SequenceType.NODE,
+            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.ANA, Cardinality.One),
+            new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.INR, Cardinality.One),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
         true);
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
-    final DBNode doc = (DBNode) args[0];
-    final XdmNodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+    final XmlDBNode doc = (XmlDBNode) args[0];
+    final XmlNodeReadOnlyTrx rtx = doc.getTrx();
+    final XmlIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -75,26 +70,14 @@ public final class ScanCASIndex extends AbstractFunction {
     final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.CAS);
 
     if (indexDef == null) {
-      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
-          "Index no %s for collection %s and document %s not found.", idx,
-          doc.getCollection().getName(),
-          doc.getTrx()
-             .getResourceManager()
-             .getResourceConfig()
-             .getResource()
-             .getFileName()
-             .toString());
+      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
+          idx, doc.getCollection().getName(),
+          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-          "Index no %s for collection %s and document %s is not a CAS index.", idx,
-          doc.getCollection().getName(),
-          doc.getTrx()
-             .getResourceManager()
-             .getResourceConfig()
-             .getResource()
-             .getFileName()
-             .toString());
+          "Index no %s for collection %s and document %s is not a CAS index.", idx, doc.getCollection().getName(),
+          doc.getTrx().getResourceManager().getResourceConfig().getResource().getFileName().toString());
     }
 
     final Type keyType = indexDef.getContentType();
@@ -127,11 +110,11 @@ public final class ScanCASIndex extends AbstractFunction {
 
     final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
-        ? controller.createCASFilter(paths.split(";"), key, mode, new XdmPCRCollector(rtx))
-        : controller.createCASFilter(new String[] {}, key, mode, new XdmPCRCollector(rtx));
+        ? controller.createCASFilter(paths.split(";"), key, mode, new XmlPCRCollector(rtx))
+        : controller.createCASFilter(new String[] {}, key, mode, new XmlPCRCollector(rtx));
 
-    final XdmIndexController ic = controller;
-    final DBNode node = doc;
+    final XmlIndexController ic = controller;
+    final XmlDBNode node = doc;
 
     return new LazySequence() {
       @Override
@@ -140,10 +123,9 @@ public final class ScanCASIndex extends AbstractFunction {
           Stream<?> s;
 
           @Override
-          public Item next() throws QueryException {
+          public Item next() {
             if (s == null) {
-              s = new SirixNodeKeyStream(
-                  ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
+              s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx().getPageTrx(), indexDef, filter),
                   node.getCollection(), node.getTrx());
             }
             return (Item) s.next();

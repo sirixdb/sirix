@@ -4,7 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
@@ -14,7 +14,7 @@ import org.sirix.node.immutable.xdm.ImmutableComment;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -26,7 +26,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  *
  */
-public final class CommentNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXdmNode {
+public final class CommentNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -74,7 +74,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableComment.of(this));
   }
 

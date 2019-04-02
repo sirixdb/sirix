@@ -23,6 +23,10 @@ package org.sirix.utils;
 
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import org.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import org.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 
@@ -81,8 +85,7 @@ public final class JsonDocumentCreator {
 
     wtx.insertObjectAsFirstChild();
 
-    wtx.insertObjectKeyAsFirstChild("foo")
-       .insertArrayAsFirstChild()
+    wtx.insertObjectRecordAsFirstChild("foo", new ArrayValue())
        .insertStringValueAsFirstChild("bar")
        .insertNullValueAsRightSibling()
        .insertNumberValueAsRightSibling(2.33);
@@ -91,13 +94,10 @@ public final class JsonDocumentCreator {
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectKeyAsRightSibling("bar")
-       .insertObjectAsFirstChild()
-       .insertObjectKeyAsFirstChild("hello")
-       .insertStringValueAsFirstChild("world")
+    wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
+       .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
        .moveToParent();
-    wtx.insertObjectKeyAsRightSibling("helloo")
-       .insertBooleanValueAsFirstChild(true)
+    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
        .moveToParent()
        .getCursor()
        .moveToParent()
@@ -106,15 +106,13 @@ public final class JsonDocumentCreator {
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectKeyAsRightSibling("baz").insertStringValueAsFirstChild("hello").moveToParent().getCursor();
+    wtx.insertObjectRecordAsRightSibling("baz", new StringValue("hello")).moveToParent().getCursor();
 
     assert wtx.isObjectKey();
 
-    wtx.insertObjectKeyAsRightSibling("tada")
-       .insertArrayAsFirstChild()
+    wtx.insertObjectRecordAsRightSibling("tada", new ArrayValue())
        .insertObjectAsFirstChild()
-       .insertObjectKeyAsFirstChild("foo")
-       .insertStringValueAsFirstChild("bar")
+       .insertObjectRecordAsFirstChild("foo", new StringValue("bar"))
        .moveToParent()
        .getCursor()
        .moveToParent();
@@ -122,8 +120,7 @@ public final class JsonDocumentCreator {
     assert wtx.isObject();
 
     wtx.insertObjectAsRightSibling()
-       .insertObjectKeyAsFirstChild("baz")
-       .insertBooleanValueAsFirstChild(false)
+       .insertObjectRecordAsFirstChild("baz", new BooleanValue(false))
        .moveToParent()
        .getCursor()
        .moveToParent();

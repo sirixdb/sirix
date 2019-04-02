@@ -25,7 +25,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -53,7 +53,7 @@ public class LevelOrderAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(11L);
     AbsAxisTest.testIAxisConventions(new LevelOrderAxis.Builder(rtx).build(), new long[] {12L});

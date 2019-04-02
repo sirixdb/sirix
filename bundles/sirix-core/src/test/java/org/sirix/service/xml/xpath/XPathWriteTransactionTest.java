@@ -29,10 +29,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -49,11 +49,11 @@ public final class XPathWriteTransactionTest {
 
   private static final String RESOURCE = "bla";
 
-  private XdmResourceManager manager;
+  private XmlResourceManager manager;
 
-  private XdmNodeTrx wtx;
+  private XmlNodeTrx wtx;
 
-  private Database<XdmResourceManager> database;
+  private Database<XmlResourceManager> database;
 
   @Before
   public void setUp() throws Exception {
@@ -63,8 +63,8 @@ public final class XPathWriteTransactionTest {
 
     // Verify.
     database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    manager = database.openResourceManager(XdmTestHelper.RESOURCE);
     wtx = manager.beginNodeTrx();
   }
 

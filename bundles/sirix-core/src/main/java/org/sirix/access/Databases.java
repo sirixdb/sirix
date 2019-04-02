@@ -12,15 +12,14 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.json.JsonResourceStore;
-import org.sirix.access.xdm.XdmResourceStore;
+import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonResourceManager;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.SirixFiles;
@@ -55,15 +54,15 @@ public final class Databases {
   }
 
   /**
-   * Creates an XDM-database. This includes loading the database configuration, building up the
+   * Creates an XML-database. This includes loading the database configuration, building up the
    * structure and preparing everything for login.
    *
    * @param dbConfig config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
    */
-  public static synchronized boolean createXdmDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
-    return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XDM));
+  public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
+    return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XML));
   }
 
   /**
@@ -160,8 +159,8 @@ public final class Databases {
    * @throws NullPointerException if {@code file} is {@code null}
    */
   @SuppressWarnings("unchecked")
-  public static synchronized Database<XdmResourceManager> openXdmDatabase(final Path file) {
-    return (Database<XdmResourceManager>) openDatabase(file, new XdmResourceStore(), DatabaseType.XDM);
+  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
+    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(), DatabaseType.XML);
   }
 
   /**

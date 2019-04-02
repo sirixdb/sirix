@@ -3,12 +3,12 @@ package org.sirix.node.immutable.xdm;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.settings.Fixed;
 
@@ -17,7 +17,7 @@ import org.sirix.settings.Fixed;
  *
  * @author Johannes Lichtenberger
  */
-public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXdmNode {
+public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlNode {
 
   /** Mutable {@link XdmDocumentRootNode} instance. */
   private final XdmDocumentRootNode mNode;
@@ -52,7 +52,7 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXdmN
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(this);
   }
 

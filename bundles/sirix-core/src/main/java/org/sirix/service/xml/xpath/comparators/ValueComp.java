@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -45,7 +45,7 @@ public class ValueComp extends AbstractComparator {
    * @param mOperand2 Second value of the comparison
    * @param mComp comparison kind
    */
-  public ValueComp(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mComp) {
+  public ValueComp(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mComp) {
 
     super(rtx, mOperand1, mOperand2, mComp);
   }
@@ -62,7 +62,7 @@ public class ValueComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-    final XdmNodeReadOnlyTrx trx = asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx trx = asXdmNodeReadTrx();
 
     int type = trx.getTypeKey();
 
@@ -71,7 +71,7 @@ public class ValueComp extends AbstractComparator {
       type = trx.keyForName("xs:string");
     }
 
-    final AtomicValue atomized = new AtomicValue(((XdmNodeReadOnlyTrx) mOperand.asXdmNodeReadTrx()).getValue().getBytes(), type);
+    final AtomicValue atomized = new AtomicValue(((XmlNodeReadOnlyTrx) mOperand.asXdmNodeReadTrx()).getValue().getBytes(), type);
     final AtomicValue[] op = {atomized};
 
     // (4.) the operands must be singletons in case of a value comparison

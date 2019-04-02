@@ -44,13 +44,13 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -96,16 +96,16 @@ public class FileSystemWatcher implements AutoCloseable {
   private final Path mPath;
 
   /** Sirix {@link Database}. */
-  private final Database<XdmResourceManager> mDatabase;
+  private final Database<XmlResourceManager> mDatabase;
 
-  /** Sirix {@link XdmResourceManager}. */
-  private final XdmResourceManager mResource;
+  /** Sirix {@link XmlResourceManager}. */
+  private final XmlResourceManager mResource;
 
   /** Determines the state. */
   private State mState;
 
-  /** Sirix {@link XdmNodeTrx}. */
-  private XdmNodeTrx mWtx;
+  /** Sirix {@link XmlNodeTrx}. */
+  private XmlNodeTrx mWtx;
 
   /** Possible states. */
   public enum State {
@@ -122,10 +122,10 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param path {@link Path} reference which denotes the {@code path/directory} to watch for changes.
    * @param database {@link Database} to use for importing changed data into sirix
    */
-  private FileSystemWatcher(final Path path, final Database<XdmResourceManager> database) throws SirixException {
+  private FileSystemWatcher(final Path path, final Database<XmlResourceManager> database) throws SirixException {
     mPath = checkNotNull(path);
     mDatabase = checkNotNull(database);
-    mResource = mDatabase.getResourceManager("shredded");
+    mResource = mDatabase.openResourceManager("shredded");
     mWtx = mResource.beginNodeTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);
@@ -142,7 +142,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws NullPointerException if any of the arguments are {@code null}
    * @throws SirixException if anything while setting up sirix failes
    */
-  public static synchronized FileSystemWatcher getInstance(final Path path, final Database<XdmResourceManager> database)
+  public static synchronized FileSystemWatcher getInstance(final Path path, final Database<XmlResourceManager> database)
       throws SirixException {
     final PathDBContainer container = new PathDBContainer(path, database);
     FileSystemWatcher watcher = INSTANCES.putIfAbsent(container, new FileSystemWatcher(path, database));
@@ -160,7 +160,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws IOException if an I/O error occurs
    * @throws NullPointerException if {@code pIndex} is {@code null}
    */
-  public void watch(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> index) throws IOException {
+  public void watch(final Visitor<XmlNodeTrx> visitor, final Map<Path, FileSystemPath> index) throws IOException {
     final WatchService watcher = FileSystems.getDefault().newWatchService();
     final WatchRecursivelyVisitor fileVisitor = WatchRecursivelyVisitor.getInstance(watcher);
     Files.walkFileTree(mPath, fileVisitor);
@@ -265,7 +265,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param index simple path index
    * @throws IOException if an I/O error occurs
    */
-  private void processEvent(final WatchEvent<?> event, final Visitor<XdmNodeTrx> visitor,
+  private void processEvent(final WatchEvent<?> event, final Visitor<XmlNodeTrx> visitor,
       final Map<Path, FileSystemPath> index, final WatchService watcher, final Path path) throws IOException {
     assert event != null;
     final Kind<?> type = event.kind();
@@ -285,8 +285,8 @@ public class FileSystemWatcher implements AutoCloseable {
   }
 
   /**
-   * Find node corresponding to the path. The {@link XdmNodeTrx} globally used is moved to the
-   * found node.
+   * Find node corresponding to the path. The {@link XmlNodeTrx} globally used is moved to the found
+   * node.
    *
    * @param query xpath expression
    * @throws SirixXPathException if expression isn't valid
@@ -307,7 +307,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_MODIFY ENTRY_MODIFY} event.
    */
-  private void entryModified(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
+  private void entryModified(final Visitor<XmlNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
       final Path pPath) {
     try {
       execute(OperationType.UPDATE, visitor, pIndex, pPath);
@@ -319,7 +319,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_DELETE ENTRY_DELETE} event.
    */
-  private void entryDeletes(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> index,
+  private void entryDeletes(final Visitor<XmlNodeTrx> visitor, final Map<Path, FileSystemPath> index,
       final Path pPath) {
     try {
       execute(OperationType.DELETE, visitor, index, pPath);
@@ -331,7 +331,7 @@ public class FileSystemWatcher implements AutoCloseable {
   /**
    * Process an {@link java.nio.file.StandardWatchEventKinds#ENTRY_CREATE ENTRY_CREATE} event.
    */
-  private void entryCreated(final Visitor<XdmNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
+  private void entryCreated(final Visitor<XmlNodeTrx> visitor, final Map<Path, FileSystemPath> pIndex,
       final Path pPath) {
     try {
       execute(OperationType.INSERT, visitor, pIndex, pPath);
@@ -348,7 +348,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param index simple path index
    * @throws SirixException if operation in sirix fails
    */
-  private void execute(final Operation<XdmNodeTrx> operation, final Visitor<XdmNodeTrx> visitor,
+  private void execute(final Operation<XmlNodeTrx> operation, final Visitor<XmlNodeTrx> visitor,
       final Map<Path, FileSystemPath> index, final Path pathToWatch) throws SirixException {
     assert operation != null;
     assert index != null;
@@ -436,15 +436,15 @@ public class FileSystemWatcher implements AutoCloseable {
       Databases.removeDatabase(databasePath);
     }
 
-    Databases.createXdmDatabase(conf);
-    try (final var database = Databases.openXdmDatabase(databasePath)) {
-      database.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
+    Databases.createXmlDatabase(conf);
+    try (final var database = Databases.openXmlDatabase(databasePath)) {
+      database.createResource(new ResourceConfiguration.Builder("shredded").build());
       index =
           FileHierarchyWalker.parseDir(Paths.get(args[0]), database, Optional.of(new ProcessFileSystemAttributes()));
       assert index != null;
 
       try (final FileSystemWatcher watcher =
-          FileSystemWatcher.getInstance(Paths.get(args[0]), Databases.openXdmDatabase(databasePath))) {
+          FileSystemWatcher.getInstance(Paths.get(args[0]), Databases.openXmlDatabase(databasePath))) {
         watcher.watch(null, index);
       }
     }

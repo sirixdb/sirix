@@ -5,12 +5,12 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
-import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
+import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xdm.NamespaceNode;
 
 /**
@@ -19,7 +19,7 @@ import org.sirix.node.xdm.NamespaceNode;
  * @author Johannes Lichtenberger
  *
  */
-public class ImmutableNamespace implements ImmutableNameNode, ImmutableXdmNode {
+public class ImmutableNamespace implements ImmutableNameNode, ImmutableXmlNode {
 
   /** Mutable {@link NamespaceNode}. */
   private final NamespaceNode mNode;
@@ -54,7 +54,7 @@ public class ImmutableNamespace implements ImmutableNameNode, ImmutableXdmNode {
   }
 
   @Override
-  public VisitResult acceptVisitor(final XdmNodeVisitor pVisitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 

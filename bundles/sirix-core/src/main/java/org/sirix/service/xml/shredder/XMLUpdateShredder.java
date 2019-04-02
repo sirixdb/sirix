@@ -43,11 +43,11 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
@@ -176,16 +176,16 @@ public final class XMLUpdateShredder implements Callable<Long> {
    */
   private transient boolean mEmptyElement;
 
-  private final XdmNodeTrx mWtx;
+  private final XmlNodeTrx mWtx;
 
   private final XMLEventReader mReader;
 
   private InsertPosition mInsert;
 
   /**
-   * Normal constructor to invoke a shredding process on a existing {@link XdmNodeTrx}.
+   * Normal constructor to invoke a shredding process on a existing {@link XmlNodeTrx}.
    *
-   * @param paramWtx {@link XdmNodeTrx} where the new XML Fragment should be placed
+   * @param paramWtx {@link XmlNodeTrx} where the new XML Fragment should be placed
    * @param paramReader {@link XMLEventReader} (StAX parser) of the XML Fragment
    * @param paramAddAsFirstChild if the insert is occuring on a node in an existing tree.
    *        <code>false</code> is not possible when wtx is on root node
@@ -198,7 +198,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
    *
    */
   @SuppressWarnings("unchecked")
-  public XMLUpdateShredder(final XdmNodeTrx paramWtx, final XMLEventReader paramReader,
+  public XMLUpdateShredder(final XmlNodeTrx paramWtx, final XMLEventReader paramReader,
       final InsertPosition paramAddAsFirstChild, final Object paramData, final ShredderCommit paramCommit)
       throws SirixIOException {
     mInsert = paramAddAsFirstChild;
@@ -1151,11 +1151,11 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final Path target = Paths.get(args[1]);
 
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
-    Databases.createXdmDatabase(config);
-    final var db = Databases.openXdmDatabase(target);
-    db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    try (final XdmResourceManager resMgr = db.getResourceManager("shredded");
-        final XdmNodeTrx wtx = resMgr.beginNodeTrx();
+    Databases.createXmlDatabase(config);
+    final var db = Databases.openXmlDatabase(target);
+    db.createResource(new ResourceConfiguration.Builder("shredded").build());
+    try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
+        final XmlNodeTrx wtx = resMgr.beginNodeTrx();
         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XmlShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =

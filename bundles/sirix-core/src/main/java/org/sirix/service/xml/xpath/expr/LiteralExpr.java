@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
  * <h1>LiteralExpr</h1>
@@ -39,7 +39,7 @@ public class LiteralExpr extends AbstractExpression {
    * @param pRtx exclusive (immutable) trx to iterate with
    * @param mItemKey itemKey of the literal
    */
-  public LiteralExpr(final XdmNodeReadOnlyTrx pRtx, final long pItemKey) {
+  public LiteralExpr(final XmlNodeReadOnlyTrx pRtx, final long pItemKey) {
     super(pRtx);
     mLiteralKey = pItemKey;
   }

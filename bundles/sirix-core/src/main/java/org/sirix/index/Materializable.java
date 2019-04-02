@@ -1,7 +1,7 @@
 package org.sirix.index;
 
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Node;
+import org.brackit.xquery.xdm.node.Node;
 
 /**
  * Materializable structure.

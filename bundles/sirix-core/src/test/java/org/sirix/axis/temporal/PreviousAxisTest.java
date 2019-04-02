@@ -6,9 +6,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -31,7 +32,7 @@ public final class PreviousAxisTest {
   @Before
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
-    try (final XdmNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+    try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
       XdmDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
@@ -45,13 +46,14 @@ public final class PreviousAxisTest {
 
   @Test
   public void testAxis() throws SirixException {
-    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
 
-    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())), null) {
       @Override
-      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
-        return new PreviousAxis<>(secondRtx);
+      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        return new PreviousAxis<>(secondRtx.getResourceManager(), secondRtx);
       }
     }.test();
   }

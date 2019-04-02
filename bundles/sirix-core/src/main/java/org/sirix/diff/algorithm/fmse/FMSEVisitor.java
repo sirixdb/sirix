@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,10 +22,9 @@ package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Map;
-import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
-import org.sirix.api.ResourceManager;
+import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.immutable.xdm.ImmutableComment;
@@ -36,14 +35,14 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
  * Initialize data structures.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
-  /** {@link XdmNodeReadOnlyTrx} reference. */
-  private final XdmNodeReadOnlyTrx mRtx;
+  /** {@link XmlNodeReadOnlyTrx} reference. */
+  private final XmlNodeReadOnlyTrx mRtx;
 
   /** Determines if nodes are in order. */
   private final Map<Long, Boolean> mInOrder;
@@ -53,15 +52,15 @@ public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
   /**
    * Constructor.
-   * 
-   * @param pSession {@link ResourceManager} implementation
+   *
+   * @param readTransaction the transaction cursor
    * @param inOrder {@link Map} reference to track ordered nodes
    * @param descendants {@link Map} reference to track descendants per node
    * @throws SirixException if setting up sirix fails
    * @throws NullPointerException if one of the arguments is {@code null}
    */
-  public FMSEVisitor(final XdmNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
-      final Map<Long, Long> descendants) throws SirixException {
+  public FMSEVisitor(final XmlNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
+      final Map<Long, Long> descendants) {
     mRtx = checkNotNull(readTransaction);
     mInOrder = checkNotNull(inOrder);
     mDescendants = checkNotNull(descendants);
@@ -132,7 +131,7 @@ public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
   /**
    * Visit a leaf node.
-   * 
+   *
    * @param pNode the node to visit
    * @return {@link VisitResultType} value to continue normally
    */

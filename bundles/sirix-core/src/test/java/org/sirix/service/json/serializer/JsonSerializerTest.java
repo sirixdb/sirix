@@ -9,6 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
+import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.utils.JsonDocumentCreator;
@@ -32,7 +33,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
@@ -46,11 +47,11 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
 
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot().getCursor().moveToFirstChild();
-      wtx.insertObjectKeyAsFirstChild("tadaaa").insertStringValueAsFirstChild("todooo");
+      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
       wtx.commit();
 
       final var serializer = new JsonSerializer.Builder(manager, writer, 1, 2).build();
