@@ -27,7 +27,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
@@ -90,13 +90,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   private final long mOldRootKey;
 
   /**
-   * Determines if {@link XdmNodeReadTrx} on newer revision moved to the node denoted by
+   * Determines if {@link XdmNodeReadOnlyTrx} on newer revision moved to the node denoted by
    * {@code mNewStartKey}.
    */
   private final boolean mNewRtxMoved;
 
   /**
-   * Determines if {@link XdmNodeReadTrx} on older revision moved to the node denoted by
+   * Determines if {@link XdmNodeReadOnlyTrx} on older revision moved to the node denoted by
    * {@code mOldStartKey}.
    */
   private final boolean mOldRtxMoved;
@@ -107,11 +107,11 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /** Determines if it's the first diff-comparison. */
   private boolean mIsFirst;
 
-  /** {@link XdmNodeReadTrx} on new revision. */
-  private final XdmNodeReadTrx mNewRtx;
+  /** {@link XdmNodeReadOnlyTrx} on new revision. */
+  private final XdmNodeReadOnlyTrx mNewRtx;
 
-  /** {@link XdmNodeReadTrx} on old revision. */
-  private final XdmNodeReadTrx mOldRtx;
+  /** {@link XdmNodeReadOnlyTrx} on old revision. */
+  private final XdmNodeReadOnlyTrx mOldRtx;
 
   private final boolean mSkipSubtrees;
 
@@ -125,16 +125,16 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     mSkipSubtrees = builder.mSkipSubtrees;
     mDiffKind = checkNotNull(builder).mKind;
     synchronized (builder.mResMgr) {
-      mNewRtx = builder.mResMgr.beginNodeReadTrx(builder.mNewRev);
-      mOldRtx = builder.mResMgr.beginNodeReadTrx(builder.mOldRev);
+      mNewRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mNewRev);
+      mOldRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mOldRev);
       mHashKind = builder.mHashKind;
     }
     mNewRtxMoved = mNewRtx.moveTo(builder.mNewStartKey).hasMoved();
     mOldRtxMoved = mOldRtx.moveTo(builder.mOldStartKey).hasMoved();
-    if (mNewRtx.getKind() == Kind.DOCUMENT) {
+    if (mNewRtx.getKind() == Kind.XDM_DOCUMENT) {
       mNewRtx.moveToFirstChild();
     }
-    if (mOldRtx.getKind() == Kind.DOCUMENT) {
+    if (mOldRtx.getKind() == Kind.XDM_DOCUMENT) {
       mOldRtx.moveToFirstChild();
     }
     mRootKey = builder.mNewStartKey;
@@ -194,13 +194,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     // Iterate over new revision (order of operators significant -- regarding
     // the OR).
     if (mDiff != DiffType.SAMEHASH) {
-      while ((mOldRtx.getKind() != Kind.DOCUMENT && mDiff == DiffType.DELETED)
+      while ((mOldRtx.getKind() != Kind.XDM_DOCUMENT && mDiff == DiffType.DELETED)
           || moveCursor(mNewRtx, Revision.NEW, Move.FOLLOWING)) {
         if (mDiff != DiffType.INSERTED) {
           moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
         }
 
-        if (mNewRtx.getKind() != Kind.DOCUMENT || mOldRtx.getKind() != Kind.DOCUMENT) {
+        if (mNewRtx.getKind() != Kind.XDM_DOCUMENT || mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
           if (mHashKind == HashType.NONE || mDiffKind == DiffOptimized.NO) {
             mDiff = diff(mNewRtx, mOldRtx, mDepth);
           } else {
@@ -210,7 +210,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
       }
 
       // Nodes deleted in old rev at the end of the tree.
-      if (mOldRtx.getKind() != Kind.DOCUMENT) {
+      if (mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
         mRootKey = mOldRootKey;
         // First time it might be EDiff.INSERTED where the cursor doesn't move.
         if (mDiff == DiffType.INSERTED) {
@@ -299,18 +299,18 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Move cursor one node forward in pre order.
    *
-   * @param rtx the {@link XdmNodeReadTrx} to use
+   * @param rtx the {@link XdmNodeReadOnlyTrx} to use
    * @param revision the {@link Revision} constant
    * @return {@code true}, if cursor moved, {@code false} otherwise, if no nodes follow in document
    *         order
    */
-  private boolean moveCursor(final XdmNodeReadTrx rtx, final Revision revision, final Move move) {
+  private boolean moveCursor(final XdmNodeReadOnlyTrx rtx, final Revision revision, final Move move) {
     assert rtx != null;
     assert revision != null;
 
     boolean moved = false;
 
-    if (rtx.getKind() != Kind.DOCUMENT) {
+    if (rtx.getKind() != Kind.XDM_DOCUMENT) {
       switch (mDiff) {
         case SAME:
         case SAMEHASH:
@@ -323,7 +323,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
         case INSERTED:
         case DELETED:
           if (move == Move.FOLLOWING && (mDiff == DiffType.INSERTED || mDiff == DiffType.DELETED)) {
-            if (rtx.getKind() == Kind.DOCUMENT) {
+            if (rtx.getKind() == Kind.XDM_DOCUMENT) {
               moved = false;
             } else {
               moved = true;
@@ -343,10 +343,10 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     return moved;
   }
 
-  private boolean moveToNext(final XdmNodeReadTrx rtx, final Revision revision) {
+  private boolean moveToNext(final XdmNodeReadOnlyTrx rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
-      if (rtx.getKind() != Kind.DOCUMENT && mDiffKind == DiffOptimized.HASHED
+      if (rtx.getKind() != Kind.XDM_DOCUMENT && mDiffKind == DiffOptimized.HASHED
           && mDiff == DiffType.SAMEHASH) {
         moved = rtx.moveToRightSibling().hasMoved();
 
@@ -384,11 +384,11 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Move to next following node.
    *
-   * @param rtx the {@link XdmNodeReadTrx} to use
+   * @param rtx the {@link XdmNodeReadOnlyTrx} to use
    * @param revision the {@link Revision} constant
    * @return true, if cursor moved, false otherwise
    */
-  private boolean moveToFollowingNode(final XdmNodeReadTrx rtx, final Revision revision) {
+  private boolean moveToFollowingNode(final XdmNodeReadOnlyTrx rtx, final Revision revision) {
     boolean moved = false;
     while (!rtx.hasRightSibling() && rtx.hasParent() && rtx.getNodeKey() != mRootKey) {
       moved = rtx.moveToParent().hasMoved();
@@ -417,13 +417,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Diff of nodes.
    *
-   * @param newRtx {@link XdmNodeReadTrx} on new revision
-   * @param oldRtx {@link XdmNodeReadTrx} on old revision
+   * @param newRtx {@link XdmNodeReadOnlyTrx} on new revision
+   * @param oldRtx {@link XdmNodeReadOnlyTrx} on old revision
    * @param depth {@link DepthCounter} container for current depths of both transaction cursors
    * @param paramFireDiff determines if a diff should be fired
    * @return kind of difference
    */
-  DiffType diff(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx,
+  DiffType diff(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx,
       final DepthCounter depth) {
     assert newRtx != null;
     assert oldRtx != null;
@@ -433,7 +433,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
     // Check for modifications.
     switch (newRtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
       case TEXT:
       case ELEMENT:
         if (checkNodes(newRtx, oldRtx)) {
@@ -455,13 +455,13 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Optimized diff, which skips unnecessary comparsions.
    *
-   * @param newRtx {@link XdmNodeReadTrx} on new revision
-   * @param oldRtx {@link XdmNodeReadTrx} on old revision
+   * @param newRtx {@link XdmNodeReadOnlyTrx} on new revision
+   * @param oldRtx {@link XdmNodeReadOnlyTrx} on old revision
    * @param depth {@link DepthCounter} container for current depths of both transaction cursors
    * @param paramFireDiff determines if a diff should be fired
    * @return kind of difference
    */
-  DiffType optimizedDiff(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx,
+  DiffType optimizedDiff(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx,
       final DepthCounter depth) {
     assert newRtx != null;
     assert oldRtx != null;
@@ -471,7 +471,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
     // Check for modifications.
     switch (newRtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
       case TEXT:
       case ELEMENT:
         if (newRtx.getNodeKey() != oldRtx.getNodeKey() || newRtx.getHash() != oldRtx.getHash()) {
@@ -501,12 +501,12 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Main algorithm to compute diffs between two nodes.
    *
-   * @param newRtx {@link XdmNodeReadTrx} on new revision
-   * @param oldRtx {@link XdmNodeReadTrx} on old revision
+   * @param newRtx {@link XdmNodeReadOnlyTrx} on new revision
+   * @param oldRtx {@link XdmNodeReadOnlyTrx} on old revision
    * @param depth {@link DepthCounter} container for current depths of both transaction cursors
    * @return kind of diff
    */
-  private DiffType diffAlgorithm(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx,
+  private DiffType diffAlgorithm(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx,
       final DepthCounter depth) {
     assert newRtx != null;
     assert oldRtx != null;
@@ -572,7 +572,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
     final int depth = diff == DiffType.DELETED
         ? mDepth.getOldDepth()
         : mDepth.getNewDepth();
-    final XdmNodeReadTrx rtx = diff == DiffType.DELETED
+    final XdmNodeReadOnlyTrx rtx = diff == DiffType.DELETED
         ? mOldRtx
         : mNewRtx;
 
@@ -595,12 +595,12 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Check {@link QName} of nodes.
    *
-   * @param newRtx {@link XdmNodeReadTrx} on new revision
-   * @param oldRtx {@link XdmNodeReadTrx} on old revision
+   * @param newRtx {@link XdmNodeReadOnlyTrx} on new revision
+   * @param oldRtx {@link XdmNodeReadOnlyTrx} on old revision
    * @return {@code true} if nodes are "equal" according to their {@link QName} s, {@code false}
    *         otherwise
    */
-  static boolean checkName(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx) {
+  static boolean checkName(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx) {
     boolean found = false;
     if (newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
@@ -625,23 +625,23 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Check if nodes are equal excluding subtrees.
    *
-   * @param newRtx {@link XdmNodeReadTrx} on new revision
-   * @param oldRtx {@link XdmNodeReadTrx} on old revision
+   * @param newRtx {@link XdmNodeReadOnlyTrx} on new revision
+   * @param oldRtx {@link XdmNodeReadOnlyTrx} on old revision
    * @return true if nodes are "equal", otherwise false
    */
-  abstract boolean checkNodes(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx);
+  abstract boolean checkNodes(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx);
 
-  abstract void emitNonStructuralDiff(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx,
+  abstract void emitNonStructuralDiff(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx,
       final DiffDepth depth, final DiffType diff);
 
   /**
    * Check for a replace of a node.
    *
-   * @param newRtx first {@link XdmNodeReadTrx} instance
-   * @param oldRtx second {@link XdmNodeReadTrx} instance
+   * @param newRtx first {@link XdmNodeReadOnlyTrx} instance
+   * @param oldRtx second {@link XdmNodeReadOnlyTrx} instance
    * @return {@code true}, if node has been replaced, {@code false} otherwise
    */
-  boolean checkReplace(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx) {
+  boolean checkReplace(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx) {
     boolean replaced = false;
     if (newRtx.getNodeKey() != oldRtx.getNodeKey()) {
       final long newKey = newRtx.getNodeKey();
@@ -766,7 +766,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
    * @param startNodeKey the start node key
    * @param revision revision to iterate over
    */
-  private void adjustDepth(final XdmNodeReadTrx rtx, final @Nonnegative long startNodeKey,
+  private void adjustDepth(final XdmNodeReadOnlyTrx rtx, final @Nonnegative long startNodeKey,
       final Revision revision) {
     assert rtx != null;
     assert startNodeKey >= 0;
@@ -804,11 +804,11 @@ abstract class AbstractDiff extends AbstractDiffObservable {
   /**
    * Check for an update of a node.
    *
-   * @param newRtx first {@link XdmNodeReadTrx} instance
-   * @param oldRtx second {@link XdmNodeReadTrx} instance
+   * @param newRtx first {@link XdmNodeReadOnlyTrx} instance
+   * @param oldRtx second {@link XdmNodeReadOnlyTrx} instance
    * @return kind of diff
    */
-  boolean checkUpdate(final XdmNodeReadTrx newRtx, final XdmNodeReadTrx oldRtx) {
+  boolean checkUpdate(final XdmNodeReadOnlyTrx newRtx, final XdmNodeReadOnlyTrx oldRtx) {
     if (mIsFirst) {
       return newRtx.getNodeKey() == oldRtx.getNodeKey();
     }

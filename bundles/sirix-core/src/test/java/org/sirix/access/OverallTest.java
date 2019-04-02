@@ -28,7 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
@@ -60,7 +60,7 @@ public final class OverallTest extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
@@ -149,7 +149,7 @@ public final class OverallTest extends TestCase {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   /** Get a random string. */

@@ -5,11 +5,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -30,9 +30,9 @@ public final class PreviousAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    try (final XdmNodeWriteTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
-      DocumentCreator.createVersioned(wtx);
+    XdmTestHelper.deleteEverything();
+    try (final XdmNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+      XdmDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
   }
@@ -40,19 +40,18 @@ public final class PreviousAxisTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testAxis() throws SirixException {
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
-    final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
+    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
 
-    new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(firstRtx), null) {
+    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
-      protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new PreviousAxis(secondRtx);
+      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+        return new PreviousAxis<>(secondRtx);
       }
     }.test();
   }

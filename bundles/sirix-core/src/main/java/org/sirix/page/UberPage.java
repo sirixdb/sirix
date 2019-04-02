@@ -26,8 +26,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
@@ -69,6 +69,9 @@ public final class UberPage extends AbstractForwardingPage {
   /** Key to previous uberpage in persistent storage. */
   private long mPreviousUberPageKey;
 
+  /** Current maximum level of indirect pages in the tree. */
+  private int mCurrentMaxLevelOfIndirectPages;
+
   /**
    * Create uber page.
    *
@@ -81,6 +84,7 @@ public final class UberPage extends AbstractForwardingPage {
     mIsBootstrap = true;
     mPreviousUberPageKey = -1;
     mRootPage = null;
+    mCurrentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -99,6 +103,7 @@ public final class UberPage extends AbstractForwardingPage {
         : mRevisionCount - 1;
     mIsBootstrap = false;
     mRootPage = null;
+    mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
   }
 
   /**
@@ -122,6 +127,7 @@ public final class UberPage extends AbstractForwardingPage {
       mIsBootstrap = false;
       mRootPage = null;
     }
+    mCurrentMaxLevelOfIndirectPages = committedUberPage.mCurrentMaxLevelOfIndirectPages;
   }
 
   public long getPreviousUberPageKey() {
@@ -172,7 +178,21 @@ public final class UberPage extends AbstractForwardingPage {
     if (!mIsBootstrap) {
       out.writeLong(mPreviousUberPageKey);
     }
+    out.writeByte(mCurrentMaxLevelOfIndirectPages);
     mIsBootstrap = false;
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages() {
+    return mCurrentMaxLevelOfIndirectPages;
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages() {
+    return ++mCurrentMaxLevelOfIndirectPages;
+  }
+
+  @Override
+  public void setReference(int offset, PageReference pageReference) {
+    delegate().setReference(0, pageReference);
   }
 
   @Override
@@ -193,7 +213,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Create revision tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param revisionRoot {@link RevisionRootPage} instance
    */
   public void createRevisionTree(final TransactionIntentLog log) {
@@ -201,12 +221,9 @@ public final class UberPage extends AbstractForwardingPage {
     Page page = null;
     PageReference reference = getIndirectPageReference();
 
-    // Remaining levels.
-    for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-      page = new IndirectPage();
-      log.put(reference, PageContainer.getInstance(page, page));
-      reference = page.getReference(0);
-    }
+    page = new IndirectPage();
+    log.put(reference, PageContainer.getInstance(page, page));
+    reference = page.getReference(0);
 
     mRootPage = new RevisionRootPage();
 
@@ -310,12 +327,12 @@ public final class UberPage extends AbstractForwardingPage {
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final PageTrx<K, V, S> pageWriteTrx) {
     mDelegate.commit(pageWriteTrx);
   }
 
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final String commitMessage, final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final String commitMessage, final PageTrx<K, V, S> pageWriteTrx) {
     pageWriteTrx.getActualRevisionRootPage().setCommitMessage(commitMessage);
     mDelegate.commit(pageWriteTrx);
   }

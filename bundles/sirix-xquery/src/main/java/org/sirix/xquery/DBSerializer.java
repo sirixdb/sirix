@@ -38,7 +38,7 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Sequence;
-import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.node.DBNode;
 
 /**
@@ -86,15 +86,15 @@ public final class DBSerializer implements Serializer {
 
             final OutputStream pos = new PrintStream(mOut);
 
-            XMLSerializer.XMLSerializerBuilder serializerBuilder =
-                new XMLSerializer.XMLSerializerBuilder(node.getTrx().getResourceManager(), pos,
+            XmlSerializer.XmlSerializerBuilder serializerBuilder =
+                new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceManager(), pos,
                     node.getTrx().getRevisionNumber()).serializeTimestamp(true)
                                                       .isXQueryResultSequence();
             if (mEmitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (mPrettyPrint)
               serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
-            final XMLSerializer serializer =
+            final XmlSerializer serializer =
                 serializerBuilder.startNodeKey(node.getNodeKey()).build();
             serializer.call();
 

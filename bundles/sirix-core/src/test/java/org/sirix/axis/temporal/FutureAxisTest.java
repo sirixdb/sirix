@@ -5,12 +5,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -31,9 +31,9 @@ public final class FutureAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    try (final XdmNodeWriteTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
-      DocumentCreator.createVersioned(wtx);
+    XdmTestHelper.deleteEverything();
+    try (final XdmNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+      XdmDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
   }
@@ -41,42 +41,42 @@ public final class FutureAxisTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testFutureOrSelfAxis() throws SirixException {
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
-    final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
-    final XdmNodeReadTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    final NodeReadOnlyTrx thirdRtx = holder.getNodeReadTrx();
 
-    new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
       @Override
-      protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new FutureAxis(firstRtx, IncludeSelf.YES);
+      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+        return new FutureAxis<>(firstRtx, IncludeSelf.YES);
       }
     }.test();
   }
 
   @Test
   public void testFutureAxis() throws SirixException {
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx(1);
-    final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx(2);
-    final XdmNodeReadTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final NodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final NodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    final NodeReadOnlyTrx thirdRtx = holder.getNodeReadTrx();
 
-    new IteratorTester<XdmNodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(secondRtx, thirdRtx), null) {
+    new IteratorTester<NodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, thirdRtx),
+        null) {
       @Override
-      protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-        return new FutureAxis(firstRtx);
+      protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+        return new FutureAxis<>(firstRtx);
       }
     }.test();
   }
 
   @Test
   public void testAxisWithDeletedNode() throws SirixException {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertCommentAsRightSibling("foooooo");
 
@@ -90,16 +90,16 @@ public final class FutureAxisTest {
       wtx.commit();
     }
 
-    try (final XdmNodeReadTrx thirdReader = holder.getResourceManager().beginNodeReadTrx(3);
-        final XdmNodeReadTrx fourthReader = holder.getResourceManager().beginNodeReadTrx(4)) {
+    try (final NodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final NodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(thirdReader, fourthReader), null) {
+      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdReader, fourthReader),
+          null) {
         @Override
-        protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-          return new FutureAxis(thirdReader, IncludeSelf.YES);
+        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+          return new FutureAxis<>(thirdReader, IncludeSelf.YES);
         }
       }.test();
     }

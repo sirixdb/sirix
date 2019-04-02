@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.Arrays;
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
@@ -50,7 +50,7 @@ public class SequenceAxis extends AbstractAxis {
    * @param rtx Exclusive (immutable) trx to iterate with.
    * @param axis The singleExpressions contained by the sequence
    */
-  public SequenceAxis(final XdmNodeReadTrx rtx, final Axis... axis) {
+  public SequenceAxis(final XdmNodeReadOnlyTrx rtx, final Axis... axis) {
 
     super(rtx);
     mSeq = Arrays.asList(axis);
@@ -93,7 +93,7 @@ public class SequenceAxis extends AbstractAxis {
       mCurrent = mSeq.get(mNum++);
 
       // mCurrent.getTransaction().moveTo(getTransaction().getKey());
-      mCurrent.reset(getTrx().getNodeKey());
+      mCurrent.reset(asXdmNodeReadTrx().getNodeKey());
       // mCurrent.resetToLastKey();
       if (mCurrent.hasNext()) {
         mKey = mCurrent.next();

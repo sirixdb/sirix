@@ -21,12 +21,12 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.cas.CASFilterRange;
-import org.sirix.index.path.PCRCollectorImpl;
+import org.sirix.index.path.xdm.XdmPCRCollector;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -62,8 +62,8 @@ public final class ScanCASIndexRange extends AbstractFunction {
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
       throws QueryException {
     final DBNode doc = (DBNode) args[0];
-    final XdmNodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
+    final XdmNodeReadOnlyTrx rtx = doc.getTrx();
+    final XdmIndexController controller =
         rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -105,9 +105,9 @@ public final class ScanCASIndexRange extends AbstractFunction {
     final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
     final String[] pathArray = paths == null ? new String[] {} : paths.split(";");
     final CASFilterRange filter = controller.createCASFilterRange(
-        pathArray, min, max, incMin, incMax, new PCRCollectorImpl(rtx));
+        pathArray, min, max, incMin, incMax, new XdmPCRCollector(rtx));
 
-    final IndexController ic = controller;
+    final XdmIndexController ic = controller;
     final DBNode node = doc;
 
     return new LazySequence() {

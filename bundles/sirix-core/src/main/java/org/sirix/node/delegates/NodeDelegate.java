@@ -23,8 +23,9 @@ package org.sirix.node.delegates;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
+import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
@@ -65,7 +66,7 @@ public class NodeDelegate implements Node {
   private final long mRevision;
 
   /** {@link SirixDeweyID} reference. */
-  private Optional<SirixDeweyID> mID;
+  private SirixDeweyID mID;
 
   /**
    * Constructor.
@@ -76,10 +77,9 @@ public class NodeDelegate implements Node {
    * @param revision revision this node was added
    */
   public NodeDelegate(final @Nonnegative long nodeKey, final long parentKey, final long hash,
-      final @Nonnegative long revision, final Optional<SirixDeweyID> deweyID) {
+      final @Nonnegative long revision, final SirixDeweyID deweyID) {
     assert nodeKey >= 0 : "nodeKey must be >= 0!";
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
-    assert deweyID != null : "deweyID must not be null!";
     mNodeKey = nodeKey;
     mParentKey = parentKey;
     mHash = hash;
@@ -104,9 +104,9 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public void setParentKey(final long pParentKey) {
-    assert pParentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
-    mParentKey = pParentKey;
+  public void setParentKey(final long parentKey) {
+    assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
+    mParentKey = parentKey;
   }
 
   @Override
@@ -119,8 +119,11 @@ public class NodeDelegate implements Node {
     mHash = pHash;
   }
 
-  @Override
-  public VisitResultType acceptVisitor(final Visitor pVisitor) {
+  public VisitResultType acceptVisitor(final XdmNodeVisitor pVisitor) {
+    return VisitResultType.CONTINUE;
+  }
+
+  public VisitResultType acceptVisitor(final JsonNodeVisitor pVisitor) {
     return VisitResultType.CONTINUE;
   }
 
@@ -151,7 +154,6 @@ public class NodeDelegate implements Node {
                       .toString();
   }
 
-  @Override
   public int getTypeKey() {
     return mTypeKey;
   }
@@ -180,13 +182,11 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public void setDeweyID(final Optional<SirixDeweyID> id) {
-    assert id != null : "id must be != null!";
+  public void setDeweyID(final SirixDeweyID id) {
     mID = id;
   }
 
-  @Override
   public Optional<SirixDeweyID> getDeweyID() {
-    return mID;
+    return Optional.ofNullable(mID);
   }
 }

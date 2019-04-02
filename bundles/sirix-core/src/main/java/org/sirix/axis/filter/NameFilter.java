@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,16 +22,16 @@
 package org.sirix.axis.filter;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 
 /**
  * <h1>NameAxisTest</h1>
- * 
+ *
  * <p>
  * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public final class NameFilter extends AbstractFilter {
+public final class NameFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
 
   /** Key of local name to test. */
   private final int mLocalNameKey;
@@ -41,24 +41,25 @@ public final class NameFilter extends AbstractFilter {
 
   /**
    * Default constructor.
-   * 
-   * @param rtx {@link XdmNodeReadTrx} this filter is bound to
+   *
+   * @param rtx the node trx/node cursor this filter is bound to
    * @param name name to check
    */
-  public NameFilter(final XdmNodeReadTrx rtx, final QNm name) {
+  public NameFilter(final XdmNodeReadOnlyTrx rtx, final QNm name) {
     super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1
+    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
+        ? -1
         : rtx.keyForName(name.getPrefix());
     mLocalNameKey = rtx.keyForName(name.getLocalName());
   }
 
   /**
    * Default constructor.
-   * 
-   * @param rtx {@link XdmNodeReadTrx} this filter is bound to
+   *
+   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
    * @param name name to check
    */
-  public NameFilter(final XdmNodeReadTrx rtx, final String name) {
+  public NameFilter(final XdmNodeReadOnlyTrx rtx, final String name) {
     super(rtx);
     final int index = name.indexOf(":");
     if (index != -1) {
@@ -74,8 +75,7 @@ public final class NameFilter extends AbstractFilter {
   public boolean filter() {
     boolean returnVal = false;
     if (getTrx().isNameNode()) {
-      returnVal =
-          (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
     }
     return returnVal;
   }

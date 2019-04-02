@@ -11,8 +11,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.PageReadTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -37,14 +37,14 @@ public class PageTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageReadTrx} instance. */
-  private PageReadTrx mPageReadTrx;
+  /** Sirix {@link PageReadOnlyTrx} instance. */
+  private PageReadOnlyTrx mPageReadTrx;
 
   @BeforeClass
   public void setUp() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.closeEverything();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
     mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }
@@ -97,16 +97,16 @@ public class PageTest {
 
     // NodePage setup.
     final UnorderedKeyValuePage nodePage =
-        new UnorderedKeyValuePage(TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
+        new UnorderedKeyValuePage(XdmTestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
             Constants.NULL_ID_LONG, mPageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-      final Record record = TestHelper.generateOne();
+      final Record record = XdmTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
     namePage.setName(
-        TestHelper.random.nextInt(), new String(TestHelper.generateRandomBytes(256)), Kind.ELEMENT);
+        XdmTestHelper.random.nextInt(), new String(XdmTestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
     // ValuePage setup.
     final PathPage valuePage = new PathPage();

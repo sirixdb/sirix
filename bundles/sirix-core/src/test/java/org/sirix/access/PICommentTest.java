@@ -6,10 +6,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.utils.XdmDocumentCreator;
 
 /**
  * Processing instruction/comment test.
@@ -23,24 +23,24 @@ public class PICommentTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createPICommentTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createPICommentTestDocument();
     mHolder = Holder.generateWtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     mHolder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testPI() throws SirixException {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    final XMLSerializer serializer =
-        new XMLSerializer.XMLSerializerBuilder(mHolder.getResourceManager(),
+    final XmlSerializer serializer =
+        new XmlSerializer.XmlSerializerBuilder(mHolder.getResourceManager(),
             out).emitXMLDeclaration().build();
     serializer.call();
-    Assert.assertEquals(DocumentCreator.COMMENTPIXML, out.toString());
+    Assert.assertEquals(XdmDocumentCreator.COMMENTPIXML, out.toString());
   }
 }

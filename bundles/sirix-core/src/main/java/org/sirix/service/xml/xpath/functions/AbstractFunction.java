@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -91,7 +91,7 @@ public abstract class AbstractFunction extends AbstractExpression {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if the verify process is failing.
    */
-  public AbstractFunction(final XdmNodeReadTrx rtx, final List<Axis> args, final int min,
+  public AbstractFunction(final XdmNodeReadOnlyTrx rtx, final List<Axis> args, final int min,
       final int max, final int returnType) throws SirixXPathException {
 
     super(rtx);
@@ -141,7 +141,7 @@ public abstract class AbstractFunction extends AbstractExpression {
     final byte[] value = computeResult();
 
     // create an atomic value, add it to the list and move the cursor to it.
-    final int itemKey = getTrx().getItemList().addItem(new AtomicValue(value, mReturnType));
+    final int itemKey = asXdmNodeReadTrx().getItemList().addItem(new AtomicValue(value, mReturnType));
     mKey = itemKey;
 
   }

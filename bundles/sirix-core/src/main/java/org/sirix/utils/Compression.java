@@ -59,19 +59,19 @@ public final class Compression {
    * Compress data based on the {@link Deflater}.
    *
    * @param toCompress input byte-array
-   * @param pLevel compression level (between -1 and 9 whereas 0 is the weakest and -1 is default)
+   * @param level compression level (between -1 and 9 whereas 0 is the weakest and -1 is default)
    * @return compressed byte-array
-   * @throws NullPointerException if {@code pToCompress} is {@code null}
+   * @throws NullPointerException if {@code toCompress} is {@code null}
    */
-  public static byte[] compress(final byte[] toCompress, final int pLevel) {
+  public static byte[] compress(final byte[] toCompress, final int level) {
     checkNotNull(toCompress);
-    checkArgument(pLevel >= -1 && pLevel <= 9, "pLevel must be between 0 and 9!");
+    checkArgument(level >= -1 && level <= 9, "pLevel must be between 0 and 9!");
 
     // Compressed result.
     byte[] compressed = new byte[] {};
 
     // Set compression level.
-    mCompressor.setLevel(pLevel);
+    mCompressor.setLevel(level);
 
     // Give the compressor the data to compress.
     mCompressor.reset();
@@ -79,9 +79,9 @@ public final class Compression {
     mCompressor.finish();
 
     /*
-     * Create an expandable byte array to hold the compressed data. You cannot use an array that's
-     * the same size as the orginal because there is no guarantee that the compressed data will be
-     * smaller than the uncompressed data.
+     * Create an expandable byte array to hold the compressed data. You cannot use an array that's the
+     * same size as the orginal because there is no guarantee that the compressed data will be smaller
+     * than the uncompressed data.
      */
     try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(toCompress.length)) {
       // Compress the data.

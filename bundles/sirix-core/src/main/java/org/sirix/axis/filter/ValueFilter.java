@@ -22,7 +22,7 @@
 package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 import org.sirix.utils.TypedValue;
 
@@ -33,7 +33,7 @@ import org.sirix.utils.TypedValue;
  * Only match nodes of kind TEXT or ATTRIBUTE whoe's value matches.
  * </p>
  */
-public final class ValueFilter extends AbstractFilter {
+public final class ValueFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
 
   /** Value test to do. */
   private final byte[] mValue;
@@ -44,7 +44,7 @@ public final class ValueFilter extends AbstractFilter {
    * @param rtx transaction this filter is bound to
    * @param value value to find
    */
-  public ValueFilter(final XdmNodeReadTrx rtx, final byte[] value) {
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final byte[] value) {
     super(rtx);
     mValue = checkNotNull(value);
   }
@@ -55,7 +55,7 @@ public final class ValueFilter extends AbstractFilter {
    * @param rtx Transaction to bind filter to.
    * @param value Value to find.
    */
-  public ValueFilter(final XdmNodeReadTrx rtx, final String value) {
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final String value) {
     this(rtx, TypedValue.getBytes(value));
   }
 
@@ -65,7 +65,7 @@ public final class ValueFilter extends AbstractFilter {
    * @param rtx Transaction to bind filter to.
    * @param value Value to find.
    */
-  public ValueFilter(final XdmNodeReadTrx rtx, final int value) {
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final int value) {
     this(rtx, TypedValue.getBytes(value));
   }
 
@@ -75,7 +75,7 @@ public final class ValueFilter extends AbstractFilter {
    * @param rtx Transaction to bind filter to.
    * @param mValue Value to find.
    */
-  public ValueFilter(final XdmNodeReadTrx rtx, final long mValue) {
+  public ValueFilter(final XdmNodeReadOnlyTrx rtx, final long mValue) {
     this(rtx, TypedValue.getBytes(mValue));
   }
 

@@ -26,8 +26,6 @@ package org.sirix.node.delegates;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
@@ -69,8 +67,8 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param localNameKey localNameKey to be stored
    * @param pathNodeKey path node key associated with node
    */
-  public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey,
-      final int localNameKey, final @Nonnegative long pathNodeKey) {
+  public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
+      final @Nonnegative long pathNodeKey) {
     assert delegate != null : "delegate must not be null!";
     mDelegate = delegate;
     mPrefixKey = prefixKey;
@@ -96,11 +94,6 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   @Override
   public Kind getKind() {
     return Kind.UNKNOWN;
-  }
-
-  @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    return mDelegate.acceptVisitor(visitor);
   }
 
   @Override

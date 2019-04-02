@@ -32,17 +32,17 @@ import java.nio.file.Paths;
 import javax.xml.stream.XMLStreamException;
 import org.mockito.InOrder;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.Insert;
-import org.sirix.service.xml.shredder.ShredderCommit;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.ShredderCommit;
+import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableSet;
 
 public final class DiffTestHelper {
@@ -51,11 +51,11 @@ public final class DiffTestHelper {
   protected static final long TIMEOUT_S = 5;
 
   static void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   static void setUpFirst(final Holder holder) throws SirixException {
-    DocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
   }
 
   static void setUpSecond(final Holder holder)
@@ -68,9 +68,9 @@ public final class DiffTestHelper {
   static void setUpThird(final Holder holder) throws IOException {
     try (final FileInputStream fis =
         new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
-      new XMLShredder.Builder(holder.getXdmNodeWriteTrx(), XMLShredder.createFileReader(fis),
-          Insert.ASFIRSTCHILD).commitAfterwards().build().call();
-      final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
+      new XmlShredder.Builder(holder.getXdmNodeWriteTrx(), XmlShredder.createFileReader(fis),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+      final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.moveToFirstChild();
@@ -107,10 +107,10 @@ public final class DiffTestHelper {
 
   static void setUpSeventh(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
-    final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -120,10 +120,10 @@ public final class DiffTestHelper {
 
   static void setUpEighth(final Holder holder)
       throws SirixException, IOException, XMLStreamException {
-    final XdmNodeWriteTrx wtx = holder.getXdmNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    final XdmNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    XdmDocumentCreator.create(wtx);
     wtx.commit();
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx(1);
+    final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -138,12 +138,12 @@ public final class DiffTestHelper {
     for (final Path file : files) {
       try (final FileInputStream fis = new FileInputStream(file.toFile())) {
         if (i == 0) {
-          final XMLShredder init = new XMLShredder.Builder(holder.getXdmNodeWriteTrx(),
-              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
+          final XmlShredder init = new XmlShredder.Builder(holder.getXdmNodeWriteTrx(),
+              XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
           init.call();
         } else {
           final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
-              XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
+              XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD, file, ShredderCommit.COMMIT);
           init.call();
         }
       }

@@ -28,13 +28,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 
@@ -45,42 +44,42 @@ public class HashTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Test
   public void testPostorderInsertRemove() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
+    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testPostorderDeep() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
+    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
     testDeepTree(wtx);
   }
 
   @Test
   public void testPostorderSetter() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.POSTORDER);
+    final XdmNodeTrx wtx = createWtx(HashType.POSTORDER);
     testSetter(wtx);
   }
 
   @Test
   public void testRollingInsertRemove() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
+    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
     testHashTreeWithInsertAndRemove(wtx);
   }
 
   @Test
   public void testRollingDeep() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
+    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
     testDeepTree(wtx);
   }
 
   @Test
   public void testRollingSetter() throws SirixException {
-    final XdmNodeWriteTrx wtx = createWtx(HashType.ROLLING);
+    final XdmNodeTrx wtx = createWtx(HashType.ROLLING);
     testSetter(wtx);
   }
 
@@ -103,7 +102,7 @@ public class HashTest {
    * @throws TTException
    */
   @Ignore
-  private void testHashTreeWithInsertAndRemove(final XdmNodeWriteTrx wtx) throws SirixException {
+  private void testHashTreeWithInsertAndRemove(final XdmNodeTrx wtx) throws SirixException {
 
     // inserting a element as root
     wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -154,7 +153,7 @@ public class HashTest {
   }
 
   @Ignore
-  private void testDeepTree(final XdmNodeWriteTrx wtx) throws SirixException {
+  private void testDeepTree(final XdmNodeTrx wtx) throws SirixException {
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     final long oldHash = wtx.getHash();
@@ -176,7 +175,7 @@ public class HashTest {
   }
 
   @Ignore
-  private void testSetter(final XdmNodeWriteTrx wtx) throws SirixException {
+  private void testSetter(final XdmNodeTrx wtx) throws SirixException {
 
     // Testing node inheritance
     wtx.insertElementAsFirstChild(new QNm(NAME1));
@@ -218,18 +217,17 @@ public class HashTest {
     assertFalse(hashRoot4 == hashLeaf3);
   }
 
-  private XdmNodeWriteTrx createWtx(final HashType kind) throws SirixException {
-    final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-    final ResourceManager manager = database.getResourceManager(TestHelper.RESOURCE);
-    final XdmNodeWriteTrx wTrx = manager.beginNodeWriteTrx();
+  private XdmNodeTrx createWtx(final HashType kind) throws SirixException {
+    final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+    final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XdmNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }
 
   @After
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
 }

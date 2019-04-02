@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
 import org.sirix.node.Kind;
@@ -57,11 +57,20 @@ public final class NamePage extends AbstractForwardingPage {
   /** Processing instruction names. */
   private final Names mPIs;
 
+  /** JSON Object key names. */
+  private final Names mJSONObjectKeys;
+
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
 
+  /** The number of arrays stored. */
+  private int mNumberOfArrays;
+
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
+
+  /** Current maximum levels of indirect pages in the tree. */
+  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
 
   /**
    * Create name page.
@@ -73,6 +82,9 @@ public final class NamePage extends AbstractForwardingPage {
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
     mPIs = Names.getInstance();
+    mJSONObjectKeys = Names.getInstance();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
+    mNumberOfArrays = 0;
   }
 
   /**
@@ -91,6 +103,13 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces = Names.clone(in);
     mAttributes = Names.clone(in);
     mPIs = Names.clone(in);
+    mJSONObjectKeys = Names.clone(in);
+    mNumberOfArrays = in.readInt();
+    final int currentMaxLevelOfIndirectPages = in.readInt();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+    }
   }
 
   /**
@@ -113,6 +132,9 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case PROCESSING_INSTRUCTION:
         rawName = mPIs.getRawName(key);
+        break;
+      case JSON_OBJECT_KEY:
+        rawName = mJSONObjectKeys.getRawName(key);
         break;
       // $CASES-OMITTED$
       default:
@@ -142,6 +164,12 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         name = mPIs.getName(key);
         break;
+      case JSON_OBJECT_KEY:
+        name = mJSONObjectKeys.getName(key);
+        break;
+      case JSON_ARRAY:
+        name = "array";
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -169,6 +197,12 @@ public final class NamePage extends AbstractForwardingPage {
         break;
       case PROCESSING_INSTRUCTION:
         count = mPIs.getCount(key);
+        break;
+      case JSON_OBJECT_KEY:
+        count = mJSONObjectKeys.getCount(key);
+        break;
+      case JSON_ARRAY:
+        count = mNumberOfArrays;
         break;
       // $CASES-OMITTED$
       default:
@@ -198,6 +232,11 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.setName(key, name);
         break;
+      case JSON_OBJECT_KEY:
+        mJSONObjectKeys.setName(key, name);
+        break;
+      case JSON_ARRAY:
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -217,6 +256,21 @@ public final class NamePage extends AbstractForwardingPage {
     mNamespaces.serialize(out);
     mAttributes.serialize(out);
     mPIs.serialize(out);
+    mJSONObjectKeys.serialize(out);
+    out.writeInt(mNumberOfArrays);
+    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    out.writeInt(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+    }
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.get(index);
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.merge(index, 1, (previousValue, value) -> previousValue + value);
   }
 
   @Override
@@ -248,6 +302,9 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.removeName(key);
         break;
+      case JSON_OBJECT_KEY:
+        mJSONObjectKeys.removeName(key);
+        break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -257,12 +314,11 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Initialize name index tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createNameIndexTree(final PageReadTrx pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createNameIndexTree(final PageReadOnlyTrx pageReadTrx, final int index, final TransactionIntentLog log) {
     final PageReference reference = getReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT
@@ -272,6 +328,11 @@ public final class NamePage extends AbstractForwardingPage {
         mMaxNodeKeys.put(index, 0L);
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+      }
+      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
+        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
+      } else {
+        mCurrentMaxLevelsOfIndirectPages.put(index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
       }
     }
   }

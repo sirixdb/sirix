@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
@@ -55,7 +55,7 @@ public class FNString extends AbstractFunction {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if function check fails
    */
-  public FNString(final XdmNodeReadTrx rtx, final List<Axis> args, final int min, final int max,
+  public FNString(final XdmNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
       final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
@@ -104,23 +104,23 @@ public class FNString extends AbstractFunction {
   private String getStrValue() {
     final StringBuilder value = new StringBuilder();
 
-    if (getTrx().getNodeKey() >= 0) { // is node
-      if (getTrx().getKind() == Kind.ATTRIBUTE || getTrx().getKind() == Kind.TEXT) {
-        value.append(getTrx().getValue());
-      } else if (getTrx().getKind() == Kind.DOCUMENT || getTrx().getKind() == Kind.ELEMENT) {
-        final Axis axis = new FilterAxis(new DescendantAxis(getTrx()), new TextFilter(getTrx()));
+    if (asXdmNodeReadTrx().getNodeKey() >= 0) { // is node
+      if (asXdmNodeReadTrx().getKind() == Kind.ATTRIBUTE || asXdmNodeReadTrx().getKind() == Kind.TEXT) {
+        value.append(asXdmNodeReadTrx().getValue());
+      } else if (asXdmNodeReadTrx().getKind() == Kind.XDM_DOCUMENT || asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
+        final Axis axis = new FilterAxis(new DescendantAxis(asXdmNodeReadTrx()), new TextFilter(asXdmNodeReadTrx()));
         while (axis.hasNext()) {
           axis.next();
           if (value.length() > 0) {
             value.append(" ");
           }
-          value.append(getTrx().getValue());
+          value.append(asXdmNodeReadTrx().getValue());
         }
       } else {
         throw new IllegalStateException();
       }
     } else {
-      value.append(getTrx().getValue());
+      value.append(asXdmNodeReadTrx().getValue());
     }
 
     return value.toString();

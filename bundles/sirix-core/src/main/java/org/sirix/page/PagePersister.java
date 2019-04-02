@@ -25,7 +25,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import javax.annotation.Nonnull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.page.interfaces.Page;
 
 /**
@@ -40,11 +40,11 @@ public final class PagePersister {
    * Deserialize page.
    *
    * @param source source to read from
-   * @param pageReadTrx instance of class, which implements the {@link PageReadTrx} interface
+   * @param pageReadTrx instance of class, which implements the {@link PageReadOnlyTrx} interface
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @Nonnull Page deserializePage(final DataInput source, final PageReadTrx pageReadTrx,
+  public @Nonnull Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
       final SerializationType type) throws IOException {
     return PageKind.getKind(source.readByte()).deserializePage(source, pageReadTrx, type);
   }

@@ -27,15 +27,15 @@ import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Testcase for working with XPath and WriteTransactions
@@ -45,30 +45,27 @@ import org.sirix.service.xml.shredder.XMLShredder;
  */
 public final class XPathWriteTransactionTest {
 
-  private static final Path XML =
-      Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
+  private static final Path XML = Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
 
   private static final String RESOURCE = "bla";
 
-  private ResourceManager manager;
+  private XdmResourceManager manager;
 
-  private XdmNodeWriteTrx wtx;
+  private XdmNodeTrx wtx;
 
-  private Database database;
+  private Database<XdmResourceManager> database;
 
   @Before
   public void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(
-        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
     // Verify.
-    database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
-    manager = database.getResourceManager(TestHelper.RESOURCE);
-    wtx = manager.beginNodeWriteTrx();
+    database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.getConfig()).build());
+    manager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    wtx = manager.beginNodeTrx();
   }
 
   @Test
@@ -90,7 +87,7 @@ public final class XPathWriteTransactionTest {
     // wtx.abort();
     wtx.close();
     manager.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
 }

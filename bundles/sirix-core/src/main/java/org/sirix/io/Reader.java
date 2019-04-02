@@ -22,7 +22,7 @@
 package org.sirix.io;
 
 import javax.annotation.Nullable;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
@@ -50,11 +50,11 @@ public interface Reader extends AutoCloseable {
    * Getting a reference for the given pointer.
    *
    * @param key the reference for the page to be determined
-   * @param pageReadTrx {@link PageReadTrx} reference
+   * @param pageReadTrx {@link PageReadOnlyTrx} reference
    * @return a {@link PageDelegate} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
-  Page read(PageReference key, @Nullable PageReadTrx pageReadTrx) throws SirixIOException;
+  Page read(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx) throws SirixIOException;
 
   /**
    * Closing the storage.
@@ -71,5 +71,5 @@ public interface Reader extends AutoCloseable {
    * @param pageReadTrx the page reading transaction
    * @return the revision root page
    */
-  RevisionRootPage readRevisionRootPage(int revision, PageReadTrx pageReadTrx);
+  RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx);
 }

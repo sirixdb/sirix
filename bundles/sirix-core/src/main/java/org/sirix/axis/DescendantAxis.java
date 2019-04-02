@@ -122,11 +122,12 @@ public final class DescendantAxis extends AbstractAxis {
    * @return {@code false} if finished, {@code true} if not
    */
   private long hasNextNode(@Nonnegative final long key, final @Nonnegative long currKey) {
-    getTrx().moveTo(key);
-    if (getTrx().getLeftSiblingKey() == getStartKey()) {
+    final NodeCursor cursor = getCursor();
+    cursor.moveTo(key);
+    if (cursor.getLeftSiblingKey() == getStartKey()) {
       return done();
     } else {
-      getTrx().moveTo(currKey);
+      cursor.moveTo(currKey);
       return key;
     }
   }

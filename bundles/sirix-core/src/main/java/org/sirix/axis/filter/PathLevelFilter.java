@@ -6,11 +6,11 @@ import org.sirix.index.path.summary.PathSummaryReader;
 
 /**
  * Path filter for {@link PathSummaryReader}, filtering the path levels.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
-public final class PathLevelFilter extends AbstractFilter {
+public final class PathLevelFilter extends AbstractFilter<PathSummaryReader> {
 
   /** Node level to filter. */
   private final int mLevel;
@@ -20,7 +20,7 @@ public final class PathLevelFilter extends AbstractFilter {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx transaction this filter is bound to
    * @param level level of node
    */
@@ -38,7 +38,7 @@ public final class PathLevelFilter extends AbstractFilter {
 
   /**
    * Get filter level.
-   * 
+   *
    * @return level to filter
    */
   int getFilterLevel() {

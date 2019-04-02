@@ -28,11 +28,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 public class XPathAxisWideTest {
 
@@ -40,40 +40,40 @@ public class XPathAxisWideTest {
 
   @Before
   public void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // Setup parsed session.
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
   }
 
   @After
   public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testIterateFactbook() throws Exception {
     // Verify.
     final Holder holder = Holder.generateRtx();
-    holder.getXdmNodeReadTrx().moveToDocumentRoot();
+    holder.getNodeReadTrx().moveToDocumentRoot();
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "/mondial/continent[@id]"),
+        new XPathAxis(holder.getNodeReadTrx(), "/mondial/continent[@id]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "mondial/continent[@name]"),
+        new XPathAxis(holder.getNodeReadTrx(), "mondial/continent[@name]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
+        new XPathAxis(holder.getNodeReadTrx(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "/mondial/continent[@name = \"Africa\"]"),
+        new XPathAxis(holder.getNodeReadTrx(), "/mondial/continent[@name = \"Africa\"]"),
         new long[] {14L});
 
-    final AbstractAxis axis5 = new XPathAxis(holder.getXdmNodeReadTrx(), "mondial/lake/node()");
+    final AbstractAxis axis5 = new XPathAxis(holder.getNodeReadTrx(), "mondial/lake/node()");
     for (int i = 0; i < 61; i++) {
       assertEquals(true, axis5.hasNext());
       axis5.next();
@@ -82,7 +82,7 @@ public class XPathAxisWideTest {
     assertEquals(false, axis5.hasNext());
 
     final AbstractAxis axis6 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "mondial/country/religions/node()");
+        new XPathAxis(holder.getNodeReadTrx(), "mondial/country/religions/node()");
     for (int i = 0; i < 446; i++) {
       assertEquals(true, axis6.hasNext());
       axis6.next();
@@ -90,7 +90,7 @@ public class XPathAxisWideTest {
     assertEquals(false, axis6.hasNext());
 
     final AbstractAxis axis7 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "child::mondial/child::lake/child::node()");
+        new XPathAxis(holder.getNodeReadTrx(), "child::mondial/child::lake/child::node()");
     for (int i = 0; i < 60; i++) {
       assertEquals(true, axis7.hasNext());
       axis7.next();
@@ -100,7 +100,7 @@ public class XPathAxisWideTest {
     axis7.next();
     assertEquals(false, axis7.hasNext());
 
-    final AbstractAxis axis8 = new XPathAxis(holder.getXdmNodeReadTrx(), "//*[@id]");
+    final AbstractAxis axis8 = new XPathAxis(holder.getNodeReadTrx(), "//*[@id]");
     for (int i = 0; i < 5562; i++) {
       assertEquals(true, axis8.hasNext());
       axis8.next();
@@ -108,14 +108,14 @@ public class XPathAxisWideTest {
     assertEquals(false, axis8.hasNext());
 
     final AbstractAxis axis9 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "/mondial/country/attribute::car_code");
+        new XPathAxis(holder.getNodeReadTrx(), "/mondial/country/attribute::car_code");
     for (int i = 0; i < 194; i++) {
       assertEquals(true, axis9.hasNext());
       axis9.next();
     }
     assertEquals(false, axis9.hasNext());
 
-    final AbstractAxis axis10 = new XPathAxis(holder.getXdmNodeReadTrx(), "//country[@*]");
+    final AbstractAxis axis10 = new XPathAxis(holder.getNodeReadTrx(), "//country[@*]");
     for (int i = 0; i < 231; i++) {
       assertEquals(true, axis10.hasNext());
       axis10.next();

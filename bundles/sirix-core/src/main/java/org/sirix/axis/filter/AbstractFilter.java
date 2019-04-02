@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -24,37 +24,38 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
 import org.sirix.api.Filter;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadOnlyTrx;
 import com.google.common.base.Predicate;
 
 /**
  * <h1>AbstractFilter</h1>
- * 
+ *
  * <p>
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbstractFilter implements Filter, Predicate<Long> {
+public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
-  private XdmNodeReadTrx mRtx;
+  private R mRtx;
 
   /**
    * Bind axis step to transaction.
-   * 
+   *
    * @param rtx transaction to operate with
    */
-  protected AbstractFilter(final XdmNodeReadTrx rtx) {
+  protected AbstractFilter(final R rtx) {
     mRtx = checkNotNull(rtx);
   }
 
   @Override
-  public final XdmNodeReadTrx getTrx() {
+  public final R getTrx() {
     return mRtx;
   }
 
   @Override
-  public void setTrx(XdmNodeReadTrx rtx) {
+  public void setTrx(R rtx) {
     mRtx = checkNotNull(rtx);
   }
 

@@ -29,12 +29,12 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.service.xml.shredder.XmlShredder;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -54,20 +54,20 @@ public class PostOrderTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testIterateWhole() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -76,7 +76,7 @@ public class PostOrderTest {
         ImmutableList.of(4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new PostOrderAxis(rtx);
       }
@@ -85,7 +85,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateFirstSubtree() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(5L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {6L, 7L});
@@ -93,7 +93,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(5L);
         return new PostOrderAxis(rtx);
       }
@@ -102,7 +102,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateZero() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(8L);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
@@ -110,7 +110,7 @@ public class PostOrderTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(8L);
         return new PostOrderAxis(rtx);
       }
@@ -119,10 +119,10 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentFirst() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtreeAsFirstChild(
-          XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+          XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       final long key = wtx.getNodeKey();
       AbsAxisTest.testIAxisConventions(
@@ -182,10 +182,10 @@ public class PostOrderTest {
 
   @Test
   public void testIterateDocumentSecond() throws SirixException, IOException, XMLStreamException {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtreeAsFirstChild(
-          XMLShredder.createStringReader(DocumentCreator.XML_WITHOUT_XMLDECL));
+          XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();

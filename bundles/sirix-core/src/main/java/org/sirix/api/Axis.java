@@ -1,8 +1,10 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
+import org.sirix.index.path.summary.PathSummaryReader;
 import com.google.common.collect.PeekingIterator;
 
 /**
@@ -22,16 +24,16 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    * Get the transaction associated with the axis.
    *
    * @return the transaction
-   * @throws ClassCastException if the node cursor is no {@link XdmNodeReadTrx}
+   * @throws ClassCastException if the node cursor is no {@link XdmNodeReadOnlyTrx}
    */
-  XdmNodeReadTrx getTrx();
+  XdmNodeReadOnlyTrx asXdmNodeReadTrx();
 
   /**
    * Foreach-iterator calling a {@link IVistor} for each iteration.
    *
-   * @param visitor {@link Visitor} implementation
+   * @param visitor {@link XdmNodeVisitor} implementation
    */
-  void foreach(Visitor visitor);
+  void foreach(XdmNodeVisitor visitor);
 
   /**
    * Thread safe node iterator.
@@ -60,4 +62,6 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
    * @return start node key
    */
   long getStartKey();
+
+  PathSummaryReader asPathSummary();
 }

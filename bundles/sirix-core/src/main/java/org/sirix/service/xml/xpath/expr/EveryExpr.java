@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
 
@@ -52,7 +52,7 @@ public class EveryExpr extends AbstractExpression {
    * @param mSatisfy condition every item of the variable results must satisfy in order to evaluate
    *        expression to true
    */
-  public EveryExpr(final XdmNodeReadTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
+  public EveryExpr(final XdmNodeReadOnlyTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
 
     super(rtx);
     this.mVars = mVars;
@@ -96,9 +96,9 @@ public class EveryExpr extends AbstractExpression {
         }
       }
     }
-    final int mItemKey = getTrx().getItemList().addItem(
+    final int mItemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = mItemKey;
 
   }

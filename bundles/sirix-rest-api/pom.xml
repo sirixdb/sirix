@@ -7,21 +7,19 @@
     <parent>
         <groupId>io.sirix</groupId>
         <artifactId>sirix-parent</artifactId>
-        <version>0.8.9-SNAPSHOT</version>
+        <version>0.9.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>sirix-rest-api</artifactId>
     <packaging>jar</packaging>
     <name>sirix-rest-api</name>
-    <version>0.8.9-SNAPSHOT</version>
     <description>Non-blocking RESTful-API for Sirix.</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <kotlin.version>1.3.10</kotlin.version>
         <kotlin.coroutines.version>1.0.1</kotlin.coroutines.version>
-        <sirix.version>0.8.9-SNAPSHOT</sirix.version>
         <junit.version>4.12</junit.version>
         <vertx.version>3.6.2</vertx.version>
         <verticle.name>org.sirix.rest.SirixVerticle</verticle.name>
@@ -99,12 +97,12 @@
         <dependency>
             <groupId>io.sirix</groupId>
             <artifactId>sirix-core</artifactId>
-            <version>${sirix.version}</version>
+            <version>${project.parent.version}</version>
         </dependency>
         <dependency>
             <groupId>io.sirix</groupId>
             <artifactId>sirix-xquery</artifactId>
-            <version>${sirix.version}</version>
+            <version>${project.parent.version}</version>
         </dependency>
         <dependency>
             <groupId>org.jsoup</groupId>

@@ -10,7 +10,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixIOException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -37,7 +37,7 @@ public final class ByteHandlerTest {
       throws SirixIOException, IOException {
     for (final ByteHandler handler : handlers) {
       final int datasize = 10000;
-      final byte[] bytes = TestHelper.generateRandomBytes(datasize);
+      final byte[] bytes = XdmTestHelper.generateRandomBytes(datasize);
 
       ByteArrayOutputStream output = new ByteArrayOutputStream();
       OutputStream handledOutout = handler.serialize(output);

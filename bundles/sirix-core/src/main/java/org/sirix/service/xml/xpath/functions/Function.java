@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.functions;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.Kind;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -39,13 +39,13 @@ public class Function {
     final FuncDef ebv = FuncDef.BOOLEAN;
     final List<Axis> param = new ArrayList<Axis>();
     param.add(axis);
-    final AbstractAxis bAxis = new FNBoolean(axis.getTrx(), param, ebv.getMin(), ebv.getMax(),
-        axis.getTrx().keyForName(ebv.getReturnType()));
+    final AbstractAxis bAxis = new FNBoolean(axis.asXdmNodeReadTrx(), param, ebv.getMin(), ebv.getMax(),
+        axis.asXdmNodeReadTrx().keyForName(ebv.getReturnType()));
     if (bAxis.hasNext()) {
       bAxis.next();
-      final boolean result = Boolean.parseBoolean(bAxis.getTrx().getValue());
+      final boolean result = Boolean.parseBoolean(bAxis.asXdmNodeReadTrx().getValue());
       if (!bAxis.hasNext()) {
-        bAxis.reset(axis.getTrx().getNodeKey());
+        bAxis.reset(axis.asXdmNodeReadTrx().getNodeKey());
 
         return result;
       }
@@ -53,7 +53,7 @@ public class Function {
     throw new IllegalStateException("This should not happen!"); // TODO!!
   }
 
-  public static boolean empty(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean empty(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     final boolean result = !axis.hasNext();
 
@@ -62,7 +62,7 @@ public class Function {
     return true;
   }
 
-  public static boolean exactlyOne(final XdmNodeReadTrx rtx, final AbstractAxis axis)
+  public static boolean exactlyOne(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis)
       throws SirixXPathException {
 
     if (axis.hasNext()) {
@@ -81,7 +81,7 @@ public class Function {
     return true;
   }
 
-  public static boolean exists(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean exists(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     final boolean result = axis.hasNext();
     final int itemKey = rtx.getItemList().addItem(new AtomicValue(result));
@@ -113,7 +113,7 @@ public class Function {
    * @return true if sucessfull, false otherwise
    * @throws SirixXPathException
    */
-  public static boolean fnBoolean(final XdmNodeReadTrx rtx, final AbstractAxis axis)
+  public static boolean fnBoolean(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis)
       throws SirixXPathException {
 
     final boolean ebv = ebv(axis);
@@ -132,7 +132,7 @@ public class Function {
    * @param axis The sequence to atomize.
    * @return true, if an atomic value can be returned
    */
-  public static boolean fnData(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean fnData(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     if (axis.hasNext()) {
 
@@ -170,7 +170,7 @@ public class Function {
    * @param axis The sequence containing the node to test its nilled property
    * @return true, if current item is a node that has the nilled property (only elements)
    */
-  public static boolean fnNilled(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean fnNilled(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     if (axis.hasNext() && rtx.getKind() == Kind.ELEMENT) {
       final boolean nilled = false; // TODO how is the nilled property
@@ -195,7 +195,7 @@ public class Function {
    * @param axis The sequence, containing the node, to return its QName
    * @return true, if node has a name
    */
-  public static boolean fnNodeName(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean fnNodeName(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     if (axis.hasNext()) {
 
@@ -212,7 +212,7 @@ public class Function {
 
   }
 
-  public static boolean fnnot(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean fnnot(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
     if (axis.hasNext()) {
       axis.next();
       final AtomicValue item = new AtomicValue(rtx.getRawValue()[0] == 0);
@@ -231,7 +231,7 @@ public class Function {
    * @param rtx Read Transaction.
    * @return fnnumber boolean.
    */
-  public static boolean fnnumber(final XdmNodeReadTrx rtx) {
+  public static boolean fnnumber(final XdmNodeReadOnlyTrx rtx) {
 
     // TODO: add error handling
     final AtomicValue item =
@@ -247,7 +247,7 @@ public class Function {
     return new AtomicValue(!Boolean.parseBoolean(new String(mValue.getRawValue())));
   }
 
-  public static boolean oneOrMore(final XdmNodeReadTrx rtx, final AbstractAxis axis)
+  public static boolean oneOrMore(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis)
       throws SirixXPathException {
 
     if (!axis.hasNext()) {
@@ -261,7 +261,7 @@ public class Function {
     return true;
   }
 
-  public static boolean sum(final XdmNodeReadTrx rtx, final AbstractAxis axis) {
+  public static boolean sum(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
     Double value = 0.0;
     while (axis.hasNext()) {
@@ -273,7 +273,7 @@ public class Function {
     return true;
   }
 
-  public static boolean sum(final XdmNodeReadTrx rtx, final AbstractAxis axis,
+  public static boolean sum(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis,
       final AbstractAxis mZero) {
 
     Double value = 0.0;
@@ -291,7 +291,7 @@ public class Function {
     return true;
   }
 
-  public static boolean zeroOrOne(final XdmNodeReadTrx rtx, final AbstractAxis axis)
+  public static boolean zeroOrOne(final XdmNodeReadOnlyTrx rtx, final AbstractAxis axis)
       throws SirixXPathException {
 
     final boolean result = true;

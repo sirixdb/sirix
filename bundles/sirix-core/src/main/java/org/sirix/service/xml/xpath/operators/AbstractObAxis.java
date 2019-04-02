@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.operators;
 
 import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -55,7 +55,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    * @param mOp1 First value of the operation
    * @param mOp2 Second value of the operation
    */
-  public AbstractObAxis(final XdmNodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
+  public AbstractObAxis(final XdmNodeReadOnlyTrx rtx, final Axis mOp1, final Axis mOp2) {
 
     super(rtx);
     mOperand1 = mOp1;
@@ -104,7 +104,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
           try {
             final AtomicValue result = (AtomicValue) operate(mItem1, mItem2);
             // add retrieved AtomicValue to item list
-            final int itemKey = getTrx().getItemList().addItem(result);
+            final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
             mKey = itemKey;
 
             return true;
@@ -116,7 +116,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
 
       if (XPATH_10_COMP) { // and empty sequence, return NaN
         final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
-        final int itemKey = getTrx().getItemList().addItem(result);
+        final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
         mKey = itemKey;
         return true;
       }
@@ -136,7 +136,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    */
   private AtomicValue atomize(final Axis mOperand) {
 
-    final XdmNodeReadTrx rtx = getTrx();
+    final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
     int type = rtx.getTypeKey();
     AtomicValue atom;
 
@@ -145,7 +145,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
           || type == rtx.keyForName("xs:boolean") || type == rtx.keyForName("xs:string")
           || type == rtx.keyForName("xs:integer") || type == rtx.keyForName("xs:float")
           || type == rtx.keyForName("xs:decimal")) {
-        Function.fnnumber(mOperand.getTrx());
+        Function.fnnumber(mOperand.asXdmNodeReadTrx());
       }
 
       atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());

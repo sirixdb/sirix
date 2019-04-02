@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SequenceType;
 import org.sirix.utils.TypedValue;
@@ -50,7 +50,7 @@ public class InstanceOfExpr extends AbstractExpression {
    * @param mInputExpr input expression, to test
    * @param mSequenceType sequence type to test whether the input sequence matches to.
    */
-  public InstanceOfExpr(final XdmNodeReadTrx mRtx, final Axis mInputExpr,
+  public InstanceOfExpr(final XdmNodeReadOnlyTrx mRtx, final Axis mInputExpr,
       final SequenceType mSequenceType) {
 
     super(mRtx);
@@ -110,9 +110,9 @@ public class InstanceOfExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int itemKey = getTrx().getItemList().addItem(
+    final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

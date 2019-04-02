@@ -25,14 +25,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.access.trx.node.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutableText;
 
 /**
  * Label visitor. Treats empty-elements as internal nodes.
@@ -40,10 +40,10 @@ import org.sirix.node.immutable.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class LabelFMSEVisitor extends AbstractVisitor {
+public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
 
-  /** {@link XdmNodeReadTrx} implementation. */
-  private final XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadOnlyTrx} implementation. */
+  private final XdmNodeReadOnlyTrx mRtx;
 
   /** For each node type: list of inner nodes. */
   private final Map<Kind, List<Long>> mLabels;
@@ -57,7 +57,7 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
    * @param pSession {@link ResourceManager} implementation
    * @throws SirixException if setting up sirix fails
    */
-  public LabelFMSEVisitor(final XdmNodeReadTrx pReadTrx) throws SirixException {
+  public LabelFMSEVisitor(final XdmNodeReadOnlyTrx pReadTrx) throws SirixException {
     mRtx = checkNotNull(pReadTrx);
     mLabels = new HashMap<>();
     mLeafLabels = new HashMap<>();

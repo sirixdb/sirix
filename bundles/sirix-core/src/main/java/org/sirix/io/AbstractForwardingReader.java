@@ -1,7 +1,7 @@
 package org.sirix.io;
 
 import javax.annotation.Nullable;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
@@ -20,7 +20,7 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   protected AbstractForwardingReader() {}
 
   @Override
-  public Page read(PageReference reference, @Nullable PageReadTrx pageReadTrx)
+  public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx)
       throws SirixIOException {
     return delegate().read(reference, pageReadTrx);
   }
@@ -31,7 +31,7 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(int revision, PageReadTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx) {
     return delegate().readRevisionRootPage(revision, pageReadTrx);
   }
 

@@ -10,20 +10,18 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.Move;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.interfaces.References;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.xdm.XdmDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -39,12 +37,10 @@ import com.google.common.collect.AbstractIterator;
  * @param <K> the key to search for or insert
  * @param <V> the value
  */
-public final class AVLTreeReader<K extends Comparable<? super K>, V extends References>
-    implements NodeCursor {
+public final class AVLTreeReader<K extends Comparable<? super K>, V extends References> implements NodeCursor {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(AVLTreeReader.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AVLTreeReader.class));
 
   /** Determines if tree is closed or not. */
   private boolean mClosed;
@@ -52,8 +48,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /** Strong reference to currently selected node. */
   private Node mCurrentNode;
 
-  /** {@link PageReadTrx} for persistent storage. */
-  final PageReadTrx mPageReadTrx;
+  /** {@link PageReadOnlyTrx} for persistent storage. */
+  final PageReadOnlyTrx mPageReadTrx;
 
   /** Page kind. */
   final PageKind mPageKind;
@@ -73,11 +69,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /**
    * Private constructor.
    *
-   * @param pageReadTrx {@link PageReadTrx} for persistent storage
+   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
    * @param type kind of index
    * @param index the index number
    */
-  private AVLTreeReader(final PageReadTrx pageReadTrx, final IndexType type, final int index) {
+  private AVLTreeReader(final PageReadOnlyTrx pageReadTrx, final IndexType type, final int index) {
     mPageReadTrx = checkNotNull(pageReadTrx);
     switch (type) {
       case PATH:
@@ -111,12 +107,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   /**
    * Get a new instance.
    *
-   * @param pageReadTrx {@link PageReadTrx} for persistent storage
+   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
    * @param type type of index
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-      final PageReadTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
+      final PageReadOnlyTrx pageReadTrx, final IndexType type, final @Nonnegative int index) {
     return new AVLTreeReader<K, V>(pageReadTrx, type, index);
   }
 
@@ -128,7 +124,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public void dump(final PrintStream out) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (((DocumentRootNode) getNode()).hasFirstChild()) {
+    if (((XdmDocumentRootNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
     } else {
       return;
@@ -159,7 +155,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    */
   AVLNode<K, V> getAVLNode() {
     assertNotClosed();
-    if (mCurrentNode.getKind() != Kind.DOCUMENT) {
+    if (mCurrentNode.getKind() != Kind.XDM_DOCUMENT) {
       @SuppressWarnings("unchecked")
       final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
       return node;
@@ -173,8 +169,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param startNodeKey the key of the node to start from
    * @param key key to be found
    * @param mode the search mode
-   * @return {@link Optional} reference (with the found value, or a reference which indicates that
-   *         the value hasn't been found)
+   * @return {@link Optional} reference (with the found value, or a reference which indicates that the
+   *         value hasn't been found)
    */
   public Optional<V> get(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
@@ -206,13 +202,13 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    *
    * @param key key to be found
    * @param mode the search mode
-   * @return {@link Optional} reference (with the found value, or a reference which indicates that
-   *         the value hasn't been found)
+   * @return {@link Optional} reference (with the found value, or a reference which indicates that the
+   *         value hasn't been found)
    */
   public Optional<V> get(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((DocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -242,8 +238,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param mode the search mode
    * @return Optional {@link AVLNode} reference
    */
-  public Optional<AVLNode<K, V>> getAVLNode(final long startNodeKey, final K key,
-      final SearchMode mode) {
+  public Optional<AVLNode<K, V>> getAVLNode(final long startNodeKey, final K key, final SearchMode mode) {
     assertNotClosed();
     final boolean movedToStartNode = moveTo(startNodeKey).hasMoved();
     if (!movedToStartNode) {
@@ -278,7 +273,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((DocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -307,11 +302,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @param mode the search mode
    * @return Optional {@link AVLNode} reference
    */
-  public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode,
-      final Comparator<? super K> comp) {
+  public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((DocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -339,11 +333,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @return number of index entries
    */
   public long size() {
-    return ((DocumentRootNode) moveToDocumentRoot().get().getNode()).getDescendantCount();
+    return ((XdmDocumentRootNode) moveToDocumentRoot().getCursor().getNode()).getDescendantCount();
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     mClosed = true;
   }
 
@@ -423,11 +417,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   }
 
   @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public Move<AVLTreeReader<K, V>> moveTo(final long nodeKey) {
     assertNotClosed();
 
@@ -479,7 +468,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       }
       return moveTo(node.getLeftChildKey());
     }
-    return moveTo(((DocumentRootNode) mCurrentNode).getFirstChildKey());
+    return moveTo(((XdmDocumentRootNode) mCurrentNode).getFirstChildKey());
   }
 
   @Override
@@ -512,17 +501,17 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       } else if (node.hasRightChild()) {
         moveToLastChild();
       } else {
-        while (moveToParent().get().getNode() instanceof AVLNode && !hasLastChild()) {
+        while (moveToParent().getCursor().getNode() instanceof AVLNode && !hasLastChild()) {
         }
 
         if (getNode() instanceof AVLNode) {
-          return Move.moved(moveToLastChild().get());
+          return Move.moved(moveToLastChild().getCursor());
         } else {
           return Move.notMoved();
         }
       }
     }
-    return Move.moved(moveToFirstChild().get());
+    return Move.moved(moveToFirstChild().getCursor());
   }
 
   @Override
@@ -558,7 +547,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   @Override
   public Kind getFirstChildKind() {
     assertNotClosed();
-    final Kind firstChildKind = moveToFirstChild().get().getKind();
+    final Kind firstChildKind = moveToFirstChild().getCursor().getKind();
     moveToParent();
     return firstChildKind;
   }
@@ -566,7 +555,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   @Override
   public Kind getLastChildKind() {
     assertNotClosed();
-    final Kind lastChildKind = moveToLastChild().get().getKind();
+    final Kind lastChildKind = moveToLastChild().getCursor().getKind();
     moveToParent();
     return lastChildKind;
   }
@@ -576,10 +565,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     assertNotClosed();
     if (hasParent()) {
       if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        return Kind.DOCUMENT;
+        return Kind.XDM_DOCUMENT;
       } else {
         final long nodeKey = mCurrentNode.getNodeKey();
-        final Kind parentKind = moveToParent().get().getKind();
+        final Kind parentKind = moveToParent().getCursor().getKind();
         moveTo(nodeKey);
         return parentKind;
       }
@@ -687,7 +676,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       if (!mFirst) {
         if (!mKeys.isEmpty()) {
           // Subsequent results.
-          final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
+          final AVLNode<K, V> node = moveTo(mKeys.pop()).getCursor().getAVLNode();
           stackOperation(node);
           return node;
         }
@@ -710,12 +699,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
     private void stackOperation(final AVLNode<K, V> node) {
       if (node.hasRightChild()) {
-        final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+        final AVLNode<K, V> right = moveToLastChild().getCursor().getAVLNode();
         mKeys.push(right.getNodeKey());
       }
       moveTo(node.getNodeKey());
       if (node.hasLeftChild()) {
-        final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+        final AVLNode<K, V> left = moveToFirstChild().getCursor().getAVLNode();
         mKeys.push(left.getNodeKey());
       }
     }

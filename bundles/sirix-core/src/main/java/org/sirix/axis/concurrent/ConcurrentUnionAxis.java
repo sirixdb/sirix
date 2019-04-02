@@ -22,7 +22,7 @@
 package org.sirix.axis.concurrent;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -62,7 +62,7 @@ public final class ConcurrentUnionAxis extends AbstractAxis {
    * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is
    *         {@code null}
    */
-  public ConcurrentUnionAxis(final XdmNodeReadTrx rtx, final Axis operand1, final Axis operand2) {
+  public ConcurrentUnionAxis(final XdmNodeReadOnlyTrx rtx, final Axis operand1, final Axis operand2) {
     super(rtx);
     mOp1 = new ConcurrentAxis(rtx, operand1);
     mOp2 = new ConcurrentAxis(rtx, operand2);

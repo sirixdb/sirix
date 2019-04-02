@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -80,7 +80,7 @@ public class OrExpr extends AbstractExpression {
    * @param mOperand1 First operand
    * @param mOperand2 Second operand
    */
-  public OrExpr(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+  public OrExpr(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;
@@ -118,9 +118,9 @@ public class OrExpr extends AbstractExpression {
     // function.
 
     // add result item to list and set the item as the current item
-    final int itemKey = getTrx().getItemList().addItem(
+    final int itemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

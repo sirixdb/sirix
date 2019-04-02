@@ -5,18 +5,18 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.AbstractVisitor;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.immutable.ImmutableComment;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutablePI;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableComment;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutablePI;
+import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -28,7 +28,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class DeleteFMSEVisitor extends AbstractVisitor {
+public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER =
@@ -37,8 +37,8 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
   /** {@link Matching} reference. */
   private final Matching mMatching;
 
-  /** sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Start key. */
   private final long mStartKey;
@@ -46,11 +46,11 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
   /**
    * Constructor. pStartKey
    * 
-   * @param wtx sirix {@link XdmNodeWriteTrx}
+   * @param wtx sirix {@link XdmNodeTrx}
    * @param matching {@link Matching} reference
    * @param startKey start key
    */
-  public DeleteFMSEVisitor(final XdmNodeWriteTrx wtx, final Matching matching,
+  public DeleteFMSEVisitor(final XdmNodeTrx wtx, final Matching matching,
       @Nonnegative final long startKey) {
     mWtx = checkNotNull(wtx);
     mMatching = checkNotNull(matching);
@@ -192,9 +192,9 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
       // Case: Has right sibl. and left sibl.
       if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
         final long rightSiblKey = mWtx.getRightSiblingKey();
-        final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
+        final long rightRightSiblKey = mWtx.moveToRightSibling().getCursor().getRightSiblingKey();
         mWtx.moveTo(nodeKey);
-        final String value = removeTextNode ? mWtx.moveToLeftSibling().get().getValue() : "";
+        final String value = removeTextNode ? mWtx.moveToLeftSibling().getCursor().getValue() : "";
         mWtx.moveTo(nodeKey);
         mWtx.remove();
         if (removeTextNode) {

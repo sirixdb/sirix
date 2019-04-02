@@ -39,10 +39,10 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 
 /**
  * Test StAXSerializer.
@@ -56,26 +56,26 @@ public class StAXSerializerTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testStAXSerializer() {
     try {
       final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      final XMLSerializer xmlSerializer =
-          new XMLSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
+      final XmlSerializer xmlSerializer =
+          new XmlSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
       xmlSerializer.call();
 
-      final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+      final XdmNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
       StAXSerializer serializer = new StAXSerializer(rtx);
       final StringBuilder strBuilder = new StringBuilder();
       boolean isEmptyElement = false;
@@ -117,9 +117,9 @@ public class StAXSerializerTest {
 
       // Check getElementText().
       // ========================================================
-      holder.getXdmNodeReadTrx().moveToDocumentRoot();
-      holder.getXdmNodeReadTrx().moveToFirstChild();
-      serializer = new StAXSerializer(holder.getXdmNodeReadTrx());
+      holder.getNodeReadTrx().moveToDocumentRoot();
+      holder.getNodeReadTrx().moveToFirstChild();
+      serializer = new StAXSerializer(holder.getNodeReadTrx());
       String elemText = null;
 
       // <p:a>

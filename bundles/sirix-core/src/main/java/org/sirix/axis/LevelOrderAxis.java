@@ -26,7 +26,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -68,10 +68,10 @@ public final class LevelOrderAxis extends AbstractAxis {
   /**
    * Get a new builder instance.
    *
-   * @param rtx the {@link XdmNodeReadTrx} to iterate with
+   * @param rtx the {@link NodeCursor} to iterate with
    * @return {@link Builder} instance
    */
-  public static Builder newBuilder(final XdmNodeReadTrx rtx) {
+  public static Builder newBuilder(final NodeCursor rtx) {
     return new Builder(rtx);
   }
 
@@ -85,8 +85,8 @@ public final class LevelOrderAxis extends AbstractAxis {
     /** Filter by level. */
     private int mFilterLevel = Integer.MAX_VALUE;
 
-    /** Sirix {@link XdmNodeReadTrx}. */
-    private final XdmNodeReadTrx mRtx;
+    /** Sirix {@link NodeCursor}. */
+    private final NodeCursor mRtx;
 
     /** Determines if current start node to traversal should be included or not. */
     private IncludeSelf mIncludeSelf = IncludeSelf.NO;
@@ -94,9 +94,9 @@ public final class LevelOrderAxis extends AbstractAxis {
     /**
      * Constructor.
      *
-     * @param rtx Sirix {@link XdmNodeReadTrx}
+     * @param rtx Sirix {@link NodeCursor}
      */
-    public Builder(final XdmNodeReadTrx rtx) {
+    public Builder(final NodeCursor rtx) {
       mRtx = checkNotNull(rtx);
     }
 
@@ -212,7 +212,7 @@ public final class LevelOrderAxis extends AbstractAxis {
     }
 
     // Then follow first child if there is one.
-    if (getTrx().hasFirstChild()) {
+    if (cursor.hasFirstChild()) {
       mLevel++;
 
       // End traversal if level is reached.
@@ -220,7 +220,7 @@ public final class LevelOrderAxis extends AbstractAxis {
         return done();
       }
 
-      return getTrx().getFirstChildKey();
+      return cursor.getFirstChildKey();
     }
 
     return done();
@@ -228,7 +228,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /**
    * Get the current level.
-   * 
+   *
    * @return the current level
    */
   public int getCurrentLevel() {
@@ -237,17 +237,19 @@ public final class LevelOrderAxis extends AbstractAxis {
 
   /** Process an element node. */
   private void processElement() {
-    final XdmNodeReadTrx rtx = getTrx();
-    if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
-      for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
-        rtx.moveToNamespace(i);
-        mFirstChilds.add(rtx.getNodeKey());
-        rtx.moveToParent();
-      }
-      for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
-        rtx.moveToAttribute(i);
-        mFirstChilds.add(rtx.getNodeKey());
-        rtx.moveToParent();
+    if (getCursor() instanceof XdmNodeReadOnlyTrx) {
+      final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+      if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
+        for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+          rtx.moveToNamespace(i);
+          mFirstChilds.add(rtx.getNodeKey());
+          rtx.moveToParent();
+        }
+        for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+          rtx.moveToAttribute(i);
+          mFirstChilds.add(rtx.getNodeKey());
+          rtx.moveToParent();
+        }
       }
     }
   }

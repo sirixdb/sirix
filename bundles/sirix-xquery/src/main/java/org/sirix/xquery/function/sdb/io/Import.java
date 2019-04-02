@@ -15,17 +15,16 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.function.sdb.SDBFun;
+import org.sirix.xquery.node.BasicDBStore;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.node.BasicDBStore;
 
 /**
  * <p>
@@ -75,16 +74,16 @@ public final class Import extends AbstractFunction {
     final String resToImport = ((Str) args[2]).stringValue();
 
     DBNode doc = null;
-    final XdmNodeReadTrx trx;
+    final XdmNodeReadOnlyTrx trx;
 
     try {
       doc = coll.getDocument(resName);
 
-      try (
-          final XdmNodeWriteTrx wtx = doc.getTrx().getResourceManager().getXdmNodeWriteTrx().orElse(
-              doc.getTrx().getResourceManager().beginNodeWriteTrx())) {
-        final Path newRevTarget =
-            Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
+      try (final XdmNodeTrx wtx = doc.getTrx()
+                                          .getResourceManager()
+                                          .getNodeWriteTrx()
+                                          .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
+        final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
         }
@@ -94,9 +93,9 @@ public final class Import extends AbstractFunction {
           throw new QueryException(new QNm("XML stream exception: " + e.getMessage()), e);
         }
 
-        try (final Database databaseNew = Databases.openDatabase(newRevTarget);
-            final ResourceManager resourceNew = databaseNew.getResourceManager("shredded");
-            final XdmNodeReadTrx rtx = resourceNew.beginNodeReadTrx();
+        try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
+            final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
+            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
             final FMSE fmes = new FMSE()) {
           fmes.diff(wtx, rtx);
         }
@@ -104,7 +103,7 @@ public final class Import extends AbstractFunction {
         throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
       }
     } finally {
-      trx = doc.getTrx().getResourceManager().beginNodeReadTrx();
+      trx = doc.getTrx().getResourceManager().beginNodeReadOnlyTrx();
       doc.getTrx().close();
     }
 

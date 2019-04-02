@@ -39,12 +39,12 @@
 		<dependency>
 			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>${project.parent.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>${project.parent.version}</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>

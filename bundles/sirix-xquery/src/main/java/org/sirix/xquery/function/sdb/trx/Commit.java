@@ -8,8 +8,8 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
@@ -45,18 +45,18 @@ public final class Commit extends AbstractFunction {
       throws QueryException {
     final DBNode doc = ((DBNode) args[0]);
 
-    if (doc.getTrx() instanceof XdmNodeWriteTrx) {
-      final XdmNodeWriteTrx wtx = (XdmNodeWriteTrx) doc.getTrx();
+    if (doc.getTrx() instanceof XdmNodeTrx) {
+      final XdmNodeTrx wtx = (XdmNodeTrx) doc.getTrx();
       final long revision = wtx.getRevisionNumber();
       wtx.commit();
       return new Int64(revision);
     } else {
-      final ResourceManager manager = doc.getTrx().getResourceManager();
-      final XdmNodeWriteTrx wtx;
-      if (manager.getAvailableNodeWriteTrx() == 0) {
-        wtx = manager.getXdmNodeWriteTrx().get();
+      final XdmResourceManager manager = doc.getTrx().getResourceManager();
+      final XdmNodeTrx wtx;
+      if (manager.hasRunningNodeWriteTrx()) {
+        wtx = manager.getNodeWriteTrx().get();
       } else {
-        wtx = manager.beginNodeWriteTrx();
+        wtx = manager.beginNodeTrx();
       }
       final int revision = doc.getTrx().getRevisionNumber();
       if (revision < manager.getMostRecentRevisionNumber()) {

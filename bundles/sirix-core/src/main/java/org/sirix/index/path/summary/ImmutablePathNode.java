@@ -1,12 +1,8 @@
 package org.sirix.index.path.summary;
 
-import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
-import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -14,9 +10,9 @@ import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
 /**
  * Wraps a {@link PathNode} to provide immutability.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode {
 
@@ -25,7 +21,7 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
 
   /**
    * Private constructor.
-   * 
+   *
    * @param node the mutable path node
    */
   public ImmutablePathNode(final PathNode node) {
@@ -34,7 +30,7 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
 
   /**
    * Get an immutable path node instance.
-   * 
+   *
    * @param node the mutable {@link PathNode} to wrap
    * @return immutable path node instance
    */
@@ -48,23 +44,8 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    return mNode.getDeweyID();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return mNode.getTypeKey();
-  }
-
-  @Override
   public boolean isSameItem(@Nullable Node other) {
     return mNode.isSameItem(other);
-  }
-
-  @Override
-  public VisitResult acceptVisitor(Visitor visitor) {
-    return mNode.acceptVisitor(visitor);
   }
 
   @Override

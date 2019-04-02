@@ -2,6 +2,7 @@ package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import org.sirix.api.NodeCursor;
 
 /**
@@ -41,5 +42,5 @@ public abstract class Move<T extends NodeCursor> {
    * @return cursor reference
    * @throws NoSuchElementException if the cursor couldn't be moved
    */
-  public abstract T get();
+  public abstract T getCursor();
 }

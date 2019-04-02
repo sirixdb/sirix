@@ -26,7 +26,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -40,8 +40,8 @@ public class LRUCacheTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     cache = new LRUCache<>();
     CacheTestHelper.setUp(cache);
   }
@@ -50,7 +50,7 @@ public class LRUCacheTest {
   public void tearDown() throws SirixException {
     cache.close();
     CacheTestHelper.PAGE_READ_TRX.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test

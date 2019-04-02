@@ -27,11 +27,11 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
 
@@ -53,9 +53,9 @@ public class XMarkBenchTest {
 
   @BeforeClass
   public static void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // EncryptionHelper.start();
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
   }
@@ -65,7 +65,7 @@ public class XMarkBenchTest {
     String query = xmbq.getQuery(1, FACTOR);
     String result = xmbq.getResult(1, FACTOR);
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), query), new String[] {result});
+        new XPathAxis(holder.getNodeReadTrx(), query), new String[] {result});
   }
 
   @Test
@@ -73,7 +73,7 @@ public class XMarkBenchTest {
     String query = xmbq.getQuery(5, FACTOR);
     String result = xmbq.getResult(5, FACTOR);
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), query), new String[] {result});
+        new XPathAxis(holder.getNodeReadTrx(), query), new String[] {result});
   }
 
   @Test
@@ -81,7 +81,7 @@ public class XMarkBenchTest {
     String query = xmbq.getQuery(6, FACTOR);
     String result = xmbq.getResult(6, FACTOR);
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), query), new String[] {result});
+        new XPathAxis(holder.getNodeReadTrx(), query), new String[] {result});
   }
 
   @Test
@@ -89,7 +89,7 @@ public class XMarkBenchTest {
     String query = xmbq.getQuery(7, FACTOR);
     String result = xmbq.getResult(7, FACTOR);
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), query), new String[] {result});
+        new XPathAxis(holder.getNodeReadTrx(), query), new String[] {result});
   }
 
   /*
@@ -109,6 +109,6 @@ public class XMarkBenchTest {
   @AfterClass
   public static void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 }

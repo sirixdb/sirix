@@ -1,7 +1,7 @@
 package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.io.Writer;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -15,7 +15,7 @@ public final class PersistentFileCache implements AutoCloseable {
     mWriter = checkNotNull(writer);
   }
 
-  public PageContainer get(PageReference reference, final PageReadTrx pageReadTrx) {
+  public PageContainer get(PageReference reference, final PageReadOnlyTrx pageReadTrx) {
     checkNotNull(pageReadTrx);
 
     if (reference.getPersistentLogKey() < 0)

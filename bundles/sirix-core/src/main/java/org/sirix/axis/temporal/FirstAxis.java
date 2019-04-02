@@ -1,54 +1,59 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
  * Open the first revision and try to move to the node with the given node key.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class FirstAxis extends AbstractTemporalAxis {
+public final class FirstAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager mSession;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private final long mNodeKey;
 
-  /** Sirix {@link XdmNodeReadTrx}. */
-  private XdmNodeReadTrx mRtx;
+  /** Sirix {@link NodeReadOnlyTrx}. */
+  private R mRtx;
 
   /** Determines if it's the first call. */
   private boolean mFirst;
 
   /**
    * Constructor.
-   * 
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   *
+   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
    */
-  public FirstAxis(final XdmNodeReadTrx rtx) {
-    mSession = checkNotNull(rtx.getResourceManager());
+  public FirstAxis(final R rtx) {
+    mResourceManager = checkNotNull(rtx.getResourceManager());
     mNodeKey = rtx.getNodeKey();
     mFirst = true;
   }
 
+  @SuppressWarnings("unchecked")
   @Override
-  protected XdmNodeReadTrx computeNext() {
+  protected R computeNext() {
     if (mFirst) {
       mFirst = false;
-      mRtx = mSession.beginNodeReadTrx(1);
-      return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(1);
+      return mRtx.moveTo(mNodeKey).hasMoved()
+          ? mRtx
+          : endOfData();
     } else {
       return endOfData();
     }
   }
 
   @Override
-  public XdmNodeReadTrx getTrx() {
+  public R getTrx() {
     return mRtx;
   }
 }

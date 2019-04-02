@@ -29,7 +29,7 @@ import java.util.BitSet;
 import java.util.List;
 import javax.annotation.Nonnegative;
 import org.magicwerk.brownies.collections.GapList;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.DeserializedTuple;
 import org.sirix.page.PageReference;
@@ -130,7 +130,7 @@ public final class PageDelegate implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public final PageReference getReference(final @Nonnegative int offset) {
+  public PageReference getReference(final @Nonnegative int offset) {
     if (mBitmap.get(offset)) {
       final int index = index(offset);
       return mReferences.get(index);
@@ -139,15 +139,19 @@ public final class PageDelegate implements Page {
     }
   }
 
+  @Override
+  public void setReference(final int offset, final PageReference pageReference) {
+    final int index = index(offset);
+    mReferences.set(index, pageReference);
+    mBitmap.set(offset, true);
+  }
+
   private PageReference createNewReference(final int offset) {
     final int index = index(offset);
-
-    final PageReference reference = new PageReference();
-    mReferences.add(index, reference);
-
+    final PageReference pageReference = new PageReference();
+    mReferences.add(index, pageReference);
     mBitmap.set(offset, true);
-
-    return reference;
+    return pageReference;
   }
 
   private int index(final int offset) {
@@ -170,7 +174,7 @@ public final class PageDelegate implements Page {
    */
   @Override
   public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final PageWriteTrx<K, V, S> pageWriteTrx) {
+      final PageTrx<K, V, S> pageWriteTrx) {
     for (final PageReference reference : mReferences) {
       if (reference.getLogKey() != Constants.NULL_ID_INT
           || reference.getPersistentLogKey() != Constants.NULL_ID_LONG) {

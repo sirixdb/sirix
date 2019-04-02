@@ -39,7 +39,7 @@
  * </ul>
  * </p>
  * <p>
- * All configurations are set within the {@link org.sirix.access.LocalDatabase} only.
+ * All configurations are set within the {@link org.sirix.access.LocalXdmDatabase} only.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz

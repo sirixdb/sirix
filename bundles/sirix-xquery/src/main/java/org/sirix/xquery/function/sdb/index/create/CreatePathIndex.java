@@ -13,9 +13,9 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
@@ -29,24 +29,23 @@ import com.google.common.collect.ImmutableSet;
  * If successful, this function returns statistics about the newly created index as an XML fragment.
  * Supported signatures are:</br>
  * <ul>
- * <li><code>sdb:create-path-index($doc as node(), $paths as xs:string*) as 
+ * <li><code>sdb:create-path-index($doc as node(), $paths as xs:string*) as
  * node()</code></li>
  * <li><code>sdb:create-path-index($doc as node()) as node()</code></li>
  * </ul>
- * 
+ *
  * @author Max Bechtold
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class CreatePathIndex extends AbstractFunction {
 
   /** Path index function name. */
-  public final static QNm CREATE_PATH_INDEX =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-path-index");
+  public final static QNm CREATE_PATH_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "create-path-index");
 
   /**
    * Constructor.
-   * 
+   *
    * @param name the name of the function
    * @param signature the signature of the function
    */
@@ -62,11 +61,11 @@ public final class CreatePathIndex extends AbstractFunction {
     }
 
     final DBNode doc = ((DBNode) args[0]);
-    final XdmNodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
-        rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
+    final NodeReadOnlyTrx rtx = doc.getTrx();
+    final XdmIndexController controller =
+        (XdmIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
 
-    if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
+    if (!(doc.getTrx() instanceof XdmNodeTrx)) {
       throw new QueryException(new QNm("Collection must be updatable!"));
     }
 
@@ -74,7 +73,7 @@ public final class CreatePathIndex extends AbstractFunction {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
     }
 
-    if (!(doc.getTrx() instanceof XdmNodeWriteTrx)) {
+    if (!(doc.getTrx() instanceof XdmNodeTrx)) {
       throw new QueryException(new QNm("Collection must be updatable!"));
     }
 
@@ -88,10 +87,10 @@ public final class CreatePathIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createPathIdxDef(
-        paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
+    final IndexDef idxDef =
+        IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeWriteTrx) doc.getTrx());
+      controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeTrx) doc.getTrx());
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

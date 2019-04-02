@@ -18,17 +18,16 @@ import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
-import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XMLSerializer;
-import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
-import org.sirix.service.xml.shredder.Insert;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
+import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Test the FMSE implementation.
@@ -88,13 +87,13 @@ public final class FMSETest extends XMLTestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Override
   @After
   public void tearDown() throws SirixException, IOException {
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -209,69 +208,67 @@ public final class FMSETest extends XMLTestCase {
    * @throws Exception if any exception occurs
    */
   private void test(final Path folder) throws Exception {
-    Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ResourceManager resource = database.getResourceManager(TestHelper.RESOURCE);
-    Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-    final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
+    try (var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      XdmResourceManager resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+      Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
-    // Sort files list according to file names.
-    list.sort((first, second) -> {
-      final String firstName =
-          first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(
-          0, second.getFileName().toString().indexOf('.'));
+      // Sort files list according to file names.
+      list.sort((first, second) -> {
+        final String firstName =
+            first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+        final String secondName =
+            second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
-      if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-        return -1;
-      } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-        return +1;
-      } else {
-        return 0;
-      }
-    });
-
-    boolean first = true;
-
-    // Shredder files.
-    for (final Path file : list) {
-      if (file.getFileName().toString().endsWith(".xml")) {
-        if (first) {
-          first = false;
-          try (final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx();
-              final FileInputStream fis = new FileInputStream(file.toFile())) {
-            final XMLShredder shredder = new XMLShredder.Builder(wtx,
-                XMLShredder.createFileReader(fis), Insert.ASFIRSTCHILD).commitAfterwards().build();
-            shredder.call();
-          }
+        if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
+          return -1;
+        } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
+          return +1;
         } else {
-          FMSEImport.main(
-              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(),
-                  file.toAbsolutePath().toString()});
+          return 0;
         }
+      });
 
-        resource.close();
-        resource = database.getResourceManager(TestHelper.RESOURCE);
+      boolean first = true;
 
-        final OutputStream out = new ByteArrayOutputStream();
-        final XMLSerializer serializer = new XMLSerializerBuilder(resource, out).build();
-        serializer.call();
-        final StringBuilder sBuilder = TestHelper.readFile(file, false);
+      // Shredder files.
+      for (final Path file : list) {
+        if (file.getFileName().toString().endsWith(".xml")) {
+          if (first) {
+            first = false;
+            try (final XdmNodeTrx wtx = resource.beginNodeTrx();
+                final FileInputStream fis = new FileInputStream(file.toFile())) {
+              final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+              shredder.call();
+            }
+          } else {
+            FMSEImport.main(
+                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
+          }
 
-        final Diff diff = new Diff(sBuilder.toString(), out.toString());
-        final DetailedDiff detDiff = new DetailedDiff(diff);
-        @SuppressWarnings("unchecked")
-        final List<Difference> differences = detDiff.getAllDifferences();
-        for (final Difference difference : differences) {
-          System.err.println("***********************");
-          System.err.println(difference);
-          System.err.println("***********************");
+          resource.close();
+          resource = database.getResourceManager(XdmTestHelper.RESOURCE);
+
+          final OutputStream out = new ByteArrayOutputStream();
+          final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
+          serializer.call();
+          final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
+
+          final Diff diff = new Diff(sBuilder.toString(), out.toString());
+          final DetailedDiff detDiff = new DetailedDiff(diff);
+          @SuppressWarnings("unchecked")
+          final List<Difference> differences = detDiff.getAllDifferences();
+          for (final Difference difference : differences) {
+            System.err.println("***********************");
+            System.err.println(difference);
+            System.err.println("***********************");
+          }
+
+          assertTrue("pieces of XML are similar " + diff, diff.similar());
+          assertTrue("but are they identical? " + diff, diff.identical());
         }
-
-        assertTrue("pieces of XML are similar " + diff, diff.similar());
-        assertTrue("but are they identical? " + diff, diff.identical());
       }
     }
-
-    database.close();
   }
 }

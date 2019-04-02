@@ -22,8 +22,6 @@ package org.sirix.node.delegates;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
@@ -73,9 +71,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    * @param pSiblingPos sibling position
    */
-  public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib,
-      final long leftSib, final @Nonnegative long childCount,
-      final @Nonnegative long descendantCount) {
+  public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib, final long leftSib,
+      final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert del != null : "del must not be null!";
@@ -153,14 +150,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public VisitResultType acceptVisitor(final Visitor pVisitor) {
-    return mDelegate.acceptVisitor(pVisitor);
-  }
-
-  @Override
   public int hashCode() {
-    return Objects.hashCode(
-        mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling, mDescendantCount);
+    return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling, mDescendantCount);
   }
 
   @Override
@@ -170,12 +161,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
     final StructNodeDelegate other = (StructNodeDelegate) obj;
 
-    return Objects.equal(mChildCount, other.mChildCount)
-        && Objects.equal(mDelegate, other.mDelegate)
-        && Objects.equal(mFirstChild, other.mFirstChild)
-        && Objects.equal(mLeftSibling, other.mLeftSibling)
-        && Objects.equal(mRightSibling, other.mRightSibling)
-        && Objects.equal(mDescendantCount, other.mDescendantCount);
+    return Objects.equal(mChildCount, other.mChildCount) && Objects.equal(mDelegate, other.mDelegate)
+        && Objects.equal(mFirstChild, other.mFirstChild) && Objects.equal(mLeftSibling, other.mLeftSibling)
+        && Objects.equal(mRightSibling, other.mRightSibling) && Objects.equal(mDescendantCount, other.mDescendantCount);
   }
 
   @Override

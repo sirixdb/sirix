@@ -1,8 +1,6 @@
 package org.sirix.access.trx.node;
 
 import org.sirix.api.NodeCursor;
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import com.google.common.collect.ForwardingObject;
@@ -20,11 +18,6 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
 
   @Override
   protected abstract NodeCursor delegate();
-
-  @Override
-  public VisitResult acceptVisitor(final Visitor visitor) {
-    return delegate().acceptVisitor(visitor);
-  }
 
   @Override
   public long getFirstChildKey() {

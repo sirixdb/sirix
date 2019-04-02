@@ -5,7 +5,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
@@ -26,12 +26,16 @@ public final class PathPage extends AbstractForwardingPage {
   /** Maximum node keys. */
   private final Map<Integer, Long> mMaxNodeKeys;
 
+  /** Current maximum levels of indirect pages in the tree. */
+  private final Map<Integer, Integer> mCurrentMaxLevelsOfIndirectPages;
+
   /**
    * Constructor.
    */
   public PathPage() {
     mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
     mMaxNodeKeys = new HashMap<>();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>();
   }
 
   /**
@@ -57,6 +61,11 @@ public final class PathPage extends AbstractForwardingPage {
     for (int i = 0; i < size; i++) {
       mMaxNodeKeys.put(i, in.readLong());
     }
+    final int currentMaxLevelOfIndirectPages = in.readInt();
+    mCurrentMaxLevelsOfIndirectPages = new HashMap<>(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      mCurrentMaxLevelsOfIndirectPages.put(i, in.readByte() & 0xFF);
+    }
   }
 
   @Override
@@ -72,11 +81,11 @@ public final class PathPage extends AbstractForwardingPage {
   /**
    * Initialize path index tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createPathIndexTree(final PageReadTrx pageReadTrx, final int index,
+  public void createPathIndexTree(final PageReadOnlyTrx pageReadTrx, final int index,
       final TransactionIntentLog log) {
     final PageReference reference = getReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -87,6 +96,12 @@ public final class PathPage extends AbstractForwardingPage {
         mMaxNodeKeys.put(index, 0l);
       } else {
         mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+      }
+      if (mCurrentMaxLevelsOfIndirectPages.get(index) == null) {
+        mCurrentMaxLevelsOfIndirectPages.put(index, 1);
+      } else {
+        mCurrentMaxLevelsOfIndirectPages.put(
+            index, mCurrentMaxLevelsOfIndirectPages.get(index) + 1);
       }
     }
   }
@@ -99,6 +114,20 @@ public final class PathPage extends AbstractForwardingPage {
     for (int i = 0; i < size; i++) {
       out.writeLong(mMaxNodeKeys.get(i));
     }
+    final int currentMaxLevelOfIndirectPages = mMaxNodeKeys.size();
+    out.writeInt(currentMaxLevelOfIndirectPages);
+    for (int i = 0; i < currentMaxLevelOfIndirectPages; i++) {
+      out.writeByte(mCurrentMaxLevelsOfIndirectPages.get(i));
+    }
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.get(index);
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
+    return mCurrentMaxLevelsOfIndirectPages.merge(
+        index, 1, (previousValue, value) -> previousValue + value);
   }
 
   /**

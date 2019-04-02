@@ -1,5 +1,7 @@
 package org.sirix.api;
 
+import org.sirix.api.xdm.XdmNodeTrx;
+
 public interface Transaction extends AutoCloseable {
   Transaction commit();
 
@@ -10,5 +12,5 @@ public interface Transaction extends AutoCloseable {
   @Override
   void close();
 
-  Transaction add(XdmNodeWriteTrx nodeWriter);
+  Transaction add(XdmNodeTrx nodeWriter);
 }

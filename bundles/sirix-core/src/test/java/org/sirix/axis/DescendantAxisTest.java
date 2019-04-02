@@ -27,8 +27,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 import com.google.common.collect.ImmutableList;
@@ -43,20 +43,20 @@ public class DescendantAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testIterate() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -65,7 +65,7 @@ public class DescendantAxisTest {
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new DescendantAxis(rtx);
       }
@@ -78,7 +78,7 @@ public class DescendantAxisTest {
         ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(1L);
         return new DescendantAxis(rtx);
       }
@@ -90,7 +90,7 @@ public class DescendantAxisTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(9L);
         return new DescendantAxis(rtx);
       }
@@ -102,7 +102,7 @@ public class DescendantAxisTest {
         Collections.<Long>emptyList(), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(13L);
         return new DescendantAxis(rtx);
       }
@@ -111,7 +111,7 @@ public class DescendantAxisTest {
 
   @Test
   public void testIterateIncludingSelf() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
         new DescendantAxis(rtx, IncludeSelf.YES),
@@ -124,7 +124,7 @@ public class DescendantAxisTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new DescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -138,7 +138,7 @@ public class DescendantAxisTest {
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(1L);
         return new DescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -151,7 +151,7 @@ public class DescendantAxisTest {
         ImmutableList.of(9L, 11L, 12L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(9L);
         return new DescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -163,7 +163,7 @@ public class DescendantAxisTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+        final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
         rtx.moveTo(13L);
         return new DescendantAxis(rtx, IncludeSelf.YES);
       }

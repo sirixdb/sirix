@@ -1,39 +1,41 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
 
 /**
- * Retrieve a node by node key in all earlier revisions. In each revision a {@link XdmNodeReadTrx}
+ * Retrieve a node by node key in all earlier revisions. In each revision a {@link XdmNodeReadOnlyTrx}
  * is opened which is moved to the node with the given node key if it exists. Otherwise the iterator
- * has no more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
+ * has no more elements (the {@link XdmNodeReadOnlyTrx} moved to the node by it's node key).
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class PastAxis extends AbstractTemporalAxis {
+public final class PastAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** The revision number. */
   private int mRevision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager mSession;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
 
-  /** Sirix {@link XdmNodeReadTrx}. */
-  private XdmNodeReadTrx mRtx;
+  /** Sirix {@link NodeReadOnlyTrx}. */
+  private R mRtx;
 
   /**
    * Constructor.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
-  public PastAxis(final XdmNodeReadTrx rtx) {
+  public PastAxis(final R rtx) {
     // Using telescope pattern instead of builder (only one optional parameter.
     this(rtx, IncludeSelf.NO);
   }
@@ -41,10 +43,11 @@ public final class PastAxis extends AbstractTemporalAxis {
   /**
    * Constructor.
    *
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    * @param includeSelf determines if current revision must be included or not
    */
-  public PastAxis(final XdmNodeReadTrx rtx, final IncludeSelf includeSelf) {
-    mSession = checkNotNull(rtx.getResourceManager());
+  public PastAxis(final NodeReadOnlyTrx rtx, final IncludeSelf includeSelf) {
+    mResourceManager = checkNotNull(rtx.getResourceManager());
     mRevision = 0;
     mNodeKey = rtx.getNodeKey();
     mRevision = checkNotNull(includeSelf) == IncludeSelf.YES
@@ -52,10 +55,11 @@ public final class PastAxis extends AbstractTemporalAxis {
         : rtx.getRevisionNumber() - 1;
   }
 
+  @SuppressWarnings("unchecked")
   @Override
-  protected XdmNodeReadTrx computeNext() {
+  protected R computeNext() {
     if (mRevision > 0) {
-      mRtx = mSession.beginNodeReadTrx(mRevision--);
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mRevision--);
       return mRtx.moveTo(mNodeKey).hasMoved()
           ? mRtx
           : endOfData();
@@ -65,7 +69,7 @@ public final class PastAxis extends AbstractTemporalAxis {
   }
 
   @Override
-  public XdmNodeReadTrx getTrx() {
+  public R getTrx() {
     return mRtx;
   }
 }

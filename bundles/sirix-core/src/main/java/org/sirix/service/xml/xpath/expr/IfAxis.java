@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -57,7 +57,7 @@ public class IfAxis extends AbstractAxis {
    * @param mThenAxis Will be evaluated if test expression evaluates to true.
    * @param mElseAxis Will be evaluated if test expression evaluates to false.
    */
-  public IfAxis(final XdmNodeReadTrx rtx, final Axis mIfAxis, final Axis mThenAxis,
+  public IfAxis(final XdmNodeReadOnlyTrx rtx, final Axis mIfAxis, final Axis mThenAxis,
       final Axis mElseAxis) {
 
     super(rtx);

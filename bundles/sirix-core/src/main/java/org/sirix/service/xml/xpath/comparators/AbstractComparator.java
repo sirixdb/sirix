@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -57,7 +57,7 @@ public abstract class AbstractComparator extends AbstractAxis {
    * @param mOperand2 Second value of the comparison
    * @param mComp comparison kind
    */
-  public AbstractComparator(final XdmNodeReadTrx mRtx, final Axis mOperand1, final Axis mOperand2,
+  public AbstractComparator(final XdmNodeReadOnlyTrx mRtx, final Axis mOperand1, final Axis mOperand2,
       final CompKind mComp) {
     super(mRtx);
     this.mComp = mComp;
@@ -88,12 +88,12 @@ public abstract class AbstractComparator extends AbstractAxis {
 
       // TODO: why?
       if (!(mOperand1 instanceof LiteralExpr)) {
-        mOperand1.reset(getTrx().getNodeKey());
+        mOperand1.reset(asXdmNodeReadTrx().getNodeKey());
       }
 
       // TODO: why?
       if (!(mOperand2 instanceof LiteralExpr)) {
-        mOperand2.reset(getTrx().getNodeKey());
+        mOperand2.reset(asXdmNodeReadTrx().getNodeKey());
       }
 
       /*
@@ -116,7 +116,7 @@ public abstract class AbstractComparator extends AbstractAxis {
               final AtomicValue result = new AtomicValue(resultValue);
 
               // add retrieved AtomicValue to item list
-              final int itemKey = getTrx().getItemList().addItem(result);
+              final int itemKey = asXdmNodeReadTrx().getItemList().addItem(result);
               mKey = itemKey;
             } catch (SirixXPathException e) {
               throw new RuntimeException(e);
@@ -192,7 +192,7 @@ public abstract class AbstractComparator extends AbstractAxis {
    * @param paramVal string value to estimate
    * @return AbsComparator the comparator of two axis
    */
-  public static final AbstractComparator getComparator(final XdmNodeReadTrx paramRtx,
+  public static final AbstractComparator getComparator(final XdmNodeReadOnlyTrx paramRtx,
       final Axis paramOperandOne, final Axis paramOperandTwo, final CompKind paramKind,
       final String paramVal) {
     if ("eq".equals(paramVal) || "lt".equals(paramVal) || "le".equals(paramVal)

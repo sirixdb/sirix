@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
@@ -63,12 +63,12 @@ public class RangeAxis extends AbstractAxis {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx Exclusive (immutable) trx to iterate with.
    * @param mFrom start of the range
    * @param mTo the end of the range
    */
-  public RangeAxis(final XdmNodeReadTrx rtx, final Axis mFrom, final Axis mTo) {
+  public RangeAxis(final XdmNodeReadOnlyTrx rtx, final Axis mFrom, final Axis mTo) {
 
     super(rtx);
     this.mFrom = mFrom;
@@ -86,12 +86,12 @@ public class RangeAxis extends AbstractAxis {
 
     if (mFirst) {
       mFirst = false;
-      if (mFrom.hasNext() && Type.getType(mFrom.getTrx().getTypeKey()).derivesFrom(Type.INTEGER)) {
-        mStart = Integer.parseInt(mFrom.getTrx().getValue());
+      if (mFrom.hasNext() && Type.getType(((XdmNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        mStart = Integer.parseInt(((XdmNodeReadOnlyTrx) mFrom.asXdmNodeReadTrx()).getValue());
 
-        if (mTo.hasNext() && Type.getType(mTo.getTrx().getTypeKey()).derivesFrom(Type.INTEGER)) {
+        if (mTo.hasNext() && Type.getType(((XdmNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
 
-          mEnd = Integer.parseInt(mTo.getTrx().getValue());
+          mEnd = Integer.parseInt(((XdmNodeReadOnlyTrx) mTo.asXdmNodeReadTrx()).getValue());
 
         } else {
           // at least one operand is the empty sequence
@@ -106,9 +106,9 @@ public class RangeAxis extends AbstractAxis {
     }
 
     if (mStart <= mEnd) {
-      final int itemKey = getTrx().getItemList().addItem(
-          new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
-              getTrx().keyForName("xs:integer")));
+      final int itemKey = asXdmNodeReadTrx().getItemList()
+                                  .addItem(new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
+                                      asXdmNodeReadTrx().keyForName("xs:integer")));
       mKey = itemKey;
       mStart++;
       return true;

@@ -27,10 +27,10 @@ import java.util.Deque;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.XdmNodeReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -41,9 +41,9 @@ import org.sirix.settings.Fixed;
  *
  * <p>
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
- * key. The currently located node is optionally included. Furthermore a {@link Visitor} is usable
+ * key. The currently located node is optionally included. Furthermore a {@link XdmNodeVisitor} is usable
  * to guide the traversal and do whatever you like with the node kind, which is selected by the
- * given {@link XdmNodeReadTrx} transaction.
+ * given {@link XdmNodeReadOnlyTrx} transaction.
  * </p>
  * <p>
  * Note that it is faster to use the standard {@link DescendantAxis} if no visitor is specified.
@@ -57,7 +57,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   private Deque<Long> mRightSiblingKeyStack;
 
   /** Optional visitor. */
-  private Optional<? extends Visitor> mVisitor = Optional.empty();
+  private Optional<? extends XdmNodeVisitor> mVisitor = Optional.empty();
 
   /** Determines if it is the first call. */
   private boolean mFirst;
@@ -76,9 +76,9 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   public static class Builder {
 
     /** Optional visitor. */
-    private Optional<? extends Visitor> mVisitor = Optional.empty();
+    private Optional<? extends XdmNodeVisitor> mVisitor = Optional.empty();
 
-    /** Sirix {@link XdmNodeReadTrx}. */
+    /** Sirix {@link XdmNodeReadOnlyTrx}. */
     private final NodeCursor mRtx;
 
     /** Determines if current node should be included or not. */
@@ -110,7 +110,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
      * @param visitor the visitor
      * @return this builder instance
      */
-    public Builder visitor(final Optional<? extends Visitor> visitor) {
+    public Builder visitor(final Optional<? extends XdmNodeVisitor> visitor) {
       mVisitor = checkNotNull(visitor);
       return this;
     }
@@ -147,7 +147,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Visitor.
     Optional<VisitResult> result = Optional.empty();
     if (mVisitor.isPresent()) {
-      result = Optional.ofNullable(getTrx().acceptVisitor(mVisitor.get()));
+      result = Optional.ofNullable(asXdmNodeReadTrx().acceptVisitor(mVisitor.get()));
     }
 
     // If visitor is present and the return value is EVisitResult.TERMINATE than
@@ -156,7 +156,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
 
-    final NodeCursor cursor = getTrx();
+    final NodeCursor cursor = asXdmNodeReadTrx();
 
     // Determines if first call to hasNext().
     if (mFirst) {
@@ -216,7 +216,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    */
   private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     // Fail if the subtree is finished.
-    final NodeCursor cursor = getTrx();
+    final NodeCursor cursor = asXdmNodeReadTrx();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();

@@ -27,15 +27,15 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 
 public class MultipleCommitTest {
 
@@ -43,14 +43,14 @@ public class MultipleCommitTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -69,16 +69,16 @@ public class MultipleCommitTest {
 
   @Test
   public void testAutoCommit() throws SirixException {
-    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
 
-    final XdmNodeReadTrx rtx = holder.getResourceManager().beginNodeReadTrx();
+    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     rtx.close();
   }
 
   @Test
   public void testRemove() throws SirixException {
-    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
 
@@ -91,7 +91,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testAttributeRemove() throws SirixException {
-    DocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 

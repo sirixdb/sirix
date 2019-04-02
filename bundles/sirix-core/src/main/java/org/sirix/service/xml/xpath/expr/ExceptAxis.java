@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.HashSet;
 import java.util.Set;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -58,7 +58,7 @@ public class ExceptAxis extends AbstractAxis {
    * @param mOperand1 First operand
    * @param mOperand2 Second operand
    */
-  public ExceptAxis(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+  public ExceptAxis(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;
@@ -97,16 +97,16 @@ public class ExceptAxis extends AbstractAxis {
     // first all items of the second operand are stored in the set.
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
-      mDupSet.add(getTrx().getNodeKey());
+      mDupSet.add(asXdmNodeReadTrx().getNodeKey());
     }
 
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -115,7 +115,7 @@ public class ExceptAxis extends AbstractAxis {
       // it is
       // not also an item of the result set of the second operand
       // sequence.
-      if (mDupSet.add(getTrx().getNodeKey())) {
+      if (mDupSet.add(asXdmNodeReadTrx().getNodeKey())) {
         return true;
       }
     }

@@ -4,7 +4,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -46,10 +46,15 @@ public final class OverflowPage implements Page {
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      PageWriteTrx<K, V, S> pageWriteTrx) {}
+      PageTrx<K, V, S> pageWriteTrx) {}
 
   @Override
   public PageReference getReference(int offset) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setReference(int offset, PageReference pageReference) {
     throw new UnsupportedOperationException();
   }
 

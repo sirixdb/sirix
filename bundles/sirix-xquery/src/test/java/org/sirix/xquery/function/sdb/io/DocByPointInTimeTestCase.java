@@ -36,10 +36,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.DBNode;
@@ -57,7 +57,7 @@ public final class DocByPointInTimeTestCase extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
@@ -65,12 +65,12 @@ public final class DocByPointInTimeTestCase extends TestCase {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void test() throws IOException, QueryException {
-    DocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+    XdmDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
 
     final Path database = PATHS.PATH1.getFile();
@@ -80,7 +80,7 @@ public final class DocByPointInTimeTestCase extends TestCase {
       final QueryContext ctx = new SirixQueryContext(store);
 
       final String dbName = database.toString();
-      final String resName = TestHelper.RESOURCE;
+      final String resName = XdmTestHelper.RESOURCE;
 
       final String xq1 = "sdb:open('" + dbName + "','" + resName + "', bit:now())";
 
