@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
 import org.sirix.api.Filter;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 
 /**
  * <h1>NestedFilter</h1>
@@ -33,18 +33,18 @@ import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
  * Nests two or more IFilters.
  * </p>
  */
-public final class NestedFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
+public final class NestedFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   /** Tests to apply. */
-  private final List<Filter<XdmNodeReadOnlyTrx>> mFilter;
+  private final List<Filter<XmlNodeReadOnlyTrx>> mFilter;
 
   /**
    * Default constructor.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} this filter is bound to
+   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
    * @param axisTest test to perform for each node found with axis
    */
-  public NestedFilter(final XdmNodeReadOnlyTrx rtx, final @Nonnull List<Filter<XdmNodeReadOnlyTrx>> axisTest) {
+  public NestedFilter(final XmlNodeReadOnlyTrx rtx, final @Nonnull List<Filter<XmlNodeReadOnlyTrx>> axisTest) {
     super(rtx);
     mFilter = new ArrayList<>(axisTest);
   }
@@ -53,7 +53,7 @@ public final class NestedFilter extends AbstractFilter<XdmNodeReadOnlyTrx> {
   public final boolean filter() {
     boolean filterResult = true;
 
-    for (final Filter<XdmNodeReadOnlyTrx> filter : mFilter) {
+    for (final Filter<XmlNodeReadOnlyTrx> filter : mFilter) {
       filterResult = filterResult && filter.filter();
     }
 

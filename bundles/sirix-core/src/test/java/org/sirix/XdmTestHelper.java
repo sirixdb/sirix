@@ -34,14 +34,14 @@ import java.util.Random;
 import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.Kind.DumbNode;
@@ -51,7 +51,7 @@ import org.sirix.utils.XdmDocumentCreator;
 
 /**
  *
- * Helper class for offering convenient usage of {@link XdmResourceManagerImpl}s for test cases.
+ * Helper class for offering convenient usage of {@link XmlResourceManagerImpl}s for test cases.
  *
  * This includes instantiation of databases plus resources.
  *
@@ -91,7 +91,7 @@ public final class XdmTestHelper {
     }
 
     public DatabaseConfiguration getConfig() {
-      return config.setDatabaseType(DatabaseType.XDM);
+      return config.setDatabaseType(DatabaseType.XML);
     }
 
   }
@@ -100,7 +100,7 @@ public final class XdmTestHelper {
   public final static Random random = new Random();
 
   /** Path <=> Database instances. */
-  private final static Map<Path, Database<XdmResourceManager>> INSTANCES = new Hashtable<>();
+  private final static Map<Path, Database<XmlResourceManager>> INSTANCES = new Hashtable<>();
 
   @Test
   public void testDummy() {
@@ -115,17 +115,45 @@ public final class XdmTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<XdmResourceManager> getDatabase(final Path file) {
+  public static final Database<XmlResourceManager> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
       try {
         final DatabaseConfiguration config = new DatabaseConfiguration(file);
         if (!Files.exists(file)) {
-          Databases.createXdmDatabase(config);
+          Databases.createXmlDatabase(config);
         }
-        final var database = Databases.openXdmDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE, config).build());
+        final var database = Databases.openXmlDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static final Database<XmlResourceManager> getDatabaseWithDeweyIDsEnabled(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createXmlDatabase(config);
+        }
+        final var database = Databases.openXmlDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {
@@ -200,9 +228,9 @@ public final class XdmTestHelper {
    */
   public static void createTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -215,9 +243,9 @@ public final class XdmTestHelper {
    */
   public static void createPICommentTestDocument() {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE, PATHS.PATH1.config).build());
-    try (final XdmResourceManager manager = database.getResourceManager(RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx()) {
+    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XdmDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }

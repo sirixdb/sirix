@@ -23,8 +23,7 @@ package org.sirix.io;
 
 import static org.junit.Assert.assertEquals;
 import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.page.PageReference;
@@ -49,8 +48,7 @@ public final class IOTestHelper {
    * @throws SirixUsageException
    */
   public static ResourceConfiguration registerIO(final StorageType type) throws SirixException {
-    final ResourceConfiguration.Builder resourceConfig =
-        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig());
+    final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE);
     resourceConfig.storageType(type);
     return resourceConfig.build();
   }
@@ -68,8 +66,7 @@ public final class IOTestHelper {
    * @param resourceConf {@link ResourceConfiguration} reference
    * @throws SirixException if something went wrong
    */
-  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf)
-      throws SirixException {
+  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) throws SirixException {
     final Storage fac = StorageType.getStorage(resourceConf);
     final PageReference pageRef1 = new PageReference();
     final UberPage page1 = new UberPage();
@@ -79,16 +76,14 @@ public final class IOTestHelper {
     final Writer writer = fac.createWriter();
     writer.writeUberPageReference(pageRef1);
     final PageReference pageRef2 = writer.readUberPageReference();
-    assertEquals(
-        ((UberPage) pageRef1.getPage()).getRevisionCount(),
+    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef2.getPage()).getRevisionCount());
     writer.close();
 
     // new instance check
     final Reader reader = fac.createReader();
     final PageReference pageRef3 = reader.readUberPageReference();
-    assertEquals(
-        ((UberPage) pageRef1.getPage()).getRevisionCount(),
+    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
         ((UberPage) pageRef3.getPage()).getRevisionCount());
     reader.close();
     fac.close();

@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -53,7 +53,7 @@ public class UnionAxis extends AbstractAxis {
    * @param operand1 first operand
    * @param operand2 second operand
    */
-  public UnionAxis(final XdmNodeReadOnlyTrx rtx, @Nonnull final Axis operand1,
+  public UnionAxis(final XmlNodeReadOnlyTrx rtx, @Nonnull final Axis operand1,
       @Nonnull final Axis operand2) {
     super(rtx);
     mOp1 = checkNotNull(operand1);

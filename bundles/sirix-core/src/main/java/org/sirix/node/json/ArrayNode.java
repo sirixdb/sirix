@@ -63,7 +63,7 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_ARRAY;
+    return Kind.ARRAY;
   }
 
   @Override
@@ -88,10 +88,10 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode))
+    if (!(obj instanceof ObjectRecordNode))
       return false;
 
-    final ObjectKeyNode other = (ObjectKeyNode) obj;
+    final ObjectRecordNode other = (ObjectRecordNode) obj;
     return Objects.equal(delegate(), other.delegate());
   }
 

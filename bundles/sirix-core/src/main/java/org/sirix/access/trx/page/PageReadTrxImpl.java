@@ -37,12 +37,12 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
@@ -109,7 +109,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
   /** Internal reference to page cache. */
   private final LoadingCache<PageReference, Page> mPageCache;
 
-  /** {@link XdmResourceManagerImpl} reference. */
+  /** {@link XmlResourceManagerImpl} reference. */
   protected final InternalResourceManager<?, ?> mResourceManager;
 
   /** {@link NamePage} reference. */
@@ -121,7 +121,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
   /** {@link ResourceConfiguration} instance. */
   final ResourceConfiguration mResourceConfig;
 
-  /** {@link XdmIndexController} instance. */
+  /** {@link XmlIndexController} instance. */
   private final IndexController<?, ?> mIndexController;
 
   /** Caches in-memory reconstructed pages of a specific resource. */
@@ -137,7 +137,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
    * Standard constructor.
    *
    * @param trxId the transaction-ID.
-   * @param resourceManager {@link XdmResourceManagerImpl} instance
+   * @param resourceManager {@link XmlResourceManagerImpl} instance
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
    * @param reader reader to read stored pages for this transaction
@@ -762,7 +762,7 @@ public final class PageReadTrxImpl implements PageReadOnlyTrx {
       closeCaches();
       mPageReader.close();
 
-      if (!mResourceManager.getNodeReadTrx(mTrxId).isPresent())
+      if (!mResourceManager.getNodeReadTrxByTrxId(mTrxId).isPresent())
         mResourceManager.closeReadTransaction(mTrxId);
 
       mClosed = true;

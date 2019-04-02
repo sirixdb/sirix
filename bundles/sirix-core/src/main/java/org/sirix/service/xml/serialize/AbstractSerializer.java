@@ -28,8 +28,8 @@ import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
@@ -45,7 +45,7 @@ import org.sirix.settings.Constants;
 public abstract class AbstractSerializer implements Callable<Void> {
 
   /** Sirix {@link ResourceManager}. */
-  protected final XdmResourceManager mResMgr;
+  protected final XmlResourceManager mResMgr;
 
   /** Stack for reading end element. */
   protected final Deque<Long> mStack;
@@ -63,7 +63,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XdmResourceManager resMgr, final @Nonnegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceManager resMgr, final @Nonnegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -81,7 +81,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XdmResourceManager resMgr, final @Nonnegative long key,
+  public AbstractSerializer(final XmlResourceManager resMgr, final @Nonnegative long key,
       final @Nonnegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
@@ -123,7 +123,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final XdmNodeReadOnlyTrx rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
+      try (final XmlNodeReadOnlyTrx rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
           ? i
           : mRevisions[i - 1])) {
         emitRevisionStartTag(rtx);
@@ -194,30 +194,30 @@ public abstract class AbstractSerializer implements Callable<Void> {
   /**
    * Emit start tag.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  protected abstract void emitNode(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitNode(XmlNodeReadOnlyTrx rtx);
 
   /**
    * Emit end tag.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  protected abstract void emitEndTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitEndTag(XmlNodeReadOnlyTrx rtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  protected abstract void emitRevisionStartTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitRevisionStartTag(XmlNodeReadOnlyTrx rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
-  protected abstract void emitRevisionEndTag(XdmNodeReadOnlyTrx rtx);
+  protected abstract void emitRevisionEndTag(XmlNodeReadOnlyTrx rtx);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

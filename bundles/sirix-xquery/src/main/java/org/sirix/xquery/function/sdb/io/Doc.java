@@ -10,7 +10,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
+import org.sirix.xquery.node.XmlDBCollection;
 
 /**
  * <p>
@@ -18,12 +18,9 @@ import org.sirix.xquery.node.DBCollection;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as xs:node</code>
+ * <li><code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
  * </li>
- * <li><code>sdb:doc($coll as xs:string, $res as xs:string) as xs:node</code></li>
- * <li>
- * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?, $updatable as xs:boolean?) as xs:node</code>
- * </li>
+ * <li><code>sdb:doc($coll as xs:string, $res as xs:string) as node()</code></li>
  * </ul>
  *
  * @author Max Bechtold
@@ -46,12 +43,12 @@ public final class Doc extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length < 2 || args.length > 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
-    final DBCollection col = (DBCollection) ctx.getStore().lookup(((Str) args[0]).stringValue());
+
+    final XmlDBCollection col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (col == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -59,8 +56,7 @@ public final class Doc extends AbstractFunction {
 
     final String expResName = ((Str) args[1]).stringValue();
     final int revision = FunUtil.getInt(args, 2, "revision", -1, null, false);
-    final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
 
-    return col.getDocument(revision, expResName, updatable);
+    return col.getDocument(expResName, revision);
   }
 }

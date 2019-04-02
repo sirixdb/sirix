@@ -39,7 +39,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
@@ -76,8 +76,8 @@ public final class DBSerializer implements Serializer {
       Item item;
       try {
         while ((item = it.next()) != null) {
-          if (item instanceof DBNode) {
-            final DBNode node = (DBNode) item;
+          if (item instanceof XmlDBNode) {
+            final XmlDBNode node = (XmlDBNode) item;
             final Kind kind = node.getKind();
 
             if (kind == Kind.ATTRIBUTE) {

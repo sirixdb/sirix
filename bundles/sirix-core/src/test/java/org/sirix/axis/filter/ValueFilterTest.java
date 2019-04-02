@@ -26,7 +26,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.axis.filter.xml.ValueFilter;
 import org.sirix.exception.SirixException;
 
 public class ValueFilterTest {
@@ -48,7 +49,7 @@ public class ValueFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XdmNodeReadOnlyTrx reader = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx reader = holder.getXdmNodeReadTrx();
     reader.moveTo(4L);
     FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
     FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);

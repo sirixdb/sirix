@@ -7,7 +7,7 @@
 
 [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=SirixDB+-+a+storage+system%2C+which+creates+%28very+small-sized%29+snapshots+of+your+data+on+every+transaction-commit+through+the+implementation+of+a+novel+sliding+snapshot+algorithm.&url=http://sirix.io&via=sirix&hashtags=versioning,diffing,xml,kotlin,coroutines,vertx)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Mailing List](https://groups.google.com/d/forum/sirix-discuss)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Community Forum](https://sirix.discourse.group/)
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
@@ -22,7 +22,7 @@
 
 <p>&nbsp;</p>
 
-**Discuss it on the [Mailing List](https://groups.google.com/d/forum/sirix-discuss)**
+**Discuss it in the [Community Forum](https://sirix.discourse.group)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
 We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples.
@@ -187,7 +187,7 @@ And a fat-JAR with all required dependencies should have been created in your ta
 
 Once also Keycloak is set up we can start the server via:
 
-`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
+`java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp /opt/sirix/*`
 
 If you like to change your user home directory to `/opt/sirix` for instance.
 
@@ -221,7 +221,7 @@ val xml = """
     </xml>
 """.trimIndent()
 
-var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
   
 if (200 == response.statusCode()) {
   println("Stored document.")
@@ -229,7 +229,7 @@ if (200 == response.statusCode()) {
   println("Something went wrong ${response.message}")
 }
 ```
-First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again.
+First, an empty database with the name `database` with some metadata is created, second the XML-fragment is stored with the name `resource1`. The PUT HTTP-Request is idempotent. Another PUT-Request with the same URL endpoint would just delete the former database and resource and create the database/resource again. Note that every request now has to contain an `HTTP-Header` which content type it sends and which resource-type it expects (`Content-Type: application/xml` and `Accept: application/xml`) for instance. This is needed as we now support the storage of and retrieval of XML or JSON-data. The following sections show the API for usage with out binary and in-memory XML representation.
 
 The HTTP-Response should be 200 and the HTTP-body yields:
 
@@ -261,7 +261,7 @@ val xml = """
 val url = "$server/database/resource1?nodeId=3&insert=asFirstChild"
 
 val httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendBufferAwait(Buffer.buffer(xml))
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
 ```
 
 The interesting part is the URL, we are using as the endpoint. We simply say, select the node with the ID 3, then insert the given XML-fragment as the first child. This yields the following serialized XML-document:
@@ -335,7 +335,7 @@ We for sure are also able to delete the resource or any subtree thereof by an up
 val url = "$server/database/resource1?nodeId=3"
 
 val httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                         .toString(), "Bearer $accessToken").sendAwait()
+                         .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
 if (200 == httpResponse.statusCode()) {
   ...
@@ -380,18 +380,18 @@ var file = Paths.get("sirix-database");
 
 // Create the database.
 var config = new DatabaseConfiguration(file);
-Databases.createXdmDatabase(config);
+Databases.createXmlDatabase(config);
 
 // Open the database.
-try (var database = Databases.openXdmDatabase(file)) {
+try (var database = Databases.openXmlDatabase(file)) {
   /* 
-   * Create a resource in the database with the name "resource1".
+   * Create a resource in the database with the name "resource".
    * Store deweyIDs (hierarchical node labels), use text node compression,
    * build a summary of all paths in the resource and use the SLIDING_SNAPSHOT
    * versioning algorithm.
    */
   database.createResource(
-            ResourceConfiguration.newBuilder("resource1", config)
+            ResourceConfiguration.newBuilder("resource")
                                  .useDeweyIDs(true)
                                  .useTextCompression(true)
                                  .buildPathSummary(true)
@@ -399,7 +399,7 @@ try (var database = Databases.openXdmDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      var manager = database.getResourceManager("resource1");
+      var manager = database.openResourceManager("resource1");
       // Start the single read/write transaction.
       var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
@@ -428,7 +428,7 @@ try (var database = Databases.openXdmDatabase(file)) {
 
     // Serialize the revision back to XML.
     final OutputStream out = new ByteArrayOutputStream();
-    new XMLSerializer.XMLSerializerBuilder(manager, out).prettyPrint().build().call();
+    new XmlSerializer.XmlSerializerBuilder(manager, out).prettyPrint().build().call();
 
     System.out.println(out);
   }
@@ -442,7 +442,7 @@ There are N reading transactions as well as one write-transaction permitted on a
 A read-only transaction can be opened through:
 
 ```java
-var rtx = manager.beginNodeReadTrx()
+var rtx = manager.beginNodeReadOnlyTrx()
 ```
 
 The codè above starts a transaction on the most recent revision.
@@ -450,17 +450,17 @@ The codè above starts a transaction on the most recent revision.
 The following code starts a transaction at revision 1.
 
 ```java
-var rtx = manager.beginNodeReadTrx(1)
+var rtx = manager.beginNodeReadOnlyTrx(1)
 ```
 
 The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
 var time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-var rtx = manager.beginNodeReadTrx(time.toInstant())
+var rtx = manager.beginNodeReadOnlyTrx(time.toInstant())
 ```
 
-There are also several ways to start the single write-transaction:
+There are also several ways to start the single read/write-transaction:
 
 ```java
   /**
@@ -468,9 +468,9 @@ There are also several ways to start the single write-transaction:
    *
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx();
+  XmlNodeTrx beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -479,9 +479,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmlNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
+  XmlNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -492,9 +492,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return instance of class implementing the {@link XdmNodeTrx} instance
+   * @return instance of class implementing the {@link XmlNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
+  XmlNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -508,7 +508,7 @@ There are also several ways to start the single write-transaction:
    * @throws NullPointerException if {@code timeUnit} is {@code null}
    * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
+  XmlNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 ```
 
 With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
@@ -525,10 +525,10 @@ And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
 ```java
-var axis = new FutureAxis<XdmNodeReadTrx>(rtx)
+var axis = new FutureAxis<XmlNodeReadTrx>(rtx)
 ```
 ```java
-var axis = new PastAxis<XdmNodeReadTrx>(rtx)
+var axis = new PastAxis<XmlNodeReadTrx>(rtx)
 ```
 
 and many more as well.
@@ -541,7 +541,7 @@ For instance after storing one revision in Sirix, we can import only the differe
 var resOldRev = Paths.get("sirix-resource-to-update");
 var resNewRev = Paths.get("new-revision-as-xml-file");
 
-FMSEImport.xdmDataImport(resOldRev, resNewRev);
+FMSEImport.xmlDataImport(resOldRev, resNewRev);
 ```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).
@@ -779,5 +779,3 @@ This work is released in the public domain under the BSD 3-clause license
 Sirix is maintained by:
 
 * Johannes Lichtenberger
-
-Your name might follow? ;-)

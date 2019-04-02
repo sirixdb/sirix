@@ -35,10 +35,10 @@ import java.nio.file.Path;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
@@ -68,7 +68,7 @@ public final class PageWriteTrxFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager {@link XdmResourceManagerImpl} this page write trx is bound to
+   * @param resourceManager {@link XmlResourceManagerImpl} this page write trx is bound to
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID

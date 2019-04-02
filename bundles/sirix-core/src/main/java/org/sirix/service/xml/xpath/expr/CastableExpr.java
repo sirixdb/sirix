@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SingleType;
@@ -64,7 +64,7 @@ public class CastableExpr extends AbstractExpression {
    * @param inputExpr input expression, that's castablity will be tested.
    * @param mTarget Type to test, whether the input expression can be casted to.
    */
-  public CastableExpr(final XdmNodeReadOnlyTrx rtx, final Axis inputExpr, final SingleType mTarget) {
+  public CastableExpr(final XmlNodeReadOnlyTrx rtx, final Axis inputExpr, final SingleType mTarget) {
 
     super(rtx);
     mSourceExpr = inputExpr;

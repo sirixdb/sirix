@@ -25,6 +25,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -35,9 +36,16 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import org.sirix.access.trx.node.json.objectvalue.NullValue;
+import org.sirix.access.trx.node.json.objectvalue.NumberValue;
+import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import org.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -78,7 +86,7 @@ public final class JsonShredder implements Callable<Long> {
   /** Insertion position. */
   private InsertPosition mInsert;
 
-  private boolean mInsertAsFirstChild;
+  private int mLevel;
 
   /**
    * Builder to build an {@link JsonShredder} instance.
@@ -169,7 +177,7 @@ public final class JsonShredder implements Callable<Long> {
    */
   protected final void insertNewContent() throws SirixException {
     try {
-      int level = 0;
+      mLevel = 0;
       boolean endReached = false;
       long insertedRootNodeKey = -1;
 
@@ -179,7 +187,7 @@ public final class JsonShredder implements Callable<Long> {
 
         switch (nextToken) {
           case BEGIN_OBJECT:
-            level++;
+            mLevel++;
             mReader.beginObject();
             final long insertedObjectNodeKey = addObject();
 
@@ -188,12 +196,12 @@ public final class JsonShredder implements Callable<Long> {
             break;
           case NAME:
             final String name = mReader.nextName();
-            addObjectKeyName(name);
+            addObjectRecord(name);
             break;
           case END_OBJECT:
-            level--;
+            mLevel--;
             mReader.endObject();
-            if (level == 0) {
+            if (mLevel == 0) {
               endReached = true;
             }
             mParents.pop();
@@ -205,7 +213,7 @@ public final class JsonShredder implements Callable<Long> {
             }
             break;
           case BEGIN_ARRAY:
-            level++;
+            mLevel++;
             mReader.beginArray();
             final var insertedArrayNodeKey = insertArray();
 
@@ -213,9 +221,9 @@ public final class JsonShredder implements Callable<Long> {
               insertedRootNodeKey = insertedArrayNodeKey;
             break;
           case END_ARRAY:
-            level--;
+            mLevel--;
             mReader.endArray();
-            if (level == 0) {
+            if (mLevel == 0) {
               endReached = true;
             }
             mParents.pop();
@@ -254,27 +262,36 @@ public final class JsonShredder implements Callable<Long> {
             final var stringVal = mReader.nextString();
 
             Number number;
-            try {
-              number = Integer.valueOf(stringVal);
-            } catch (final NumberFormatException e) {
-              try {
-                number = Long.valueOf(stringVal);
-              } catch (final NumberFormatException ee) {
+
+            if (stringVal.contains(".")) {
+              if (stringVal.contains("E") || stringVal.contains("e")) {
                 try {
-                  number = new BigInteger(stringVal);
-                } catch (final NumberFormatException eee) {
+                  number = Float.valueOf(stringVal);
+                } catch (final NumberFormatException eeee) {
                   try {
-                    number = Float.valueOf(stringVal);
-                  } catch (final NumberFormatException eeee) {
-                    try {
-                      number = Double.valueOf(stringVal);
-                    } catch (final NumberFormatException eeeee) {
-                      try {
-                        number = new BigDecimal(stringVal);
-                      } catch (final NumberFormatException eeeeee) {
-                        throw new IllegalStateException(eeeeee);
-                      }
-                    }
+                    number = Double.valueOf(stringVal);
+                  } catch (final NumberFormatException eeeee) {
+                    throw new IllegalStateException(eeeee);
+                  }
+                }
+              } else {
+                try {
+                  number = new BigDecimal(stringVal);
+                } catch (final NumberFormatException eeeeee) {
+                  throw new IllegalStateException(eeeeee);
+                }
+              }
+            } else {
+              try {
+                number = Integer.valueOf(stringVal);
+              } catch (final NumberFormatException e) {
+                try {
+                  number = Long.valueOf(stringVal);
+                } catch (final NumberFormatException ee) {
+                  try {
+                    number = new BigInteger(stringVal);
+                  } catch (final NumberFormatException eee) {
+                    throw new IllegalStateException(eee);
                   }
                 }
               }
@@ -293,14 +310,15 @@ public final class JsonShredder implements Callable<Long> {
       }
 
       mWtx.moveTo(insertedRootNodeKey);
-    } catch (final IOException e) {
+    } catch (
+
+    final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
     final String value = checkNotNull(stringValue);
-    // if (!value.isEmpty()) {
     final long key;
 
     if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -312,7 +330,6 @@ public final class JsonShredder implements Callable<Long> {
     adaptTrxPosAndStack(nextTokenIsParent, key);
 
     return key;
-    // }
   }
 
   private long insertBooleanValue(final boolean boolValue, final boolean nextTokenIsParent) {
@@ -435,20 +452,77 @@ public final class JsonShredder implements Callable<Long> {
     return key;
   }
 
-  private void addObjectKeyName(final String name) {
+  private void addObjectRecord(final String name) throws IOException {
     assert name != null;
+
+    final var nextToken = mReader.peek();
+    final ObjectRecordValue<?> value;
+
+    switch (nextToken) {
+      case BEGIN_OBJECT:
+        mLevel++;
+        mReader.beginObject();
+
+        value = new ObjectValue();
+
+        break;
+      case BEGIN_ARRAY:
+        mLevel++;
+        mReader.beginArray();
+
+        value = new ArrayValue();
+
+        break;
+      case BOOLEAN:
+        final boolean booleanVal = mReader.nextBoolean();
+
+        value = new BooleanValue(booleanVal);
+
+        break;
+      case STRING:
+        final String stringVal = mReader.nextString();
+
+        value = new StringValue(stringVal);
+
+        break;
+      case NULL:
+        value = new NullValue();
+        break;
+      case NUMBER:
+        final Number numberVal = mReader.nextDouble();
+
+        value = new NumberValue(numberVal);
+
+        break;
+      case END_ARRAY:
+      case END_DOCUMENT:
+      case END_OBJECT:
+      case NAME:
+      default:
+        throw new AssertionError();
+    }
 
     final long key;
 
     if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      key = mWtx.insertObjectKeyAsFirstChild(name).getNodeKey();
+      key = mWtx.insertObjectRecordAsFirstChild(name, value).getNodeKey();
     } else {
-      key = mWtx.insertObjectKeyAsRightSibling(name).getNodeKey();
+      key = mWtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
     }
 
     mParents.pop();
-    mParents.push(key);
+    mParents.push(mWtx.getParentKey());
     mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+
+    if (mWtx.getKind() == Kind.OBJECT || mWtx.getKind() == Kind.ARRAY) {
+      mParents.pop();
+      mParents.push(key);
+      mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+    } else {
+      final boolean isNextTokenParentToken = mReader.peek() == JsonToken.NAME || mReader.peek() == JsonToken.END_OBJECT;
+
+      adaptTrxPosAndStack(isNextTokenParentToken, key);
+    }
   }
 
   /**
@@ -471,8 +545,8 @@ public final class JsonShredder implements Callable<Long> {
     Databases.createJsonDatabase(databaseConfig);
 
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded", databaseConfig).build());
-      try (final var resMgr = db.getResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
+      db.createResource(new ResourceConfiguration.Builder("shredded").build());
+      try (final var resMgr = db.openResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);
         final var shredder =
@@ -490,7 +564,7 @@ public final class JsonShredder implements Callable<Long> {
    * @param path the path to the file
    * @return an {@link JsonReader} instance
    */
-  public static synchronized JsonReader createFileReader(final Path path) {
+  public static JsonReader createFileReader(final Path path) {
     checkNotNull(path);
 
     try {
@@ -499,5 +573,18 @@ public final class JsonShredder implements Callable<Long> {
     } catch (final FileNotFoundException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  /**
+   * Create a new {@link JsonReader} instance on a String.
+   *
+   * @param json the JSON as a string
+   * @return an {@link JsonReader} instance
+   */
+  public static JsonReader createStringReader(final String json) {
+    checkNotNull(json);
+
+    final var stringReader = new StringReader(json);
+    return new JsonReader(stringReader);
   }
 }

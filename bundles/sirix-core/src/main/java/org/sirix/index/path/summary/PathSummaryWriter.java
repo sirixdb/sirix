@@ -6,7 +6,7 @@ import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
-import org.sirix.access.trx.node.xdm.InsertPos;
+import org.sirix.access.trx.node.xml.InsertPos;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -14,7 +14,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -34,7 +34,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -46,7 +46,8 @@ import org.sirix.settings.Fixed;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractForwardingPathSummaryReader {
+public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
+    extends AbstractForwardingPathSummaryReader {
 
   /**
    * Operation type to determine behavior of path summary updates during {@code setQName(QName)} and
@@ -159,9 +160,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
   private void movePathSummary() {
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
-      mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.JSON_ARRAY) {
+    } else if (mNodeRtx.getKind() == Kind.OBJECT_RECORD) {
+      mPathSummaryReader.moveTo(((ObjectRecordNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getKind() == Kind.ARRAY) {
       mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
@@ -303,7 +304,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
         boolean firstRun = true;
         for (final Axis descendants = new DescendantAxis(mNodeRtx, IncludeSelf.YES); descendants.hasNext();) {
           descendants.next();
-          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.JSON_OBJECT_KEY) {
+          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.OBJECT_RECORD) {
             // Path Summary : New mapping.
             if (firstRun) {
               insertPathAsFirstChild(name, mNodeRtx.getKind(), ++level);
@@ -313,8 +314,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
             }
             resetPathNodeKey(mNodeRtx.getNodeKey());
 
-            if (mNodeRtx instanceof XdmNodeReadOnlyTrx) {
-              final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
+            if (mNodeRtx instanceof XmlNodeReadOnlyTrx) {
+              final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) mNodeRtx;
 
               // Namespaces.
               for (int i = 0, nsps = rtx.getNamespaceCount(); i < nsps; i++) {
@@ -372,7 +373,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
       descendants.next();
 
       if (mNodeRtx.getKind() == Kind.ELEMENT) {
-        final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
+        final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) mNodeRtx;
         final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
         // Namespaces.
@@ -464,7 +465,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
     if (mNodeRtx.getNode().getKind() == Kind.ELEMENT) {
-      final XdmNodeReadOnlyTrx rtx = (XdmNodeReadOnlyTrx) mNodeRtx;
+      final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) mNodeRtx;
       final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
       for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
@@ -516,8 +517,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx> ext
 
     final long pathNodeKey;
 
-    if (mNodeRtx instanceof XdmNodeReadOnlyTrx)
-      pathNodeKey = ((XdmNodeReadOnlyTrx) mNodeRtx.moveToParent().getCursor()).getPathNodeKey();
+    if (mNodeRtx instanceof XmlNodeReadOnlyTrx)
+      pathNodeKey = ((XmlNodeReadOnlyTrx) mNodeRtx.moveToParent().getCursor()).getPathNodeKey();
     else if (mNodeRtx instanceof JsonNodeReadOnlyTrx)
       pathNodeKey = ((JsonNodeReadOnlyTrx) mNodeRtx.moveToParent().getCursor()).getPathNodeKey();
     else

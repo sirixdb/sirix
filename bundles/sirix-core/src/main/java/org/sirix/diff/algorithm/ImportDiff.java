@@ -20,8 +20,8 @@
  */
 package org.sirix.diff.algorithm;
 
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -39,7 +39,7 @@ public interface ImportDiff {
    * @throws NullPointerException if {@code pWtx} or {@code pRtx} is {@code null}
    * @throws SirixException if something in sirix went wrong
    */
-  void diff(final XdmNodeTrx wtx, final XdmNodeReadOnlyTrx rtx) throws SirixException;
+  void diff(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) throws SirixException;
 
   /**
    * Name of algorithm.

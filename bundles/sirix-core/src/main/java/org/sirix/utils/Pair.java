@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -20,11 +20,12 @@
  */
 package org.sirix.utils;
 
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
  * A Pair of objects.
- * 
+ *
  * @param <U> first reference
  * @param <V> second reference
  */
@@ -37,18 +38,18 @@ public class Pair<U, V> {
 
   /**
    * Constructs the pair.
-   * 
-   * @param pFirst first reference
-   * @param pSecond second reference
+   *
+   * @param first first reference
+   * @param second second reference
    */
-  public Pair(@Nullable final U pFirst, @Nullable final V pSecond) {
-    mFirst = pFirst;
-    mSecond = pSecond;
+  public Pair(@Nullable final U first, @Nullable final V second) {
+    mFirst = first;
+    mSecond = second;
   }
 
   /**
    * Get the first reference.
-   * 
+   *
    * @return first reference
    */
   public U getFirst() {
@@ -57,11 +58,27 @@ public class Pair<U, V> {
 
   /**
    * Get the second reference.
-   * 
+   *
    * @return second reference
    */
   public V getSecond() {
     return mSecond;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(mFirst, mSecond);
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (!(other instanceof Pair))
+      return false;
+
+    @SuppressWarnings("unchecked")
+    final Pair<U, V> otherPair = (Pair<U, V>) other;
+
+    return Objects.equals(mFirst, otherPair.mFirst) && Objects.equals(mSecond, otherPair.mSecond);
   }
 
   @Override

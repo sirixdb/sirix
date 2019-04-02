@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -15,16 +14,17 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.Databases;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.utils.SirixFiles;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.BasicDBStore;
-import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.BasicXmlDBStore;
+import org.sirix.xquery.node.XmlDBCollection;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -57,14 +57,13 @@ public final class Import extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final BasicDBStore store = (BasicDBStore) ctx.getStore();
-    final DBCollection coll = store.lookup(((Str) args[0]).stringValue());
+    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
+    final XmlDBCollection coll = store.lookup(((Str) args[0]).stringValue());
 
     if (coll == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -73,30 +72,27 @@ public final class Import extends AbstractFunction {
     final String resName = ((Str) args[1]).stringValue();
     final String resToImport = ((Str) args[2]).stringValue();
 
-    DBNode doc = null;
-    final XdmNodeReadOnlyTrx trx;
+    XmlDBNode doc = null;
+    final XmlNodeReadOnlyTrx trx;
 
     try {
       doc = coll.getDocument(resName);
 
-      try (final XdmNodeTrx wtx = doc.getTrx()
-                                          .getResourceManager()
-                                          .getNodeWriteTrx()
-                                          .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
+      try (final XmlNodeTrx wtx = doc.getTrx()
+                                     .getResourceManager()
+                                     .getNodeWriteTrx()
+                                     .orElse(doc.getTrx().getResourceManager().beginNodeTrx())) {
         final Path newRevTarget = Files.createTempDirectory(Paths.get(resToImport).getFileName().toString());
         if (Files.exists(newRevTarget)) {
           SirixFiles.recursiveRemove(newRevTarget);
         }
-        try {
-          FMSEImport.shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
-        } catch (final XMLStreamException e) {
-          throw new QueryException(new QNm("XML stream exception: " + e.getMessage()), e);
-        }
 
-        try (final var databaseNew = Databases.openXdmDatabase(newRevTarget);
-            final XdmResourceManager resourceNew = databaseNew.getResourceManager("shredded");
-            final XdmNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-            final FMSE fmes = new FMSE()) {
+        new FMSEImport().shredder(checkNotNull(Paths.get(resToImport)), newRevTarget);
+
+        try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
+            final XmlResourceManager resourceNew = databaseNew.openResourceManager("shredded");
+            final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
+            final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
           fmes.diff(wtx, rtx);
         }
       } catch (final IOException e) {
@@ -107,6 +103,6 @@ public final class Import extends AbstractFunction {
       doc.getTrx().close();
     }
 
-    return new DBNode(trx, coll);
+    return new XmlDBNode(trx, coll);
   }
 }

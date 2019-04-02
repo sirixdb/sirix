@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb.index.create;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -13,15 +14,16 @@ import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -54,27 +56,26 @@ public final class CreatePathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 2 && args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final DBNode doc = ((DBNode) args[0]);
-    final NodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        (XdmIndexController) rtx.getResourceManager().getWtxIndexController(rtx.getRevisionNumber() - 1);
+    final XmlDBNode doc = ((XmlDBNode) args[0]);
+    final XmlNodeReadOnlyTrx rtx = doc.getTrx();
+    final XmlResourceManager manager = rtx.getResourceManager();
 
-    if (!(doc.getTrx() instanceof XdmNodeTrx)) {
-      throw new QueryException(new QNm("Collection must be updatable!"));
+    final Optional<XmlNodeTrx> optionalWriteTrx = manager.getNodeWriteTrx();
+    final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
+
+    if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
+      wtx.revertTo(rtx.getRevisionNumber());
     }
+
+    final XmlIndexController controller = wtx.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
-    }
-
-    if (!(doc.getTrx() instanceof XdmNodeTrx)) {
-      throw new QueryException(new QNm("Collection must be updatable!"));
     }
 
     final Set<Path<QNm>> paths = new HashSet<>();
@@ -90,7 +91,7 @@ public final class CreatePathIndex extends AbstractFunction {
     final IndexDef idxDef =
         IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), (XdmNodeTrx) doc.getTrx());
+      controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

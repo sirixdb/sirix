@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 public class AncestorAxisTest {
@@ -48,7 +48,7 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(12L);
     AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {9L, 1L});
@@ -65,7 +65,7 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventionsIncludingSelf() throws SirixException {
-    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
 
     rtx.moveTo(11L);
     AbsAxisTest.testIAxisConventions(

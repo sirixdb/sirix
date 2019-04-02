@@ -38,7 +38,7 @@ public final class JsonShredderTest {
   @Test
   public void test() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("test.json")),
@@ -53,7 +53,7 @@ public final class JsonShredderTest {
   @Test
   public void testComplex1() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex1.json")),
@@ -68,7 +68,7 @@ public final class JsonShredderTest {
   @Test
   public void testComplex2() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.getResourceManager(JsonTestHelper.RESOURCE);
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
         final Writer writer = new StringWriter()) {
       final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex2.json")),

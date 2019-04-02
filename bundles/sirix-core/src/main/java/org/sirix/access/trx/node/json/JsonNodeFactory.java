@@ -6,8 +6,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectRecordNode;
 import org.sirix.node.json.StringNode;
 
 /**
@@ -37,16 +37,17 @@ public interface JsonNodeFactory extends NodeFactory {
   ObjectNode createJsonObjectNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey);
 
   /**
-   * Create a {@link ObjectKeyNode}.
+   * Create a {@link ObjectRecordNode}.
    *
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
    * @param pathNodeKey path node key of node
    * @param name the name of the key
+   * @param objectValueKey the value of the object key value
    */
-  ObjectKeyNode createJsonObjectKeyNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey,
-      long pathNodeKey, String name);
+  ObjectRecordNode createJsonObjectKeyNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, long objectValueKey);
 
   /**
    * Create a {@link StringNode}.

@@ -72,7 +72,7 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_NUMBER_VALUE;
+    return Kind.NUMBER_VALUE;
   }
 
   @Override

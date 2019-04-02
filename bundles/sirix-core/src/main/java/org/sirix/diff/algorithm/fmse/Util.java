@@ -44,11 +44,11 @@ public final class Util {
    * 
    * @param first first list
    * @param second second list
-   * @param pCmp function to compare the items in both lists (equality)
+   * @param cmp function to compare the items in both lists (equality)
    * @return lcs, the items in the pairs are equal and taken from list x and list y.
    */
   public static <T> List<Pair<T, T>> longestCommonSubsequence(@Nonnull final List<T> first,
-      @Nonnull final List<T> second, @Nonnull final Comparator<T> pCmp) {
+      @Nonnull final List<T> second, @Nonnull final NodeComparator<T> cmp) {
 
     if (first == null || second == null) {
       return new ArrayList<>();
@@ -83,7 +83,7 @@ public final class Util {
           common.set(max + j, new ArrayList<>(common.get(max + j - 1)));
         }
         int idxY = idxX - j;
-        while (idxX < n && idxY < m && pCmp.isEqual(x.get(idxX), y.get(idxY))) {
+        while (idxX < n && idxY < m && cmp.isEqual(x.get(idxX), y.get(idxY))) {
           common.get(max + j).add(new Pair<>(x.get(idxX), y.get(idxY)));
           idxX++;
           idxY++;

@@ -1,17 +1,16 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.ResourceManager;
+import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
@@ -41,19 +40,18 @@ public final class Commit extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
-    final DBNode doc = ((DBNode) args[0]);
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    if (doc.getTrx() instanceof XdmNodeTrx) {
-      final XdmNodeTrx wtx = (XdmNodeTrx) doc.getTrx();
+    if (doc.getTrx() instanceof NodeTrx) {
+      final NodeTrx wtx = (NodeTrx) doc.getTrx();
       final long revision = wtx.getRevisionNumber();
       wtx.commit();
       return new Int64(revision);
     } else {
-      final XdmResourceManager manager = doc.getTrx().getResourceManager();
-      final XdmNodeTrx wtx;
-      if (manager.hasRunningNodeWriteTrx()) {
+      final ResourceManager<?, ?> manager = doc.getTrx().getResourceManager();
+      final NodeTrx wtx;
+      if (manager.getNodeWriteTrx().isPresent()) {
         wtx = manager.getNodeWriteTrx().get();
       } else {
         wtx = manager.beginNodeTrx();
@@ -62,8 +60,9 @@ public final class Commit extends AbstractFunction {
       if (revision < manager.getMostRecentRevisionNumber()) {
         wtx.revertTo(doc.getTrx().getRevisionNumber());
       }
+      final int revisionToCommit = wtx.getRevisionNumber();
       wtx.commit();
-      return new Int64(revision);
+      return new Int64(revisionToCommit);
     }
   }
 }

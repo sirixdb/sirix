@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
@@ -50,8 +50,8 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithInitialIndent() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -69,8 +69,8 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -85,8 +85,8 @@ public class XmlSerializerTest {
   @Test
   public void testRestSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -108,8 +108,8 @@ public class XmlSerializerTest {
   @Test
   public void testIDSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XdmDocumentCreator.create(wtx);
       wtx.commit();
@@ -125,8 +125,8 @@ public class XmlSerializerTest {
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
@@ -152,8 +152,8 @@ public class XmlSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XdmResourceManager manager = database.getResourceManager(XdmTestHelper.RESOURCE);
-        final XdmNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session

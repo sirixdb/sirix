@@ -31,7 +31,7 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
@@ -199,28 +199,28 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Emit start tag.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   protected abstract void emitNode(R rtx);
 
   /**
    * Emit end tag.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   protected abstract void emitEndNode(R rtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   protected abstract void emitRevisionStartNode(R rtx);
 
   /**
    * Emit an end tag, which specifies a revision.
    *
-   * @param rtx Sirix {@link XdmNodeReadOnlyTrx}
+   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
    */
   protected abstract void emitRevisionEndNode(R rtx);
 

@@ -6,10 +6,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface Observable {
-	void addPropertyChangeListener(final PropertyChangeListener pListener);
+	void addPropertyChangeListener(final PropertyChangeListener listener);
 
-	void removePropertyChangeListener(final PropertyChangeListener pListener);
+	void removePropertyChangeListener(final PropertyChangeListener listener);
 
-	void firePropertyChange(final String pPropertyName,
-			@Nullable final Object pOldValue, @Nonnull final Object pNewValue);
+	void firePropertyChange(final String propertyName,
+			@Nullable final Object oldValue, @Nonnull final Object newValue);
 }

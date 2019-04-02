@@ -43,28 +43,28 @@ public interface Container<T> {
 	/**
 	 * Set start key in old revision.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          node key to start from
 	 * @return instance
 	 */
-	T setOldStartKey(@Nonnegative long pKey);
+	T setOldStartKey(@Nonnegative long key);
 
 	/**
 	 * Set start key in new revision.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          node key to start from
 	 * @return instance
 	 */
-	T setNewStartKey(@Nonnegative long pKey);
+	T setNewStartKey(@Nonnegative long key);
 
 	/**
 	 * Determines if tree should be pruned or not.
 	 * 
-	 * @param pPruning
+	 * @param pruning
 	 *          {@link Pruning} enum which determines if tree should be pruned or
 	 *          not
 	 * @return instance
 	 */
-	T setPruning(Pruning pPruning);
+	T setPruning(Pruning pruning);
 }

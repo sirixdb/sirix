@@ -10,8 +10,8 @@ import java.util.EnumSet;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.sirix.api.Database;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.fs.HierarchyFileVisitor.Builder;
 import com.google.common.base.Optional;
@@ -37,11 +37,11 @@ public class FileHierarchyWalker {
    * @throws NullPointerException if one of the arguments is {@code null}
    */
   public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path,
-      final Database<XdmResourceManager> database, Optional<Visitor<XdmNodeTrx>> visitor) throws IOException {
+      final Database<XmlResourceManager> database, Optional<Visitor<XmlNodeTrx>> visitor) throws IOException {
     checkNotNull(visitor);
     checkNotNull(path);
-    try (final XdmResourceManager resource = checkNotNull(database).getResourceManager("shredded");
-        final XdmNodeTrx wtx = resource.beginNodeTrx()) {
+    try (final XmlResourceManager resource = checkNotNull(database).openResourceManager("shredded");
+        final XmlNodeTrx wtx = resource.beginNodeTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {
         builder.setVisitor(visitor.get());

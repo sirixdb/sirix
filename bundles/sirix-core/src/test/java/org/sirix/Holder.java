@@ -23,15 +23,15 @@ package org.sirix;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -45,16 +45,16 @@ import org.sirix.exception.SirixException;
 public class Holder {
 
   /** {@link Database} implementation. */
-  private Database<XdmResourceManager> mDatabase;
+  private Database<XmlResourceManager> mDatabase;
 
-  /** {@link XdmResourceManager} implementation. */
-  private XdmResourceManager mResMgr;
+  /** {@link XmlResourceManager} implementation. */
+  private XmlResourceManager mResMgr;
 
-  /** {@link XdmNodeReadOnlyTrx} implementation. */
-  private XdmNodeReadOnlyTrx mRtx;
+  /** {@link XmlNodeReadOnlyTrx} implementation. */
+  private XmlNodeReadOnlyTrx mRtx;
 
-  /** {@link XdmNodeTrx} implementation. */
-  private XdmNodeTrx mWtx;
+  /** {@link XmlNodeTrx} implementation. */
+  private XmlNodeTrx mWtx;
 
   private Transaction mTrx;
 
@@ -68,12 +68,11 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createXdmDatabase(config);
+      Databases.createXmlDatabase(config);
     }
-    final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final var database = Databases.openXmlDatabase(PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).useDeweyIDs(true).build());
+    final XmlResourceManager resourceManager = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -90,12 +89,11 @@ public class Holder {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
-      Databases.createXdmDatabase(config);
+      Databases.createXmlDatabase(config);
     }
-    final var database = Databases.openXdmDatabase(PATHS.PATH1.getFile());
-    database.createResource(
-        new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
-    final XdmResourceManager resourceManager = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final var database = Databases.openXmlDatabase(PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).buildPathSummary(true).build());
+    final XmlResourceManager resourceManager = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resourceManager);
@@ -110,7 +108,7 @@ public class Holder {
    */
   public static Holder openResourceManager() throws SirixException {
     final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XdmResourceManager resMgr = database.getResourceManager(XdmTestHelper.RESOURCE);
+    final XmlResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
     holder.setResourceManager(resMgr);
@@ -125,20 +123,20 @@ public class Holder {
    */
   public static Holder generateWtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeTrx writer = holder.mResMgr.beginNodeTrx();
+    final XmlNodeTrx writer = holder.mResMgr.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
 
   /**
-   * Generate a {@link XdmNodeReadOnlyTrx}.
+   * Generate a {@link XmlNodeReadOnlyTrx}.
    *
    * @return this holder instance
    * @throws SirixException if an error occurs
    */
   public static Holder generateRtx() throws SirixException {
     final Holder holder = openResourceManager();
-    final XdmNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadOnlyTrx();
     holder.setXdmNodeReadTrx(reader);
     return holder;
   }
@@ -172,7 +170,7 @@ public class Holder {
    *
    * @return {@link Database} handle
    */
-  public Database<XdmResourceManager> getDatabase() {
+  public Database<XmlResourceManager> getDatabase() {
     return mDatabase;
   }
 
@@ -181,16 +179,16 @@ public class Holder {
    *
    * @return {@link ResourceManager} handle
    */
-  public XdmResourceManager getResourceManager() {
+  public XmlResourceManager getResourceManager() {
     return mResMgr;
   }
 
   /**
-   * Get the {@link XdmNodeReadOnlyTrx} handle.
+   * Get the {@link XmlNodeReadOnlyTrx} handle.
    *
-   * @return {@link XdmNodeReadOnlyTrx} handle
+   * @return {@link XmlNodeReadOnlyTrx} handle
    */
-  public XdmNodeReadOnlyTrx getNodeReadTrx() {
+  public XmlNodeReadOnlyTrx getXdmNodeReadTrx() {
     return mRtx;
   }
 
@@ -199,11 +197,11 @@ public class Holder {
   }
 
   /**
-   * Get the {@link XdmNodeTrx} handle.
+   * Get the {@link XmlNodeTrx} handle.
    *
-   * @return {@link XdmNodeTrx} handle
+   * @return {@link XmlNodeTrx} handle
    */
-  public XdmNodeTrx getXdmNodeWriteTrx() {
+  public XmlNodeTrx getXdmNodeWriteTrx() {
     return mWtx;
   }
 
@@ -212,25 +210,25 @@ public class Holder {
    *
    * @param wtx {@link XdmNodeReaderWriter} instance
    */
-  private void setXdmNodeWriteTrx(final XdmNodeTrx wtx) {
+  private void setXdmNodeWriteTrx(final XmlNodeTrx wtx) {
     mWtx = wtx;
   }
 
   /**
-   * Set the working {@link XdmNodeReadOnlyTrx}.
+   * Set the working {@link XmlNodeReadOnlyTrx}.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} instance
+   * @param rtx {@link XmlNodeReadOnlyTrx} instance
    */
-  private void setXdmNodeReadTrx(final XdmNodeReadOnlyTrx rtx) {
+  private void setXdmNodeReadTrx(final XmlNodeReadOnlyTrx rtx) {
     mRtx = rtx;
   }
 
   /**
    * Set the working {@link ResourceManager}.
    *
-   * @param pRtx {@link XdmNodeReadOnlyTrx} instance
+   * @param pRtx {@link XmlNodeReadOnlyTrx} instance
    */
-  private void setResourceManager(final XdmResourceManager resourceManager) {
+  private void setResourceManager(final XmlResourceManager resourceManager) {
     mResMgr = resourceManager;
   }
 
@@ -239,7 +237,7 @@ public class Holder {
    *
    * @param pRtx {@link Database} instance
    */
-  private void setDatabase(final Database<XdmResourceManager> database) {
+  private void setDatabase(final Database<XmlResourceManager> database) {
     mDatabase = database;
   }
 

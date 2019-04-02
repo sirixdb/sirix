@@ -28,14 +28,14 @@ import java.nio.file.Paths;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.Utils;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
-import org.sirix.api.xdm.XdmResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -62,7 +62,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class SAXSerializer extends org.sirix.service.AbstractSerializer<XdmNodeReadOnlyTrx, XdmNodeTrx>
+public final class SAXSerializer extends org.sirix.service.AbstractSerializer<XmlNodeReadOnlyTrx, XmlNodeTrx>
     implements XMLReader {
 
   /** {@link LogWrapper} reference. */
@@ -79,14 +79,14 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final XdmResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
+  public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
       final int... revisions) {
     super(resMgr, revision, revisions);
     mContHandler = handler;
   }
 
   @Override
-  protected void emitNode(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
       case XDM_DOCUMENT:
         break;
@@ -109,7 +109,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   @Override
-  protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
+  protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -121,7 +121,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   @Override
-  protected void emitRevisionStartNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -138,7 +138,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   }
 
   @Override
-  protected void emitRevisionEndNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -155,9 +155,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Generates a comment event.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation
    */
-  private void generateComment(final XdmNodeReadOnlyTrx rtx) {
+  private void generateComment(final XmlNodeReadOnlyTrx rtx) {
     try {
       final char[] content = rtx.getValue().toCharArray();
       mContHandler.characters(content, 0, content.length);
@@ -169,9 +169,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Generate a processing instruction event.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation
    */
-  private void generatePI(final XdmNodeReadOnlyTrx rtx) {
+  private void generatePI(final XmlNodeReadOnlyTrx rtx) {
     try {
       mContHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
     } catch (final SAXException e) {
@@ -182,9 +182,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Generate a start element event.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation
    */
-  private void generateElement(final XdmNodeReadOnlyTrx rtx) {
+  private void generateElement(final XmlNodeReadOnlyTrx rtx) {
     final AttributesImpl atts = new AttributesImpl();
     final long key = rtx.getNodeKey();
 
@@ -228,9 +228,9 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   /**
    * Generate a text event.
    *
-   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation
    */
-  private void generateText(final XdmNodeReadOnlyTrx rtx) {
+  private void generateText(final XmlNodeReadOnlyTrx rtx) {
     try {
       mContHandler.characters(XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
     } catch (final SAXException e) {
@@ -247,10 +247,10 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xd
   public static void main(final String... args) {
     final Path path = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
-    Databases.createXdmDatabase(config);
-    final var database = Databases.openXdmDatabase(path);
-    database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    try (final XdmResourceManager resource = database.getResourceManager("shredded")) {
+    Databases.createXmlDatabase(config);
+    final var database = Databases.openXmlDatabase(path);
+    database.createResource(new ResourceConfiguration.Builder("shredded").build());
+    try (final XmlResourceManager resource = database.openResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
       final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();

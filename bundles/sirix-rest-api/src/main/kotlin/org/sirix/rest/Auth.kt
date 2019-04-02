@@ -22,14 +22,14 @@ class Auth(private val keycloak: OAuth2Auth, private val role: String) {
         val user = keycloak.authenticateAwait(tokenToAuthenticate)
 
         val isAuthorized = user.isAuthorizedAwait(role)
-
+        
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }
 
         ctx.put("user", user)
-
+        
         return ctx.currentRoute()
     }
 }

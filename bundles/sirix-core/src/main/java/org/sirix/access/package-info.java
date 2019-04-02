@@ -28,9 +28,9 @@
  * <li>There can be multiple {@link org.sirix.api.ResourceManager} instances per
  * {@link org.sirix.api.Database} linked uniquely to resources representing concrete
  * data-storages.</li>
- * <li>There can only be a single {@link org.sirix.api.xdm.XdmNodeTrx} instance per
+ * <li>There can only be a single {@link org.sirix.api.xml.XmlNodeTrx} instance per
  * {@link org.sirix.api.ResourceManager}</li>
- * <li>There can be multiple {@link org.sirix.api.xdm.XdmNodeReadOnlyTrx} instances per
+ * <li>There can be multiple {@link org.sirix.api.xml.XmlNodeReadOnlyTrx} instances per
  * {@link org.sirix.api.ResourceManager}.</li>
  * </ul>
  * </p>

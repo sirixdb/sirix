@@ -27,8 +27,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.axis.filter.FilterTest;
-import org.sirix.axis.filter.WildcardFilter;
-import org.sirix.axis.filter.WildcardFilter.EType;
+import org.sirix.axis.filter.xml.WildcardFilter;
+import org.sirix.axis.filter.xml.WildcardFilter.EType;
 import org.sirix.exception.SirixException;
 
 public class WildcardFilterTest {
@@ -50,20 +50,20 @@ public class WildcardFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    holder.getNodeReadTrx().moveTo(9L);
+    holder.getXdmNodeReadTrx().moveTo(9L);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "b", EType.LOCALNAME), true);
-    holder.getNodeReadTrx().moveToAttribute(0);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "b", EType.LOCALNAME), true);
+    holder.getXdmNodeReadTrx().moveToAttribute(0);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "p", EType.PREFIX), true);
-    holder.getNodeReadTrx().moveTo(1L);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "p", EType.PREFIX), true);
+    holder.getXdmNodeReadTrx().moveTo(1L);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "p", EType.PREFIX), true);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "p", EType.PREFIX), true);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "a", EType.LOCALNAME), true);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "a", EType.LOCALNAME), true);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "c", EType.LOCALNAME), false);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "c", EType.LOCALNAME), false);
     FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getNodeReadTrx(), "b", EType.PREFIX), false);
+        new WildcardFilter(holder.getXdmNodeReadTrx(), "b", EType.PREFIX), false);
   }
 }

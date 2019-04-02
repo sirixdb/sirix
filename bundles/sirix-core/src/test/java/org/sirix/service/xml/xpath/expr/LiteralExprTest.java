@@ -60,23 +60,23 @@ public class LiteralExprTest {
     final AtomicValue item1 = new AtomicValue(false);
     final AtomicValue item2 = new AtomicValue(14, Type.INTEGER);
 
-    final int key1 = holder.getNodeReadTrx().getItemList().addItem(item1);
-    final int key2 = holder.getNodeReadTrx().getItemList().addItem(item2);
+    final int key1 = holder.getXdmNodeReadTrx().getItemList().addItem(item1);
+    final int key2 = holder.getXdmNodeReadTrx().getItemList().addItem(item2);
 
-    final AbstractAxis axis1 = new LiteralExpr(holder.getNodeReadTrx(), key1);
+    final AbstractAxis axis1 = new LiteralExpr(holder.getXdmNodeReadTrx(), key1);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(key1, holder.getNodeReadTrx().getNodeKey());
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:boolean"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(false, Boolean.parseBoolean(holder.getNodeReadTrx().getValue()));
+    assertEquals(key1, holder.getXdmNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:boolean"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new LiteralExpr(holder.getNodeReadTrx(), key2);
+    final AbstractAxis axis2 = new LiteralExpr(holder.getXdmNodeReadTrx(), key2);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(key2, holder.getNodeReadTrx().getNodeKey());
-    assertEquals(holder.getNodeReadTrx().keyForName("xs:integer"), holder.getNodeReadTrx().getTypeKey());
-    assertEquals(14, Integer.parseInt(holder.getNodeReadTrx().getValue()));
+    assertEquals(key2, holder.getXdmNodeReadTrx().getNodeKey());
+    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:integer"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(14, Integer.parseInt(holder.getXdmNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
   }

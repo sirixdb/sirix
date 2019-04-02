@@ -1,15 +1,14 @@
 package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
@@ -25,7 +24,7 @@ import org.sirix.xquery.node.DBNode;
 public final class GetNodeKey extends AbstractFunction {
 
   /** GetNodeKey function name. */
-  public final static QNm GET_NODEKEY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "getNodeKey");
+  public final static QNm GET_NODEKEY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "nodekey");
 
   /**
    * Constructor.
@@ -38,10 +37,9 @@ public final class GetNodeKey extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-      throws QueryException {
-    final DBNode doc = ((DBNode) args[0]);
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getNodeKey());
+    return new Int64(doc.getTrx().getNodeKey());
   }
 }

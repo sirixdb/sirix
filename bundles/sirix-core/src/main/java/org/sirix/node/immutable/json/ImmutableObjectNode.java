@@ -49,6 +49,6 @@ public final class ImmutableObjectNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public Kind getKind() {
-    return Kind.JSON_ARRAY;
+    return Kind.ARRAY;
   }
 }

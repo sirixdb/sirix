@@ -32,7 +32,7 @@ import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.io.bytepipe.ByteHandlePipeline;

@@ -1,61 +1,59 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
+import org.sirix.utils.Pair;
 
 /**
- * Retrieve a node by node key in all revisions. In each revision a {@link XdmNodeReadOnlyTrx} is opened
- * which is moved to the node with the given node key if it exists. Otherwise the iterator has no
- * more elements (the {@link XdmNodeReadOnlyTrx} moved to the node by it's node key).
+ * Retrieve a node by node key in all revisions. In each revision a {@link XmlNodeReadOnlyTrx} is
+ * opened which is moved to the node with the given node key if it exists. Otherwise the iterator
+ * has no more elements (the {@link XmlNodeReadOnlyTrx} moved to the node by it's node key).
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class AllTimeAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
+public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    extends AbstractTemporalAxis<R, W> {
 
   /** The revision number. */
   private int mRevision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
+  private final ResourceManager<R, W> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
-
-  /** Sirix {@link NodeReadOnlyTrx}. */
-  private R mRtx;
 
   /** Determines if node has been found before and now has been deleted. */
   private boolean mHasMoved;
 
   /**
-   * Determines private boolean mHasMoved;
+   * Constructor.
    *
-   * /** Constructor.
-   *
-   * @param rtx Sirix {@link NodeReadOnlyTrx}
+   * @param resourceManager the resource manager
+   * @param rtx the read only transactional cursor
    */
-  public AllTimeAxis(final R rtx) {
-    mResourceManager = checkNotNull(rtx.getResourceManager());
+  public AllTimeAxis(final ResourceManager<R, W> resourceManager, final R rtx) {
+    mResourceManager = checkNotNull(resourceManager);
     mRevision = 1;
     mNodeKey = rtx.getNodeKey();
   }
 
-  @SuppressWarnings("unchecked")
   @Override
-  protected R computeNext() {
+  protected Pair<Integer, Long> computeNext() {
     while (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mRevision++);
-
-      if (mRtx.moveTo(mNodeKey).hasMoved()) {
-        mHasMoved = true;
-        return mRtx;
-      } else if (mHasMoved) {
-        return endOfData();
+      try (final NodeReadOnlyTrx rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision++)) {
+        if (rtx.moveTo(mNodeKey).hasMoved()) {
+          mHasMoved = true;
+          return new Pair<>(rtx.getRevisionNumber(), rtx.getNodeKey());
+        } else if (mHasMoved) {
+          return endOfData();
+        }
       }
     }
 
@@ -63,7 +61,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx> extends AbstractTempor
   }
 
   @Override
-  public R getTrx() {
-    return mRtx;
+  public ResourceManager<R, W> getResourceManager() {
+    return mResourceManager;
   }
 }

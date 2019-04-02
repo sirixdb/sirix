@@ -32,8 +32,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
-import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 
@@ -63,7 +63,7 @@ public class ThreadTest {
     for (int i = 0; i < WORKER_COUNT; i++) {
       taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadOnlyTrx(i)));
 
-      try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
         wtx.moveTo(newKey);
         wtx.setValue("value" + i);
         newKey = wtx.getNodeKey();
@@ -76,9 +76,9 @@ public class ThreadTest {
 
   private class Task implements Callable<Void> {
 
-    private XdmNodeReadOnlyTrx mRTX;
+    private XmlNodeReadOnlyTrx mRTX;
 
-    public Task(final XdmNodeReadOnlyTrx rtx) {
+    public Task(final XmlNodeReadOnlyTrx rtx) {
       mRTX = rtx;
     }
 

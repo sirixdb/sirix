@@ -23,7 +23,7 @@ package org.sirix.service.xml.xpath.operators;
 
 import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -55,7 +55,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    * @param mOp1 First value of the operation
    * @param mOp2 Second value of the operation
    */
-  public AbstractObAxis(final XdmNodeReadOnlyTrx rtx, final Axis mOp1, final Axis mOp2) {
+  public AbstractObAxis(final XmlNodeReadOnlyTrx rtx, final Axis mOp1, final Axis mOp2) {
 
     super(rtx);
     mOperand1 = mOp1;
@@ -136,7 +136,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    */
   private AtomicValue atomize(final Axis mOperand) {
 
-    final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
     int type = rtx.getTypeKey();
     AtomicValue atom;
 

@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.json;
 
+import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.Move;
@@ -15,6 +16,21 @@ import com.google.common.collect.ForwardingObject;
 public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingObject implements JsonNodeReadOnlyTrx {
   @Override
   protected abstract JsonNodeReadOnlyTrx delegate();
+
+  @Override
+  public long getHash() {
+    return delegate().getHash();
+  }
+
+  @Override
+  public boolean getBooleanValue() {
+    return delegate().getBooleanValue();
+  }
+
+  @Override
+  public Number getNumberValue() {
+    return delegate().getNumberValue();
+  }
 
   @Override
   public CommitCredentials getCommitCredentials() {
@@ -162,7 +178,7 @@ public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingOb
   }
 
   @Override
-  public long getRevisionTimestamp() {
+  public Instant getRevisionTimestamp() {
     return delegate().getRevisionTimestamp();
   }
 

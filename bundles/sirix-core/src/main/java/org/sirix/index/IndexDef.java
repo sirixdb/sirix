@@ -14,9 +14,9 @@ import org.brackit.xquery.node.parser.FragmentHelper;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
+import org.brackit.xquery.xdm.node.Node;
 
 public final class IndexDef implements Materializable {
   private static final QNm EXCLUDING_TAG = new QNm("excluding");

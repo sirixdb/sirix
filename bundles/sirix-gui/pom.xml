@@ -25,14 +25,13 @@
   <parent>
     <groupId>io.sirix</groupId>
     <artifactId>sirix-parent</artifactId>
-    <version>0.1.3-SNAPSHOT</version>
+    <version>0.9.0-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
 	<artifactId>sirix-gui</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-gui</name>
-	<version>0.1.2-SNAPSHOT</version>
 	<description>Sirix GUI.</description>
 	<repositories>
 		<repository>
@@ -95,24 +94,24 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>${project.parent.version}</version>
 		</dependency>
 		<dependency>
-			<groupId>com.github.sirixdb.sirix</groupId>
+			<groupId>io.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.2-SNAPSHOT</version>
+			<version>${project.parent.version}</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>processing</groupId>
+			<groupId>org.processing</groupId>
 			<artifactId>core</artifactId>
-			<version>1.5.1<!-- 2.0a4 --></version>
+			<version>3.3.7<!-- 2.0a4 --></version>
 		</dependency>
 		<dependency>
-			<groupId>processing</groupId>
+			<groupId>org.processing</groupId>
 			<artifactId>pdf</artifactId>
 			<version>1.0</version>
 		</dependency>

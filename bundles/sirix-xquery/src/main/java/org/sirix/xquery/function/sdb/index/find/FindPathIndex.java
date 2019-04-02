@@ -11,11 +11,11 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
-import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.access.trx.node.xml.XmlIndexController;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
+import org.sirix.xquery.node.XmlDBNode;
 
 /**
  * <p>
@@ -25,7 +25,7 @@ import org.sirix.xquery.node.DBNode;
  * Supported signatures are:
  * </p>
  * <ul>
- * <li><code>sdb:find-path-index($doc as xs:node, $path as xs:string) as xs:int</code></li>
+ * <li><code>sdb:find-path-index($doc as node(), $path as xs:string) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -47,11 +47,10 @@ public final class FindPathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
-    final DBNode doc = (DBNode) args[0];
-    final NodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+    final XmlDBNode doc = (XmlDBNode) args[0];
+    final XmlNodeReadOnlyTrx rtx = doc.getTrx();
+    final XmlIndexController controller = rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

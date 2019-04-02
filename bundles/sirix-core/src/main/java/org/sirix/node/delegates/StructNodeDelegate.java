@@ -174,6 +174,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
                       .add("right sib", getRightSiblingKey())
                       .add("child count", getChildCount())
                       .add("descendant count", getDescendantCount())
+                      .add("node delegate", getNodeDelegate().toString())
                       .toString();
   }
 

@@ -18,15 +18,15 @@ import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.stream.SirixNodeKeyStream;
+import org.sirix.xquery.node.XmlDBNode;
+import org.sirix.xquery.stream.node.SirixNodeKeyStream;
 
 /**
  * Scan the path index.
@@ -52,11 +52,11 @@ public final class ScanPathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
-    final DBNode doc = ((DBNode) args[0]);
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+    final XmlDBNode doc = ((XmlDBNode) args[0]);
     final NodeReadOnlyTrx rtx = doc.getTrx();
-    final XdmIndexController controller =
-        (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final XmlIndexController controller =
+        (XmlIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -80,8 +80,8 @@ public final class ScanPathIndex extends AbstractFunction {
         ? controller.createPathFilter(paths.split(";"), doc.getTrx())
         : null;
 
-    final XdmIndexController ic = controller;
-    final DBNode node = doc;
+    final XmlIndexController ic = controller;
+    final XmlDBNode node = doc;
 
     return new LazySequence() {
       @Override
@@ -90,7 +90,7 @@ public final class ScanPathIndex extends AbstractFunction {
           Stream<?> s;
 
           @Override
-          public Item next() throws QueryException {
+          public Item next() {
             if (s == null) {
               s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx().getPageTrx(), indexDef, filter),
                   node.getCollection(), node.getTrx());

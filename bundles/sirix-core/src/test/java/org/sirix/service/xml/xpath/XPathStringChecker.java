@@ -28,7 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 public class XPathStringChecker {
@@ -45,7 +45,7 @@ public class XPathStringChecker {
 
   public static void testIAxisConventions(final Axis axis, final String[] expectedValues) {
 
-    final XdmNodeReadOnlyTrx rtx = axis.asXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = axis.asXdmNodeReadTrx();
 
     // IAxis Convention 1.
     final long startKey = rtx.getNodeKey();

@@ -38,7 +38,7 @@ public class FilterTest {
   }
 
   public static void testFilterConventions(final Filter<? extends NodeReadOnlyTrx> filter, final boolean expected) {
-    final NodeReadOnlyTrx rtx = ((AbstractFilter) filter).getTrx();
+    final NodeReadOnlyTrx rtx = ((AbstractFilter<? extends NodeReadOnlyTrx>) filter).getTrx();
 
     // Filter Convention 1.
     final long startKey = rtx.getNodeKey();
