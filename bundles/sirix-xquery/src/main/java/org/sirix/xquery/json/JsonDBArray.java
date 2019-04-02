@@ -330,6 +330,7 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   @Override
   public int len() {
     moveRtx();
+
     return (int) mRtx.getChildCount();
   }
 
@@ -337,7 +338,6 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   public Array range(IntNumeric from, IntNumeric to) {
     moveRtx();
 
-    // FIXME
-    return null;
+    return new JsonDBArraySlice(mRtx, mCollection, from.intValue(), to.intValue());
   }
 }
