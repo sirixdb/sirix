@@ -2,18 +2,33 @@ package org.sirix.rest.crud.json
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
+import io.vertx.core.Future
+import io.vertx.core.Handler
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.impl.HttpStatusException
+import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.withContext
+import org.brackit.xquery.XQuery
 import org.sirix.access.Databases
 import org.sirix.api.Database
+import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.node.Kind
 import org.sirix.rest.JsonSerializeHelper
+import org.sirix.rest.JsonSessionDBStore
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.xquery.node.XmlDBNode
+import org.sirix.xquery.DBSerializer
+import org.sirix.xquery.SirixCompileChain
+import org.sirix.xquery.SirixQueryContext
+import org.sirix.xquery.json.*
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import java.io.StringWriter
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -31,8 +46,8 @@ class JsonGet(private val location: Path) {
         if (dbName == null && resName == null) {
             if (query == null || query.isEmpty())
                 listDatabases(ctx)
-            //else
-                //xquery(query, null, ctx, vertxContext, ctx.get("user") as User)
+            else
+                xquery(query, null, ctx, vertxContext, ctx.get("user") as User)
         } else {
             get(dbName, ctx, resName, query, vertxContext, ctx.get("user") as User)
         }
@@ -110,9 +125,8 @@ class JsonGet(private val location: Path) {
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
-                            // TODO
-   //                         queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-    //                                vertxContext, user)
+                            queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                    vertxContext, user)
                         } else {
                             val revisions: Array<Int> =
                                     getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
@@ -145,14 +159,14 @@ class JsonGet(private val location: Path) {
     private suspend fun queryResource(dbName: String?, database: Database<JsonResourceManager>, revision: String?,
                                       revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
                                       nodeId: String?, query: String, vertxContext: Context, user: User) {
-        // TODO
-        /* withContext(vertxContext.dispatcher()) {
-            val dbCollection = DBCollection(dbName, database)
+
+        withContext(vertxContext.dispatcher()) {
+            val dbCollection = JsonDBCollection(dbName, database)
 
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                val trx: XdmNodeReadOnlyTrx
+                val trx: JsonNodeReadOnlyTrx
                 try {
                     trx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
 
@@ -162,15 +176,19 @@ class JsonGet(private val location: Path) {
                         else
                             trx.moveTo(nodeId.toLong())
 
-                        val dbNode = DBNode(trx, dbCollection)
+                        val jsonItem: JsonDBItem = when {
+                            trx.kind === Kind.ARRAY -> JsonDBArray(trx, dbCollection)
+                            trx.kind === Kind.OBJECT -> JsonDBObject(trx, dbCollection)
+                            else -> throw IllegalStateException()
+                        }
 
-                        xquery(query, dbNode, ctx, vertxContext, user)
+                        xquery(query, jsonItem, ctx, vertxContext, user)
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
                 }
             }
-        } */
+        }
     }
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: JsonResourceManager): Array<Int> {
@@ -187,24 +205,25 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, vertxContext: Context,
+    private suspend fun xquery(query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
-        // TODO
-        /* vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
+        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), user)
+            val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), user)
 
             dbStore.use {
-                val queryCtx = SirixQueryContext(dbStore)
+                val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)
 
                 node.let { queryCtx.contextItem = node }
 
                 val out = ByteArrayOutputStream()
 
                 out.use {
-                    PrintStream(out).use {
-                        XQuery(SirixCompileChain(dbStore), query).prettyPrint().serialize(queryCtx,
-                                DBSerializer(it, true, true))
+                    PrintStream(out).use { printStream ->
+                        SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
+                            XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx,
+                                    DBSerializer(printStream, true, true))
+                        }
                     }
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
@@ -218,7 +237,7 @@ class JsonGet(private val location: Path) {
             }
 
             future.complete(null)
-        }) */
+        })
     }
 
     private fun getRevisionNumber(manager: JsonResourceManager, revision: String): Int {

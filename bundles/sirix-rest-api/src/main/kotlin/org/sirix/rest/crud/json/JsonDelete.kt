@@ -3,6 +3,7 @@ package org.sirix.rest.crud.json
 import io.vertx.core.Context
 import io.vertx.core.Future
 import io.vertx.core.Handler
+import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -13,6 +14,9 @@ import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.JsonSessionDBStore
+import org.sirix.xquery.json.BasicJsonDBStore
+import java.nio.file.Files
 import java.nio.file.Path
 
 class JsonDelete(private val location: Path) {
@@ -22,9 +26,8 @@ class JsonDelete(private val location: Path) {
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
         if (dbName == null) {
-            // TODO
-            /* // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicDBStore.newBuilder().build(), ctx.get("user") as User)
+            // Initialize queryResource context and store.
+            val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
 
             ctx.vertx().executeBlockingAwait(Handler<Future<Nothing>> {
                 val databases = Files.list(location)
@@ -34,7 +37,7 @@ class JsonDelete(private val location: Path) {
                         dbStore.drop(it.fileName.toString())
                     }
                 }
-            }) */
+            })
         } else {
             delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
         }

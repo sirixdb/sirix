@@ -17,7 +17,7 @@ import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.SessionDBStore
+import org.sirix.rest.XmlSessionDBStore
 import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
@@ -193,7 +193,7 @@ class XdmGet(private val location: Path) {
                                user: User) {
         vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
             // Initialize queryResource context and store.
-            val dbStore = SessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
+            val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithNodeStore(dbStore)
@@ -203,9 +203,11 @@ class XdmGet(private val location: Path) {
                 val out = ByteArrayOutputStream()
 
                 out.use {
-                    PrintStream(out).use {
-                        XQuery(SirixCompileChain.createWithNodeStore(dbStore), query).prettyPrint().serialize(queryCtx,
-                                DBSerializer(it, true, true))
+                    PrintStream(out).use { printStream ->
+                        SirixCompileChain.createWithNodeStore(dbStore).use { compileChain ->
+                            XQuery(compileChain, query).prettyPrint().serialize(queryCtx,
+                                    DBSerializer(printStream, true, true))
+                        }
                     }
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)

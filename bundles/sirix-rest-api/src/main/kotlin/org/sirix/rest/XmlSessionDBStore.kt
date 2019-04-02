@@ -6,7 +6,7 @@ import org.brackit.xquery.xdm.Stream
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBStore
 
-class SessionDBStore(private val dbStore: XmlDBStore, private val user: User) : XmlDBStore by dbStore {
+class XmlSessionDBStore(private val dbStore: XmlDBStore, private val user: User) : XmlDBStore by dbStore {
     override fun lookup(name: String): XmlDBCollection {
         checkIfAuthorized(name, "view")
 
