@@ -55,7 +55,7 @@ public final class ParentAxis extends AbstractAxis {
   protected long nextKey() {
     final NodeCursor cursor = getCursor();
 
-    if (cursor.getKind() != Kind.DOCUMENT && mFirst && cursor.hasParent()
+    if (cursor.getKind() != Kind.XDM_DOCUMENT && mFirst && cursor.hasParent()
         && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
       return cursor.getParentKey();

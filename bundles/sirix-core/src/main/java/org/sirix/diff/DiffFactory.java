@@ -27,6 +27,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 
 /**
@@ -117,24 +118,23 @@ public final class DiffFactory {
   /**
    * Create a new {@link Builder} instance.
    *
-   * @param session the {@link ResourceManager} to use
+   * @param resourceManager the {@link ResourceManager} to use
    * @param newRev new revision to compare
    * @param oldRev old revision to compare
    * @param diffKind kind of diff (optimized or not)
    * @param observers {@link Set} of observers
    * @return new {@link Builder} instance
    */
-  public static Builder builder(final ResourceManager session, final @Nonnegative int newRev,
-      final @Nonnegative int oldRev, final DiffOptimized diffKind,
-      final Set<DiffObserver> observers) {
-    return new Builder(session, newRev, oldRev, diffKind, observers);
+  public static Builder builder(final XdmResourceManager resourceManager, final @Nonnegative int newRev,
+      final @Nonnegative int oldRev, final DiffOptimized diffKind, final Set<DiffObserver> observers) {
+    return new Builder(resourceManager, newRev, oldRev, diffKind, observers);
   }
 
   /** Builder to simplify static methods. */
   public static final class Builder {
 
     /** {@link ResourceManager} reference. */
-    final ResourceManager mResMgr;
+    final XdmResourceManager mResMgr;
 
     /** Start key of new revision. */
     transient long mNewStartKey;
@@ -181,9 +181,8 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceManager resMgr, final @Nonnegative int newRev,
-        final @Nonnegative int oldRev, final DiffOptimized diffKind,
-        final Set<DiffObserver> observers) {
+    public Builder(final XdmResourceManager resMgr, final @Nonnegative int newRev, final @Nonnegative int oldRev,
+        final DiffOptimized diffKind, final Set<DiffObserver> observers) {
       mResMgr = checkNotNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       mNewRev = newRev;
@@ -311,8 +310,7 @@ public final class DiffFactory {
    * @param builder {@link Builder} reference
    * @throws SirixException
    */
-  public static synchronized void invokeStructuralDiff(final Builder builder)
-      throws SirixException {
+  public static synchronized void invokeStructuralDiff(final Builder builder) throws SirixException {
     DiffAlgorithm.STRUCTURAL.invoke(builder);
   }
 }

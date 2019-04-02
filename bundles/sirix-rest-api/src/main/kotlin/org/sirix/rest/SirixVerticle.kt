@@ -48,8 +48,6 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
-        route().handler(BodyHandler.create())
-
         val keycloak = KeycloakAuth.discoverAwait(
                 vertx,
                 OAuth2ClientOptions()
@@ -59,30 +57,99 @@ class SirixVerticle : CoroutineVerticle() {
                         .setClientSecret(config.getString("client.secret")))
 
         // To get the access token.
-        post("/login").produces("application/json").coroutineHandler { rc ->
+        post("/login").handler(BodyHandler.create()).coroutineHandler { rc ->
             val userJson = rc.bodyAsJson
             val user = keycloak.authenticateAwait(userJson)
             rc.response().end(user.principal().toString())
         }
 
         // Create.
-        put("/:database").coroutineHandler { Create(location, keycloak).handle(it) }
-        put("/:database/:resource").coroutineHandler { Create(location, keycloak).handle(it) }
+        put("/:database").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Create(location, false).handle(it)
+        }
+
+        put("/:database/:resource").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Create(location, false).handle(it)
+        }
+
+        post("/:database").coroutineHandler {
+            Auth(keycloak, "realm:create").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Create(location, true).handle(it)
+        }
 
         // Update.
-        post("/:database/:resource").coroutineHandler { Update(location, keycloak).handle(it) }
+        post("/:database/:resource").coroutineHandler {
+            Auth(keycloak, "realm:modify").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Update(location).handle(it)
+        }
 
         // Get.
-        get("/").coroutineHandler { Get(location, keycloak).handle(it) }
-        get("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
-        get("/:database").coroutineHandler { Get(location, keycloak).handle(it) }
-        post("/").coroutineHandler { Get(location, keycloak).handle(it) }
-        post("/:database/:resource").coroutineHandler { Get(location, keycloak).handle(it) }
+        get("/").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Get(location).handle(it)
+        }
+
+        get("/:database/:resource").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Get(location).handle(it)
+        }
+
+        get("/:database").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Get(location).handle(it)
+        }
+
+        post("/").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Get(location).handle(it)
+        }
+
+        post("/:database/:resource").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.handler(BodyHandler.create()).coroutineHandler {
+            Get(location).handle(it)
+        }
 
         // Delete.
-        delete("/").coroutineHandler { Delete(location, keycloak).handle(it) }
-        delete("/:database/:resource").coroutineHandler { Delete(location, keycloak).handle(it) }
-        delete("/:database").coroutineHandler { Delete(location, keycloak).handle(it) }
+        delete("/").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Delete(location).handle(it)
+        }
+
+        delete("/:database/:resource").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Delete(location).handle(it)
+        }
+
+        delete("/:database").coroutineHandler {
+            Auth(keycloak, "realm:delete").handle(it)
+            it.next()
+        }.coroutineHandler {
+            Delete(location).handle(it)
+        }
 
         // Exception with status code
         route().handler { ctx ->
@@ -112,8 +179,8 @@ class SirixVerticle : CoroutineVerticle() {
     /**
      * An extension method for simplifying coroutines usage with Vert.x Web routers.
      */
-    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit) {
-        handler { ctx ->
+    private fun Route.coroutineHandler(fn: suspend (RoutingContext) -> Unit): Route {
+        return handler { ctx ->
             launch(ctx.vertx().dispatcher()) {
                 try {
                     fn(ctx)

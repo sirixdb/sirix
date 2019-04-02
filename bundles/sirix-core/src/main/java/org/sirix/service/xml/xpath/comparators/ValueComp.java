@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -33,27 +33,25 @@ import org.sirix.service.xml.xpath.types.Type;
  * <p>
  * Value comparisons are used for comparing single values.
  * </p>
- * 
+ *
  */
 public class ValueComp extends AbstractComparator {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param rtx Exclusive (immutable) trx to iterate with.
    * @param mOperand1 First value of the comparison
    * @param mOperand2 Second value of the comparison
    * @param mComp comparison kind
    */
-  public ValueComp(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2,
-      final CompKind mComp) {
+  public ValueComp(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mComp) {
 
     super(rtx, mOperand1, mOperand2, mComp);
   }
 
   @Override
-  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-      throws SirixXPathException {
+  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2) throws SirixXPathException {
     final Type type = getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey());
     final String op1 = new String(mOperand1[0].getRawValue());
     final String op2 = new String(mOperand2[0].getRawValue());
@@ -64,7 +62,7 @@ public class ValueComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-    final XdmNodeReadTrx trx = getTrx();
+    final XdmNodeReadOnlyTrx trx = asXdmNodeReadTrx();
 
     int type = trx.getTypeKey();
 
@@ -73,7 +71,7 @@ public class ValueComp extends AbstractComparator {
       type = trx.keyForName("xs:string");
     }
 
-    final AtomicValue atomized = new AtomicValue(mOperand.getTrx().getValue().getBytes(), type);
+    final AtomicValue atomized = new AtomicValue(((XdmNodeReadOnlyTrx) mOperand.asXdmNodeReadTrx()).getValue().getBytes(), type);
     final AtomicValue[] op = {atomized};
 
     // (4.) the operands must be singletons in case of a value comparison
@@ -87,7 +85,7 @@ public class ValueComp extends AbstractComparator {
 
   /**
    * {@inheritDoc}
-   * 
+   *
    * @throws SirixXPathException
    */
   @Override

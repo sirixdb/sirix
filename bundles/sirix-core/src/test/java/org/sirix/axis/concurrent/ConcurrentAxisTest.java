@@ -28,10 +28,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -40,7 +40,7 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 
 /** Test {@link ConcurrentAxis}. */
@@ -63,8 +63,8 @@ public final class ConcurrentAxisTest {
   @Before
   public void setUp() throws Exception {
     try {
-      TestHelper.deleteEverything();
-      XMLShredder.main(
+      XdmTestHelper.deleteEverything();
+      XmlShredder.main(
           XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
       holder = Holder.generateRtx();
     } catch (final Exception e) {
@@ -81,7 +81,7 @@ public final class ConcurrentAxisTest {
   public void tearDown() throws Exception {
     try {
       holder.close();
-      TestHelper.closeEverything();
+      XdmTestHelper.closeEverything();
     } catch (final Exception e) {
       e.printStackTrace();
     }
@@ -100,7 +100,7 @@ public final class ConcurrentAxisTest {
     final String query = "//regions/africa//location";
     // final String result = "<name>Limor Simone</name>";
     final int resultNumber = 55;
-    final Axis axis = new XPathAxis(holder.getXdmNodeReadTrx(), query);
+    final Axis axis = new XPathAxis(holder.getNodeReadTrx(), query);
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
       axis.next();
@@ -118,12 +118,12 @@ public final class ConcurrentAxisTest {
     final int resultNumber = 55;
     final Axis axis = new NestedAxis(
         new NestedAxis(
-            new FilterAxis(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-                new NameFilter(holder.getXdmNodeReadTrx(), "regions")),
-            new FilterAxis(new ChildAxis(holder.getXdmNodeReadTrx()),
-                new NameFilter(holder.getXdmNodeReadTrx(), "africa"))),
-        new FilterAxis(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-            new NameFilter(holder.getXdmNodeReadTrx(), "location")));
+            new FilterAxis(new DescendantAxis(holder.getNodeReadTrx(), IncludeSelf.YES),
+                new NameFilter(holder.getNodeReadTrx(), "regions")),
+            new FilterAxis(new ChildAxis(holder.getNodeReadTrx()),
+                new NameFilter(holder.getNodeReadTrx(), "africa"))),
+        new FilterAxis(new DescendantAxis(holder.getNodeReadTrx(), IncludeSelf.YES),
+            new NameFilter(holder.getNodeReadTrx(), "location")));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
@@ -144,12 +144,12 @@ public final class ConcurrentAxisTest {
   public void testConcurrent() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx firstRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx secondRtx = holder.getResourceManager().beginNodeReadTrx();
-    final XdmNodeReadTrx thirdRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XdmNodeReadOnlyTrx thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
@@ -177,12 +177,12 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis1() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis(firstConcurrRtx,
-                new FilterAxis(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-                    new NameFilter(holder.getXdmNodeReadTrx(), "regions"))),
+                new FilterAxis(new DescendantAxis(holder.getNodeReadTrx(), IncludeSelf.YES),
+                    new NameFilter(holder.getNodeReadTrx(), "regions"))),
             new FilterAxis(new ChildAxis(firstConcurrRtx),
                 new NameFilter(firstConcurrRtx, "africa"))),
         new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
@@ -205,14 +205,14 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis2() throws Exception {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final XdmNodeReadTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadTrx();
+    final XdmNodeReadOnlyTrx firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
     final Axis axis = new NestedAxis(new NestedAxis(
         new FilterAxis(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
             new NameFilter(firstConcurrRtx, "regions")),
         new FilterAxis(new ChildAxis(firstConcurrRtx), new NameFilter(firstConcurrRtx, "africa"))),
         new ConcurrentAxis(firstConcurrRtx,
-            new FilterAxis(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-                new NameFilter(holder.getXdmNodeReadTrx(), "location"))));
+            new FilterAxis(new DescendantAxis(holder.getNodeReadTrx(), IncludeSelf.YES),
+                new NameFilter(holder.getNodeReadTrx(), "location"))));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());

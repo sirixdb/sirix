@@ -29,8 +29,8 @@ import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.api.PageReadTrx;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
@@ -78,6 +78,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /** Optional commit message. */
   private String mCommitMessage;
 
+  /** Current maximum level of indirect pages in the tree. */
+  private int mCurrentMaxLevelOfIndirectPages;
+
   /**
    * Create revision root page.
    */
@@ -89,6 +92,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
     mMaxNodeKey = -1L;
+    mCurrentMaxLevelOfIndirectPages = 1;
   }
 
   /**
@@ -106,6 +110,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       in.readFully(commitMessage);
       mCommitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
     }
+
+    mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
   }
 
   /**
@@ -121,6 +127,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     mRevision = representRev;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
     mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
+    mCurrentMaxLevelOfIndirectPages = committedRevisionRootPage.mCurrentMaxLevelOfIndirectPages;
   }
 
   /**
@@ -209,7 +216,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      @Nonnull final PageWriteTrx<K, V, S> pageWriteTrx) {
+      @Nonnull final PageTrx<K, V, S> pageWriteTrx) {
     if (mRevision == pageWriteTrx.getUberPage().getRevision()) {
       super.commit(pageWriteTrx);
     }
@@ -228,6 +235,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       out.writeInt(commitMessage.length);
       out.write(commitMessage);
     }
+
+    out.writeByte(mCurrentMaxLevelOfIndirectPages);
+  }
+
+  public int getCurrentMaxLevelOfIndirectPages() {
+    return mCurrentMaxLevelOfIndirectPages;
+  }
+
+  public int incrementAndGetCurrentMaxLevelOfIndirectPages() {
+    return ++mCurrentMaxLevelOfIndirectPages;
   }
 
   @Override
@@ -252,10 +269,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Initialize node tree.
    *
-   * @param pageReadTrx {@link PageReadTrx} instance
+   * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @param log the transaction intent log
    */
-  public void createNodeTree(final PageReadTrx pageReadTrx, final TransactionIntentLog log) {
+  public void createNodeTree(final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     final PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT

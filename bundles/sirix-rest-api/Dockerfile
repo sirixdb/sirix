@@ -7,6 +7,7 @@
 ###
 
 FROM openjdk:11.0.1-jre
+MAINTAINER Johannes Lichtenberger <johannes.lichtenberger@sirix.io>
 
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 

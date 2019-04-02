@@ -74,7 +74,7 @@ package org.sirix.api;
  *
  * </p>
  */
-public interface Filter {
+public interface Filter<R> {
 
   /**
    * Apply filter on current node of transaction.
@@ -88,13 +88,13 @@ public interface Filter {
    *
    * @return the transaction of this filter
    */
-  XdmNodeReadTrx getTrx();
+  R getTrx();
 
   /**
    * Setting the transaction of this filter.
    *
    * @return the transaction of this filter
    */
-  void setTrx(XdmNodeReadTrx rtx);
+  void setTrx(R rtx);
 
 }

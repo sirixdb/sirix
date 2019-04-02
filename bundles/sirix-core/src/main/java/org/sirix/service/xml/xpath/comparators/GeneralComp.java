@@ -25,7 +25,7 @@ import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -48,7 +48,7 @@ public class GeneralComp extends AbstractComparator {
    * @param mOperand2 Second value of the comparison
    * @param mCom comparison kind
    */
-  public GeneralComp(final XdmNodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2,
+  public GeneralComp(final XdmNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2,
       final CompKind mCom) {
 
     super(rtx, mOperand1, mOperand2, mCom);
@@ -82,7 +82,7 @@ public class GeneralComp extends AbstractComparator {
   @Override
   protected AtomicValue[] atomize(final Axis mOperand) {
 
-    final XdmNodeReadTrx rtx = getTrx();
+    final XdmNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
     final List<AtomicValue> op = new ArrayList<AtomicValue>();
     AtomicValue atomized;
     // cast to double, if compatible with XPath 1.0 and <, >, >=, <=

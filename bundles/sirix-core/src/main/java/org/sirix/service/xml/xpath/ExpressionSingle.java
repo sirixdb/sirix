@@ -84,7 +84,7 @@ public class ExpressionSingle {
   public void add(final Axis pAx) {
     Axis axis = pAx;
     if (isDupOrd(axis)) {
-      axis = new DupFilterAxis(axis.getTrx(), axis);
+      axis = new DupFilterAxis(axis.asXdmNodeReadTrx(), axis);
       DupState.nodup = true;
     }
 

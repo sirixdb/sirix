@@ -5,7 +5,6 @@ import static org.junit.Assert.assertTrue;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
-import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -15,12 +14,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.access.trx.node.IndexController;
+import org.sirix.XdmTestHelper;
 import org.sirix.access.trx.node.Movement;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
@@ -43,26 +41,25 @@ public class AVLTreeTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.openResourceManager();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testAttributeIndex() throws SirixException, PathException {
-    final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx();
+    final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    final IndexController indexController =
+    final XdmIndexController indexController =
         holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(
-        false, Optional.ofNullable(Type.STR), Collections.singleton(Path.parse("//bla/@foobar")),
-        0);
+    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Optional.ofNullable(Type.STR),
+        Collections.singleton(Path.parse("//bla/@foobar")), 0);
 
     indexController.createIndexes(ImmutableSet.of(idxDef), wtx);
 
@@ -81,14 +78,11 @@ public class AVLTreeTest {
 
     final AVLTreeReader<CASValue, NodeReferences> reader =
         AVLTreeReader.getInstance(wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
-    final Optional<NodeReferences> fooRefs =
-        reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
-    assertTrue(!fooRefs.isPresent());
-    final Optional<NodeReferences> bazRefs1 =
-        reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
+    final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
+    assertTrue(fooRefs.isEmpty());
+    final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
     check(bazRefs1, ImmutableSet.of(3L));
-    final Optional<NodeReferences> bazRefs2 =
-        reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+    final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
     check(bazRefs2, ImmutableSet.of(8L));
   }
 

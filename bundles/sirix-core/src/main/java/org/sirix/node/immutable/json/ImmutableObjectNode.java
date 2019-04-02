@@ -1,0 +1,54 @@
+package org.sirix.node.immutable.json;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import org.sirix.api.visitor.JsonNodeVisitor;
+import org.sirix.api.visitor.VisitResult;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.json.ObjectNode;
+
+/**
+ * Immutable JSONObject wrapper.
+ *
+ * @author Johannes Lichtenberger
+ *
+ */
+public final class ImmutableObjectNode extends AbstractImmutableJsonStructuralNode {
+
+  /** Mutable {@link ObjectNode}. */
+  private final ObjectNode mNode;
+
+  /**
+   * Private constructor.
+   *
+   * @param node mutable {@link ObjectNode}
+   */
+  private ImmutableObjectNode(final ObjectNode node) {
+    mNode = checkNotNull(node);
+  }
+
+  /**
+   * Get an immutable JSON-array node instance.
+   *
+   * @param node the mutable {@link ImmutableObjectNode} to wrap
+   * @return immutable JSON-array node instance
+   */
+  public static ImmutableObjectNode of(final ObjectNode node) {
+    return new ImmutableObjectNode(node);
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(this);
+  }
+
+  @Override
+  public StructNode structDelegate() {
+    return mNode;
+  }
+
+  @Override
+  public Kind getKind() {
+    return Kind.JSON_ARRAY;
+  }
+}

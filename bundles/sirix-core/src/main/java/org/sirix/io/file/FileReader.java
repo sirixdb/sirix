@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -42,7 +42,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 
 /**
- * File Reader. Used for {@link PageReadTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -98,7 +98,7 @@ public final class FileReader implements Reader {
 
   @Override
   public Page read(final @Nonnull PageReference reference,
-      final @Nullable PageReadTrx pageReadTrx) {
+      final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
       switch (mType) {
@@ -145,7 +145,7 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
     try {
       mRevisionsOffsetFile.seek(revision * 8);
       mDataFile.seek(mRevisionsOffsetFile.readLong());

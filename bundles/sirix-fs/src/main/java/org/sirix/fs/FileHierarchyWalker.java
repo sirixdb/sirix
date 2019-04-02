@@ -10,8 +10,8 @@ import java.util.EnumSet;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.sirix.api.Database;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.fs.HierarchyFileVisitor.Builder;
 import com.google.common.base.Optional;
@@ -37,20 +37,18 @@ public class FileHierarchyWalker {
    * @throws NullPointerException if one of the arguments is {@code null}
    */
   public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path,
-      final Database database, Optional<Visitor<XdmNodeWriteTrx>> visitor)
-      throws SirixException, IOException {
+      final Database<XdmResourceManager> database, Optional<Visitor<XdmNodeTrx>> visitor) throws IOException {
     checkNotNull(visitor);
     checkNotNull(path);
-    try (final ResourceManager resource = checkNotNull(database).getResourceManager("shredded");
-        final XdmNodeWriteTrx wtx = resource.beginNodeWriteTrx()) {
+    try (final XdmResourceManager resource = checkNotNull(database).getResourceManager("shredded");
+        final XdmNodeTrx wtx = resource.beginNodeTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {
         builder.setVisitor(visitor.get());
       }
       Map<Path, org.sirix.fs.FileSystemPath> index = Collections.emptyMap();
       try (final HierarchyFileVisitor fileVisitor = HierarchyFileVisitor.getInstance(builder)) {
-        Files.walkFileTree(
-            path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, fileVisitor);
+        Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, fileVisitor);
         index = fileVisitor.getIndex();
       }
 

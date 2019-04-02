@@ -30,10 +30,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 
@@ -45,15 +45,15 @@ public class ThreadTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.openResourceManager();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -61,9 +61,9 @@ public class ThreadTest {
     final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
     long newKey = 10L;
     for (int i = 0; i < WORKER_COUNT; i++) {
-      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadTrx(i)));
+      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadOnlyTrx(i)));
 
-      try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+      try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
         wtx.moveTo(newKey);
         wtx.setValue("value" + i);
         newKey = wtx.getNodeKey();
@@ -76,9 +76,9 @@ public class ThreadTest {
 
   private class Task implements Callable<Void> {
 
-    private XdmNodeReadTrx mRTX;
+    private XdmNodeReadOnlyTrx mRTX;
 
-    public Task(final XdmNodeReadTrx rtx) {
+    public Task(final XdmNodeReadOnlyTrx rtx) {
       mRTX = rtx;
     }
 

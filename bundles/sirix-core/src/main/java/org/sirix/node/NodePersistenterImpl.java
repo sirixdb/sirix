@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 
@@ -18,16 +18,15 @@ import org.sirix.node.interfaces.Record;
  */
 public final class NodePersistenterImpl implements NodePersistenter {
   @Override
-  public Record deserialize(final DataInput source, final @Nonnegative long recordID,
-      final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx) throws IOException {
+  public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+      final PageReadOnlyTrx pageReadTrx) throws IOException {
     final byte id = source.readByte();
     final Kind enumKind = Kind.getKind(id);
     return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
   }
 
   @Override
-  public void serialize(final DataOutput sink, final Record record, final PageReadTrx pageReadTrx)
-      throws IOException {
+  public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) throws IOException {
     final Kind nodeKind = (Kind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
@@ -35,18 +34,16 @@ public final class NodePersistenterImpl implements NodePersistenter {
   }
 
   @Override
-  public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source,
-      Optional<SirixDeweyID> previousDeweyID, ResourceConfiguration resourceConfig)
-      throws IOException {
+  public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source, SirixDeweyID previousDeweyID,
+      ResourceConfiguration resourceConfig) throws IOException {
     final byte id = source.readByte();
     final Kind enumKind = Kind.getKind(id);
     return enumKind.deserializeDeweyID(source, previousDeweyID, resourceConfig);
   }
 
   @Override
-  public void serializeDeweyID(final DataOutput sink, final Kind nodeKind,
-      final SirixDeweyID deweyID, final Optional<SirixDeweyID> previousDeweyID,
-      ResourceConfiguration resourceConfig) throws IOException {
+  public void serializeDeweyID(final DataOutput sink, final Kind nodeKind, final SirixDeweyID deweyID,
+      final SirixDeweyID previousDeweyID, ResourceConfiguration resourceConfig) throws IOException {
     final byte id = nodeKind.getId();
     sink.writeByte(id);
     nodeKind.serializeDeweyID(sink, nodeKind, deweyID, previousDeweyID, resourceConfig);

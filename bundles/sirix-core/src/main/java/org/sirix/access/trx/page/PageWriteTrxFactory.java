@@ -37,8 +37,11 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
-import org.sirix.access.trx.node.XdmResourceManager;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.access.trx.node.InternalResourceManager;
+import org.sirix.access.trx.node.xdm.XdmResourceManagerImpl;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
+import org.sirix.api.PageTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -61,29 +64,32 @@ import org.sirix.page.interfaces.Page;
  */
 public final class PageWriteTrxFactory {
 
+
   /**
    * Create a page write trx.
    *
-   * @param resourceManager {@link XdmResourceManager} this page write trx is bound to
+   * @param resourceManager {@link XdmResourceManagerImpl} this page write trx is bound to
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID
    * @param representRev revision represent
    * @param lastStoredRev last stored revision
    * @param bufferManager the page cache buffer
+   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   *        {@code false} otherwise
    */
-  public PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
-      final XdmResourceManager resourceManager, final UberPage uberPage, final Writer writer,
-      final @Nonnegative long trxId, final @Nonnegative int representRev,
+  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTrx(
+      final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
+      final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
       final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
-      final @Nonnull BufferManager bufferManager) {
-    final boolean usePathSummary = resourceManager.getResourceConfig().pathSummary;
-    final IndexController indexController = resourceManager.getWtxIndexController(representRev);
+      final @Nonnull BufferManager bufferManager, final boolean isBoundToNodeTrx) {
+    final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
+    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRev);
 
     // Deserialize index definitions.
-    final Path indexes = resourceManager.getResourceConfig().resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(
-            String.valueOf(lastStoredRev) + ".xml");
+    final Path indexes =
+        resourceManager.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                        .resolve(String.valueOf(lastStoredRev) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -93,11 +99,8 @@ public final class PageWriteTrxFactory {
     }
 
     final TreeModifierImpl treeModifier = new TreeModifierImpl();
-
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-
-    final TransactionIntentLog log =
-        logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
+    final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceManager.getResourceConfig());
 
     // Create revision tree if needed.
     if (uberPage.isBootstrap()) {
@@ -105,13 +108,13 @@ public final class PageWriteTrxFactory {
     }
 
     // Page read trx.
-    final PageReadTrxImpl pageRtx = new PageReadTrxImpl(trxId, resourceManager, uberPage,
-        representRev, writer, log, indexController, bufferManager);
+    final PageReadTrxImpl pageRtx = new PageReadTrxImpl(trxId, resourceManager, uberPage, representRev, writer, log,
+        indexController, bufferManager);
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRev);
-    final RevisionRootPage newRevisionRootPage = treeModifier.preparePreviousRevisionRootPage(
-        uberPage, pageRtx, log, representRev, lastStoredRev);
+    final RevisionRootPage newRevisionRootPage =
+        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRev, lastStoredRev);
     newRevisionRootPage.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
     // First create revision tree if needed.
@@ -123,53 +126,38 @@ public final class PageWriteTrxFactory {
 
       page.createPathSummaryTree(pageRtx, 0, log);
 
-      if (PageContainer.emptyInstance()
-                       .equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx)))
-        log.put(
-            newRevisionRootPage.getPathSummaryPageReference(),
-            PageContainer.getInstance(page, page));
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx)))
+        log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
     }
 
     if (!uberPage.isBootstrap()) {
-      if (PageContainer.emptyInstance()
-                       .equals(log.get(newRevisionRootPage.getNamePageReference(), pageRtx))) {
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getNamePageReference(), pageRtx))) {
         final Page namePage = pageRtx.getNamePage(newRevisionRootPage);
-        log.put(
-            newRevisionRootPage.getNamePageReference(),
-            PageContainer.getInstance(namePage, namePage));
+        log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
       }
 
-      if (PageContainer.emptyInstance()
-                       .equals(log.get(newRevisionRootPage.getCASPageReference(), pageRtx))) {
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getCASPageReference(), pageRtx))) {
         final Page casPage = pageRtx.getCASPage(newRevisionRootPage);
-        log.put(
-            newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
+        log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
       }
 
-      if (PageContainer.emptyInstance()
-                       .equals(log.get(newRevisionRootPage.getPathPageReference(), pageRtx))) {
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathPageReference(), pageRtx))) {
         final Page pathPage = pageRtx.getPathPage(newRevisionRootPage);
-        log.put(
-            newRevisionRootPage.getPathPageReference(),
-            PageContainer.getInstance(pathPage, pathPage));
+        log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
       }
 
       final Page indirectPage =
           pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectPageReference());
-      log.put(
-          newRevisionRootPage.getIndirectPageReference(),
-          PageContainer.getInstance(indirectPage, indirectPage));
+      log.put(newRevisionRootPage.getIndirectPageReference(), PageContainer.getInstance(indirectPage, indirectPage));
 
-      final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(
-          pageRtx, log, uberPage.getPageCountExp(PageKind.UBERPAGE),
-          uberPage.getIndirectPageReference(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE);
+      final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx, log,
+          uberPage.getPageCountExp(PageKind.UBERPAGE), uberPage.getIndirectPageReference(),
+          uberPage.getRevisionNumber(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, newRevisionRootPage);
 
-      log.put(
-          revisionRootPageReference,
-          PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
+      log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new PageWriteTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx,
-        indexController);
+    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController,
+        isBoundToNodeTrx);
   }
 }

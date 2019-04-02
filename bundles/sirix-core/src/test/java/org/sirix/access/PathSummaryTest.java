@@ -24,19 +24,23 @@ package org.sirix.access;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
+import org.sirix.utils.XdmDocumentCreator;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -50,21 +54,21 @@ public class PathSummaryTest {
   /** {@link Holder} reference. */
   private Holder holder;
 
-  /** {@link XdmNodeWriteTrx} implementation. */
-  private XdmNodeWriteTrx wtx;
+  /** {@link XdmNodeTrx} implementation. */
+  private XdmNodeTrx wtx;
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
-    wtx = holder.getResourceManager().beginNodeWriteTrx();
-    DocumentCreator.create(wtx);
+    wtx = holder.getResourceManager().beginNodeTrx();
+    XdmDocumentCreator.create(wtx);
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   /**
@@ -91,7 +95,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     summary = next(axis);
@@ -101,7 +105,7 @@ public class PathSummaryTest {
     assertEquals(6L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("b"), axis.getTrx().getName());
+    assertEquals(new QNm("b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     summary = next(axis);
@@ -111,7 +115,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
@@ -121,7 +125,7 @@ public class PathSummaryTest {
     assertEquals(6L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
@@ -131,7 +135,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
@@ -141,7 +145,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     summary = next(axis);
@@ -178,7 +182,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -190,7 +194,7 @@ public class PathSummaryTest {
     assertEquals(5L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("b"), axis.getTrx().getName());
+    assertEquals(new QNm("b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -202,7 +206,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -214,7 +218,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -226,7 +230,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
 
@@ -260,7 +264,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(4, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -272,7 +276,7 @@ public class PathSummaryTest {
     assertEquals(9L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(4L, summary.getRightSiblingKey());
-    assertEquals(new QNm("foo"), axis.getTrx().getName());
+    assertEquals(new QNm("foo"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -284,7 +288,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(8L, summary.getRightSiblingKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -296,7 +300,7 @@ public class PathSummaryTest {
     assertEquals(9L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -308,7 +312,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
     assertEquals(5L, summary.getFirstChildKey());
-    assertEquals(new QNm("b"), axis.getTrx().getName());
+    assertEquals(new QNm("b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -320,7 +324,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -332,7 +336,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -344,7 +348,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -415,8 +419,7 @@ public class PathSummaryTest {
     wtx.commit();
     wtx.close();
 
-    try (final PathSummaryReader pathSummaryOnMostRecentRev =
-        holder.getResourceManager().openPathSummary()) {
+    try (final PathSummaryReader pathSummaryOnMostRecentRev = holder.getResourceManager().openPathSummary()) {
       testSetQNmSecondHelper(pathSummaryOnMostRecentRev);
     }
   }
@@ -432,7 +435,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -444,7 +447,7 @@ public class PathSummaryTest {
     assertEquals(10L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("b"), axis.getTrx().getName());
+    assertEquals(new QNm("b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -456,7 +459,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -468,7 +471,7 @@ public class PathSummaryTest {
     assertEquals(10L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -480,7 +483,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -492,7 +495,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -530,7 +533,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(4, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -542,7 +545,7 @@ public class PathSummaryTest {
     assertEquals(9L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(4L, summary.getRightSiblingKey());
-    assertEquals(new QNm("d"), axis.getTrx().getName());
+    assertEquals(new QNm("d"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -554,7 +557,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(8L, summary.getRightSiblingKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -566,7 +569,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(9L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -578,7 +581,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
     assertEquals(5L, summary.getFirstChildKey());
-    assertEquals(new QNm("t"), axis.getTrx().getName());
+    assertEquals(new QNm("t"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -590,7 +593,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -602,7 +605,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -614,7 +617,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -652,7 +655,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(4, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -663,7 +666,7 @@ public class PathSummaryTest {
     assertEquals(8L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(4L, summary.getRightSiblingKey());
-    assertEquals(new QNm("d"), axis.getTrx().getName());
+    assertEquals(new QNm("d"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -674,7 +677,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -685,7 +688,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
     assertEquals(6L, summary.getFirstChildKey());
-    assertEquals(new QNm("b"), axis.getTrx().getName());
+    assertEquals(new QNm("b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -696,7 +699,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -707,7 +710,7 @@ public class PathSummaryTest {
     assertEquals(6L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("c"), axis.getTrx().getName());
+    assertEquals(new QNm("c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -718,7 +721,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("i"), axis.getTrx().getName());
+    assertEquals(new QNm("i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -729,7 +732,7 @@ public class PathSummaryTest {
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
     assertEquals(-1L, summary.getFirstChildKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -785,7 +788,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -798,7 +801,7 @@ public class PathSummaryTest {
     assertEquals(7L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -811,7 +814,7 @@ public class PathSummaryTest {
     assertEquals(9L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(2, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -824,7 +827,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(8L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "c"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
     assertEquals(4, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -837,7 +840,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(9L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(4, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -850,7 +853,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(7L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "c"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -863,7 +866,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "i"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -876,7 +879,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -897,31 +900,30 @@ public class PathSummaryTest {
     wtx.insertElementAsFirstChild(new QNm("bar"));
     wtx.commit();
 
-    // System.out.println("nodes");
-    //
-    // OutputStream out = new ByteArrayOutputStream();
-    // XMLSerializer serializer =
-    // new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
-    // serializer.call();
-    // System.out.println(out.toString());
-    //
-    // System.out.println("summary");
-    //
-    // PathSummaryReader pathSummary = wtx.getPathSummary();
-    // Axis pathSummaryAxis = new DescendantAxis(pathSummary);
-    //
-    // while (pathSummaryAxis.hasNext()) {
-    // pathSummaryAxis.next();
-    //
-    // System.out.println("nodeKey: " + pathSummary.getNodeKey());
-    // System.out.println("path: " + pathSummary.getPath());
-    // System.out.println("references: " + pathSummary.getReferences());
-    // System.out.println("level: " + pathSummary.getLevel());
-    // }
+    System.out.println("nodes");
+
+    OutputStream out = new ByteArrayOutputStream();
+    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    serializer.call();
+    System.out.println(out.toString());
+
+    System.out.println("summary");
+
+    PathSummaryReader pathSummary = wtx.getPathSummary();
+    Axis pathSummaryAxis = new DescendantAxis(pathSummary);
+
+    while (pathSummaryAxis.hasNext()) {
+      pathSummaryAxis.next();
+
+      System.out.println("nodeKey: " + pathSummary.getNodeKey());
+      System.out.println("path: " + pathSummary.getPath());
+      System.out.println("references: " + pathSummary.getReferences());
+      System.out.println("level: " + pathSummary.getLevel());
+    }
 
     testSecondMoveToFirstChildBeforeMoveHelper(wtx.getPathSummary());
 
-    wtx.moveToParent().get().moveToParent();
+    wtx.moveToParent().getCursor().moveToParent();
     wtx.moveSubtreeToRightSibling(9);
     wtx.commit();
 
@@ -963,7 +965,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -976,7 +978,7 @@ public class PathSummaryTest {
     assertEquals(9L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(4, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -989,7 +991,7 @@ public class PathSummaryTest {
     assertEquals(10L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(7L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1002,7 +1004,7 @@ public class PathSummaryTest {
     assertEquals(11L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "foo"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "foo"), axis.asPathSummary().getName());
     assertEquals(4, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1015,7 +1017,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "bar"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "bar"), axis.asPathSummary().getName());
     assertEquals(5, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1028,7 +1030,7 @@ public class PathSummaryTest {
     assertEquals(8L, summary.getFirstChildKey());
     assertEquals(9L, summary.getLeftSiblingKey());
     assertEquals(6L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "foo"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "foo"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1041,7 +1043,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "bar"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "bar"), axis.asPathSummary().getName());
     assertEquals(4, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1054,7 +1056,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(7L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1067,7 +1069,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(6L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "c"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -1080,7 +1082,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "i"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1093,7 +1095,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1112,7 +1114,7 @@ public class PathSummaryTest {
     assertEquals(4L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "a"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "a"), axis.asPathSummary().getName());
     assertEquals(1, summary.getLevel());
     assertEquals(3, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1125,7 +1127,7 @@ public class PathSummaryTest {
     assertEquals(13L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(3L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(4, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1138,7 +1140,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(12L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "c"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1151,7 +1153,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(13L, summary.getLeftSiblingKey());
     assertEquals(9L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", "x"), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", "x"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1164,7 +1166,7 @@ public class PathSummaryTest {
     assertEquals(10L, summary.getFirstChildKey());
     assertEquals(12L, summary.getLeftSiblingKey());
     assertEquals(5L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "b"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "b"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -1177,7 +1179,7 @@ public class PathSummaryTest {
     assertEquals(11L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "foo"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "foo"), axis.asPathSummary().getName());
     assertEquals(4, summary.getLevel());
     assertEquals(1, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -1190,7 +1192,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(-1L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "bar"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "bar"), axis.asPathSummary().getName());
     assertEquals(5, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(2, summary.getReferences());
@@ -1203,7 +1205,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(9L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "c"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "c"), axis.asPathSummary().getName());
     assertEquals(3, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1216,7 +1218,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(4L, summary.getLeftSiblingKey());
     assertEquals(2L, summary.getRightSiblingKey());
-    assertEquals(new QNm("", "", "i"), axis.getTrx().getName());
+    assertEquals(new QNm("", "", "i"), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1229,7 +1231,7 @@ public class PathSummaryTest {
     assertEquals(-1L, summary.getFirstChildKey());
     assertEquals(3L, summary.getLeftSiblingKey());
     assertEquals(-1L, summary.getRightSiblingKey());
-    assertEquals(new QNm("ns", "p", ""), axis.getTrx().getName());
+    assertEquals(new QNm("ns", "p", ""), axis.asPathSummary().getName());
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
@@ -1248,7 +1250,7 @@ public class PathSummaryTest {
   private PathSummaryReader next(final Axis axis) {
     if (axis.hasNext()) {
       axis.next();
-      return (PathSummaryReader) axis.getTrx();
+      return (PathSummaryReader) axis.getCursor();
     }
     return null;
   }

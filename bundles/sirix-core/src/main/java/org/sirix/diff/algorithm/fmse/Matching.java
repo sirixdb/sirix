@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.Kind;
@@ -50,19 +50,19 @@ public final class Matching {
    */
   private final ConnectionMap<Long> mIsInSubtree;
 
-  /** {@link XdmNodeReadTrx} reference on old revision. */
-  private final XdmNodeReadTrx mRtxOld;
+  /** {@link XdmNodeReadOnlyTrx} reference on old revision. */
+  private final XdmNodeReadOnlyTrx mRtxOld;
 
-  /** {@link XdmNodeReadTrx} reference on new revision. */
-  private final XdmNodeReadTrx mRtxNew;
+  /** {@link XdmNodeReadOnlyTrx} reference on new revision. */
+  private final XdmNodeReadOnlyTrx mRtxNew;
 
   /**
    * Creates a new matching.
    * 
-   * @param pRtxOld {@link XdmNodeReadTrx} reference on old revision
-   * @param pRtxNew {@link XdmNodeReadTrx} reference on new revision.
+   * @param pRtxOld {@link XdmNodeReadOnlyTrx} reference on old revision
+   * @param pRtxNew {@link XdmNodeReadOnlyTrx} reference on new revision.
    */
-  public Matching(final XdmNodeReadTrx pRtxOld, final XdmNodeReadTrx pRtxNew) {
+  public Matching(final XdmNodeReadOnlyTrx pRtxOld, final XdmNodeReadOnlyTrx pRtxNew) {
     mMapping = new HashMap<>();
     mReverseMapping = new HashMap<>();
     mIsInSubtree = new ConnectionMap<>();
@@ -115,9 +115,9 @@ public final class Matching {
    * For each anchestor of n: n is in it's subtree.
    * 
    * @param key key of node in subtree
-   * @param rtx {@link XdmNodeReadTrx} reference
+   * @param rtx {@link XdmNodeReadOnlyTrx} reference
    */
-  private void updateSubtreeMap(final @Nonnegative long key, final XdmNodeReadTrx rtx) {
+  private void updateSubtreeMap(final @Nonnegative long key, final XdmNodeReadOnlyTrx rtx) {
     assert key >= 0;
     assert rtx != null;
 
@@ -160,12 +160,12 @@ public final class Matching {
       if (mRtxOld.getKind() == Kind.ELEMENT) {
         for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
         for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
           mRtxOld.moveToAttribute(i);
-          retVal += mIsInSubtree.get(nodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
+          retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
       }

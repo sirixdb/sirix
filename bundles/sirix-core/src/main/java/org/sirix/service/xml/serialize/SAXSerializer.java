@@ -32,9 +32,10 @@ import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
+import org.sirix.api.xdm.XdmResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -61,7 +62,8 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class SAXSerializer extends AbstractSerializer implements XMLReader {
+public final class SAXSerializer extends org.sirix.service.AbstractSerializer<XdmNodeReadOnlyTrx, XdmNodeTrx>
+    implements XMLReader {
 
   /** {@link LogWrapper} reference. */
   private final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(SAXSerializer.class));
@@ -77,16 +79,16 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final ResourceManager resMgr, final ContentHandler handler,
-      final @Nonnegative int revision, final int... revisions) {
+  public SAXSerializer(final XdmResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
+      final int... revisions) {
     super(resMgr, revision, revisions);
     mContHandler = handler;
   }
 
   @Override
-  protected void emitNode(final XdmNodeReadTrx rtx) {
+  protected void emitNode(final XdmNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
-      case DOCUMENT:
+      case XDM_DOCUMENT:
         break;
       case ELEMENT:
         generateElement(rtx);
@@ -107,7 +109,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitEndTag(final XdmNodeReadTrx rtx) {
+  protected void emitEndNode(final XdmNodeReadOnlyTrx rtx) {
     final QNm qName = rtx.getName();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -119,15 +121,14 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionStartTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionStartNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
 
     if (length > 1) {
       final AttributesImpl atts = new AttributesImpl();
-      atts.addAttribute(
-          "sdb", "revision", "sdb:revision", "", Integer.toString(rtx.getRevisionNumber()));
+      atts.addAttribute("sdb", "revision", "sdb:revision", "", Integer.toString(rtx.getRevisionNumber()));
       try {
         mContHandler.startElement("https://sirix.io", "sirix-item", "sdb:sirix-item", atts);
       } catch (final SAXException e) {
@@ -137,7 +138,7 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   }
 
   @Override
-  protected void emitRevisionEndTag(final @Nonnull XdmNodeReadTrx rtx) {
+  protected void emitRevisionEndNode(final @Nonnull XdmNodeReadOnlyTrx rtx) {
     final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
         ? (int) mResMgr.getMostRecentRevisionNumber()
         : mRevisions.length;
@@ -154,9 +155,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generates a comment event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateComment(final XdmNodeReadTrx rtx) {
+  private void generateComment(final XdmNodeReadOnlyTrx rtx) {
     try {
       final char[] content = rtx.getValue().toCharArray();
       mContHandler.characters(content, 0, content.length);
@@ -168,9 +169,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a processing instruction event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generatePI(final XdmNodeReadTrx rtx) {
+  private void generatePI(final XdmNodeReadOnlyTrx rtx) {
     try {
       mContHandler.processingInstruction(rtx.getName().getLocalName(), rtx.getValue());
     } catch (final SAXException e) {
@@ -181,9 +182,9 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a start element event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateElement(final XdmNodeReadTrx rtx) {
+  private void generateElement(final XdmNodeReadOnlyTrx rtx) {
     final AttributesImpl atts = new AttributesImpl();
     final long key = rtx.getNodeKey();
 
@@ -207,20 +208,17 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
         rtx.moveToAttribute(i);
         final QNm qName = rtx.getName();
         final String mURI = qName.getNamespaceURI();
-        atts.addAttribute(
-            mURI, qName.getLocalName(), Utils.buildName(qName), rtx.getType(), rtx.getValue());
+        atts.addAttribute(mURI, qName.getLocalName(), Utils.buildName(qName), rtx.getType(), rtx.getValue());
         rtx.moveTo(key);
       }
 
       // Create SAX events.
       final QNm qName = rtx.getName();
-      mContHandler.startElement(
-          qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName), atts);
+      mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName), atts);
 
       // Empty elements.
       if (!rtx.hasFirstChild()) {
-        mContHandler.endElement(
-            qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName));
+        mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalName(), Utils.buildName(qName));
       }
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
@@ -230,12 +228,11 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   /**
    * Generate a text event.
    *
-   * @param rtx {@link XdmNodeReadTrx} implementation
+   * @param rtx {@link XdmNodeReadOnlyTrx} implementation
    */
-  private void generateText(final XdmNodeReadTrx rtx) {
+  private void generateText(final XdmNodeReadOnlyTrx rtx) {
     try {
-      mContHandler.characters(
-          XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
+      mContHandler.characters(XMLToken.escapeContent(rtx.getValue()).toCharArray(), 0, rtx.getValue().length());
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -250,13 +247,12 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
   public static void main(final String... args) {
     final Path path = Paths.get(args[0]);
     final DatabaseConfiguration config = new DatabaseConfiguration(path);
-    Databases.createDatabase(config);
-    final Database database = Databases.openDatabase(path);
+    Databases.createXdmDatabase(config);
+    final var database = Databases.openXdmDatabase(path);
     database.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    try (final ResourceManager resource = database.getResourceManager("shredded")) {
+    try (final XdmResourceManager resource = database.getResourceManager("shredded")) {
       final DefaultHandler defHandler = new DefaultHandler();
-      final SAXSerializer serializer =
-          new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
+      final SAXSerializer serializer = new SAXSerializer(resource, defHandler, resource.getMostRecentRevisionNumber());
       serializer.call();
     }
   }
@@ -327,15 +323,13 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
   /* Implements XMLReader method. */
   @Override
-  public boolean getFeature(String name)
-      throws SAXNotRecognizedException, SAXNotSupportedException {
+  public boolean getFeature(String name) throws SAXNotRecognizedException, SAXNotSupportedException {
     throw new SAXNotSupportedException();
   }
 
   /* Implements XMLReader method. */
   @Override
-  public Object getProperty(String name)
-      throws SAXNotRecognizedException, SAXNotSupportedException {
+  public Object getProperty(String name) throws SAXNotRecognizedException, SAXNotSupportedException {
     throw new SAXNotSupportedException();
   }
 
@@ -384,15 +378,13 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
   /* Implements XMLReader method. */
   @Override
-  public void setFeature(String name, boolean value)
-      throws SAXNotRecognizedException, SAXNotSupportedException {
+  public void setFeature(String name, boolean value) throws SAXNotRecognizedException, SAXNotSupportedException {
     throw new SAXNotSupportedException();
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setProperty(String name, final Object value)
-      throws SAXNotRecognizedException, SAXNotSupportedException {
+  public void setProperty(String name, final Object value) throws SAXNotRecognizedException, SAXNotSupportedException {
     throw new SAXNotSupportedException();
   }
 }

@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.expr;
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -53,7 +53,7 @@ public class UnionAxis extends AbstractAxis {
    * @param operand1 first operand
    * @param operand2 second operand
    */
-  public UnionAxis(final XdmNodeReadTrx rtx, @Nonnull final Axis operand1,
+  public UnionAxis(final XdmNodeReadOnlyTrx rtx, @Nonnull final Axis operand1,
       @Nonnull final Axis operand2) {
     super(rtx);
     mOp1 = checkNotNull(operand1);
@@ -79,7 +79,7 @@ public class UnionAxis extends AbstractAxis {
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -90,7 +90,7 @@ public class UnionAxis extends AbstractAxis {
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
+      if (asXdmNodeReadTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }

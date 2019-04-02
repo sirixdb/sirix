@@ -4,17 +4,17 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Random;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.AbstractVisitor;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class ModificationVisitor extends AbstractVisitor {
+public final class ModificationVisitor extends AbstractXdmNodeVisitor {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER =
@@ -33,8 +33,8 @@ public final class ModificationVisitor extends AbstractVisitor {
   /** Determines the modify rate. */
   private static final int MODIFY_EVERY = 1111;
 
-  /** Sirix {@link XdmNodeWriteTrx}. */
-  private final XdmNodeWriteTrx mWtx;
+  /** Sirix {@link XdmNodeTrx}. */
+  private final XdmNodeTrx mWtx;
 
   /** Random number generator. */
   private final Random mRandom = new Random();
@@ -48,10 +48,10 @@ public final class ModificationVisitor extends AbstractVisitor {
   /**
    * Constructor.
    *
-   * @param wtx sirix {@link XdmNodeWriteTrx}
+   * @param wtx sirix {@link XdmNodeTrx}
    * @param startKey start key
    */
-  public ModificationVisitor(final XdmNodeWriteTrx wtx, final long startKey) {
+  public ModificationVisitor(final XdmNodeTrx wtx, final long startKey) {
     mWtx = checkNotNull(wtx);
     checkArgument(startKey >= 0, "start key must be >= 0!");
     mStartKey = startKey;
@@ -116,7 +116,7 @@ public final class ModificationVisitor extends AbstractVisitor {
           case 2:
             return delete();
           case 3:
-            mWtx.replaceNode(XMLShredder.createStringReader("<foo/>"));
+            mWtx.replaceNode(XmlShredder.createStringReader("<foo/>"));
             return VisitResultType.CONTINUE;
           default:
             break;
@@ -167,7 +167,7 @@ public final class ModificationVisitor extends AbstractVisitor {
       // Case: Has right sibl. and left sibl.
       if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
         final long rightSiblKey = mWtx.getRightSiblingKey();
-        final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
+        final long rightRightSiblKey = mWtx.moveToRightSibling().getCursor().getRightSiblingKey();
         mWtx.moveTo(nodeKey);
         mWtx.remove();
         if (removeTextNode) {

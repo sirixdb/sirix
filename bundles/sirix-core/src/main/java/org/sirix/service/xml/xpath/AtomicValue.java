@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -25,12 +25,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.XdmNodeVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableXdmNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -45,7 +46,7 @@ import org.sirix.utils.TypedValue;
  * 1.1</a>. (Definition: Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public final class AtomicValue implements Node, ValueNode {
+public final class AtomicValue implements Node, ValueNode, ImmutableXdmNode {
 
   /** Value of the item as byte array. */
   private byte[] mValue;
@@ -54,14 +55,14 @@ public final class AtomicValue implements Node, ValueNode {
   private int mType;
 
   /**
-   * The item's key. In case of an Atomic value this is always a negative to make them
-   * distinguishable from nodes.
+   * The item's key. In case of an Atomic value this is always a negative to make them distinguishable
+   * from nodes.
    */
   private long mItemKey;
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param value the value of the Item
    * @param type the item's type
    */
@@ -72,7 +73,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    */
   public AtomicValue(final boolean pValue) {
@@ -82,7 +83,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    * @param pType the item's type
    */
@@ -94,7 +95,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Constructor. Initializes the internal state.
-   * 
+   *
    * @param pValue the value of the Item
    * @param pType the item's type
    */
@@ -105,7 +106,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Set node key.
-   * 
+   *
    * @param pItemKey unique item key
    */
   public void setNodeKey(final long pItemKey) {
@@ -134,7 +135,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Check if is fulltext.
-   * 
+   *
    * @return true if fulltext, false otherwise
    */
   public boolean isFullText() {
@@ -144,7 +145,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Test if the lead is tes.
-   * 
+   *
    * @return true if fulltest leaf, false otherwise
    */
   public boolean isFullTextLeaf() {
@@ -153,7 +154,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Test if the root is full text.
-   * 
+   *
    * @return true if fulltest root, false otherwise
    */
   public boolean isFullTextRoot() {
@@ -167,7 +168,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Getting the type of the value.
-   * 
+   *
    * @return the type of this value
    */
   public final String getType() {
@@ -176,7 +177,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as an integer.
-   * 
+   *
    * @return the value as an integer
    */
   public int getInt() {
@@ -185,7 +186,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a boolean.
-   * 
+   *
    * @return the value as a boolean
    */
   public boolean getBool() {
@@ -194,7 +195,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a float.
-   * 
+   *
    * @return the value as a float
    */
   public float getFLT() {
@@ -203,7 +204,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * Returns the atomic value as a double.
-   * 
+   *
    * @return the value as a double
    */
   public double getDBL() {
@@ -212,7 +213,7 @@ public final class AtomicValue implements Node, ValueNode {
 
   /**
    * To String method.
-   * 
+   *
    * @return String representation of this node
    */
   @Override
@@ -233,11 +234,6 @@ public final class AtomicValue implements Node, ValueNode {
   @Override
   public long getHash() {
     return 0;
-  }
-
-  @Override
-  public VisitResultType acceptVisitor(final Visitor pVisitor) {
-    return VisitResultType.CONTINUE;
   }
 
   @Override
@@ -276,17 +272,22 @@ public final class AtomicValue implements Node, ValueNode {
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void setDeweyID(Optional<SirixDeweyID> id) {
+  public void setDeweyID(SirixDeweyID id) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public String getValue() {
     return new String(mValue, Constants.DEFAULT_ENCODING);
+  }
+
+  @Override
+  public Optional<SirixDeweyID> getDeweyID() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public VisitResult acceptVisitor(XdmNodeVisitor visitor) {
+    throw new UnsupportedOperationException();
   }
 }

@@ -108,7 +108,7 @@ public final class Constants {
       2 * UBPINP_REFERENCE_COUNT_EXPONENT, 1 * UBPINP_REFERENCE_COUNT_EXPONENT,
       0 * UBPINP_REFERENCE_COUNT_EXPONENT};
 
-  /** Revision count of unitialized storage. */
+  /** Revision count of uninitialized storage. */
   public static final int UBP_ROOT_REVISION_COUNT = 1;
 
   /** Root revisionKey guaranteed to exist in empty storage. */

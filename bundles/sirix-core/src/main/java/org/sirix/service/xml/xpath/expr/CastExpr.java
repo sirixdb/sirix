@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.SingleType;
 import org.sirix.service.xml.xpath.XPathError;
@@ -62,7 +62,7 @@ public class CastExpr extends AbstractExpression {
    * @param mInputExpr input expression, that will be casted.
    * @param mTarget Type the input expression will be casted to.
    */
-  public CastExpr(final XdmNodeReadTrx rtx, final Axis mInputExpr, final SingleType mTarget) {
+  public CastExpr(final XdmNodeReadOnlyTrx rtx, final Axis mInputExpr, final SingleType mTarget) {
 
     super(rtx);
     mSourceExpr = mInputExpr;
@@ -97,8 +97,8 @@ public class CastExpr extends AbstractExpression {
     if (mSourceExpr.hasNext()) {
       mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTrx().getTypeKey());
-      final String sourceValue = getTrx().getValue();
+      final Type sourceType = Type.getType(asXdmNodeReadTrx().getTypeKey());
+      final String sourceValue = asXdmNodeReadTrx().getValue();
 
       // cast source to target type, if possible
       if (sourceType.isCastableTo(mTargetType, sourceValue)) {

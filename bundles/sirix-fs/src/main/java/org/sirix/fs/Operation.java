@@ -3,7 +3,7 @@ package org.sirix.fs;
 import java.nio.file.Path;
 import java.util.Map;
 import javax.annotation.Nonnull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -15,7 +15,7 @@ import org.sirix.exception.SirixException;
  *        parameter for the visitor
  */
 @Nonnull
-public interface Operation<S extends XdmNodeReadTrx> {
+public interface Operation<S extends NodeReadOnlyTrx> {
 
   /**
    * Execute an operation.

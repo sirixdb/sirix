@@ -14,5 +14,4 @@ public class DeweyIDMappingPage extends AbstractForwardingPage {
   protected Page delegate() {
     return null;
   }
-
 }

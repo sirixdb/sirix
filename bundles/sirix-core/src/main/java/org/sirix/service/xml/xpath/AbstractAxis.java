@@ -27,9 +27,11 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.visitor.XdmNodeVisitor;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
 /**
@@ -114,8 +116,8 @@ public abstract class AbstractAxis implements Axis {
    * </p>
    *
    * <p>
-   * <strong>Implementors should implement {@code nextKey()} instead which is a template method
-   * called from this {@code hasNext()} method.</strong>
+   * <strong>Implementors should implement {@code nextKey()} instead which is a template method called
+   * from this {@code hasNext()} method.</strong>
    * </p>
    */
   @Override
@@ -147,8 +149,8 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Please do not override {@code hasNext()} directly. Use this template method instead. It
    * determines the next node key in the axis. Override this method to simplify {@code hasNext()}.
-   * Simply return {@code EFixed.NULL_NODE_KEY.getStandardProperty()} if no more node is following
-   * in the axis, otherwise return the node key of the next node.
+   * Simply return {@code EFixed.NULL_NODE_KEY.getStandardProperty()} if no more node is following in
+   * the axis, otherwise return the node key of the next node.
    *
    * @return next node key
    */
@@ -197,18 +199,20 @@ public abstract class AbstractAxis implements Axis {
     mHasNext = true;
   }
 
-  /**
-   * Get current {@link XdmNodeReadTrx}.
-   *
-   * @return the {@link XdmNodeReadTrx} used
-   */
   @Override
-  public XdmNodeReadTrx getTrx() {
-    if (mRtx instanceof XdmNodeReadTrx) {
-      return (XdmNodeReadTrx) mRtx;
-    } else {
-      return null;
+  public XdmNodeReadOnlyTrx asXdmNodeReadTrx() {
+    if (mRtx instanceof NodeReadOnlyTrx) {
+      return (XdmNodeReadOnlyTrx) mRtx;
     }
+    throw new IllegalStateException("Node cursor is no XDM node transaction.");
+  }
+
+  @Override
+  public PathSummaryReader asPathSummary() {
+    if (mRtx instanceof PathSummaryReader) {
+      return (PathSummaryReader) mRtx;
+    }
+    throw new IllegalStateException("Node cursor is no path summary reader.");
   }
 
   @Override
@@ -240,8 +244,8 @@ public abstract class AbstractAxis implements Axis {
   }
 
   /**
-   * Make sure the transaction points to the node after the last hasNext(). This must be called
-   * first in hasNext().
+   * Make sure the transaction points to the node after the last hasNext(). This must be called first
+   * in hasNext().
    *
    * @return key of node where transaction was after the last call of {@code hasNext()}
    */
@@ -268,8 +272,8 @@ public abstract class AbstractAxis implements Axis {
   }
 
   /**
-   * Get mNext which determines if {@code hasNext()} has at least been called once before the call
-   * to {@code next()}.
+   * Get mNext which determines if {@code hasNext()} has at least been called once before the call to
+   * {@code next()}.
    *
    * @return {@code true} if {@code hasNext()} has been called before calling {@code next()},
    *         {@code false} otherwise
@@ -281,13 +285,13 @@ public abstract class AbstractAxis implements Axis {
   /**
    * Implements a simple foreach-method.
    *
-   * @param pVisitor {@link Visitor} implementation
+   * @param pVisitor {@link XdmNodeVisitor} implementation
    */
   @Override
-  public final void foreach(final Visitor pVisitor) {
+  public final void foreach(final XdmNodeVisitor pVisitor) {
     checkNotNull(pVisitor);
     for (; hasNext(); next()) {
-      mRtx.acceptVisitor(pVisitor);
+      ((XdmNodeReadOnlyTrx) mRtx).acceptVisitor(pVisitor);
     }
   }
 

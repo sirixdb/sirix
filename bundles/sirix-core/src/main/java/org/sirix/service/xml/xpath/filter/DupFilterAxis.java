@@ -24,7 +24,7 @@ package org.sirix.service.xml.xpath.filter;
 import java.util.HashSet;
 import java.util.Set;
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.service.xml.xpath.AbstractAxis;
@@ -61,7 +61,7 @@ public class DupFilterAxis extends AbstractAxis {
    * @param rtx Exclusive (immutable) trx to iterate with.
    * @param mDupAxis Sequence that may return duplicates.
    */
-  public DupFilterAxis(final XdmNodeReadTrx rtx, final Axis pDupAxis) {
+  public DupFilterAxis(final XdmNodeReadOnlyTrx rtx, final Axis pDupAxis) {
 
     super(rtx);
     mAxis = pDupAxis;
@@ -98,13 +98,13 @@ public class DupFilterAxis extends AbstractAxis {
         // mKey = mAxis.next();
         // } else {
         mAxis.next();
-        mKey = mAxis.getTrx().getNodeKey();
+        mKey = mAxis.asXdmNodeReadTrx().getNodeKey();
         // }
 
         // add current item key to the set. If true is returned the item is
         // no
         // duplicate and can be returned by the duplicate filter.
-        if (mDupSet.add(getTrx().getNodeKey())) {
+        if (mDupSet.add(asXdmNodeReadTrx().getNodeKey())) {
           return true;
         }
       }

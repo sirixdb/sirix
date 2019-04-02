@@ -13,8 +13,8 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Type;
-import org.sirix.access.trx.node.IndexController;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
@@ -36,8 +36,7 @@ import org.sirix.xquery.node.DBNode;
 public final class FindNameIndex extends AbstractFunction {
 
   /** CAS index function name. */
-  public final static QNm FIND_NAME_INDEX =
-      new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-name-index");
+  public final static QNm FIND_NAME_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "find-name-index");
 
   /**
    * Constructor.
@@ -50,12 +49,11 @@ public final class FindNameIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-      throws QueryException {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) throws QueryException {
     final DBNode doc = (DBNode) args[0];
-    final XdmNodeReadTrx rtx = doc.getTrx();
-    final IndexController controller =
-        rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
+    final NodeReadOnlyTrx rtx = doc.getTrx();
+    final XdmIndexController controller =
+        (XdmIndexController) rtx.getResourceManager().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

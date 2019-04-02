@@ -21,7 +21,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 
 /**
  * <h1>ParentAxis</h1>
@@ -40,7 +40,7 @@ public final class SelfAxis extends AbstractAxis {
    * 
    * @param rtx exclusive (immutable) trx to iterate with
    */
-  public SelfAxis(final XdmNodeReadTrx rtx) {
+  public SelfAxis(final XdmNodeReadOnlyTrx rtx) {
     super(rtx);
   }
 
@@ -54,7 +54,7 @@ public final class SelfAxis extends AbstractAxis {
   protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      return getTrx().getNodeKey();
+      return asXdmNodeReadTrx().getNodeKey();
     }
 
     return done();

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,10 +22,7 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
 import javax.annotation.Nullable;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.Visitor;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -34,9 +31,9 @@ import com.google.common.base.Objects;
 
 /**
  * Null node (NullObject pattern).
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class NullNode implements StructNode {
 
@@ -45,7 +42,7 @@ public final class NullNode implements StructNode {
 
   /**
    * Constructor.
-   * 
+   *
    * @param node the underlying node which is wrapped
    * @throws NullPointerException if {@code pNode} is {@code null}
    */
@@ -70,11 +67,6 @@ public final class NullNode implements StructNode {
 
   @Override
   public void incrementChildCount() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public VisitResultType acceptVisitor(final Visitor visitor) {
     throw new UnsupportedOperationException();
   }
 
@@ -106,12 +98,7 @@ public final class NullNode implements StructNode {
   @Override
   public Kind getKind() {
     // Node kind is always of type Kind.
-    return (Kind) mNode.getKind();
-  }
-
-  @Override
-  public int getTypeKey() {
-    throw new UnsupportedOperationException();
+    return mNode.getKind();
   }
 
   @Override
@@ -215,12 +202,7 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public Optional<SirixDeweyID> getDeweyID() {
-    return mNode.getDeweyID();
-  }
-
-  @Override
-  public void setDeweyID(Optional<SirixDeweyID> id) {
+  public void setDeweyID(SirixDeweyID id) {
     throw new UnsupportedOperationException();
   }
 }

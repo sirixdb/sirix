@@ -11,7 +11,7 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
-<h1 align="center">SirixDB - An Evolutionary Tree-Structured Storage System</h1>
+<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Storage System</h1>
 <h2 align="center">Store and query revisions of your data efficiently</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
@@ -22,7 +22,7 @@
 
 <p>&nbsp;</p>
 
-**Discuss it on [Product Hunt](https://www.producthunt.com/posts/sirixdb-a-temporal-storage-system)**
+**Discuss it on the [Mailing List](https://groups.google.com/d/forum/sirix-discuss)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
 We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples.
@@ -31,7 +31,7 @@ Our strong belief is, that a temporal storage system must address the issues, wh
 
 Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally query time of old/past revisions as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
-We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also encourage you to issue time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
@@ -47,6 +47,10 @@ We not only support all XPath axis (as well as a few more like as for instance a
 <p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png"/></p>
 
 <p>&nbsp;&nbsp;</p>
+
+Articles published on Medium: 
+- [Pushing Database Versioning to Its Limits by Means of a Novel Sliding Snapshot Algorithm and Efficient Time Travel Queries](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/why-and-how-we-built-a-temporal-database-system-called-sirixdb-open-source-from-scratch-a7446f56f201)
+- [How we built an asynchronous, temporal RESTful API based on Vert.x, Keycloak and Kotlin/Coroutines for Sirix.io (Open Source)](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/how-we-built-an-asynchronous-temporal-restful-api-based-on-vert-x-4570f681a3)
 
 ## Table of contents
 
@@ -100,7 +104,7 @@ Just add the following repository section to your POM file:
 </repository>
 ```
 
-<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`.</strong>
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.0-SNAPSHOT.</strong>
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
@@ -109,7 +113,7 @@ Core project:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -118,7 +122,7 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -127,7 +131,7 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.8.9-SNAPSHOT</version>
+  <version>0.9.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -185,7 +189,7 @@ Once also Keycloak is set up we can start the server via:
 
 `java -jar -Duser.home=/opt/intrexx sirix-rest-api-*-SNAPSHOT-fat.jar -conf sirix-conf.json -cp opt/intrexx/*`
 
-If you like to change your user home directory to `/opt/intrexx` for instance.
+If you like to change your user home directory to `/opt/sirix` for instance.
 
 The fat-JAR in the future will be downloadable from the [maven repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-rest-api/0.8.9-SNAPSHOT/).
 
@@ -304,7 +308,17 @@ The interesting part is that every PUT- as well as POST-request does an implicit
 In general we support several additional temporal XPath axis:
 
 ```xquery
-future, future-or-self, past, past-or-self, previous, previous-or-self, next, next-or-self, first, last, all-time
+future::
+future-or-self::
+past::
+past-or-self::
+previous::
+previous-or-self::
+next::
+next-or-self::
+first::
+last::
+all-time::
 ```
 
 The same can be achieved through specifying a range of revisions to serialize (start- and end-revision parameters) in the GET-request:
@@ -362,14 +376,14 @@ Think of this rather low level API as a persistent (in the sense of storing it t
 
 ```java
 // Path to the database.
-final Path file = Paths.get("sirix-database");
+var file = Paths.get("sirix-database");
 
 // Create the database.
-final DatabaseConfiguration config = new DatabaseConfiguration(file);
-Databases.createDatabase(config);
+var config = new DatabaseConfiguration(file);
+Databases.createXdmDatabase(config);
 
 // Open the database.
-try (final Database database = Databases.openDatabase(file)) {
+try (var database = Databases.openXdmDatabase(file)) {
   /* 
    * Create a resource in the database with the name "resource1".
    * Store deweyIDs (hierarchical node labels), use text node compression,
@@ -385,9 +399,9 @@ try (final Database database = Databases.openDatabase(file)) {
                                  .build());
   try (
       // Start a resource manager on the given resource.
-      final ResourceManager manager = database.getResourceManager("resource1");
+      var manager = database.getResourceManager("resource1");
       // Start the single read/write transaction.
-      final XdmNodeWriteTrx wtx = manager.beginNodeWriteTrx()) {
+      var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
     
@@ -428,7 +442,7 @@ There are N reading transactions as well as one write-transaction permitted on a
 A read-only transaction can be opened through:
 
 ```java
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx()
+var rtx = manager.beginNodeReadTrx()
 ```
 
 The codè above starts a transaction on the most recent revision.
@@ -436,14 +450,14 @@ The codè above starts a transaction on the most recent revision.
 The following code starts a transaction at revision 1.
 
 ```java
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(1)
+var rtx = manager.beginNodeReadTrx(1)
 ```
 
 The next read only transaction is going to be stared on the revision, which has been committed at the closest timestamp to the given point in time.
 
 ```java
-final LocalDateTime time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
-final XdmNodeReadTrx rtx = manager.beginNodeReadTrx(time.toInstant())
+var time = LocalDateTime.of(2018, Month.APRIL, 28, 23, 30);
+var rtx = manager.beginNodeReadTrx(time.toInstant())
 ```
 
 There are also several ways to start the single write-transaction:
@@ -454,9 +468,9 @@ There are also several ways to start the single write-transaction:
    *
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx();
+  XdmNodeTrx beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -465,9 +479,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes);
+  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -478,9 +492,9 @@ There are also several ways to start the single write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(TimeUnit timeUnit, int maxTime);
+  XdmNodeTrx beginNodeTrx(TimeUnit timeUnit, int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -492,29 +506,29 @@ There are also several ways to start the single write-transaction:
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of class implementing the {@link XdmNodeTrx} instance
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
+  XdmNodeTrx beginNodeTrx(@Nonnegative int maxNodes, TimeUnit timeUnit, int maxTime);
 ```
 
 With <code>wtx.revertTo(int)</code> you're able to revert everything to an old revision (given by the integer). Followed by a commit the former version is commited as a new revision.
 
 Use one of the provided axis to navigate through the DOM-like tree-structre (for instance in level order only through level 4):
 ```java
-final LevelOrderAxis axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
+var axis = new LevelOrderAxis.Builder(rtx).includeSelf().filterLevel(4).build()
 ```
 Post-order traversal:
 ```java
-final PostOrderAxis axis = new PostOrderAxis(rtx)
+var axis = new PostOrderAxis(rtx)
 ```
 And many more (for instance all XPath axis).
 
 Or navigate to a specific node and then in time, for instance through all future revisions or all past revisions...:
 ```java
-final FutureAxis axis = new FutureAxis(rtx)
+var axis = new FutureAxis<XdmNodeReadTrx>(rtx)
 ```
 ```java
-final PastAxis axis = new PastAxis(rtx)
+var axis = new PastAxis<XdmNodeReadTrx>(rtx)
 ```
 
 and many more as well.
@@ -524,10 +538,10 @@ Besides, we for instance provide diff-algorithms to import differences between s
 For instance after storing one revision in Sirix, we can import only the differences encountered by a sophisticated tree-to-tree diff-algorithm.
 
 ```java
-final Path resOldRev = Paths.get("sirix-resource-to-update");
-final Path resNewRev = Paths.get("new-revision-as-xml-file");
+var resOldRev = Paths.get("sirix-resource-to-update");
+var resNewRev = Paths.get("new-revision-as-xml-file");
 
-FMSEImport.dataImport(resOldRev, resNewRev);
+FMSEImport.xdmDataImport(resOldRev, resNewRev);
 ```
 
 Furthermore we provide diff-algorithms to determine all differences between any two revisions once they are stored in Sirix. To enable a fast diff-algorithm we optionally store a merkle-tree (that is each node stores an additional hash-value).

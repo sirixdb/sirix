@@ -1,54 +1,58 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
  * Open the last revision and try to move to the node with the given node key.
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class LastAxis extends AbstractTemporalAxis {
+public final class LastAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager mSession;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
 
-  /** Sirix {@link XdmNodeReadTrx}. */
-  private XdmNodeReadTrx mRtx;
+  /** Sirix {@link NodeReadOnlyTrx}. */
+  private R mRtx;
 
   /** Determines if it's the first call. */
   private boolean mFirst;
 
   /**
    * Constructor.
-   * 
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   *
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
-  public LastAxis(final XdmNodeReadTrx rtx) {
-    mSession = checkNotNull(rtx.getResourceManager());
+  public LastAxis(final R rtx) {
+    mResourceManager = checkNotNull(rtx.getResourceManager());
     mNodeKey = rtx.getNodeKey();
     mFirst = true;
   }
 
+  @SuppressWarnings("unchecked")
   @Override
-  protected XdmNodeReadTrx computeNext() {
+  protected R computeNext() {
     if (mFirst) {
       mFirst = false;
-      mRtx = mSession.beginNodeReadTrx(mSession.getMostRecentRevisionNumber());
-      return mRtx.moveTo(mNodeKey).hasMoved() ? mRtx : endOfData();
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
+      return mRtx.moveTo(mNodeKey).hasMoved()
+          ? mRtx
+          : endOfData();
     } else {
       return endOfData();
     }
   }
 
   @Override
-  public XdmNodeReadTrx getTrx() {
+  public R getTrx() {
     return mRtx;
   }
 }

@@ -28,10 +28,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.perfidix.annotation.BenchClass;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
+import org.sirix.XdmTestHelper;
+import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
  * Performes the XMark benchmark.
@@ -48,9 +48,9 @@ public class XMarkTest {
 
   @Before
   public void setUp() throws Exception {
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
     // Build simple test tree.
-    XMLShredder.main(
+    XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
 
@@ -59,7 +59,7 @@ public class XMarkTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
@@ -67,7 +67,7 @@ public class XMarkTest {
     // Verify.
 
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "/site/people/person[@id=\"person0\"]/name/text()"),
+        new XPathAxis(holder.getNodeReadTrx(), "/site/people/person[@id=\"person0\"]/name/text()"),
         new String[] {"Sinisa Farrel"});
   }
 
@@ -76,7 +76,7 @@ public class XMarkTest {
 
     // Q1 The name of the person with ID 'person0' {projecting}
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(),
+        new XPathAxis(holder.getNodeReadTrx(),
             "for $b in /site/people/person[@id=\"person0\"] " + "return $b/name/text()"),
         new String[] {"Sinisa Farrel"});
   }
@@ -86,7 +86,7 @@ public class XMarkTest {
 
     // Q5 How many sold items cost more than 40?
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(),
+        new XPathAxis(holder.getNodeReadTrx(),
             "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
                 + "return $i/price)"),
         new String[] {"75"});
@@ -97,7 +97,7 @@ public class XMarkTest {
 
     // Q6 How many items are listed on all continents?
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "for $b in //site/regions return fn:count($b//item)"),
+        new XPathAxis(holder.getNodeReadTrx(), "for $b in //site/regions return fn:count($b//item)"),
         new String[] {"217"});
   }
 
@@ -105,7 +105,7 @@ public class XMarkTest {
   public void testQ7() throws SirixException {
     // Q7 How many pieces of prose are in our database?
     XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "for $p in /site return fn:count($p//description) + "
+        new XPathAxis(holder.getNodeReadTrx(), "for $p in /site return fn:count($p//description) + "
             + "fn:count($p//annotation) + fn:count($p//emailaddress)"),
         new String[] {"916.0"}); // TODO:
                                  // why

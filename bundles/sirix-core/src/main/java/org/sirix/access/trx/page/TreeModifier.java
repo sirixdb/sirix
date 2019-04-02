@@ -28,7 +28,7 @@
 package org.sirix.access.trx.page;
 
 import javax.annotation.Nonnegative;
-import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.IndirectPage;
@@ -53,9 +53,8 @@ public interface TreeModifier {
    * @return new {@link RevisionRootPage} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage,
-      final PageReadTrxImpl pageRtx, final TransactionIntentLog log,
-      final @Nonnegative int baseRevision, final @Nonnegative int representRevision);
+  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, PageReadTrxImpl pageRtx, TransactionIntentLog log,
+      @Nonnegative int baseRevision, @Nonnegative int representRevision);
 
   /**
    * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage} and put the
@@ -63,17 +62,21 @@ public interface TreeModifier {
    *
    * @param pageRtx the page reading transaction
    * @param log the transaction intent log
-   * @param uberPage the uber page
-   * @param startReference start reference
-   * @param key page key to lookup
-   * @param index the index number or {@code -1} if a regular record page should be prepared
+   * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
+   *        tree-level
+   * @param startPageReference the reference to start the tree traversal from
+   * @param pageKey page key to lookup
+   * @param maxPageKey the maximum number of pages stored in the subtree
+   * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
+   * @param pageKind the kind of page subtree
+   * @param revisionRootPage the revision root page
    * @return {@link PageReference} instance pointing to the right {@link UnorderedKeyValuePage} with
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(final PageReadTrx pageRtx, final TransactionIntentLog log,
-      final int[] inpLevelPageCountExp, final PageReference startReference,
-      final @Nonnegative long key, final int index, final PageKind pageKind);
+  PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+      PageReference startReference, @Nonnegative long pageKey, @Nonnegative long maxPageKey, int indexNumber,
+      PageKind pageKind, RevisionRootPage revisionRootPage);
 
   /**
    * Prepare indirect page, that is getting the referenced indirect page or a new page and put the
@@ -85,6 +88,5 @@ public interface TreeModifier {
    * @return {@link IndirectPage} reference
    * @throws SirixIOException if an I/O error occurs
    */
-  IndirectPage prepareIndirectPage(final PageReadTrx pageRtx, final TransactionIntentLog log,
-      final PageReference reference);
+  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
 }

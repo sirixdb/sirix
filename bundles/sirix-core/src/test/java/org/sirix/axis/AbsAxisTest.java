@@ -31,7 +31,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
@@ -42,20 +42,20 @@ public class AbsAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   public static void testIAxisConventions(final Axis axis, final long[] expectedKeys) {
     // Axis Convention 1.
-    final long startKey = axis.getTrx().getNodeKey();
+    final long startKey = axis.asXdmNodeReadTrx().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -63,14 +63,14 @@ public class AbsAxisTest {
       axis.next();
       // Axis results.
       assertTrue(offset < expectedKeys.length);
-      keys[offset++] = axis.getTrx().getNodeKey();
+      keys[offset++] = axis.asXdmNodeReadTrx().getNodeKey();
 
       // Axis Convention 3.
-      axis.getTrx().moveToDocumentRoot();
+      axis.asXdmNodeReadTrx().moveToDocumentRoot();
     }
 
     // Axis Convention 5.
-    assertEquals(startKey, axis.getTrx().getNodeKey());
+    assertEquals(startKey, axis.asXdmNodeReadTrx().getNodeKey());
 
     // Axis results.
     assertArrayEquals(expectedKeys, keys);
@@ -78,7 +78,7 @@ public class AbsAxisTest {
 
   public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
-    final long startKey = axis.getTrx().getNodeKey();
+    final long startKey = axis.asXdmNodeReadTrx().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -87,13 +87,13 @@ public class AbsAxisTest {
       while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
         // Axis results.
         assertTrue(offset < expectedKeys.length);
-        keys[offset++] = axis.getTrx().getNodeKey();
+        keys[offset++] = axis.asXdmNodeReadTrx().getNodeKey();
       }
     } catch (final NoSuchElementException e) {
     }
 
     // Axis Convention 5.
-    assertEquals(startKey, axis.getTrx().getNodeKey());
+    assertEquals(startKey, axis.asXdmNodeReadTrx().getNodeKey());
 
     // Axis results.
     assertArrayEquals(expectedKeys, keys);
@@ -115,7 +115,7 @@ public class AbsAxisTest {
 
   @Test
   public void testAxisUserExample() throws SirixException {
-    final Axis axis = new DescendantAxis(holder.getXdmNodeReadTrx());
+    final Axis axis = new DescendantAxis(holder.getNodeReadTrx());
     long count = 0L;
     while (axis.hasNext()) {
       axis.next();

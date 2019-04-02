@@ -25,8 +25,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
@@ -38,20 +38,20 @@ public class FilterAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testNameAxisTest() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -60,7 +60,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAxisTest() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -69,7 +69,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAndNameAxisTest() throws SirixException {
-    final XdmNodeReadTrx rtx = holder.getXdmNodeReadTrx();
+    final XdmNodeReadOnlyTrx rtx = holder.getNodeReadTrx();
 
     rtx.moveTo(1L);
     AbsAxisTest.testIAxisConventions(

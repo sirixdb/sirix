@@ -29,6 +29,9 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
+import org.sirix.access.trx.node.xdm.XdmIndexController;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -51,14 +54,15 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Marc Kramis, Seabix GmbH
  * @author Johannes Lichtenberger
  */
-public interface ResourceManager extends AutoCloseable {
+public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    extends AutoCloseable {
 
   /**
    * Get the {@link Database} this session is bound to.
    *
    * @return {@link Database} this session is bound to
    */
-  Database getDatabase();
+  Database<?> getDatabase();
 
   /**
    * Get the resource path.
@@ -72,50 +76,50 @@ public interface ResourceManager extends AutoCloseable {
    *
    * @return The single node writer if available.
    */
-  Optional<XdmNodeWriteTrx> getXdmNodeWriteTrx();
+  Optional<W> getNodeWriteTrx();
 
   /**
-   * Begin a new {@link PageReadTrx}.
+   * Begin a new {@link PageReadOnlyTrx}.
    *
-   * @return new {@link PageReadTrx} instance
+   * @return new {@link PageReadOnlyTrx} instance
    */
-  PageReadTrx beginPageReadTrx();
+  PageReadOnlyTrx beginPageReadTrx();
 
   /**
-   * Begin a new {@link PageReadTrx}.
+   * Begin a new {@link PageReadOnlyTrx}.
    *
    * @param revision revision number
-   * @return new {@link PageReadTrx} instance
+   * @return new {@link PageReadOnlyTrx} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageReadTrx beginPageReadTrx(@Nonnegative int revision);
+  PageReadOnlyTrx beginPageReadOnlyTrx(@Nonnegative int revision);
 
   /**
-   * Begin a new {@link PageWriteTrx}.
+   * Begin a new {@link PageTrx}.
    *
    * @param pRevision revision number
-   * @return new {@link PageWriteTrx} instance
+   * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx();
+  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx();
 
   /**
-   * Begin a new {@link PageWriteTrx}.
+   * Begin a new {@link PageTrx}.
    *
    * @param revision revision number
-   * @return new {@link PageWriteTrx} instance
+   * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision);
+  PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
    *
    * @throws SirixException if can't begin Read Transaction
-   * @return {@link XdmNodeReadTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  XdmNodeReadTrx beginNodeReadTrx() throws SirixException;
+  R beginNodeReadOnlyTrx();
 
   /**
    * Begin a read-only transaction on the given revision number.
@@ -124,9 +128,9 @@ public interface ResourceManager extends AutoCloseable {
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  XdmNodeReadTrx beginNodeReadTrx(@Nonnegative int revision);
+  R beginNodeReadOnlyTrx(@Nonnegative int revision);
 
   /**
    * Begin a read-only transaction with the revision, which is closest to the given point in time.
@@ -135,9 +139,9 @@ public interface ResourceManager extends AutoCloseable {
    * @throws IllegalArgumentException if {@code revision < 0}
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
-   * @return {@link XdmNodeReadTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeReadOnlyTrx} interface
    */
-  XdmNodeReadTrx beginNodeReadTrx(@Nonnull Instant pointInTime);
+  R beginNodeReadOnlyTrx(@Nonnull Instant pointInTime);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -145,18 +149,9 @@ public interface ResourceManager extends AutoCloseable {
    * @param trx the transaction to use
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  XdmNodeWriteTrx beginNodeWriteTrx();
-
-  /**
-   * Get the revision number, which was committed at the closest time to the given point in time.
-   *
-   * @param pointInTime the point in time
-   * @return the revision number, which was committed at the closest time to the given point in
-   *         time.
-   */
-  int getRevisionNumber(@Nonnull Instant pointInTime);
+  W beginNodeTrx();
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -165,9 +160,9 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes);
+  W beginNodeTrx(final @Nonnegative int maxNodes);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -178,9 +173,9 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final TimeUnit timeUnit, final int maxTime);
+  W beginNodeTrx(final TimeUnit timeUnit, final int maxTime);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
@@ -192,13 +187,12 @@ public interface ResourceManager extends AutoCloseable {
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException if {@code timeUnit} is {@code null}
-   * @return {@link XdmNodeWriteTrx} instance
+   * @return instance of a class, which implements the {@link XdmNodeTrx} interface
    */
-  XdmNodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit,
-      final int maxTime);
+  W beginNodeTrx(final @Nonnegative int maxNodes, final TimeUnit timeUnit, final int maxTime);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
    *
    * @param revision revision key to read from
    * @return {@link PathSummaryReader} instance
@@ -207,12 +201,20 @@ public interface ResourceManager extends AutoCloseable {
   PathSummaryReader openPathSummary(@Nonnegative int revision);
 
   /**
-   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link XdmNodeReadOnlyTrx}.
    *
    * @return {@link PathSummaryReader} instance
    * @throws SirixException if can't open path summary
    */
   PathSummaryReader openPathSummary();
+
+  /**
+   * Get the revision number, which was committed at the closest time to the given point in time.
+   *
+   * @param pointInTime the point in time
+   * @return the revision number, which was committed at the closest time to the given point in time.
+   */
+  int getRevisionNumber(@Nonnull Instant pointInTime);
 
   /**
    * Safely close resource manager and immediately release all resources. If there are running
@@ -247,32 +249,25 @@ public interface ResourceManager extends AutoCloseable {
   int getMostRecentRevisionNumber();
 
   /**
-   * Get available number of {@link XdmNodeReadTrx}s.
+   * Get available number of {@link XdmNodeReadOnlyTrx}s.
    *
-   * @return available number of {@link XdmNodeReadTrx}s
+   * @return available number of {@link XdmNodeReadOnlyTrx}s
    */
   int getAvailableNodeReadTrx();
 
   /**
-   * Get available number of {@link XdmNodeWriteTrx}s.
+   * Get the index controller.
    *
-   * @return available number of {@link XdmNodeWriteTrx}s
+   * @return the {@link XdmIndexController} instance
    */
-  int getAvailableNodeWriteTrx();
+  <C extends IndexController<R, W>> C getRtxIndexController(int revision);
 
   /**
    * Get the index controller.
    *
-   * @return the {@link IndexController} instance
+   * @return the {@link XdmIndexController} instance
    */
-  IndexController getRtxIndexController(int revision);
-
-  /**
-   * Get the index controller.
-   *
-   * @return the {@link IndexController} instance
-   */
-  IndexController getWtxIndexController(int revision);
+  <C extends IndexController<R, W>> C getWtxIndexController(int revision);
 
   /**
    * Get the node reader with the given ID wrapped in an optional.
@@ -280,5 +275,9 @@ public interface ResourceManager extends AutoCloseable {
    * @param ID The ID of the reader.
    * @return The node reader if available.
    */
-  Optional<XdmNodeReadTrx> getXdmNodeReadTrx(long ID);
+  Optional<R> getNodeReadTrx(long ID);
+
+  void closeReadTransaction(long trxId);
+
+  boolean hasRunningNodeWriteTrx();
 }

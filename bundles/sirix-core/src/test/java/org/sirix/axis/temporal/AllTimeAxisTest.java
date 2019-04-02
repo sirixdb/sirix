@@ -5,11 +5,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.XdmTestHelper;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.DocumentCreator;
+import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -30,9 +30,9 @@ public final class AllTimeAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    try (final XdmNodeWriteTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
-      DocumentCreator.createVersioned(wtx);
+    XdmTestHelper.deleteEverything();
+    try (final XdmNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+      XdmDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
   }
@@ -40,19 +40,19 @@ public final class AllTimeAxisTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testAxis() throws SirixException {
-    try (final XdmNodeReadTrx firstReader = holder.getResourceManager().beginNodeReadTrx(1);
-        final XdmNodeReadTrx secondReader = holder.getResourceManager().beginNodeReadTrx(2);
-        final XdmNodeReadTrx thirdReader = holder.getXdmNodeReadTrx()) {
+    try (final NodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final NodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+        final NodeReadOnlyTrx thirdReader = holder.getNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(firstReader, secondReader, thirdReader), null) {
         @Override
-        protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-          return new AllTimeAxis(holder.getXdmNodeReadTrx());
+        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+          return new AllTimeAxis<>(holder.getNodeReadTrx());
         }
       }.test();
     }
@@ -60,7 +60,7 @@ public final class AllTimeAxisTest {
 
   @Test
   public void testAxisWithDeletedNode() throws SirixException {
-    try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
+    try (final XdmNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertCommentAsRightSibling("foooooo");
 
@@ -74,10 +74,10 @@ public final class AllTimeAxisTest {
       wtx.commit();
     }
 
-    try (final XdmNodeReadTrx firstReader = holder.getResourceManager().beginNodeReadTrx(1);
-        final XdmNodeReadTrx secondReader = holder.getResourceManager().beginNodeReadTrx(2);
-        final XdmNodeReadTrx thirdReader = holder.getResourceManager().beginNodeReadTrx(3);
-        final XdmNodeReadTrx fourthReader = holder.getResourceManager().beginNodeReadTrx(4)) {
+    try (final NodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+        final NodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+        final NodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
+        final NodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);
@@ -87,8 +87,8 @@ public final class AllTimeAxisTest {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
         @Override
-        protected Iterator<XdmNodeReadTrx> newTargetIterator() {
-          return new AllTimeAxis(fourthReader);
+        protected Iterator<NodeReadOnlyTrx> newTargetIterator() {
+          return new AllTimeAxis<>(fourthReader);
         }
       }.test();
     }

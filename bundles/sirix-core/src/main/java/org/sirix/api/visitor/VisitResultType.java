@@ -1,7 +1,7 @@
 package org.sirix.api.visitor;
 
 /**
- * The result type of an {@link Visitor} implementation.
+ * The result type of an {@link XdmNodeVisitor} implementation.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */

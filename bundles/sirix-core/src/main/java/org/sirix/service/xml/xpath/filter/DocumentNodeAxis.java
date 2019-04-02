@@ -21,7 +21,7 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
@@ -41,7 +41,7 @@ public class DocumentNodeAxis extends AbstractAxis {
    * 
    * @param pRtx exclusive (immutable) transaction to iterate with
    */
-  public DocumentNodeAxis(final XdmNodeReadTrx pRtx) {
+  public DocumentNodeAxis(final XdmNodeReadOnlyTrx pRtx) {
     super(pRtx);
   }
 

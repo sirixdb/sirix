@@ -22,7 +22,7 @@
 package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SingleType;
@@ -64,7 +64,7 @@ public class CastableExpr extends AbstractExpression {
    * @param inputExpr input expression, that's castablity will be tested.
    * @param mTarget Type to test, whether the input expression can be casted to.
    */
-  public CastableExpr(final XdmNodeReadTrx rtx, final Axis inputExpr, final SingleType mTarget) {
+  public CastableExpr(final XdmNodeReadOnlyTrx rtx, final Axis inputExpr, final SingleType mTarget) {
 
     super(rtx);
     mSourceExpr = inputExpr;
@@ -103,8 +103,8 @@ public class CastableExpr extends AbstractExpression {
     if (mSourceExpr.hasNext()) { // result sequence > 0
       mKey = mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTrx().getTypeKey());
-      final String sourceValue = getTrx().getValue();
+      final Type sourceType = Type.getType(asXdmNodeReadTrx().getTypeKey());
+      final String sourceValue = asXdmNodeReadTrx().getValue();
 
       // determine castability
       isCastable = sourceType.isCastableTo(mTargetType, sourceValue);
@@ -123,9 +123,9 @@ public class CastableExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int mItemKey = getTrx().getItemList().addItem(
+    final int mItemKey = asXdmNodeReadTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
-            getTrx().keyForName("xs:boolean")));
+            asXdmNodeReadTrx().keyForName("xs:boolean")));
     mKey = mItemKey;
   }
 }

@@ -22,16 +22,16 @@ package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Map;
-import org.sirix.api.XdmNodeReadTrx;
-import org.sirix.access.trx.node.AbstractVisitor;
+import org.sirix.access.trx.node.xdm.AbstractXdmNodeVisitor;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.immutable.ImmutableComment;
-import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.immutable.ImmutablePI;
-import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.immutable.xdm.ImmutableComment;
+import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xdm.ImmutablePI;
+import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
@@ -40,10 +40,10 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class FMSEVisitor extends AbstractVisitor {
+public final class FMSEVisitor extends AbstractXdmNodeVisitor {
 
-  /** {@link XdmNodeReadTrx} reference. */
-  private final XdmNodeReadTrx mRtx;
+  /** {@link XdmNodeReadOnlyTrx} reference. */
+  private final XdmNodeReadOnlyTrx mRtx;
 
   /** Determines if nodes are in order. */
   private final Map<Long, Boolean> mInOrder;
@@ -60,7 +60,7 @@ public final class FMSEVisitor extends AbstractVisitor {
    * @throws SirixException if setting up sirix fails
    * @throws NullPointerException if one of the arguments is {@code null}
    */
-  public FMSEVisitor(final XdmNodeReadTrx readTransaction, final Map<Long, Boolean> inOrder,
+  public FMSEVisitor(final XdmNodeReadOnlyTrx readTransaction, final Map<Long, Boolean> inOrder,
       final Map<Long, Long> descendants) throws SirixException {
     mRtx = checkNotNull(readTransaction);
     mInOrder = checkNotNull(inOrder);

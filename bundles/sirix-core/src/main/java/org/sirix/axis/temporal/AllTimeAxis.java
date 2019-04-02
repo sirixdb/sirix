@@ -1,31 +1,33 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.api.XdmNodeReadTrx;
+import org.sirix.api.NodeReadOnlyTrx;
+import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.xdm.XdmNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
 /**
- * Retrieve a node by node key in all revisions. In each revision a {@link XdmNodeReadTrx} is opened
+ * Retrieve a node by node key in all revisions. In each revision a {@link XdmNodeReadOnlyTrx} is opened
  * which is moved to the node with the given node key if it exists. Otherwise the iterator has no
- * more elements (the {@link XdmNodeReadTrx} moved to the node by it's node key).
+ * more elements (the {@link XdmNodeReadOnlyTrx} moved to the node by it's node key).
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class AllTimeAxis extends AbstractTemporalAxis {
+public final class AllTimeAxis<R extends NodeReadOnlyTrx> extends AbstractTemporalAxis<R> {
 
   /** The revision number. */
   private int mRevision;
 
   /** Sirix {@link ResourceManager}. */
-  private final ResourceManager mSession;
+  private final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> mResourceManager;
 
   /** Node key to lookup and retrieve. */
   private long mNodeKey;
 
-  /** Sirix {@link XdmNodeReadTrx}. */
-  private XdmNodeReadTrx mRtx;
+  /** Sirix {@link NodeReadOnlyTrx}. */
+  private R mRtx;
 
   /** Determines if node has been found before and now has been deleted. */
   private boolean mHasMoved;
@@ -35,18 +37,19 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
    *
    * /** Constructor.
    *
-   * @param rtx Sirix {@link XdmNodeReadTrx}
+   * @param rtx Sirix {@link NodeReadOnlyTrx}
    */
-  public AllTimeAxis(final XdmNodeReadTrx rtx) {
-    mSession = checkNotNull(rtx.getResourceManager());
+  public AllTimeAxis(final R rtx) {
+    mResourceManager = checkNotNull(rtx.getResourceManager());
     mRevision = 1;
     mNodeKey = rtx.getNodeKey();
   }
 
+  @SuppressWarnings("unchecked")
   @Override
-  protected XdmNodeReadTrx computeNext() {
-    while (mRevision <= mSession.getMostRecentRevisionNumber()) {
-      mRtx = mSession.beginNodeReadTrx(mRevision++);
+  protected R computeNext() {
+    while (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
+      mRtx = (R) mResourceManager.beginNodeReadOnlyTrx(mRevision++);
 
       if (mRtx.moveTo(mNodeKey).hasMoved()) {
         mHasMoved = true;
@@ -60,7 +63,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
   }
 
   @Override
-  public XdmNodeReadTrx getTrx() {
+  public R getTrx() {
     return mRtx;
   }
 }

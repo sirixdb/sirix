@@ -25,7 +25,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -42,32 +42,32 @@ public class IfAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.closeEverything();
+    XdmTestHelper.closeEverything();
   }
 
   @Test
   public void testIf() throws SirixException {
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
+    holder.getNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "if (text()) then . else child::node()"),
+        new XPathAxis(holder.getNodeReadTrx(), "if (text()) then . else child::node()"),
         new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "if (node()) then . else child::node()"),
+        new XPathAxis(holder.getNodeReadTrx(), "if (node()) then . else child::node()"),
         new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(),
+        new XPathAxis(holder.getNodeReadTrx(),
             "if (processing-instruction()) then . else child::node()"),
         new long[] {4L, 5L, 8L, 9L, 13L});
 

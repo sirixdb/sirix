@@ -28,7 +28,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -41,15 +41,15 @@ public class AbsOpAxisTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Test
@@ -59,21 +59,21 @@ public class AbsOpAxisTest {
     final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbstractAxis op1 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item1));
+        new LiteralExpr(holder.getNodeReadTrx(), holder.getNodeReadTrx().getItemList().addItem(item1));
     AbstractAxis op2 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item2));
-    AbstractObAxis axis = new DivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+        new LiteralExpr(holder.getNodeReadTrx(), holder.getNodeReadTrx().getItemList().addItem(item2));
+    AbstractObAxis axis = new DivOpAxis(holder.getNodeReadTrx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(holder.getNodeReadTrx().keyForName("xs:double"), holder.getNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
     // here both operands are the empty sequence
-    axis = new DivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+    axis = new DivOpAxis(holder.getNodeReadTrx(), op1, op2);
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(Double.NaN, is(Double.parseDouble(holder.getXdmNodeReadTrx().getValue())));
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:double"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertThat(Double.NaN, is(Double.parseDouble(holder.getNodeReadTrx().getValue())));
+    assertEquals(holder.getNodeReadTrx().keyForName("xs:double"), holder.getNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

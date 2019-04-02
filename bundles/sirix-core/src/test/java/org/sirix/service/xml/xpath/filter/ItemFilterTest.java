@@ -25,7 +25,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
+import org.sirix.XdmTestHelper;
 import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.ItemFilter;
 import org.sirix.exception.SirixException;
@@ -36,27 +36,27 @@ public class ItemFilterTest {
 
   @Before
   public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+    XdmTestHelper.deleteEverything();
+    XdmTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    TestHelper.deleteEverything();
+    XdmTestHelper.deleteEverything();
   }
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    holder.getXdmNodeReadTrx().moveTo(9L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getNodeReadTrx().moveTo(9L);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
 
-    holder.getXdmNodeReadTrx().moveTo(3L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getNodeReadTrx().moveTo(3L);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
 
-    holder.getXdmNodeReadTrx().moveTo(2L);
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getNodeReadTrx().moveTo(2L);
+    holder.getNodeReadTrx().moveToAttribute(0);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getNodeReadTrx()), true);
   }
 }

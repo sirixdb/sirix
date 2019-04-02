@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import java.util.List;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
-import org.sirix.api.XdmNodeWriteTrx;
+import org.sirix.api.xdm.XdmNodeTrx;
 
 public final class TransactionImpl implements Transaction {
 
-  private final List<XdmNodeWriteTrx> resourceTrxs;
+  private final List<XdmNodeTrx> resourceTrxs;
   private final TransactionManager trxMgr;
 
   public TransactionImpl(TransactionManager trxMgr) {
@@ -21,7 +21,7 @@ public final class TransactionImpl implements Transaction {
   public Transaction commit() {
     int i = 0;
     for (boolean failure = false; i < resourceTrxs.size() && !failure; i++) {
-      final XdmNodeWriteTrx trx = resourceTrxs.get(i);
+      final XdmNodeTrx trx = resourceTrxs.get(i);
 
       try {
         trx.commit();
@@ -33,12 +33,12 @@ public final class TransactionImpl implements Transaction {
 
     if (i < resourceTrxs.size()) {
       for (int j = 0; j < i; j++) {
-        final XdmNodeWriteTrx trx = resourceTrxs.get(i);
+        final XdmNodeTrx trx = resourceTrxs.get(i);
         trx.truncateTo(trx.getRevisionNumber() - 1);
       }
 
       for (; i < resourceTrxs.size(); i++) {
-        final XdmNodeWriteTrx trx = resourceTrxs.get(i);
+        final XdmNodeTrx trx = resourceTrxs.get(i);
         trx.rollback();
       }
     }
@@ -50,7 +50,7 @@ public final class TransactionImpl implements Transaction {
 
   @Override
   public Transaction rollback() {
-    resourceTrxs.forEach(XdmNodeWriteTrx::rollback);
+    resourceTrxs.forEach(XdmNodeTrx::rollback);
     resourceTrxs.clear();
     trxMgr.closeTransaction(this);
     return this;
@@ -62,7 +62,7 @@ public final class TransactionImpl implements Transaction {
   }
 
   @Override
-  public Transaction add(XdmNodeWriteTrx writer) {
+  public Transaction add(XdmNodeTrx writer) {
     resourceTrxs.add(checkNotNull(writer));
     return this;
   }
