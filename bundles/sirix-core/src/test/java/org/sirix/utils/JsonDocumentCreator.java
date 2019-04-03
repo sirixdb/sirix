@@ -34,23 +34,8 @@ import org.sirix.exception.SirixException;
  * <h1>JSON-TestDocument</h1>
  *
  * <p>
- * This class creates an XML document that contains all features seen in the Extensible Markup
- * Language (XML) 1.1 (Second Edition) as well as the Namespaces in XML 1.1 (Second Edition).
+ * This class creates a JSON test document.
  * </p>
- *
- * <p>
- * The following figure describes the created test document (see <code>xml/test.xml</code>). The
- * nodes are described as follows:
- *
- * <ul>
- * <li><code>Kind.ROOT: doc()</code></li>
- * <li><code>Kind.ELEMENT : &lt;prefix:localPart&gt;</code></li>
- * <li><code>Kind.NAMESPACE: §prefix:namespaceURI</code></li>
- * <li><code>Kind.ATTRIBUTE: &#64;prefix:localPart='value'</code></li>
- * <li><code>Kind.TEXT: #value</code></li>
- * <li><code>Kind.COMMENT: %comment</code></li>
- * <li><code>Kind.PI: &amp;content:target</code></li>
- * </ul>
  *
  * <code><pre>
  * {
