@@ -23,6 +23,7 @@ package org.sirix.access.trx.node.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -87,6 +88,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
 /**
  * <h1>JSONNodeReadWriteTrxImpl</h1>
@@ -258,14 +260,74 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     assert insertionPosition != null;
     acquireLock();
     try {
+      final var peekedJsonToken = reader.peek();
+
+      if (peekedJsonToken != JsonToken.BEGIN_OBJECT && peekedJsonToken != JsonToken.BEGIN_ARRAY)
+        throw new SirixUsageException("JSON to insert must begin with an array or object.");
+
       final var nodeKind = getKind();
-      if (!(nodeKind == Kind.JSON_DOCUMENT || nodeKind == Kind.ARRAY || nodeKind == Kind.OBJECT))
-        throw new IllegalStateException("Current node must either be the document root, an array or an object key.");
+      var skipEndJsonToken = false;
+
+      switch (insertionPosition) {
+        case AS_FIRST_CHILD:
+          if (nodeKind != Kind.JSON_DOCUMENT && nodeKind != Kind.ARRAY && nodeKind != Kind.OBJECT_RECORD) {
+            throw new IllegalStateException(
+                "Current node must either be the document root, an array or an object key.");
+          }
+
+          switch (peekedJsonToken) {
+            case BEGIN_OBJECT:
+              if (nodeKind == Kind.OBJECT_RECORD) {
+                reader.beginObject();
+                skipEndJsonToken = true;
+              }
+              break;
+            case BEGIN_ARRAY:
+              if (nodeKind == Kind.OBJECT_RECORD) {
+                reader.beginArray();
+                skipEndJsonToken = true;
+              }
+              break;
+            // $CASES-OMITTED$
+            default:
+          }
+          break;
+        case AS_RIGHT_SIBLING:
+          final Kind parentKind = getParentKind();
+          if (parentKind != Kind.ARRAY && parentKind != Kind.OBJECT) {
+            throw new IllegalStateException(
+                "Current node must either be the document root, an array or an object key.");
+          }
+
+          switch (peekedJsonToken) {
+            case BEGIN_OBJECT:
+              if (parentKind == Kind.OBJECT) {
+                reader.beginObject();
+                skipEndJsonToken = true;
+              }
+              break;
+            case BEGIN_ARRAY:
+              if (parentKind == Kind.OBJECT)
+                throw new IllegalStateException("Can not insert an array as a right sibling of an object record.");
+              break;
+            // $CASES-OMITTED$
+            default:
+          }
+          break;
+        // $CASES-OMITTED$
+        default:
+          throw new UnsupportedOperationException();
+      }
 
       checkAccessAndCommit();
       mBulkInsert = true;
-      long nodeKey = getCurrentNode().getNodeKey();
-      final JsonShredder shredder = new JsonShredder.Builder(this, reader, insertionPosition).build();
+      var nodeKey = getCurrentNode().getNodeKey();
+      final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
+
+      if (skipEndJsonToken)
+        shredderBuilder.skipEndJsonToken();
+
+      final var shredder = shredderBuilder.build();
       shredder.call();
       moveTo(nodeKey);
 
@@ -297,6 +359,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       commit();
       mBulkInsert = false;
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
     } finally {
       unLock();
     }
