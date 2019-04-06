@@ -266,26 +266,26 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         throw new SirixUsageException("JSON to insert must begin with an array or object.");
 
       final var nodeKind = getKind();
-      var skipEndJsonToken = false;
+      var skipRootJsonToken = false;
 
       switch (insertionPosition) {
         case AS_FIRST_CHILD:
-          if (nodeKind != Kind.JSON_DOCUMENT && nodeKind != Kind.ARRAY && nodeKind != Kind.OBJECT_RECORD) {
+          if (nodeKind != Kind.JSON_DOCUMENT && nodeKind != Kind.ARRAY && nodeKind != Kind.OBJECT) {
             throw new IllegalStateException(
                 "Current node must either be the document root, an array or an object key.");
           }
 
+          skipRootJsonToken = true;
+
           switch (peekedJsonToken) {
             case BEGIN_OBJECT:
-              if (nodeKind == Kind.OBJECT_RECORD) {
-                reader.beginObject();
-                skipEndJsonToken = true;
+              if (nodeKind != Kind.OBJECT && nodeKind != Kind.JSON_DOCUMENT) {
+                throw new IllegalStateException("Current node in storage must be an object node.");
               }
               break;
             case BEGIN_ARRAY:
-              if (nodeKind == Kind.OBJECT_RECORD) {
-                reader.beginArray();
-                skipEndJsonToken = true;
+              if (nodeKind != Kind.ARRAY && nodeKind != Kind.JSON_DOCUMENT) {
+                throw new IllegalStateException("Current node in storage must be an array node.");
               }
               break;
             // $CASES-OMITTED$
@@ -294,24 +294,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           break;
         case AS_RIGHT_SIBLING:
           final Kind parentKind = getParentKind();
-          if (parentKind != Kind.ARRAY && parentKind != Kind.OBJECT) {
-            throw new IllegalStateException(
-                "Current node must either be the document root, an array or an object key.");
-          }
-
-          switch (peekedJsonToken) {
-            case BEGIN_OBJECT:
-              if (parentKind == Kind.OBJECT) {
-                reader.beginObject();
-                skipEndJsonToken = true;
-              }
-              break;
-            case BEGIN_ARRAY:
-              if (parentKind == Kind.OBJECT)
-                throw new IllegalStateException("Can not insert an array as a right sibling of an object record.");
-              break;
-            // $CASES-OMITTED$
-            default:
+          if (parentKind != Kind.ARRAY) {
+            throw new IllegalStateException("Current parent node must an array.");
           }
           break;
         // $CASES-OMITTED$
@@ -324,8 +308,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       var nodeKey = getCurrentNode().getNodeKey();
       final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
 
-      if (skipEndJsonToken)
-        shredderBuilder.skipEndJsonToken();
+      if (skipRootJsonToken)
+        shredderBuilder.skipRootJsonToken();
 
       final var shredder = shredderBuilder.build();
       shredder.call();
