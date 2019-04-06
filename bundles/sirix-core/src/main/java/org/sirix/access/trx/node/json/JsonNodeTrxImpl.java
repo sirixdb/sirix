@@ -275,7 +275,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
                 "Current node must either be the document root, an array or an object key.");
           }
 
-          skipRootJsonToken = true;
+          if (nodeKind != Kind.JSON_DOCUMENT)
+            skipRootJsonToken = true;
 
           switch (peekedJsonToken) {
             case BEGIN_OBJECT:
