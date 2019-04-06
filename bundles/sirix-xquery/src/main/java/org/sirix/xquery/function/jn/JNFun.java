@@ -77,8 +77,11 @@ public final class JNFun {
         SequenceType.JSON_ITEM, new SequenceType(AtomicType.INT, Cardinality.One))));
 
     // temporal functions
+    Functions.predefine(
+        new Future(Future.FUTURE, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
     Functions.predefine(new Future(Future.FUTURE, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM,
         new SequenceType(AtomicType.BOOL, Cardinality.One))));
+    Functions.predefine(new Past(Past.PAST, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
     Functions.predefine(new Past(Past.PAST, new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM,
         new SequenceType(AtomicType.BOOL, Cardinality.One))));
     Functions.predefine(new Next(Next.NEXT,

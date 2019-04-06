@@ -22,7 +22,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
  * signature is:
  * </p>
  * <ul>
- * <li><code>jn:future($doc as json-item(), $includeSelf as xs:boolean) as json-item()*</code></li>
+ * <li><code>jn:future($doc as json-item(), $includeSelf as xs:boolean?) as json-item()*</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -30,7 +30,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
  */
 public final class Future extends AbstractFunction {
 
-  /** Move to function name. */
+  /** Function name. */
   public final static QNm FUTURE = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "future");
 
   /**
@@ -46,7 +46,7 @@ public final class Future extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
-    final boolean includeSelf = FunUtil.getBoolean(args, 1, "includeSelf", true, false);
+    final boolean includeSelf = FunUtil.getBoolean(args, 1, "includeSelf", false, false);
 
     return new LazySequence() {
       @Override

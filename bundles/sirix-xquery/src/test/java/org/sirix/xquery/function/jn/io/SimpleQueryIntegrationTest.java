@@ -7,7 +7,6 @@ import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Sequence;
 import org.junit.Test;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.JsonDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -26,112 +25,97 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   private static final String mExpectedJson =
       "[{\"revisionNumber\":1,\"revision\":{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}},{\"revisionNumber\":2,\"revision\":{\"tadaaa\":\"todooo\",\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}}]";
 
-  private static final String mExpectedFirstRevisionJson =
-      "{\"revisionNumber\":1,\"revision\":{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}}";
+  private static final String mExpectedAllTimesTimeTravelQueryResult =
+      "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+
+  private static final String mExpectedLastTimeTravelQueryResult =
+      "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+
+  private static final String mExpectedNextTimeTravelQueryResult =
+      "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+
+  private static final String mExpectedFutureTimeTravelQueryResult =
+      "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+
+  private static final String mExpectedPastTimeTravelQueryResult =
+      "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+
+  private static final String mExpectedPastOrSelfTimeTravelQueryResult =
+      "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
   @Test
   public void testSimple() {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store a JSON string into the store.
-      System.out.println("Storing document:");
-      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"bla\", \"blubb\"]')";
-      System.out.println(storeQuery);
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"bla\", \"blubb\"]')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
-      System.out.println("Opening document again:");
-      final String openQuery = "jn:doc('mycol.jn','mydoc.jn')[[0]]";
-      System.out.println(openQuery);
-      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')[[0]]";
+      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
-      final PrintStream buf = IOUtils.createBuffer();
+      final var buf = IOUtils.createBuffer();
       new StringSerializer(buf).serialize(seq);
       assertEquals("bla", buf.toString());
     }
   }
 
   @Test
-  public void testSimpleDeref() {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-
-      // Use XQuery to store a JSON string into the store.
-      System.out.println("Storing document:");
-      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mSimpleJson + "')";
-      System.out.println(storeQuery);
+  public void testSimpleSecond() {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
-      System.out.println("Opening document again:");
-      final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix=>revisionNumber";
-      System.out.println(openQuery);
-      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix";
+      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
-      final PrintStream buf = IOUtils.createBuffer();
-      new StringSerializer(buf).serialize(seq);
-      assertEquals("1", buf.toString());
-    }
-  }
-
-  @Test
-  public void testComplex() {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-
-      // Use XQuery to store a JSON string into the store.
-      System.out.println("Storing document:");
-      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
-      System.out.println(storeQuery);
-      new XQuery(chain, storeQuery).evaluate(ctx);
-
-      // Use XQuery to load a JSON database/resource.
-      System.out.println("Opening document again:");
-      final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix";
-      System.out.println(openQuery);
-      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
-
-      assertNotNull(seq);
-
-      final PrintStream buf = IOUtils.createBuffer();
+      final var buf = IOUtils.createBuffer();
       new StringSerializer(buf).serialize(seq);
       assertEquals(mExpectedJson, buf.toString());
     }
   }
 
   @Test
-  public void testComplexSecond() {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+  public void testSimpleDeref() {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use XQuery to store a JSON string into the store.
-      System.out.println("Storing document:");
-      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
-      System.out.println(storeQuery);
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mSimpleJson + "')";
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
-      System.out.println("Opening document again:");
-      final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
-      System.out.println(openQuery);
-      final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix=>revisionNumber";
+      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
 
-      final PrintStream buf = IOUtils.createBuffer();
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).serialize(seq);
+      assertEquals("1", buf.toString());
+    }
+  }
+
+  @Test
+  public void testComplexSecond() {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
+      new XQuery(chain, storeQuery).evaluate(ctx);
+
+      final var openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
+      final var seq = new XQuery(chain, openQuery).evaluate(ctx);
+
+      assertNotNull(seq);
+
+      final var buf = IOUtils.createBuffer();
       new StringSerializer(buf).serialize(seq);
       assertEquals("1", buf.toString());
     }
@@ -143,17 +127,10 @@ public final class SimpleQueryIntegrationTest extends TestCase {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-
-      // Use XQuery to store a JSON string into the store.
-      System.out.println("Storing document:");
       final String storeQuery = "jn:store('mycol.jn','mydoc.jn','[\"foo\",[[\"bar\"]]]')";
-      System.out.println(storeQuery);
       new XQuery(chain, storeQuery).evaluate(ctx);
 
-      // Use XQuery to load a JSON database/resource.
-      System.out.println("Opening document again:");
       final String openQuery = "jn:doc('mycol.jn','mydoc.jn')[[1]][[0]][[0]]";
-      System.out.println(openQuery);
       final Sequence seq = new XQuery(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -177,40 +154,177 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   }
 
   @Test
-  public void testTimeTravel() throws IOException {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
-        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+  public void testTimeTravelAllTimes() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      final String storeQuery = "jn:store('mycol.jn','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
-      new XQuery(chain, storeQuery).evaluate(ctx);
+      setupRevisions(ctx, chain);
 
-      final String openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
-      final JsonDBObject object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
+      final var allTimesQuery = "jn:all-times(jn:doc('mycol.jn','mydoc.jn'))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
 
-      try (final JsonNodeTrx wtx = object.getTrx().getResourceManager().beginNodeTrx()) {
-        wtx.moveTo(3);
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedAllTimesTimeTravelQueryResult, buf.toString());
+    }
+  }
 
-        try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {
-          wtx.insertSubtreeAsFirstChild(reader);
+  @Test
+  public void testTimeTravelFirst() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
-          wtx.moveTo(11);
-          wtx.remove();
-          wtx.commit();
-        }
+      setupRevisions(ctx, chain);
 
-        assert wtx.getRevisionNumber() == 4;
+      final var allTimesQuery = "jn:first(jn:doc('mycol.jn','mydoc.jn'))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(JsonDocumentCreator.JSON, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelLast() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:last(jn:doc('mycol.jn','mydoc.jn'))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedLastTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelNext() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:next(jn:doc('mycol.jn','mydoc.jn',1))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedNextTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelPrevious() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:previous(jn:doc('mycol.jn','mydoc.jn',2))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(JsonDocumentCreator.JSON, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelFuture() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:future(jn:doc('mycol.jn','mydoc.jn',1))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedFutureTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelFutureOrSelf() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:future(jn:doc('mycol.jn','mydoc.jn',1),true())";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedAllTimesTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelPast() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:past(jn:doc('mycol.jn','mydoc.jn',3))";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedPastTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  @Test
+  public void testTimeTravelPastOrSelf() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      setupRevisions(ctx, chain);
+
+      final var allTimesQuery = "jn:past(jn:doc('mycol.jn','mydoc.jn',3),true())";
+      final var allTimesSeq = new XQuery(chain, allTimesQuery).execute(ctx);
+
+      final var buf = IOUtils.createBuffer();
+      new StringSerializer(buf).setFormat(true).serialize(allTimesSeq);
+      assertEquals(mExpectedPastOrSelfTimeTravelQueryResult, buf.toString());
+    }
+  }
+
+  private void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
+    final var storeQuery = "jn:store('mycol.jn','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
+    new XQuery(chain, storeQuery).evaluate(ctx);
+
+    final var openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
+    final var object = (JsonDBObject) new XQuery(chain, openDocQuery).evaluate(ctx);
+
+    try (final var wtx = object.getTrx().getResourceManager().beginNodeTrx()) {
+      wtx.moveTo(3);
+
+      try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {
+        wtx.insertSubtreeAsFirstChild(reader);
+
+        wtx.moveTo(11);
+        wtx.remove();
+        wtx.commit();
       }
 
-      // final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
-      // final Sequence openSeq = new XQuery(chain, openQuery).evaluate(ctx);
-      //
-      // assertNotNull(openSeq);
-      //
-      // final PrintStream buf = IOUtils.createBuffer();
-      // new StringSerializer(buf).serialize(openSeq);
-      // assertEquals("1", buf.toString());
+      assert wtx.getRevisionNumber() == 4;
     }
   }
 }

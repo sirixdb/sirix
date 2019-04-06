@@ -29,7 +29,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
  */
 public final class AllTimes extends AbstractFunction {
 
-  /** Move to function name. */
+  /** Function name. */
   public final static QNm ALL_TIMES = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "all-times");
 
   /**

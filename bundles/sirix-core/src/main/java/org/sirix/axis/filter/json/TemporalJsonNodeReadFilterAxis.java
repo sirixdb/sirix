@@ -2,15 +2,12 @@ package org.sirix.axis.filter.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.sirix.api.Filter;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.utils.Pair;
 
 /**
  * Filter for temporal axis.
@@ -27,8 +24,6 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   /** Test to apply to axis. */
   private final List<F> mAxisFilter;
 
-  private final Map<Integer, JsonNodeReadOnlyTrx> mCache;
-
   /**
    * Constructor initializing internal state.
    *
@@ -40,7 +35,6 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   public TemporalJsonNodeReadFilterAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     checkNotNull(firstAxisTest);
-    mCache = new HashMap<>();
     mAxis = axis;
     mAxisFilter = new ArrayList<F>();
     mAxisFilter.add(firstAxisTest);
@@ -53,23 +47,16 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   }
 
   @Override
-  protected Pair<Integer, Long> computeNext() {
+  protected JsonNodeReadOnlyTrx computeNext() {
     while (mAxis.hasNext()) {
-      final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = mAxis.getResourceManager();
-      final Pair<Integer, Long> pair = mAxis.next();
-      final int revision = pair.getFirst();
-      final long nodeKey = pair.getSecond();
-
-      final JsonNodeReadOnlyTrx rtx =
-          mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
-      rtx.moveTo(nodeKey);
+      final JsonNodeReadOnlyTrx rtx = mAxis.next();
       final boolean filterResult = doFilter(rtx);
       if (filterResult) {
-        return pair;
+        return rtx;
       }
-    }
 
-    mCache.forEach((revision, rtx) -> rtx.close());
+      rtx.close();
+    }
     return endOfData();
   }
 

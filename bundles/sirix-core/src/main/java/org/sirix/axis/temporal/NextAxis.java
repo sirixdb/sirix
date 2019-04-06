@@ -6,7 +6,6 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.utils.Pair;
 
 /**
  * Open the next revision and try to move to the node with the given node key.
@@ -43,14 +42,15 @@ public final class NextAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   @Override
-  protected Pair<Integer, Long> computeNext() {
+  protected R computeNext() {
     if (mRevision <= mResourceManager.getMostRecentRevisionNumber() && mFirst) {
       mFirst = false;
-      try (final NodeReadOnlyTrx rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision)) {
-        if (rtx.moveTo(mNodeKey).hasMoved())
-          return new Pair<>(rtx.getRevisionNumber(), rtx.getNodeKey());
-        else
-          return endOfData();
+      final R rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision);
+      if (rtx.moveTo(mNodeKey).hasMoved()) {
+        return rtx;
+      } else {
+        rtx.close();
+        return endOfData();
       }
     } else {
       return endOfData();

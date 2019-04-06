@@ -21,7 +21,6 @@ import org.brackit.xquery.xdm.node.TemporalNode;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
@@ -46,7 +45,6 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
-import org.sirix.utils.Pair;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
@@ -1729,19 +1727,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   private XmlDBNode moveTemporalAxis(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis) {
     if (axis.hasNext()) {
-      final Pair<Integer, Long> pair = axis.next();
-
-      final ResourceManager<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager = axis.getResourceManager();
-      final Optional<XmlNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
-
-      final XmlNodeReadOnlyTrx rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-        rtx.moveTo(pair.getSecond());
-      } else {
-        rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst());
-        rtx.moveTo(pair.getSecond());
-      }
+      final var rtx = axis.next();
       return new XmlDBNode(rtx, mCollection);
     }
 

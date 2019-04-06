@@ -7,7 +7,6 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.utils.Pair;
 
 /**
  * Retrieve a node by node key in all revisions. In each revision a {@link XmlNodeReadOnlyTrx} is
@@ -45,15 +44,15 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   }
 
   @Override
-  protected Pair<Integer, Long> computeNext() {
+  protected R computeNext() {
     while (mRevision <= mResourceManager.getMostRecentRevisionNumber()) {
-      try (final NodeReadOnlyTrx rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision++)) {
-        if (rtx.moveTo(mNodeKey).hasMoved()) {
-          mHasMoved = true;
-          return new Pair<>(rtx.getRevisionNumber(), rtx.getNodeKey());
-        } else if (mHasMoved) {
-          return endOfData();
-        }
+      final R rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision++);
+      if (rtx.moveTo(mNodeKey).hasMoved()) {
+        mHasMoved = true;
+        return rtx;
+      } else if (mHasMoved) {
+        rtx.close();
+        return endOfData();
       }
     }
 

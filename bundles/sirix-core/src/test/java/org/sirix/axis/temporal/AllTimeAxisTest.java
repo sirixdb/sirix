@@ -9,7 +9,6 @@ import org.sirix.XdmTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -50,12 +49,9 @@ public final class AllTimeAxisTest {
         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
         final XmlNodeReadOnlyTrx thirdReader = holder.getXdmNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(new Pair<>(firstReader.getRevisionNumber(), firstReader.getNodeKey()),
-              new Pair<>(secondReader.getRevisionNumber(), secondReader.getNodeKey()),
-              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey())),
-          null) {
+          ImmutableList.of(firstReader, secondReader, thirdReader), null) {
         @Override
-        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(holder.getResourceManager(), holder.getXdmNodeReadTrx());
         }
       }.test();
@@ -89,13 +85,9 @@ public final class AllTimeAxisTest {
       fourthReader.moveTo(4);
 
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(new Pair<>(firstReader.getRevisionNumber(), firstReader.getNodeKey()),
-              new Pair<>(secondReader.getRevisionNumber(), secondReader.getNodeKey()),
-              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey()),
-              new Pair<>(fourthReader.getRevisionNumber(), fourthReader.getNodeKey())),
-          null) {
+          ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
         @Override
-        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(fourthReader.getResourceManager(), fourthReader);
         }
       }.test();

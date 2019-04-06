@@ -9,7 +9,6 @@ import org.sirix.XdmTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -48,10 +47,9 @@ public final class FirstAxisTest {
   public void testAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
 
-    new IteratorTester<Pair<Integer, Long>>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())), null) {
+    new IteratorTester<XmlNodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
       @Override
-      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new FirstAxis<>(holder.getResourceManager(), holder.getXdmNodeReadTrx());
       }
     }.test();

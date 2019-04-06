@@ -8,7 +8,6 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.utils.Pair;
 
 /**
  * Retrieve a node by node key in all earlier revisions. In each revision a
@@ -58,13 +57,14 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   @Override
-  protected Pair<Integer, Long> computeNext() {
+  protected R computeNext() {
     if (mRevision > 0) {
-      try (final NodeReadOnlyTrx rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision--)) {
-        if (rtx.moveTo(mNodeKey).hasMoved())
-          return new Pair<>(rtx.getRevisionNumber(), rtx.getNodeKey());
-        else
-          return endOfData();
+      final R rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision--);
+      if (rtx.moveTo(mNodeKey).hasMoved())
+        return rtx;
+      else {
+        rtx.close();
+        return endOfData();
       }
     } else {
       return endOfData();
