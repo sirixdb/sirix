@@ -88,7 +88,7 @@ public final class JsonShredder implements Callable<Long> {
 
   private int mLevel;
 
-  private final boolean mSkipEndJsonObject;
+  private final boolean mSkipRootJson;
 
   /**
    * Builder to build an {@link JsonShredder} instance.
@@ -109,7 +109,7 @@ public final class JsonShredder implements Callable<Long> {
      */
     private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
 
-    private boolean mSkipEndJsonToken;
+    private boolean mSkipRootJsonToken;
 
     /**
      * Constructor.
@@ -135,8 +135,8 @@ public final class JsonShredder implements Callable<Long> {
       return this;
     }
 
-    public Builder skipEndJsonToken() {
-      mSkipEndJsonToken = true;
+    public Builder skipRootJsonToken() {
+      mSkipRootJsonToken = true;
       return this;
     }
 
@@ -160,7 +160,7 @@ public final class JsonShredder implements Callable<Long> {
     mReader = builder.mReader;
     mInsert = builder.mInsert;
     mCommit = builder.mCommit;
-    mSkipEndJsonObject = builder.mSkipEndJsonToken;
+    mSkipRootJson = builder.mSkipRootJsonToken;
 
     mParents = new ArrayDeque<>();
     mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -199,10 +199,12 @@ public final class JsonShredder implements Callable<Long> {
           case BEGIN_OBJECT:
             mLevel++;
             mReader.beginObject();
-            final long insertedObjectNodeKey = addObject();
+            if (!(mLevel == 1 && mSkipRootJson)) {
+              final long insertedObjectNodeKey = addObject();
 
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedObjectNodeKey;
+              if (insertedRootNodeKey == -1)
+                insertedRootNodeKey = insertedObjectNodeKey;
+            }
             break;
           case NAME:
             final String name = mReader.nextName();
@@ -214,8 +216,8 @@ public final class JsonShredder implements Callable<Long> {
               endReached = true;
             }
 
-            if (!(mLevel == 0 && mSkipEndJsonObject)) {
-              mReader.endObject();
+            mReader.endObject();
+            if (!(mLevel == 0 && mSkipRootJson)) {
               mParents.pop();
               mWtx.moveTo(mParents.peek());
 
@@ -228,10 +230,12 @@ public final class JsonShredder implements Callable<Long> {
           case BEGIN_ARRAY:
             mLevel++;
             mReader.beginArray();
-            final var insertedArrayNodeKey = insertArray();
+            if (!(mLevel == 1 && mSkipRootJson)) {
+              final var insertedArrayNodeKey = insertArray();
 
-            if (insertedRootNodeKey == -1)
-              insertedRootNodeKey = insertedArrayNodeKey;
+              if (insertedRootNodeKey == -1)
+                insertedRootNodeKey = insertedArrayNodeKey;
+            }
             break;
           case END_ARRAY:
             mLevel--;
@@ -239,8 +243,8 @@ public final class JsonShredder implements Callable<Long> {
               endReached = true;
             }
 
-            if (!(mLevel == 0 && mSkipEndJsonObject)) {
-              mReader.endArray();
+            mReader.endArray();
+            if (!(mLevel == 0 && mSkipRootJson)) {
               mParents.pop();
               mWtx.moveTo(mParents.peek());
 
@@ -326,9 +330,7 @@ public final class JsonShredder implements Callable<Long> {
       }
 
       mWtx.moveTo(insertedRootNodeKey);
-    } catch (
-
-    final IOException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
