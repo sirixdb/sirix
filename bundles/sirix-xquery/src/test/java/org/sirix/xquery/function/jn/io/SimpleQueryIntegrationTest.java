@@ -170,4 +170,37 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       // assertEquals("[\"foo\",[[\"bar\"]]]", buf.toString());
     }
   }
+
+  // @Test
+  // public void testTimeTravel() {
+  // // Initialize query context and store.
+  // try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().build();
+  // final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+  // final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+  //
+  // // Use XQuery to store a JSON string into the store.
+  // System.out.println("Storing document:");
+  // final String storeQuery = "jn:store('mycol.jn','mydoc.jn','" + mJson + "')";
+  // System.out.println(storeQuery);
+  // new XQuery(chain, storeQuery).evaluate(ctx);
+  //
+  // // Use XQuery to load a JSON database/resource.
+  // System.out.println("Opening document again:");
+  // final String openDocQuery = "jn:doc('mycol.jn','mydoc.jn')";
+  // System.out.println(openDocQuery);
+  // final Sequence seq = (JSONDocnew XQuery(chain, openDocQuery).evaluate(ctx);
+  //
+  // // Use XQuery to load a JSON database/resource.
+  // System.out.println("Opening document again:");
+  // final String openQuery = "jn:doc('mycol.jn','mydoc.jn')=>sirix[[0]]=>revisionNumber";
+  // System.out.println(openQuery);
+  // final Sequence openSeq = new XQuery(chain, openQuery).evaluate(ctx);
+  //
+  // assertNotNull(openSeq);
+  //
+  // final PrintStream buf = IOUtils.createBuffer();
+  // new StringSerializer(buf).serialize(openSeq);
+  // assertEquals("1", buf.toString());
+  // }
+  // }
 }
