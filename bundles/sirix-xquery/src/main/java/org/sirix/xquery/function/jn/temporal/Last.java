@@ -23,7 +23,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
  */
 public final class Last extends AbstractFunction {
 
-  /** Move to function name. */
+  /** Function name. */
   public final static QNm LAST = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "last");
 
   /**

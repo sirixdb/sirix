@@ -23,7 +23,7 @@ import org.sirix.xquery.json.TemporalJsonDBItem;
  */
 public final class First extends AbstractFunction {
 
-  /** Move to function name. */
+  /** Function name. */
   public final static QNm FIRST = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "first");
 
   /**

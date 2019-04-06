@@ -10,7 +10,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.Pair;
 import org.sirix.utils.XdmDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
@@ -51,13 +50,10 @@ public final class PastAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(new Pair<>(thirdRtx.getRevisionNumber(), thirdRtx.getNodeKey()),
-            new Pair<>(secondRtx.getRevisionNumber(), secondRtx.getNodeKey()),
-            new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())),
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx, secondRtx, firstRtx),
         null) {
       @Override
-      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new PastAxis<>(thirdRtx.getResourceManager(), thirdRtx, IncludeSelf.YES);
       }
     }.test();
@@ -69,12 +65,9 @@ public final class PastAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(new Pair<>(secondRtx.getRevisionNumber(), secondRtx.getNodeKey()),
-            new Pair<>(firstRtx.getRevisionNumber(), firstRtx.getNodeKey())),
-        null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, firstRtx), null) {
       @Override
-      protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new PastAxis<>(thirdRtx.getResourceManager(), thirdRtx);
       }
     }.test();
@@ -98,12 +91,9 @@ public final class PastAxisTest {
       fifthReader.moveTo(16);
 
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(new Pair<>(fifthReader.getRevisionNumber(), fifthReader.getNodeKey()),
-              new Pair<>(fourthReader.getRevisionNumber(), fourthReader.getNodeKey()),
-              new Pair<>(thirdReader.getRevisionNumber(), thirdReader.getNodeKey())),
-          null) {
+          ImmutableList.of(fifthReader, fourthReader, thirdReader), null) {
         @Override
-        protected Iterator<Pair<Integer, Long>> newTargetIterator() {
+        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new PastAxis<>(fifthReader.getResourceManager(), fifthReader, IncludeSelf.YES);
         }
       }.test();

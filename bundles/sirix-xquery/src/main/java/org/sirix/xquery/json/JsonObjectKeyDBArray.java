@@ -1,6 +1,5 @@
 package org.sirix.xquery.json;
 
-import java.util.Optional;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -14,7 +13,6 @@ import org.brackit.xquery.xdm.json.TemporalJsonItem;
 import org.brackit.xquery.xdm.type.ArrayType;
 import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
@@ -29,7 +27,6 @@ import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.node.Kind;
 import org.sirix.utils.LogWrapper;
-import org.sirix.utils.Pair;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectKeyArrayStream;
 import org.slf4j.LoggerFactory;
@@ -102,19 +99,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
 
   private JsonObjectKeyDBArray moveTemporalAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis) {
     if (axis.hasNext()) {
-      final Pair<Integer, Long> pair = axis.next();
-
-      final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = axis.getResourceManager();
-      final Optional<JsonNodeReadOnlyTrx> optionalRtx = resourceManager.getNodeReadTrxByRevisionNumber(pair.getFirst());
-
-      final JsonNodeReadOnlyTrx rtx;
-      if (optionalRtx.isPresent()) {
-        rtx = optionalRtx.get();
-        rtx.moveTo(pair.getSecond());
-      } else {
-        rtx = resourceManager.beginNodeReadOnlyTrx(pair.getFirst());
-        rtx.moveTo(pair.getSecond());
-      }
+      final var rtx = axis.next();
       return new JsonObjectKeyDBArray(rtx, mCollection);
     }
 

@@ -1,17 +1,13 @@
 package org.sirix.xquery.stream.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
-import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.utils.Pair;
-import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBArraySlice;
+import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.node.XmlDBCollection;
 import com.google.common.base.MoreObjects;
 
@@ -29,8 +25,6 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
   /** The {@link JsonDBCollection} reference. */
   private final JsonDBCollection mCollection;
 
-  private final Map<Integer, JsonNodeReadOnlyTrx> mCache;
-
   private final int mFromIndex;
 
   private final int mToIndex;
@@ -47,7 +41,6 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
       final JsonDBCollection collection, final int fromIndex, final int toIndex) {
     mAxis = checkNotNull(axis);
     mCollection = checkNotNull(collection);
-    mCache = new HashMap<>();
     mFromIndex = fromIndex;
     mToIndex = toIndex;
   }
@@ -55,20 +48,10 @@ public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArr
   @Override
   public JsonDBArraySlice next() {
     if (mAxis.hasNext()) {
-      final ResourceManager<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager = mAxis.getResourceManager();
-      final Pair<Integer, Long> pair = mAxis.next();
-
-      final int revision = pair.getFirst();
-      final long nodeKey = pair.getSecond();
-
-      final JsonNodeReadOnlyTrx rtx =
-          mCache.computeIfAbsent(revision, revisionNumber -> resourceManager.beginNodeReadOnlyTrx(revisionNumber));
-      rtx.moveTo(nodeKey);
-
+      final var rtx = mAxis.next();
       return new JsonDBArraySlice(rtx, mCollection, mFromIndex, mToIndex);
     }
 
-    mCache.forEach((revision, rtx) -> rtx.close());
     return null;
   }
 

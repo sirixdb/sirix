@@ -4,7 +4,6 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.utils.Pair;
 import com.google.common.collect.AbstractIterator;
 
 /**
@@ -14,7 +13,7 @@ import com.google.common.collect.AbstractIterator;
  *
  */
 public abstract class AbstractTemporalAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends AbstractIterator<Pair<Integer, Long>> {
+    extends AbstractIterator<R> {
 
   public abstract ResourceManager<R, W> getResourceManager();
 }
