@@ -275,19 +275,23 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
                 "Current node must either be the document root, an array or an object key.");
           }
 
-          if (nodeKind != Kind.JSON_DOCUMENT)
-            skipRootJsonToken = true;
-
           switch (peekedJsonToken) {
             case BEGIN_OBJECT:
-              if (nodeKind != Kind.OBJECT && nodeKind != Kind.JSON_DOCUMENT) {
+              if (nodeKind != Kind.OBJECT && nodeKind != Kind.ARRAY && nodeKind != Kind.JSON_DOCUMENT) {
                 throw new IllegalStateException("Current node in storage must be an object node.");
               }
+
+              if (nodeKind == Kind.OBJECT)
+                skipRootJsonToken = true;
               break;
             case BEGIN_ARRAY:
               if (nodeKind != Kind.ARRAY && nodeKind != Kind.JSON_DOCUMENT) {
                 throw new IllegalStateException("Current node in storage must be an array node.");
               }
+
+              if (nodeKind == Kind.ARRAY)
+                skipRootJsonToken = true;
+
               break;
             // $CASES-OMITTED$
             default:
@@ -947,6 +951,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       if (node.getKind() == Kind.JSON_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       }
+
+      final Kind kind = node.getKind();
+
+      if (getParentKind() == Kind.OBJECT_RECORD && (kind == Kind.STRING_VALUE || kind == Kind.BOOLEAN_VALUE
+          || kind == Kind.NUMBER_VALUE || kind == Kind.NULL_VALUE))
+        throw new SirixUsageException(
+            "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
 
       // Remove subtree.
       for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
