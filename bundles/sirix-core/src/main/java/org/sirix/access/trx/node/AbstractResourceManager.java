@@ -272,6 +272,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
+    // Make sure not to exceed available number of read transactions.
+    try {
+      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+        throw new SirixUsageException(
+            "No read transactions available, please close at least one read transaction at first!");
+      }
+    } catch (final InterruptedException e) {
+      throw new SirixThreadedException(e);
+    }
+
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
@@ -418,6 +428,34 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
+   * Close a write transaction.
+   *
+   * @param transactionID write transaction ID
+   */
+  @Override
+  public void closePageWriteTransaction(final @Nonnegative long transactionID) {
+    // Remove from internal map.
+    mPageTrxMap.remove(transactionID);
+
+    // Make new transactions available.
+    mWriteLock.unlock();
+  }
+
+  /**
+   * Close a read transaction.
+   *
+   * @param transactionID read transaction ID
+   */
+  @Override
+  public void closePageReadTransaction(final @Nonnegative long transactionID) {
+    // Remove from internal map.
+    mPageTrxMap.remove(transactionID);
+
+    // Make new transactions available.
+    mReadSemaphore.release();
+  }
+
+  /**
    * Remove from internal maps.
    *
    * @param transactionID transaction ID to remove
@@ -477,6 +515,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PageReadOnlyTrx beginPageReadOnlyTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
+    // Make sure not to exceed available number of read transactions.
+    try {
+      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+        throw new SirixUsageException(
+            "No read transactions available, please close at least one read transaction at first!");
+      }
+    } catch (final InterruptedException e) {
+      throw new SirixThreadedException(e);
+    }
+
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
     final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
         revision, mFac.createReader(), null, null, mBufferManager);
@@ -503,6 +551,16 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     try {
       if (!mWriteLock.tryLock(20, TimeUnit.SECONDS)) {
         throw new SirixUsageException("No write transaction available, please close the write transaction first.");
+      }
+    } catch (final InterruptedException e) {
+      throw new SirixThreadedException(e);
+    }
+
+    // Make sure not to exceed available number of read transactions.
+    try {
+      if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+        throw new SirixUsageException(
+            "No read transactions available, please close at least one read transaction at first!");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);

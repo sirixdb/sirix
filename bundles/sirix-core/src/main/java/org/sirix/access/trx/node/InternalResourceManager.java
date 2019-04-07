@@ -26,8 +26,8 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertAccess(int revision);
 
-  PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(long trxID, int revision, int i,
-      Abort no, boolean isBoundToNodeTrx);
+  PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(long trxID, int revision, int i, Abort no,
+      boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
 
@@ -38,4 +38,10 @@ public interface InternalResourceManager<R extends NodeReadOnlyTrx & NodeCursor,
   void setNodePageWriteTransaction(long transactionID, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx);
 
   void closeNodePageWriteTransaction(long transactionID);
+
+  void closeReadTransaction(long trxId);
+
+  void closePageReadTransaction(long trxId);
+
+  void closePageWriteTransaction(long transactionID);
 }

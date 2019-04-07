@@ -69,8 +69,8 @@ import org.sirix.utils.NamePageHash;
  * <h1>PageWriteTrx</h1>
  *
  * <p>
- * Implements the {@link PageTrx} interface to provide write capabilities to the persistent
- * storage layer.
+ * Implements the {@link PageTrx} interface to provide write capabilities to the persistent storage
+ * layer.
  * </p>
  *
  * @author Marc Kramis, Seabix AG
@@ -373,7 +373,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
       mPageRtx.mResourceManager.setLastCommittedUberPage(lastUberPage);
 
       if (!mIsBoundToNodeTrx)
-        mPageRtx.mResourceManager.closeWriteTransaction(mPageRtx.getTrxId());
+        mPageRtx.mResourceManager.closePageWriteTransaction(mPageRtx.getTrxId());
 
       mPageRtx.clearCaches();
       mPageRtx.closeCaches();
