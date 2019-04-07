@@ -1,6 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.util.Optional;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -40,7 +41,17 @@ public final class LastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   protected R computeNext() {
     if (mFirst) {
       mFirst = false;
-      final R rtx = mResourceManager.beginNodeReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
+
+      final Optional<R> optionalRtx =
+          mResourceManager.getNodeReadTrxByRevisionNumber(mResourceManager.getMostRecentRevisionNumber());
+
+      final R rtx;
+      if (optionalRtx.isPresent()) {
+        rtx = optionalRtx.get();
+      } else {
+        rtx = mResourceManager.beginNodeReadOnlyTrx(mResourceManager.getMostRecentRevisionNumber());
+      }
+
       if (rtx.moveTo(mNodeKey).hasMoved()) {
         return rtx;
       } else {

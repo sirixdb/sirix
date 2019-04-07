@@ -1,6 +1,7 @@
 package org.sirix.axis.temporal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.util.Optional;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
@@ -59,7 +60,17 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   @Override
   protected R computeNext() {
     if (mRevision > 0) {
-      final R rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision--);
+      final Optional<R> optionalRtx = mResourceManager.getNodeReadTrxByRevisionNumber(mRevision);
+
+      final R rtx;
+      if (optionalRtx.isPresent()) {
+        rtx = optionalRtx.get();
+      } else {
+        rtx = mResourceManager.beginNodeReadOnlyTrx(mRevision);
+      }
+
+      mRevision--;
+
       if (rtx.moveTo(mNodeKey).hasMoved())
         return rtx;
       else {
