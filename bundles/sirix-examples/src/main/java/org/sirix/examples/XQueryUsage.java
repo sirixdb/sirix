@@ -465,7 +465,7 @@ public final class XQueryUsage {
       // Serialize second version to XML
       // ($user.home$/sirix-data/output-revision-1.xml).
       final QueryContext ctx5 = SirixQueryContext.createWithNodeStore(store);
-      final String xq5 = "sdb:serialize(doc('mydocs.col', 2), fn:boolean(1), 'output-revision-2.xml')";
+      final String xq5 = "sdb:serialize(doc('mydocs.col', 2), true(), 'output-revision-2.xml')";
       q = new XQuery(xq5);
       q.execute(ctx5);
       System.out.println();
