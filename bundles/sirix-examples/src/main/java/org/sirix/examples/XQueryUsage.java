@@ -205,7 +205,7 @@ public final class XQueryUsage {
     // new XQuery(compileChain, query2).evaluate(ctx2);
     // System.out.println();
     // System.out.println("Query loaded document:");
-    // final String xq3 = "doc('mydocs.col')/log/all-time::*";
+    // final String xq3 = "doc('mydocs.col')/log/all-times::*";
     // System.out.println(xq3);
     // XQuery q = new XQuery(SirixCompileChain.createWithNodeStore(store), xq3);
     // q.prettyPrint();
@@ -270,7 +270,7 @@ public final class XQueryUsage {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
       System.out.println();
       System.out.println("Query loaded document:");
-      final String xq3 = "doc('mydocs.col')/log/all-time::*";
+      final String xq3 = "doc('mydocs.col')/log/all-times::*";
       System.out.println(xq3);
       final XQuery q = new XQuery(SirixCompileChain.createWithNodeStore(store), xq3);
       q.prettyPrint();
@@ -446,7 +446,7 @@ public final class XQueryUsage {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
       System.out.println();
       System.out.println("Query loaded document:");
-      final String xq3 = "doc('mydocs.col')/log/all-time::*";
+      final String xq3 = "doc('mydocs.col')/log/all-times::*";
       System.out.println(xq3);
       XQuery q = new XQuery(SirixCompileChain.createWithNodeStore(store), xq3);
       q.prettyPrint();

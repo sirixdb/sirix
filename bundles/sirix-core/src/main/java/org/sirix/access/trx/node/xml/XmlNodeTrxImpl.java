@@ -1711,8 +1711,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         }
 
         // Release all state immediately.
-        mResourceManager.closeWriteTransaction(getId());
+        final long trxId = getId();
         mNodeReadOnlyTrx.close();
+        mResourceManager.closeWriteTransaction(trxId);
         removeCommitFile();
 
         mPathSummaryWriter = null;

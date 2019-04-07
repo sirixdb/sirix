@@ -37,9 +37,9 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
@@ -545,12 +545,12 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public void close() {
     if (!mClosed) {
-      // Callback on session to make sure everything is cleaned up.
-      mResourceManager.closeReadTransaction(mTrxId);
-
       // Close own state.
       mPageReadTrx.close();
       setPageReadTransaction(null);
+
+      // Callback on session to make sure everything is cleaned up.
+      mResourceManager.closeReadTransaction(mTrxId);
 
       // Immediately release all references.
       mPageReadTrx = null;
