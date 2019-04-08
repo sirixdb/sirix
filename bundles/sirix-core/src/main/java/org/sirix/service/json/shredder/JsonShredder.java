@@ -504,6 +504,7 @@ public final class JsonShredder implements Callable<Long> {
 
         break;
       case NULL:
+        mReader.nextNull();
         value = new NullValue();
         break;
       case NUMBER:

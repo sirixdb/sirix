@@ -890,7 +890,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
-      final long parentKey = structNode.getParentKey();
+      final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getRightSiblingKey();
 
@@ -1240,8 +1240,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         }
 
         // Release all state immediately.
-        mResourceManager.closeWriteTransaction(getId());
+        final long trxId = getId();
         mNodeReadOnlyTrx.close();
+        mResourceManager.closeWriteTransaction(trxId);
         removeCommitFile();
 
         mPathSummaryWriter = null;

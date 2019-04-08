@@ -79,4 +79,24 @@ public final class JsonShredderTest {
       assertEquals(COMPLEX_JSON_2, writer.toString());
     }
   }
+
+  // @Test
+  // public void testTwitter() throws IOException {
+  // final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+  // try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+  // final var trx = manager.beginNodeTrx();
+  // final Writer writer = new StringWriter()) {
+  // final var shredder = new JsonShredder.Builder(trx,
+  // JsonShredder.createFileReader(JSON.resolve("twitter.json")),
+  // InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+  // shredder.call();
+  // final var serializer = new JsonSerializer.Builder(manager, writer).build();
+  // serializer.call();
+  // final String expected = Files.readString(JSON.resolve("twitter-expected.json"),
+  // StandardCharsets.UTF_8);
+  // final String actual = writer.toString();
+  //
+  // assertEquals(expected, actual);
+  // }
+  // }
 }
