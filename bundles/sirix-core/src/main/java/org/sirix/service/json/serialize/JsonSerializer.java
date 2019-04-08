@@ -67,7 +67,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonSerializer.class));
 
   /** OutputStream to write to. */
-  private final Writer mOut;
+  private final Appendable mOut;
 
   /** Indent output. */
   private final boolean mIndent;
@@ -117,38 +117,38 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case OBJECT:
           // Emit start element.
           indent();
-          mOut.write("{");
+          mOut.append("{");
           if (!rtx.hasFirstChild()) {
-            mOut.write("}");
+            mOut.append("}");
             if (rtx.hasRightSibling())
-              mOut.write(",");
+              mOut.append(",");
           }
           break;
         case ARRAY:
-          mOut.write("[");
+          mOut.append("[");
           if (!rtx.hasFirstChild()) {
-            mOut.write("]");
+            mOut.append("]");
             if (rtx.hasRightSibling())
-              mOut.write(",");
+              mOut.append(",");
           }
           break;
         case OBJECT_RECORD:
-          mOut.write("\"" + rtx.getName().stringValue() + "\":");
+          mOut.append("\"" + rtx.getName().stringValue() + "\":");
           break;
         case BOOLEAN_VALUE:
-          mOut.write(Boolean.valueOf(rtx.getValue()).toString());
+          mOut.append(Boolean.valueOf(rtx.getValue()).toString());
           printCommaIfNeeded(rtx);
           break;
         case NULL_VALUE:
-          mOut.write("null");
+          mOut.append("null");
           printCommaIfNeeded(rtx);
           break;
         case NUMBER_VALUE:
-          mOut.write(rtx.getValue());
+          mOut.append(rtx.getValue());
           printCommaIfNeeded(rtx);
           break;
         case STRING_VALUE:
-          mOut.write("\"" + rtx.getValue() + "\"");
+          mOut.append("\"" + rtx.getValue() + "\"");
           printCommaIfNeeded(rtx);
           break;
         // $CASES-OMITTED$
@@ -164,7 +164,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     final boolean hasRightSibling = rtx.hasRightSibling();
 
     if (hasRightSibling)
-      mOut.write(",");
+      mOut.append(",");
   }
 
   /**
@@ -178,16 +178,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       indent();
       switch (rtx.getKind()) {
         case ARRAY:
-          mOut.write("]");
+          mOut.append("]");
           break;
         case OBJECT:
-          mOut.write("}");
+          mOut.append("}");
           if (rtx.hasRightSibling())
-            mOut.write(",");
+            mOut.append(",");
           break;
         case OBJECT_RECORD:
           if (rtx.hasRightSibling())
-            mOut.write(",");
+            mOut.append(",");
           break;
         // $CASES-OMITTED$
         default:
@@ -205,15 +205,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (length > 1) {
-        mOut.write("{");
+        mOut.append("{");
 
         if (mIndent) {
-          // mOut.write(CharsForSerializing.NEWLINE.getBytes());
+          // mOut.append(CharsForSerializing.NEWLINE.getBytes());
           mStack.push(Constants.NULL_ID_LONG);
         }
 
-        mOut.write("\"sirix\":");
-        mOut.write("[");
+        mOut.append("\"sirix\":");
+        mOut.append("[");
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -233,14 +233,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         }
         indent();
 
-        mOut.write("]");
+        mOut.append("]");
 
         indent();
 
-        mOut.write("}");
+        mOut.append("}");
       }
-
-      mOut.flush();
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -257,25 +255,25 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         indent();
 
         if (length > 1 || mEmitXQueryResultSequence) {
-          mOut.write("{");
-          mOut.write("\"revisionNumber\":");
-          mOut.write(Integer.toString(rtx.getRevisionNumber()));
-          mOut.write(",");
+          mOut.append("{");
+          mOut.append("\"revisionNumber\":");
+          mOut.append(Integer.toString(rtx.getRevisionNumber()));
+          mOut.append(",");
 
           if (mSerializeTimestamp) {
-            mOut.write("{\"revisionTimestamp\":");
-            mOut.write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
-            mOut.write(",");
+            mOut.append("{\"revisionTimestamp\":");
+            mOut.append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
+            mOut.append(",");
           }
 
-          mOut.write("\"revision\":");
+          mOut.append("\"revision\":");
         }
 
         if (rtx.hasFirstChild())
           mStack.push(Constants.NULL_ID_LONG);
 
         // if (mIndent) {
-        // mOut.write(CharsForSerializing.NEWLINE.getBytes());
+        // mOut.append(CharsForSerializing.NEWLINE.getBytes());
         // }
       }
     } catch (final IOException e) {
@@ -294,14 +292,14 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
           mStack.pop();
         indent();
-        mOut.write("}");
+        mOut.append("}");
 
         if (rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1])
-          mOut.write(",");
+          mOut.append(",");
       }
 
       // if (mIndent) {
-      // mOut.write(CharsForSerializing.NEWLINE.getBytes());
+      // mOut.append(CharsForSerializing.NEWLINE.getBytes());
       // }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -319,7 +317,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (mStack.size() + 1) * mIndentSpaces
           : mStack.size() * mIndentSpaces;
       for (int i = 0; i < indentSpaces; i++) {
-        mOut.write(" ");
+        mOut.append(" ");
       }
     }
   }
@@ -398,7 +396,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     private int mIndentSpaces = 2;
 
     /** Stream to pipe to. */
-    private final Writer mStream;
+    private final Appendable mStream;
 
     /** Resource manager to use. */
     private final JsonResourceManager mResourceMgr;
@@ -428,7 +426,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public Builder(final JsonResourceManager resourceMgr, final Writer stream, final int... revisions) {
+    public Builder(final JsonResourceManager resourceMgr, final Appendable stream, final int... revisions) {
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
