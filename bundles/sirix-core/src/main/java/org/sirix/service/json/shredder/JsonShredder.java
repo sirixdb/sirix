@@ -279,43 +279,7 @@ public final class JsonShredder implements Callable<Long> {
               insertedRootNodeKey = insertedNullValueNodeKey;
             break;
           case NUMBER:
-            final var stringVal = mReader.nextString();
-
-            Number number;
-
-            if (stringVal.contains(".")) {
-              if (stringVal.contains("E") || stringVal.contains("e")) {
-                try {
-                  number = Float.valueOf(stringVal);
-                } catch (final NumberFormatException eeee) {
-                  try {
-                    number = Double.valueOf(stringVal);
-                  } catch (final NumberFormatException eeeee) {
-                    throw new IllegalStateException(eeeee);
-                  }
-                }
-              } else {
-                try {
-                  number = new BigDecimal(stringVal);
-                } catch (final NumberFormatException eeeeee) {
-                  throw new IllegalStateException(eeeeee);
-                }
-              }
-            } else {
-              try {
-                number = Integer.valueOf(stringVal);
-              } catch (final NumberFormatException e) {
-                try {
-                  number = Long.valueOf(stringVal);
-                } catch (final NumberFormatException ee) {
-                  try {
-                    number = new BigInteger(stringVal);
-                  } catch (final NumberFormatException eee) {
-                    throw new IllegalStateException(eee);
-                  }
-                }
-              }
-            }
+            final var number = readNumber();
 
             final var insertedNumberValueNodeKey =
                 insertNumberValue(number, mReader.peek() == JsonToken.NAME || mReader.peek() == JsonToken.END_OBJECT);
@@ -333,6 +297,47 @@ public final class JsonShredder implements Callable<Long> {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
+  }
+
+  private Number readNumber() throws IOException {
+    final var stringVal = mReader.nextString();
+
+    Number number;
+
+    if (stringVal.contains(".")) {
+      if (stringVal.contains("E") || stringVal.contains("e")) {
+        try {
+          number = Float.valueOf(stringVal);
+        } catch (final NumberFormatException eeee) {
+          try {
+            number = Double.valueOf(stringVal);
+          } catch (final NumberFormatException eeeee) {
+            throw new IllegalStateException(eeeee);
+          }
+        }
+      } else {
+        try {
+          number = new BigDecimal(stringVal);
+        } catch (final NumberFormatException eeeeee) {
+          throw new IllegalStateException(eeeeee);
+        }
+      }
+    } else {
+      try {
+        number = Integer.valueOf(stringVal);
+      } catch (final NumberFormatException e) {
+        try {
+          number = Long.valueOf(stringVal);
+        } catch (final NumberFormatException ee) {
+          try {
+            number = new BigInteger(stringVal);
+          } catch (final NumberFormatException eee) {
+            throw new IllegalStateException(eee);
+          }
+        }
+      }
+    }
+    return number;
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
@@ -508,7 +513,7 @@ public final class JsonShredder implements Callable<Long> {
         value = new NullValue();
         break;
       case NUMBER:
-        final Number numberVal = mReader.nextDouble();
+        final var numberVal = readNumber();
 
         value = new NumberValue(numberVal);
 
