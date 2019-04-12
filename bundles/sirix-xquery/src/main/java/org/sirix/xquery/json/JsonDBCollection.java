@@ -247,7 +247,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         final JsonResourceManager resource = mDatabase.openResourceManager(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
 
-        if (rtx.hasFirstChild()) {
+        if (rtx.moveToFirstChild().hasMoved()) {
           if (rtx.isObject())
             documents.add(new JsonDBObject(rtx, this));
           else if (rtx.isArray())

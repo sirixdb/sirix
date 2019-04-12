@@ -89,7 +89,6 @@ public final class DocByPointInTimeTest extends TestCase {
       // xs:dayTimeDuration('PT0.001S')";
 
       final XQuery query = new XQuery(SirixCompileChain.createWithNodeStore(store), xq1);
-      // query.serialize(ctx, System.out);
       final XmlDBNode node = (XmlDBNode) query.evaluate(ctx);
 
       assertEquals(5, node.getTrx().getRevisionNumber());

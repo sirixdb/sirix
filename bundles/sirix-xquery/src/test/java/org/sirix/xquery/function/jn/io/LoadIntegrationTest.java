@@ -26,9 +26,7 @@ public final class LoadIntegrationTest extends TestCase {
 
       // Use XQuery to store a JSON string into the store.
       final var str = jsonArray.toAbsolutePath().toString();
-      System.out.println("Loading from a path:");
       final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "')";
-      System.out.println(query);
       new XQuery(chain, query).evaluate(ctx);
     }
   }
@@ -43,21 +41,15 @@ public final class LoadIntegrationTest extends TestCase {
       // Use XQuery to load multiple JSON files into the store.
       final var array = jsonArray.toAbsolutePath().toString();
       final var object = jsonObject.toAbsolutePath().toString();
-      System.out.println("Loading from paths:");
       final String query = "jn:load('mycol.jn',(),('" + array + "','" + object + "'))";
-      System.out.println(query);
       new XQuery(chain, query).evaluate(ctx);
 
       // Use XQuery to add a JSON file to the collection.
-      System.out.println("Loading from a path (add):");
       final String queryAdd = "jn:load('mycol.jn',(),'" + array + "',false())";
-      System.out.println(queryAdd);
       new XQuery(chain, queryAdd).evaluate(ctx);
 
       // Use XQuery to add JSON files to the collection.
-      System.out.println("Loading from paths (add):");
       final String queryAddStrings = "jn:load('mycol.jn',(),('" + array + "','" + object + "'),false())";
-      System.out.println(queryAddStrings);
       new XQuery(chain, queryAddStrings).evaluate(ctx);
     }
   }
