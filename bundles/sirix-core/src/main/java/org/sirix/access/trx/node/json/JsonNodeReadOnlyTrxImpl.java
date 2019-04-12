@@ -195,11 +195,12 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public void close() {
     if (!mIsClosed) {
+      // Close own state.
+      mPageReadTrx.close();
+
       // Callback on session to make sure everything is cleaned up.
       mResourceManager.closeReadTransaction(mTrxId);
 
-      // Close own state.
-      mPageReadTrx.close();
       setPageReadTransaction(null);
 
       // Immediately release all references.

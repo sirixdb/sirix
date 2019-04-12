@@ -2,6 +2,13 @@ package org.sirix.xquery.function.jn.io;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.concurrent.TimeUnit;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -12,10 +19,13 @@ import org.sirix.utils.JsonDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
+import org.sirix.xquery.json.JsonDBArray;
 import org.sirix.xquery.json.JsonDBObject;
 import junit.framework.TestCase;
 
 public final class SimpleQueryIntegrationTest extends TestCase {
+
+  private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   private static final String mSimpleJson = "{\"sirix\":{\"revisionNumber\":1}}";
 
@@ -325,6 +335,67 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       }
 
       assert wtx.getRevisionNumber() == 4;
+    }
+  }
+
+  @Test
+  public void testVersionedTwitter() throws IOException, InterruptedException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var twitterFilePath = JSON.resolve("twitter.json").toString();
+      final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "')=>statuses";
+      final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
+
+      TimeUnit.SECONDS.sleep(5);
+
+      final var rtx = sequence.getTrx();
+      final Instant now;
+
+      try (final var wtx = rtx.getResourceManager().beginNodeTrx()) {
+        wtx.moveTo(rtx.getNodeKey());
+        wtx.moveToFirstChild();
+        while (wtx.hasRightSibling())
+          wtx.moveToRightSibling();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createFileReader(JSON.resolve("twitterTweet1.json")));
+        TimeUnit.SECONDS.sleep(5);
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createFileReader(JSON.resolve("twitterTweet2.json")));
+        TimeUnit.SECONDS.sleep(2);
+        now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        TimeUnit.SECONDS.sleep(5);
+
+        while (wtx.hasLeftSibling())
+          wtx.moveToLeftSibling();
+
+        wtx.remove();
+        wtx.commit();
+      }
+
+      final var retrieveQuery =
+          Files.readString(JSON.resolve("query.xq")).replace("$$$$", DateTimeFormatter.ISO_INSTANT.format(now));
+
+      final var buf = IOUtils.createBuffer();
+      final var serializer = new StringSerializer(buf);
+      new XQuery(chain, retrieveQuery).serialize(ctx, serializer);
+
+      assertEquals("2018-02-25T19:31:07 2018-02-26T06:42:50 2018-08-16T21:10:50:557000", buf.toString());
+    }
+  }
+
+  @Test
+  public void testTwitter() throws IOException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var twitterFilePath = JSON.resolve("twitter.json").toString();
+      final var storeQuery = "let $created := jn:load('mycol.jn','mydoc.jn','" + twitterFilePath
+          + "')=>statuses[[0]]=>created_at return xs:dateTime($created)";
+
+      final var buf = IOUtils.createBuffer();
+      final var serializer = new StringSerializer(buf);
+      new XQuery(chain, storeQuery).serialize(ctx, serializer);
+
+      assertEquals("2018-08-16T21:10:50:557000", buf.toString());
     }
   }
 }
