@@ -1,5 +1,7 @@
 package org.sirix.xquery.json;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -281,6 +283,18 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The boolean value of array items is undefined");
   }
 
+  @Override
+  public List<Sequence> values() {
+    moveRtx();
+
+    final List<Sequence> values = new ArrayList<Sequence>();
+
+    for (int i = 0, length = len(); i < length; i++)
+      values.add(at(i));
+
+    return values;
+  }
+
   private Sequence getSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
     moveRtx();
 
@@ -324,36 +338,6 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   public Array range(IntNumeric from, IntNumeric to) {
     moveRtx();
 
-    if (mKind != Kind.ARRAY) {
-      throw new IllegalStateException("Json item kind is not an array.");
-    }
-
-    // TODO: Implement this
-
-    return null;
-
-    // final var axis = new ChildAxis(mRtx);
-    //
-    // try (final var stream = new SirixJsonStream(axis, mCollection)) {
-    // for (int i = 0, fromIndex = from.intValue(); i < fromIndex && stream.next() != null; i++);
-    //
-    // final var item = stream.next();
-    //
-    // if (item == null)
-    // return new DArray();
-    //
-    // final var items = new ArrayList<>();
-    // items.add(item);
-    //
-    // for (int i = from.intValue(), toIndex = to.intValue(); i <= toIndex && stream.next() != null;
-    // i++) {
-    // final var jsonItem = stream.next();
-    //
-    // if (jsonItem != null)
-    // items.add(jsonItem);
-    // }
-    //
-    // return new DArray(items.toArray(new JsonObjectValueDBArray[items.size()]));
-    // }
+    return new JsonDBArraySlice(mRtx, mCollection, from.intValue(), to.intValue());
   }
 }
