@@ -339,7 +339,7 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   }
 
   @Test
-  public void testVersionedTwitter() throws IOException, InterruptedException {
+  public void testVersionedTwitter1() throws IOException, InterruptedException {
     try (final var store = BasicJsonDBStore.newBuilder().build();
         final var ctx = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -379,6 +379,52 @@ public final class SimpleQueryIntegrationTest extends TestCase {
       new XQuery(chain, retrieveQuery).serialize(ctx, serializer);
 
       assertEquals("2018-02-25T19:31:07 2018-02-26T06:42:50 2018-08-16T21:10:50:557000", buf.toString());
+    }
+  }
+
+  @Test
+  public void testVersionedTwitter2() throws IOException, InterruptedException {
+    try (final var store = BasicJsonDBStore.newBuilder().build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var twitterFilePath = JSON.resolve("twitter.json").toString();
+      final var storeQuery = "jn:load('mycol.jn','mydoc.jn','" + twitterFilePath + "')=>statuses";
+      final var sequence = (JsonDBArray) new XQuery(chain, storeQuery).execute(ctx);
+
+      TimeUnit.SECONDS.sleep(5);
+
+      final var rtx = sequence.getTrx();
+      final Instant now;
+
+      try (final var wtx = rtx.getResourceManager().beginNodeTrx()) {
+        wtx.moveTo(rtx.getNodeKey());
+        wtx.moveToFirstChild();
+        while (wtx.hasRightSibling())
+          wtx.moveToRightSibling();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createFileReader(JSON.resolve("twitterTweet1.json")));
+        TimeUnit.SECONDS.sleep(5);
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createFileReader(JSON.resolve("twitterTweet2.json")));
+        TimeUnit.SECONDS.sleep(2);
+        now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        TimeUnit.SECONDS.sleep(5);
+
+        while (wtx.hasLeftSibling())
+          wtx.moveToLeftSibling();
+
+        wtx.remove();
+        wtx.commit();
+      }
+
+      final var retrieveQuery = Files.readString(JSON.resolve("temporal-query.xq"))
+                                     .replace("$$$$", DateTimeFormatter.ISO_INSTANT.format(now));
+
+      final var buf = IOUtils.createBuffer();
+      final var serializer = new StringSerializer(buf);
+      new XQuery(chain, retrieveQuery).serialize(ctx, serializer);
+
+      System.out.println(buf.toString());
+      // assertEquals("2018-02-25T19:31:07 2018-02-26T06:42:50 2018-08-16T21:10:50:557000",
+      // buf.toString());
     }
   }
 

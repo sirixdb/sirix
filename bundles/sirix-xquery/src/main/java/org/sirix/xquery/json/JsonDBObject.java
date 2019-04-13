@@ -29,12 +29,14 @@ import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.utils.LogWrapper;
+import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectStream;
 import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
-public final class JsonDBObject extends AbstractItem implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem {
+public final class JsonDBObject extends AbstractItem
+    implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBObject.class));
