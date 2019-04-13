@@ -1,5 +1,7 @@
 package org.sirix.xquery.json;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -277,6 +279,18 @@ public final class JsonDBArray extends AbstractItem implements TemporalJsonDBIte
   @Override
   public boolean booleanValue() {
     throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The boolean value of array items is undefined");
+  }
+
+  @Override
+  public List<Sequence> values() {
+    moveRtx();
+
+    final List<Sequence> values = new ArrayList<Sequence>();
+
+    for (int i = 0, length = len(); i < length; i++)
+      values.add(at(i));
+
+    return values;
   }
 
   private Sequence getSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
