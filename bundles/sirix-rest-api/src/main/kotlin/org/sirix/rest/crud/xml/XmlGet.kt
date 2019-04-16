@@ -3,7 +3,6 @@ package org.sirix.rest.crud.xml
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -17,8 +16,8 @@ import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.XmlSessionDBStore
 import org.sirix.rest.XdmSerializeHelper
+import org.sirix.rest.XmlSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.DBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -191,7 +190,7 @@ class XdmGet(private val location: Path) {
 
     private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
+        vertxContext.executeBlockingAwait { future: Future<Unit> ->
             // Initialize queryResource context and store.
             val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
 
@@ -221,7 +220,7 @@ class XdmGet(private val location: Path) {
             }
 
             future.complete(null)
-        })
+        }
     }
 
     private fun getRevisionNumber(manager: XmlResourceManager, revision: String): Int {

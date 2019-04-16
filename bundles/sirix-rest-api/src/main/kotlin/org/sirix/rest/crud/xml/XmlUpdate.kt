@@ -66,7 +66,7 @@ class XdmUpdate(private val location: Path) {
                                resFileToStore: String, ctx: RoutingContext) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+        vertxContext.executeBlockingAwait { future: Future<Nothing> ->
             val dbFile = location.resolve(dbPathName)
 
             val database = Databases.openXmlDatabase(dbFile)
@@ -97,7 +97,7 @@ class XdmUpdate(private val location: Path) {
                 XdmSerializeHelper().serializeXml(serializer, out, ctx)
             }
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 }

@@ -3,7 +3,6 @@ package org.sirix.rest.crud.json
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -207,7 +206,7 @@ class JsonGet(private val location: Path) {
 
     private suspend fun xquery(query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
                                user: User) {
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> { future ->
+        vertxContext.executeBlockingAwait { future: Future<Nothing> ->
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), user)
 
@@ -237,7 +236,7 @@ class JsonGet(private val location: Path) {
             }
 
             future.complete(null)
-        })
+        }
     }
 
     private fun getRevisionNumber(manager: JsonResourceManager, revision: String): Int {

@@ -56,7 +56,7 @@ class JsonUpdate(private val location: Path) {
                                resFileToStore: String, ctx: RoutingContext) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+        vertxContext.executeBlockingAwait { future: Future<Nothing> ->
             val dbFile = location.resolve(dbPathName)
 
             val database = Databases.openJsonDatabase(dbFile)
@@ -85,7 +85,7 @@ class JsonUpdate(private val location: Path) {
                 JsonSerializeHelper().serialize(serializer, out, ctx)
             }
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 }
