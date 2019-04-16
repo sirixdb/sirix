@@ -2,7 +2,6 @@ package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -111,20 +110,20 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
     private suspend fun serializeXdm(manager: XmlResourceManager, vertxContext: Context,
                                      routingCtx:
                                   RoutingContext) {
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+        vertxContext.executeBlockingAwait { future: Future<Unit> ->
             val out = ByteArrayOutputStream()
             val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
             XdmSerializeHelper().serializeXml(serializer, out, routingCtx)
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 
     private suspend fun createDatabaseIfNotExists(dbFile: Path,
                                                   context: Context): DatabaseConfiguration? {
-        return context.executeBlockingAwait(Handler<Future<DatabaseConfiguration>> {
+        return context.executeBlockingAwait { future: Future<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -137,8 +136,8 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
                 Databases.createXmlDatabase(dbConfig)
             }
 
-            it.complete(dbConfig)
-        })
+            future.complete(dbConfig)
+        }
     }
 
     private suspend fun createOrRemoveAndCreateResource(database: Database<XmlResourceManager>,
@@ -153,13 +152,13 @@ class XdmCreate(private val location: Path, private val createMultipleResources:
     }
 
     private suspend fun insertXdmSubtreeAsFirstChild(manager: XmlResourceManager, resFileToStore: String, context: Context) {
-        context.executeBlockingAwait(Handler<Future<Nothing>> {
+        context.executeBlockingAwait { future: Future<Nothing> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
             }
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 }

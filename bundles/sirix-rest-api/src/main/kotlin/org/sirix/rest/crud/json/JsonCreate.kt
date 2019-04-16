@@ -2,7 +2,6 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -111,20 +110,20 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     private suspend fun serializeJson(manager: JsonResourceManager, vertxContext: Context,
                                      routingCtx:
                                   RoutingContext) {
-        vertxContext.executeBlockingAwait(Handler<Future<Nothing>> {
+        vertxContext.executeBlockingAwait { future: Future<Unit> ->
             val out = StringWriter()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out)
             val serializer = serializerBuilder.build()
 
             JsonSerializeHelper().serialize(serializer, out, routingCtx)
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 
     private suspend fun createDatabaseIfNotExists(dbFile: Path,
                                                   context: Context): DatabaseConfiguration? {
-        return context.executeBlockingAwait(Handler<Future<DatabaseConfiguration>> {
+        return context.executeBlockingAwait { future: Future<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -137,8 +136,8 @@ class JsonCreate(private val location: Path, private val createMultipleResources
                 Databases.createJsonDatabase(dbConfig)
             }
 
-            it.complete(dbConfig)
-        })
+            future.complete(dbConfig)
+        }
     }
 
     private suspend fun createOrRemoveAndCreateResource(database: Database<JsonResourceManager>,
@@ -153,13 +152,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(manager: JsonResourceManager, resFileToStore: String, context: Context) {
-        context.executeBlockingAwait(Handler<Future<Nothing>> {
+        context.executeBlockingAwait { future: Future<Unit> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(resFileToStore))
             }
 
-            it.complete(null)
-        })
+            future.complete(null)
+        }
     }
 }

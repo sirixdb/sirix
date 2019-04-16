@@ -2,7 +2,6 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -29,7 +28,7 @@ class JsonDelete(private val location: Path) {
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
 
-            ctx.vertx().executeBlockingAwait(Handler<Future<Nothing>> {
+            ctx.vertx().executeBlockingAwait { future: Future<Unit> ->
                 val databases = Files.list(location)
 
                 databases.use {
@@ -37,7 +36,9 @@ class JsonDelete(private val location: Path) {
                         dbStore.drop(it.fileName.toString())
                     }
                 }
-            })
+
+                future.complete(null)
+            }
         } else {
             delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
         }
@@ -91,7 +92,7 @@ class JsonDelete(private val location: Path) {
     }
 
     private suspend fun removeSubtree(manager: JsonResourceManager, nodeId: Long, context: Context): JsonNodeTrx? {
-        return context.executeBlockingAwait(Handler<Future<JsonNodeTrx>> {
+        return context.executeBlockingAwait { future: Future<JsonNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
@@ -100,8 +101,8 @@ class JsonDelete(private val location: Path) {
                 wtx.remove()
                 wtx.commit()
 
-                it.complete(wtx)
+                future.complete(wtx)
             }
-        })
+        }
     }
 }

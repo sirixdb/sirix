@@ -370,7 +370,7 @@ class SirixVerticleTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?query=/xml/all-time::*").putHeader(HttpHeaders
+                    httpResponse = client.getAbs("$server$serverPath?query=/xml/all-times::*").putHeader(HttpHeaders
                             .AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
