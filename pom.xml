@@ -427,5 +427,5 @@
 		<module>bundles/sirix-rest-api</module>
 		<module>bundles/sirix-examples</module>
 	</modules>
-	<url>http://sirix.io</url>
+	<url>https://sirix.io</url>
 </project>
