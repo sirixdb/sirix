@@ -30,7 +30,7 @@
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>0.9.1-SNAPSHOT</version>
+	<version>0.9.0-SNAPSHOT</version>
 	<description>Sirix is a temporal storage system effectively and efficiently storing snapshots of
 	time varying (currently semi-structured) data taking full advantage of flash based drives as for
 	instance SSDs. We not only provide several ways of navigating the tree-structure of a single
