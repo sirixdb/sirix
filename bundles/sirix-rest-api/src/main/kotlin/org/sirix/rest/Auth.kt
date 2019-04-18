@@ -10,6 +10,9 @@ import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 
+/**
+ * Authentication.
+ */
 class Auth(private val keycloak: OAuth2Auth, private val role: String) {
     suspend fun handle(ctx: RoutingContext): Route {
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
