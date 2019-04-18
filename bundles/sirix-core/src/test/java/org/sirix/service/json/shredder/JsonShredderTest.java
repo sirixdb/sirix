@@ -8,12 +8,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
-import org.testng.annotations.Test;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");

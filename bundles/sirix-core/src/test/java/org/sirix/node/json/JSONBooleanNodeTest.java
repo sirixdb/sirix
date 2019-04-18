@@ -22,7 +22,7 @@
 package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
+import static org.junit.Assert.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -80,8 +80,8 @@ public class JSONBooleanNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final BooleanNode node2 = (BooleanNode) Kind.BOOLEAN_VALUE.deserialize(new DataInputStream(in),
-        node.getNodeKey(), null, mPageReadTrx);
+    final BooleanNode node2 =
+        (BooleanNode) Kind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
