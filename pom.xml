@@ -19,9 +19,7 @@
 	OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE 
 	OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
 	ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. -->
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<groupId>org.sonatype.oss</groupId>
@@ -32,7 +30,7 @@
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>0.9.0-SNAPSHOT</version>
+	<version>0.9.0</version>
 	<description>Sirix is a temporal storage system effectively and efficiently storing snapshots of
 	time varying (currently semi-structured) data taking full advantage of flash based drives as for
 	instance SSDs. We not only provide several ways of navigating the tree-structure of a single
@@ -53,7 +51,8 @@
 		<connection>scm:git:git@github.com:sirixdb/sirix.git</connection>
 		<developerConnection>scm:git:git@github.com:sirixdb/sirix.git</developerConnection>
 		<url>https://github.com/sirixdb/sirix</url>
-	</scm>
+	  <tag>sirix-parent-0.9.0</tag>
+  </scm>
 	<issueManagement>
 		<url>https://github.com/sirixdb/sirix/issues</url>
 		<system>GitHub Issues</system>
