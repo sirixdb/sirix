@@ -8,12 +8,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
+import org.testng.annotations.Test;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -82,18 +82,19 @@ public final class JsonShredderTest {
     }
   }
 
-  @Test
-  public void testTwitter() throws IOException {
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx()) {
-      final var writer = new StringBuilder();
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("twitter.json")),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
-      final var serializer = new JsonSerializer.Builder(manager, writer).build();
-      serializer.call();
-      assertEquals(EXPECTED_TWITTER, writer.toString());
-    }
-  }
+  // @Test
+  // public void testTwitter() throws IOException {
+  // final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+  // try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+  // final var trx = manager.beginNodeTrx()) {
+  // final var writer = new StringBuilder();
+  // final var shredder = new JsonShredder.Builder(trx,
+  // JsonShredder.createFileReader(JSON.resolve("twitter.json")),
+  // InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+  // shredder.call();
+  // final var serializer = new JsonSerializer.Builder(manager, writer).build();
+  // serializer.call();
+  // assertEquals(EXPECTED_TWITTER, writer.toString());
+  // }
+  // }
 }
