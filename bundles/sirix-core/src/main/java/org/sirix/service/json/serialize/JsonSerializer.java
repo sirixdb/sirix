@@ -261,7 +261,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           mOut.append(",");
 
           if (mSerializeTimestamp) {
-            mOut.append("{\"revisionTimestamp\":");
+            mOut.append("\"revisionTimestamp\":");
             mOut.append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
             mOut.append(",");
           }
