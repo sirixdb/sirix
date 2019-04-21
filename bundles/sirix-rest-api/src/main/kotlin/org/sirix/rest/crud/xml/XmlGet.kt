@@ -19,7 +19,7 @@ import org.sirix.exception.SirixUsageException
 import org.sirix.rest.XdmSerializeHelper
 import org.sirix.rest.XmlSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.xquery.DBSerializer
+import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.node.BasicXmlDBStore
@@ -205,7 +205,7 @@ class XdmGet(private val location: Path) {
                     PrintStream(out).use { printStream ->
                         SirixCompileChain.createWithNodeStore(dbStore).use { compileChain ->
                             XQuery(compileChain, query).prettyPrint().serialize(queryCtx,
-                                    DBSerializer(printStream, true, true))
+                                    XmlDBSerializer(printStream, true, true))
                         }
                     }
 
