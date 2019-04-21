@@ -18,7 +18,7 @@ import org.sirix.xquery.node.BasicXmlDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
-class XdmDelete(private val location: Path) {
+class XmlDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")

@@ -33,7 +33,7 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-class XdmGet(private val location: Path) {
+class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val vertxContext = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")

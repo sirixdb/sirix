@@ -14,7 +14,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
-enum class XdmInsertionMode {
+enum class XmlInsertionMode {
     ASFIRSTCHILD {
         override fun insert(wtx: XmlNodeTrx, xmlReader: XMLEventReader) {
             wtx.insertSubtreeAsFirstChild(xmlReader)
@@ -43,7 +43,7 @@ enum class XdmInsertionMode {
     }
 }
 
-class XdmUpdate(private val location: Path) {
+class XmlUpdate(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val dbName = ctx.pathParam("database")
 
@@ -85,7 +85,7 @@ class XdmUpdate(private val location: Path) {
                     val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
                     if (insertionMode != null)
-                        XdmInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
+                        XmlInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
                     else
                         wtx.replaceNode(xmlReader)
                 }
