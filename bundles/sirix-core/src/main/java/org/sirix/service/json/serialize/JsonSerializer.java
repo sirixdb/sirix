@@ -251,7 +251,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (length > 1) {
+      if (mEmitXQueryResultSequence || length > 1) {
         indent();
 
         if (length > 1 || mEmitXQueryResultSequence) {

@@ -65,10 +65,10 @@ public final class JsonDBSerializer implements Serializer {
 
         Iter it = sequence.iterate();
 
-        boolean first = true;
         Item item;
         try {
-          while ((item = it.next()) != null) {
+          item = it.next();
+          while (item != null) {
             if (item instanceof StructuredDBItem) {
               @SuppressWarnings("unchecked")
               final StructuredDBItem<JsonNodeReadOnlyTrx> node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
@@ -80,22 +80,30 @@ public final class JsonDBSerializer implements Serializer {
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
               serializer.call();
 
-              if (!first)
-                mOut.append(",");
+              item = it.next();
 
-              first = false;
+              if (item != null)
+                mOut.append(",");
             } else if (item instanceof Atomic) {
               mOut.append(item.toString());
-              // first = false;
+
+              item = it.next();
+
+              if (item != null)
+                mOut.append(",");
             } else {
               // TODO
+              item = it.next();
+
+              if (item != null)
+                mOut.append(",");
             }
           }
         } finally {
           it.close();
         }
 
-        mOut.append("}");
+        mOut.append("]}");
       }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
