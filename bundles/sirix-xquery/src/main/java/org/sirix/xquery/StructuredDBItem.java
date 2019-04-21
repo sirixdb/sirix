@@ -6,4 +6,6 @@ import org.sirix.api.NodeReadOnlyTrx;
 
 public interface StructuredDBItem<R extends NodeReadOnlyTrx & NodeCursor> extends StructuredItem {
   R getTrx();
+
+  long getNodeKey();
 }
