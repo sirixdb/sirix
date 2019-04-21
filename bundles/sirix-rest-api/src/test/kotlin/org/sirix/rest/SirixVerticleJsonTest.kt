@@ -332,33 +332,16 @@ class SirixVerticleJsonTest {
 
                     if (200 == httpResponse.statusCode()) {
                         val expectedResult = """
-                            <rest:sequence xmlns:rest="https://sirix.io/rest">
-                              <rest:item rest:revision="1">
-                                <xml rest:id="1">
-                                  foo
-                                  <bar rest:id="3"/>
-                                </xml>
-                              </rest:item>
-                              <rest:item rest:revision="2">
-                                <xml rest:id="1">
-                                  foo
-                                  <bar rest:id="3">
-                                    <xml rest:id="4">
-                                      foo
-                                      <bar rest:id="6"/>
-                                    </xml>
-                                  </bar>
-                                </xml>
-                              </rest:item>
-                            </rest:sequence>
+                           {"rest":[{"revisionNumber":1,"revision":{"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}},{"revisionNumber":2,"revision":{"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}}]}
                         """.trimIndent()
 
                         testContext.verify {
                             println(httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
-          //                  val result =
-           //                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
-           //                                 .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
-           //                 assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                            val result =
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                                            .replace("\"revisionTimestamp\":\"(?!\").+?\",\"revision".toRegex(), "\"revision")
+                            println(result)
+                            assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                             testContext.completeNow()
                         }
                     }
