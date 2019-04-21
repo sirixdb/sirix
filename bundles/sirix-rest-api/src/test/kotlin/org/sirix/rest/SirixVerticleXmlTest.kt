@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
 
 @ExtendWith(VertxExtension::class)
 @DisplayName("Integration test")
-class SirixVerticleTest {
+class SirixVerticleXmlTest {
     private val server = "https://localhost:9443"
     private val serverPath = "/database/resource1"
 

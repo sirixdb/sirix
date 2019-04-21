@@ -45,7 +45,7 @@ import org.sirix.xquery.node.XmlDBNode;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public final class DBSerializer implements Serializer {
+public final class XmlDBSerializer implements Serializer {
 
   private final PrintStream mOut;
 
@@ -53,7 +53,7 @@ public final class DBSerializer implements Serializer {
 
   private final boolean mPrettyPrint;
 
-  public DBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
+  public XmlDBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
     mOut = checkNotNull(out);
     mEmitRESTful = emitRESTful;
     mPrettyPrint = prettyPrint;
