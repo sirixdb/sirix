@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
-class XdmCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
+class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
 

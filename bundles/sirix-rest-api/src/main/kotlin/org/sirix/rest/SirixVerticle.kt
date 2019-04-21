@@ -21,10 +21,10 @@ import org.sirix.rest.crud.json.JsonCreate
 import org.sirix.rest.crud.json.JsonDelete
 import org.sirix.rest.crud.json.JsonGet
 import org.sirix.rest.crud.json.JsonUpdate
-import org.sirix.rest.crud.xml.XdmCreate
-import org.sirix.rest.crud.xml.XdmDelete
-import org.sirix.rest.crud.xml.XdmGet
-import org.sirix.rest.crud.xml.XdmUpdate
+import org.sirix.rest.crud.xml.XmlCreate
+import org.sirix.rest.crud.xml.XmlDelete
+import org.sirix.rest.crud.xml.XmlGet
+import org.sirix.rest.crud.xml.XmlUpdate
 import java.nio.file.Paths
 
 
@@ -72,7 +72,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XdmCreate(location, false).handle(it)
+            XmlCreate(location, false).handle(it)
         }
         put("/:database").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
@@ -85,7 +85,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XdmCreate(location, false).handle(it)
+            XmlCreate(location, false).handle(it)
         }
         put("/:database/:resource").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
@@ -98,7 +98,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XdmCreate(location, true).handle(it)
+            XmlCreate(location, true).handle(it)
         }
         post("/:database").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
@@ -115,7 +115,7 @@ class SirixVerticle : CoroutineVerticle() {
                     Auth(keycloak, "realm:modify").handle(it)
                     it.next()
                 }.handler(BodyHandler.create()).coroutineHandler {
-                    XdmUpdate(location).handle(it)
+                    XmlUpdate(location).handle(it)
                 }
         post("/:database/:resource")
                 .consumes("application/json")
@@ -132,7 +132,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmGet(location).handle(it)
+            XmlGet(location).handle(it)
         }
         get("/").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
@@ -145,7 +145,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmGet(location).handle(it)
+            XmlGet(location).handle(it)
         }
         get("/:database/:resource").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
@@ -158,7 +158,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmGet(location).handle(it)
+            XmlGet(location).handle(it)
         }
         get("/:database").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
@@ -174,7 +174,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XdmGet(location).handle(it)
+            XmlGet(location).handle(it)
         }
         post("/")
                 .consumes("application/json")
@@ -193,7 +193,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XdmGet(location).handle(it)
+            XmlGet(location).handle(it)
         }
         post("/:database/:resource")
                 .consumes("application/json")
@@ -210,7 +210,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmDelete(location).handle(it)
+            XmlDelete(location).handle(it)
         }
         delete("/").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
@@ -223,7 +223,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmDelete(location).handle(it)
+            XmlDelete(location).handle(it)
         }
         delete("/:database/:resource").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
@@ -236,7 +236,7 @@ class SirixVerticle : CoroutineVerticle() {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            XdmDelete(location).handle(it)
+            XmlDelete(location).handle(it)
         }
         delete("/:database").consumes("application/json").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
