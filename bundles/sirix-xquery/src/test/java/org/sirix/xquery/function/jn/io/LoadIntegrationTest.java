@@ -41,15 +41,15 @@ public final class LoadIntegrationTest extends TestCase {
       // Use XQuery to load multiple JSON files into the store.
       final var array = jsonArray.toAbsolutePath().toString();
       final var object = jsonObject.toAbsolutePath().toString();
-      final String query = "jn:load('mycol.jn',('" + array + "','" + object + "'))";
+      final String query = "jn:load('mycol.jn',(),('" + array + "','" + object + "'))";
       new XQuery(chain, query).evaluate(ctx);
 
       // Use XQuery to add a JSON file to the collection.
-      final String queryAdd = "jn:load('mycol.jn','" + array + "',false())";
+      final String queryAdd = "jn:load('mycol.jn',(),'" + array + "',false())";
       new XQuery(chain, queryAdd).evaluate(ctx);
 
       // Use XQuery to add JSON files to the collection.
-      final String queryAddStrings = "jn:load('mycol.jn',('" + array + "','" + object + "'),false())";
+      final String queryAddStrings = "jn:load('mycol.jn',(),('" + array + "','" + object + "'),false())";
       new XQuery(chain, queryAddStrings).evaluate(ctx);
     }
   }
