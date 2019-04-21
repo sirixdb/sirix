@@ -287,7 +287,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           ? (int) mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
-      if (length > 1) {
+      if (mEmitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
           mStack.pop();
         indent();
