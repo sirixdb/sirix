@@ -73,6 +73,14 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     mJsonUtil = new JsonUtil();
   }
 
+  @Override
+  public long getNodeKey() {
+    moveRtx();
+
+    return mRtx.getNodeKey();
+  }
+
+
   /**
    * Create a new {@link IReadTransaction} and move to {@link mKey}.
    *

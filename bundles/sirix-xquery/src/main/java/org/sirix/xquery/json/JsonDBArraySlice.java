@@ -91,6 +91,14 @@ public final class JsonDBArraySlice extends AbstractItem
     mToIndex = toIndex;
   }
 
+  @Override
+  public long getNodeKey() {
+    moveRtx();
+
+    return mRtx.getNodeKey();
+  }
+
+
   /**
    * Create a new {@link IReadTransaction} and move to {@link mKey}.
    *

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018, Sirix
+XmlInsertionMode * Copyright (c) 2018, Sirix
  *
  * All rights reserved.
  *
@@ -88,14 +88,12 @@ public final class XmlDBSerializer implements Serializer {
 
             XmlSerializer.XmlSerializerBuilder serializerBuilder =
                 new XmlSerializer.XmlSerializerBuilder(node.getTrx().getResourceManager(), pos,
-                    node.getTrx().getRevisionNumber()).serializeTimestamp(true)
-                                                      .isXQueryResultSequence();
+                    node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
             if (mEmitRESTful)
               serializerBuilder = serializerBuilder.emitIDs().emitRESTful();
             if (mPrettyPrint)
               serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
-            final XmlSerializer serializer =
-                serializerBuilder.startNodeKey(node.getNodeKey()).build();
+            final XmlSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
             serializer.call();
 
             first = true;

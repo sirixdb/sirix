@@ -11,8 +11,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.brackit.xquery.util.io.IOUtils
-import org.brackit.xquery.util.serialize.StringSerializer
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
@@ -22,19 +20,20 @@ import org.sirix.node.Kind
 import org.sirix.rest.JsonSerializeHelper
 import org.sirix.rest.JsonSessionDBStore
 import org.sirix.service.json.serialize.JsonSerializer
-import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.json.*
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
+import org.sirix.xquery.json.BasicJsonDBStore
+import org.sirix.xquery.json.JsonDBArray
+import org.sirix.xquery.json.JsonDBCollection
+import org.sirix.xquery.json.JsonDBItem
+import org.sirix.xquery.json.JsonDBObject
 import java.io.StringWriter
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.stream.Collectors.toList
+import org.sirix.xquery.JsonDBSerializer
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -217,24 +216,20 @@ class JsonGet(private val location: Path) {
 
                 node.let { queryCtx.contextItem = node }
 
-                val out = ByteArrayOutputStream()
+                val out = StringBuilder()
 
-                out.use {
-                    PrintStream(out).use { printStream ->
-                        SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
-                            val serializer = StringSerializer(printStream);
-                            XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
-                        }
-                    }
-
-                    val body = String(out.toByteArray(), StandardCharsets.UTF_8)
-
-                    routingContext.response().setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .putHeader("Content-Length", body.length.toString())
-                            .write(body)
-                            .end()
+                SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
+                    val serializer = JsonDBSerializer(out, false);
+                    XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
                 }
+
+                val body = out.toString()
+
+                routingContext.response().setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .putHeader("Content-Length", body.length.toString())
+                        .write(body)
+                        .end()
             }
 
             future.complete(null)
