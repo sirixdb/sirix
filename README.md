@@ -165,13 +165,13 @@ Sirix should be up and running afterwards. Please let us know if you have any tr
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
 
-Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/sirix-xquery/0.8.9-SNAPSHOT/) with dependencies.
+Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
 
 ### First steps
 Please have a look into our sirix-example project how to use Sirix from Java.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
+We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 The following sections show different APIs to interact with Sirix.
