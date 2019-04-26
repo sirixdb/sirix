@@ -284,7 +284,7 @@ The interesting part is the URL, we are using as the endpoint. We simply say, se
   </rest:item>
 </rest:sequence>
 ```
-The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-time::*` and get the following XPath-result:
+The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-times::*` and get the following XPath-result:
 
 ```xml
 <rest:sequence xmlns:rest="https://sirix.io/rest">
