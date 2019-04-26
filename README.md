@@ -35,6 +35,20 @@ Data must be stored in a way, that storage space is used as effectively as possi
 
 We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
+The following time-travel query should give an initial impression of what's possible:
+
+```xquery
+let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses
+let $foundStatus := for $status in bit:array-values($statuses)
+  let $dateTimeCreated := xs:dateTime($status=>created_at)
+  where $dateTimeCreated > xs:dateTime("2018-02-01T00:00:00") and not(exists(jn:previous($status)))
+  order by $dateTimeCreated
+  return $status
+return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
+```
+
+The query basically opens a database/resource in a specific revision based on a timestamp and searchs for a status, which didn't exist in the previous revision.
+
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. We provide a seamless integration of a native JSON layer besides the XML node layer, that is we extend the XQuery Data Model (XDM) with other node types (support for JSONiq like queries through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
 
