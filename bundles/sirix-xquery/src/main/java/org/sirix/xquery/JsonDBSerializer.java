@@ -37,7 +37,6 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
@@ -69,7 +68,7 @@ public final class JsonDBSerializer implements Serializer {
           mOut.append("{\"rest\":[");
         }
 
-        Iter it = sequence.iterate();
+        var it = sequence.iterate();
 
         Item item;
         try {
@@ -77,10 +76,10 @@ public final class JsonDBSerializer implements Serializer {
           while (item != null) {
             if (item instanceof StructuredDBItem) {
               @SuppressWarnings("unchecked")
-              final StructuredDBItem<JsonNodeReadOnlyTrx> node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
+              final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
 
-              JsonSerializer.Builder serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceManager(),
-                  mOut, node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
+              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceManager(), mOut,
+                  node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
               if (mPrettyPrint)
                 serializerBuilder = serializerBuilder.prettyPrint().withInitialIndent();
               final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
