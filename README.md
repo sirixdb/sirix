@@ -35,8 +35,22 @@ Data must be stored in a way, that storage space is used as effectively as possi
 
 We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
+The following time-travel query to be executed on our binary JSON representation should give an initial impression of what's possible:
+
+```xquery
+let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses
+let $foundStatus := for $status in bit:array-values($statuses)
+  let $dateTimeCreated := xs:dateTime($status=>created_at)
+  where $dateTimeCreated > xs:dateTime("2018-02-01T00:00:00") and not(exists(jn:previous($status)))
+  order by $dateTimeCreated
+  return $status
+return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
+```
+
+The query basically opens a database/resource in a specific revision based on a timestamp, which has to be greater than the 1st of February in 2018 and searchs for a status with this characteristic, which didn't exist in the previous revision.
+
 ## Versioning at the sub-file level / supporting time-travel queries
-Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. Our goal is to provide a seamless integration of a native JSON layer besides the XML node layer, that is extending the XQuery Data Model (XDM) with other node types (support for JSONiq through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
+Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. We provide a seamless integration of a native JSON layer besides the XML node layer, that is we extend the XQuery Data Model (XDM) with other node types (support for JSONiq like queries through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
 
 1. The current revision of the resource or any subset thereof;
 2. The full revision history of the resource or any subset thereof;
@@ -165,13 +179,13 @@ Sirix should be up and running afterwards. Please let us know if you have any tr
 ### Command line tool
 We ship a (very) simple command line tool for the sirix-xquery bundle:
 
-Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/com/github/sirixdb/sirix/sirix-xquery/0.8.9-SNAPSHOT/) with dependencies.
+Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
 
 ### First steps
 Please have a look into our sirix-example project how to use Sirix from Java.
 
 ### Documentation
-We are currently working on the documentation. You may find first drafts and snippets in the Wiki and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) on the mailinglist (preferred) or in the Slack channel.
+We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 The following sections show different APIs to interact with Sirix.
@@ -284,7 +298,7 @@ The interesting part is the URL, we are using as the endpoint. We simply say, se
   </rest:item>
 </rest:sequence>
 ```
-The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-time::*` and get the following XPath-result:
+The interesting part is that every PUT- as well as POST-request does an implicit `commit` of the underlying transaction. Thus, we are now able send the first GET-request for retrieving the contents of the whole resource again for instance through specifying an simple XPath-query, to select the root-node in all revisions `GET https://localhost:9443/database/resource1?query=/xml/all-times::*` and get the following XPath-result:
 
 ```xml
 <rest:sequence xmlns:rest="https://sirix.io/rest">
