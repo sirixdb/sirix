@@ -81,11 +81,6 @@ public final class JsonDBArray extends AbstractItem
     return mRtx.getNodeKey();
   }
 
-  /**
-   * Create a new {@link IReadTransaction} and move to {@link mKey}.
-   *
-   * @return new read transaction instance which is moved to {@link mKey}
-   */
   private final void moveRtx() {
     mRtx.moveTo(mNodeKey);
   }
