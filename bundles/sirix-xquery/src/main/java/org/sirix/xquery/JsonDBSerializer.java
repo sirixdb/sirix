@@ -28,13 +28,19 @@ XmlInsertionMode * Copyright (c) 2018, Sirix
 package org.sirix.xquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.util.serialize.Serializer;
+import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
+import org.brackit.xquery.xdm.json.Array;
+import org.brackit.xquery.xdm.json.Record;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
 
@@ -91,8 +97,12 @@ public final class JsonDBSerializer implements Serializer {
 
               if (item != null)
                 mOut.append(",");
-            } else {
-              // TODO
+            } else if ((item instanceof Array) || (item instanceof Record)) {
+              final var out = new ByteArrayOutputStream();
+              final var printWriter = new PrintWriter(out);
+              new StringSerializer(printWriter).serialize(item);
+              mOut.append(out.toString(StandardCharsets.UTF_8));
+
               item = it.next();
 
               if (item != null)

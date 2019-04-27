@@ -101,6 +101,62 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing a simple query to get the node-key of a node")
+    fun testGetQuery(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectedJson = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                """.trimIndent()
+
+                val json = """
+                 {
+                   "foo": ["bar", null, 2.33],
+                   "bar": { "hello": "world", "helloo": true },
+                   "baz": "hello",
+                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
+                 }
+                """.trimIndent()
+
+                val credentials = json {
+                    obj("username" to "admin",
+                            "password" to "admin")
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                        }
+                    }
+
+                    httpResponse = client.getAbs("$server$serverPath?query=let%20%24nodeKey%20%3A%3D%20sdb%3Anodekey(.%3D%3Efoo%5B%5B2%5D%5D)%0Areturn%20%7B%22nodeKey%22%3A%20%24nodeKey%7D").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
+                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            testContext.completeNow()
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
