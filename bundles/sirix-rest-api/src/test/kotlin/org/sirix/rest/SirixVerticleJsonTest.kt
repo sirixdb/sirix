@@ -144,8 +144,12 @@ class SirixVerticleJsonTest {
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
+                        val expectedQueryResponse = """
+                                {"rest":[{"nodeKey":6}]}
+                        """.trimIndent()
+
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
+                            assertEquals(expectedQueryResponse.replace("\n", System.getProperty("line.separator")),
                                     httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
                             testContext.completeNow()
                         }
