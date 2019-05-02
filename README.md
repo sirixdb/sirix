@@ -47,7 +47,7 @@ let $foundStatus := for $status in bit:array-values($statuses)
 return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
 
-The query basically opens a database/resource in a specific revision based on a timestamp, which has to be greater than the 1st of February in 2018 and searchs for a status with this characteristic, which didn't exist in the previous revision.
+The query basically opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searchs for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown with the function bit:array-values or through specifying an index, starting with zero: array[[0]] for instance specifies the first value of the array.
 
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. We provide a seamless integration of a native JSON layer besides the XML node layer, that is we extend the XQuery Data Model (XDM) with other node types (support for JSONiq like queries through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
@@ -67,6 +67,7 @@ We not only support all XPath axis (as well as a few more like as for instance a
 Articles published on Medium: 
 - [Pushing Database Versioning to Its Limits by Means of a Novel Sliding Snapshot Algorithm and Efficient Time Travel Queries](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/why-and-how-we-built-a-temporal-database-system-called-sirixdb-open-source-from-scratch-a7446f56f201)
 - [How we built an asynchronous, temporal RESTful API based on Vert.x, Keycloak and Kotlin/Coroutines for Sirix.io (Open Source)](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/how-we-built-an-asynchronous-temporal-restful-api-based-on-vert-x-4570f681a3)
+- [Why Copy-on-Write Semantics and Node-Level-Versioning are Key to Efficient Snapshots](https://hackernoon.com/sirix-io-why-copy-on-write-semantics-and-node-level-versioning-are-key-to-efficient-snapshots-754ba834d3bb)
 
 ## Table of contents
 
