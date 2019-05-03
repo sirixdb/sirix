@@ -9,7 +9,7 @@
 
 [![Follow](https://img.shields.io/twitter/follow/sirixdb.svg?style=social)](https://twitter.com/sirixdb)
 
-[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://sirixdb.slack.com) | [Community Forum](https://sirix.discourse.group/)
+[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip) | [Join us on Slack](https://join.slack.com/t/sirixdb/shared_invite/enQtNjI1Mzg4NTY4ODUzLTI3NTE0NDY3MzhkOTliOWI1NDY2MjI5ZWFkNjlmYTQ1N2NjNjgyZjMzYmJiNWFmMGNiZDYzM2VkYTU3YmY3MmQ) | [Community Forum](https://sirix.discourse.group/)
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
