@@ -30,7 +30,7 @@
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>0.9.1-SNAPSHOT</version>
+	<version>0.9.1</version>
 	<description>Sirix is a temporal storage system effectively and efficiently storing snapshots of
 	time varying (currently semi-structured) data taking full advantage of flash based drives as for
 	instance SSDs. We not only provide several ways of navigating the tree-structure of a single
@@ -51,7 +51,7 @@
 		<connection>scm:git:git@github.com:sirixdb/sirix.git</connection>
 		<developerConnection>scm:git:git@github.com:sirixdb/sirix.git</developerConnection>
 		<url>https://github.com/sirixdb/sirix</url>
-	  <tag>HEAD</tag>
+	  <tag>sirix-parent-0.9.1</tag>
   </scm>
 	<issueManagement>
 		<url>https://github.com/sirixdb/sirix/issues</url>
@@ -232,7 +232,7 @@
 				<artifactId>coveralls-maven-plugin</artifactId>
 				<version>4.3.0</version>
 			</plugin>
-			<!-- <plugin>
+			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>
 				<version>2.9</version>
@@ -263,7 +263,7 @@
 						</plugin>
 					</reportPlugins>
 				</configuration>
-			</plugin> -->
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-release-plugin</artifactId>
