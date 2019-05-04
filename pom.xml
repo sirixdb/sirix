@@ -388,12 +388,12 @@
 		<dependency>
 			<groupId>com.github.sirixdb.brackit</groupId>
 			<artifactId>brackit</artifactId>
-			<version>0.1.4</version>
+			<version>0.1.5-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.sirixdb.brackit</groupId>
 			<artifactId>brackit</artifactId>
-			<version>0.1.4</version>
+			<version>0.1.5-SNAPSHOT</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
