@@ -791,7 +791,7 @@ and all the others who worked on the project.
 
 ## License
 
-This work is released in the public domain under the BSD 3-clause license
+This work is released under the [BSD 3-clause license](LICENSE).
 
 ## Involved People
 
