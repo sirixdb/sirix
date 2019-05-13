@@ -65,7 +65,7 @@ Sirix is designed with the following goals in mind:
   <dd>Sirix stores a revision history of every resource in the database without imposing extra
     overhead. This means that you can revert any revision into an earlier version,
     backing up the system automatically and without imposed overhead from
-    copying, doing time travel queries to analyse the past / and or for auditing purposes. *This is maybe the most important feature.*</dd>
+    copying, doing time travel queries to analyse the past / and or for auditing purposes. **This is maybe the most important feature.**</dd>
   <dt>Data integrity</dt>
   <dd>Sirix, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption will be detected upon read in the future, once we replicate database pages.</dd>
   <dt>Copy-on-write semantics</dt>
@@ -73,10 +73,10 @@ Sirix is designed with the following goals in mind:
     is ever overwritten directly, but instead it is copied and written to a new
     location.</dd>
   <dt>Per revision and per record version / novel versioning approach</dt>
-  <dd>Sirix not only versions on a per page-basis, but also on a per record basis. Thus, when a record in a page changed, not the whole       page has to be duplicated. Instead, we implemented several versioning strategies known from backup systems and developed a novel strategy, to avoid read- or write-peaks.</dd>
+  <dd>Sirix not only versions on a per page-basis, but also on a per record basis. Thus, when a record in a page changed, not the whole page has to be duplicated. Instead, we implemented several versioning strategies known from backup systems and developed a novel strategy, to avoid read- or write-peaks.</dd>
   <dt>Guaranteed atomicity (without a WAL)</dt>
   <dd>The system will never enter an inconsistent state (unless there is hardware
-    failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write ahead log (WAL).</dd>
+    failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (WAL).</dd>
   <dt>Log-structured / SSD friendly</dt>
   <dd>Sirix never overrides data. It batches writes and synchs everything to a flash drive during a commit.</dd>
 </dl>
