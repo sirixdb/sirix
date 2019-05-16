@@ -59,13 +59,13 @@ Sirix is designed with the following goals in mind:
   <dt>Asynchronous (REST API)</dt>
   <dd>Sirix is asynchronous: operations can happen independently; writes and
     reads from the disk need not block. Each transaction is bound to a specific
-    revision and only ever one write-transaction on a resource can exist concurrently
-    to N read-only transactions.</dd>
+    revision and only ever one read/write-transaction on a resource can exist concurrently
+    to N read-only-transactions.</dd>
   <dt>Revision history</dt>
   <dd>Sirix stores a revision history of every resource in the database without imposing extra
     overhead. This means that you can revert any revision into an earlier version,
     backing up the system automatically and without imposed overhead from
-    copying, doing time travel queries to analyse the past / and or for auditing purposes. <strong>This is maybe the most important feature.</strong></dd>
+    copying, doing time travel queries to analyse the past / and or for auditing purposes, to correct humans- or application-errors... <strong>This is maybe the most important feature.</strong></dd>
   <dt>Data integrity</dt>
   <dd>Sirix, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption will be detected upon read in the future, once we replicate database pages.</dd>
   <dt>Copy-on-write semantics</dt>
