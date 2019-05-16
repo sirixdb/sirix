@@ -722,8 +722,8 @@ https://kops.uni-konstanz.de/handle/123456789/27250
 
 ## Getting Help
 
-### Mailinglist
-Any questions or even consider to contribute or use Sirix? Use the [Mailing List](https://groups.google.com/d/forum/sirix-discuss) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+### Community Forum
+Any questions or even consider to contribute or use Sirix? Use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
