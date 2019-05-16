@@ -115,7 +115,7 @@ Articles published on Medium:
 -   [DOM alike API](#dom-alike-api) 💪
 -   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
-    -   [Mailinglist](#mailinglist)
+    -   [Community Forum](#community-forum)
     -   [Join us on Slack](#join-us-on-slack)
 -   [Visualizations](#visualizations)
 -   [Why should you even bother?](#why-should-you-even-bother)
