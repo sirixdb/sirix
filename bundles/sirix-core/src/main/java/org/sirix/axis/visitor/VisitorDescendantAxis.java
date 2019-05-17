@@ -165,7 +165,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
 
-    final NodeCursor cursor = asXdmNodeReadTrx();
+    final NodeCursor cursor = getCursor();
 
     // Determines if first call to hasNext().
     if (mFirst) {
