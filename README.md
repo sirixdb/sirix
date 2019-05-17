@@ -13,7 +13,7 @@
 
 **Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github)
 
-<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Storage System</h1>
+<h1 align="center">SirixDB - An Evolutionary, Temporal NoSQL Document Store</h1>
 <h2 align="center">Store and query revisions of your data efficiently</h2>
 
 >"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
@@ -27,7 +27,7 @@
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
-We could write quiet a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples.
+We could write quite a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
 
 Our strong belief is, that a temporal storage system must address the issues, which arise from keeping past state way better than traditional approaches. Usually, storing time varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdle. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
 
@@ -48,6 +48,38 @@ return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 ```
 
 The query basically opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searchs for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown with the function bit:array-values or through specifying an index, starting with zero: array[[0]] for instance specifies the first value of the array.
+
+## Design goals
+
+Sirix is designed with the following goals in mind:
+
+<dl>
+  <dt>Concurrent</dt>
+  <dd>Sirix contains very few locks and aims to be as suitable for multithreaded systems as possible.</dd>
+  <dt>Asynchronous (REST API)</dt>
+  <dd>Sirix is asynchronous: operations can happen independently; writes and
+    reads from the disk need not block. Each transaction is bound to a specific
+    revision and only ever one read/write-transaction on a resource can exist concurrently
+    to N read-only-transactions.</dd>
+  <dt>Revision history</dt>
+  <dd>Sirix stores a revision history of every resource in the database without imposing extra
+    overhead. This means that you can revert any revision into an earlier version,
+    backing up the system automatically and without imposed overhead from
+    copying, doing time travel queries to analyse the past / and or for auditing purposes, to correct humans- or application-errors... <strong>This is maybe the most important feature.</strong></dd>
+  <dt>Data integrity</dt>
+  <dd>Sirix, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption will be detected upon read in the future, once we replicate database pages.</dd>
+  <dt>Copy-on-write semantics</dt>
+  <dd>Similarly to the file systems Btrfs and ZFS, Sirix uses CoW semantics, meaning that no page
+    is ever overwritten directly, but instead it is copied and written to a new
+    location.</dd>
+  <dt>Per revision and per record version / novel versioning approach</dt>
+  <dd>Sirix not only versions on a per page-basis, but also on a per record basis. Thus, when a record in a page changed, not the whole page has to be duplicated. Instead, we implemented several versioning strategies known from backup systems and developed a novel strategy, to avoid read- or write-peaks.</dd>
+  <dt>Guaranteed atomicity (without a WAL)</dt>
+  <dd>The system will never enter an inconsistent state (unless there is hardware
+    failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (WAL).</dd>
+  <dt>Log-structured / SSD friendly</dt>
+  <dd>Sirix never overrides data. It batches writes and synchs everything to a flash drive during a commit.</dd>
+</dl>
 
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. We provide a seamless integration of a native JSON layer besides the XML node layer, that is we extend the XQuery Data Model (XDM) with other node types (support for JSONiq like queries through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
@@ -83,7 +115,7 @@ Articles published on Medium:
 -   [DOM alike API](#dom-alike-api) 💪
 -   [Simple XQuery Examples](#simple-xquery-examples)
 -   [Getting Help](#getting-help)
-    -   [Mailinglist](#mailinglist)
+    -   [Community Forum](#community-forum)
     -   [Join us on Slack](#join-us-on-slack)
 -   [Visualizations](#visualizations)
 -   [Why should you even bother?](#why-should-you-even-bother)
@@ -184,7 +216,7 @@ We ship a (very) simple command line tool for the sirix-xquery bundle:
 Get the [latest sirix-xquery JAR](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/sirix-xquery/) with dependencies.
 
 ### First steps
-Please have a look into our sirix-example project how to use Sirix from Java.
+Please have a look into our sirix-example project how to use Sirix from Java or have a look into the [documentation](https://sirix.io/documentation.html).
 
 ### Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the [documentation](https://sirix.io/documentation.html) and in this README. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the community forum (preferred) or in the Slack channel.
@@ -690,8 +722,8 @@ https://kops.uni-konstanz.de/handle/123456789/27250
 
 ## Getting Help
 
-### Mailinglist
-Any questions or even consider to contribute or use Sirix? Use the [Mailing List](https://groups.google.com/d/forum/sirix-discuss) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
+### Community Forum
+Any questions or even consider to contribute or use Sirix? Use the [Community Forum](https://sirix.discourse.group) to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ### Join us on Slack
 You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
@@ -791,7 +823,7 @@ and all the others who worked on the project.
 
 ## License
 
-This work is released in the public domain under the BSD 3-clause license
+This work is released under the [BSD 3-clause license](LICENSE).
 
 ## Involved People
 
