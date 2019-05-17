@@ -223,7 +223,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    */
   private long hasNextNode(final @Nonnegative long nextKey, final @Nonnegative long currKey) {
     // Fail if the subtree is finished.
-    final NodeCursor cursor = asXdmNodeReadTrx();
+    final NodeCursor cursor = getCursor();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
