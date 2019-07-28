@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.sirix</groupId>
         <artifactId>sirix-parent</artifactId>
-        <version>0.9.2</version>
+        <version>0.9.3-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
