@@ -26,7 +26,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.NodeVisitor;
@@ -46,7 +45,7 @@ import org.sirix.settings.Fixed;
  * Iterate over all descendants of any structural kind starting at a given node by it's unique node
  * key. The currently located node is optionally included. Furthermore a {@link NodeVisitor} is
  * usable to guide the traversal and do whatever you like with the node kind, which is selected by
- * the given {@link NodeReadOnlyTrx} transaction.
+ * the given {@link NodeCursor} transaction.
  * </p>
  * <p>
  * Note that it is faster to use the standard {@link DescendantAxis} if no visitor is specified.

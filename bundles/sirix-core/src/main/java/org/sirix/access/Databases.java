@@ -191,7 +191,7 @@ public final class Databases {
       throw new IllegalStateException("Configuration may not be null!");
     }
     final Database<?> database = databaseType.createDatabase(dbConfig, store);
-    putDatabase(file, database);
+    putDatabase(file.toAbsolutePath(), database);
     return database;
   }
 
@@ -225,6 +225,7 @@ public final class Databases {
    * @param file database file to remove
    */
   static synchronized void removeDatabase(final Path file, final Database<?> database) {
+    // C:\Users\Johannes\Documents\GitHub\tutorials\sirix\core-api-tutorial\database
     final Set<Database<?>> databases = DATABASE_SESSIONS.get(file);
     databases.remove(database);
 
