@@ -232,7 +232,7 @@
 				<artifactId>coveralls-maven-plugin</artifactId>
 				<version>4.3.0</version>
 			</plugin>
-			<!-- <plugin>
+			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-javadoc-plugin</artifactId>
 				<version>2.9</version>
@@ -263,7 +263,7 @@
 						</plugin>
 					</reportPlugins>
 				</configuration>
-			</plugin> -->
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-release-plugin</artifactId>
@@ -388,12 +388,12 @@
 		<dependency>
 			<groupId>com.github.sirixdb.brackit</groupId>
 			<artifactId>brackit</artifactId>
-			<version>0.1.5-SNAPSHOT</version>
+			<version>0.1.4</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.sirixdb.brackit</groupId>
 			<artifactId>brackit</artifactId>
-			<version>0.1.5-SNAPSHOT</version>
+			<version>0.1.4</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
