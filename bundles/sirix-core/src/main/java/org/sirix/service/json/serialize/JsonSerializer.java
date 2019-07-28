@@ -295,7 +295,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         indent();
         mOut.append("}");
 
-        if (rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1])
+        if (hasMoreRevisionsToSerialize(rtx))
           mOut.append(",");
       }
 
@@ -305,6 +305,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
+  }
+
+  private boolean hasMoreRevisionsToSerialize(final JsonNodeReadOnlyTrx rtx) {
+    return rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1] || (mRevisions.length == 1
+        && mRevisions[0] == -1 && rtx.getRevisionNumber() < rtx.getResourceManager().getMostRecentRevisionNumber());
   }
 
   /**
