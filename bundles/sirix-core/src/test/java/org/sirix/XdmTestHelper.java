@@ -47,7 +47,7 @@ import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.settings.CharsForSerializing;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 /**
  *
@@ -231,7 +231,7 @@ public final class XdmTestHelper {
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
     }
   }
@@ -246,7 +246,7 @@ public final class XdmTestHelper {
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-      XdmDocumentCreator.createCommentPI(wtx);
+      XmlDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }
   }

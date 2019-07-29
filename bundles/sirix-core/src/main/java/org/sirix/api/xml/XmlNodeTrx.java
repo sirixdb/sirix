@@ -27,7 +27,7 @@ import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.Movement;
+import org.sirix.api.Movement;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;

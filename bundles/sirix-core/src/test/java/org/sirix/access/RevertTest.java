@@ -30,7 +30,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public final class RevertTest {
 
@@ -52,7 +52,7 @@ public final class RevertTest {
   public void test() throws SirixException {
     XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
     assertEquals(1L, wtx.getRevisionNumber());
-    XdmDocumentCreator.create(wtx);
+    XmlDocumentCreator.create(wtx);
     assertEquals(1L, wtx.getRevisionNumber());
     wtx.commit();
     assertEquals(2L, wtx.getRevisionNumber());

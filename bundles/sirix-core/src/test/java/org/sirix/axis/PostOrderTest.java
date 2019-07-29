@@ -34,7 +34,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XmlShredder;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -122,7 +122,7 @@ public class PostOrderTest {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtreeAsFirstChild(
-          XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
+          XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       final long key = wtx.getNodeKey();
       AbsAxisTest.testIAxisConventions(
@@ -185,7 +185,7 @@ public class PostOrderTest {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtreeAsFirstChild(
-          XmlShredder.createStringReader(XdmDocumentCreator.XML_WITHOUT_XMLDECL));
+          XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();

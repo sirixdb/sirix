@@ -3,7 +3,7 @@ package org.sirix.index.path.summary;
 import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.access.trx.node.Move;
+import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;

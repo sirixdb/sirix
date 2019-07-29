@@ -29,7 +29,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.SAXException;
@@ -106,6 +106,6 @@ public class SAXSerializerTest extends XMLTestCase {
     final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
         holder.getResourceManager().getMostRecentRevisionNumber());
     serializer.call();
-    assertXMLEqual(XdmDocumentCreator.XML, sbuf.toString());
+    assertXMLEqual(XmlDocumentCreator.XML, sbuf.toString());
   }
 }

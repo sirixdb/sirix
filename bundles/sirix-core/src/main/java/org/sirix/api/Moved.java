@@ -1,8 +1,8 @@
-package org.sirix.access.trx.node;
+package org.sirix.api;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nullable;
-import org.sirix.api.NodeCursor;
+
 import com.google.common.base.MoreObjects;
 
 /**

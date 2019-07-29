@@ -7,7 +7,7 @@ import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
-import org.sirix.access.trx.node.Move;
+import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;

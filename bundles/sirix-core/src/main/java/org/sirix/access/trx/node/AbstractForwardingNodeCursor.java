@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node;
 
+import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;

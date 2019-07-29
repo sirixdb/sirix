@@ -33,7 +33,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public class XmlSerializerTest {
 
@@ -53,7 +53,7 @@ public class XmlSerializerTest {
     try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
 
       // Generate from this session.
@@ -72,13 +72,13 @@ public class XmlSerializerTest {
     try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
 
       // Generate from this session.
       final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).emitXMLDeclaration().build();
       serializer.call();
-      assertEquals(XdmDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
   }
 
@@ -88,7 +88,7 @@ public class XmlSerializerTest {
     try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
 
@@ -100,8 +100,8 @@ public class XmlSerializerTest {
                                                     .emitXMLDeclaration()
                                                     .build();
       serializer.call();
-      assertEquals(XdmDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
-      assertEquals(XdmDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
   }
 
@@ -111,14 +111,14 @@ public class XmlSerializerTest {
     try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx();
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
 
       // Generate from this session.
       final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
       serializer.call();
-      assertEquals(XdmDocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
   }
 
@@ -130,18 +130,18 @@ public class XmlSerializerTest {
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
-      XdmDocumentCreator.createVersioned(wtx);
+      XmlDocumentCreator.createVersioned(wtx);
 
       XmlSerializer serializerall =
           new XmlSerializerBuilder(manager, out, -1).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
-      assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
       out.reset();
 
       serializerall =
           new XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
-      assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString());
+      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString());
     }
   }
 
@@ -157,7 +157,7 @@ public class XmlSerializerTest {
         final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
-      XdmDocumentCreator.createVersioned(wtx);
+      XmlDocumentCreator.createVersioned(wtx);
       wtx.commit();
 
       XmlSerializer serializerall =
@@ -171,7 +171,7 @@ public class XmlSerializerTest {
       serializerall =
           new XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
-      assertEquals(XdmDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
   }
 }

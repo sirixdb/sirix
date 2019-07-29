@@ -1,4 +1,4 @@
-package org.sirix.access.trx.node;
+package org.sirix.api;
 
 /**
  * Determines movement after {@code attribute}- or {@code namespace}-insertions.

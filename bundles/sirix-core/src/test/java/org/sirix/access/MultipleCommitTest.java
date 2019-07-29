@@ -35,7 +35,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public class MultipleCommitTest {
 
@@ -69,7 +69,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testAutoCommit() throws SirixException {
-    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
 
     final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
@@ -78,7 +78,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testRemove() throws SirixException {
-    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
 
@@ -91,7 +91,7 @@ public class MultipleCommitTest {
 
   @Test
   public void testAttributeRemove() throws SirixException {
-    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 

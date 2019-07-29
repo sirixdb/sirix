@@ -1,6 +1,6 @@
 package org.sirix.api.json;
 
-import org.sirix.access.trx.node.Move;
+import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.ResourceManager;

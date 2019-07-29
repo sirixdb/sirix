@@ -3,7 +3,6 @@ package org.sirix.api;
 import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.access.trx.node.Move;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
