@@ -10,7 +10,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
@@ -33,7 +33,7 @@ public final class FutureAxisTest {
   public void setUp() throws SirixException {
     XdmTestHelper.deleteEverything();
     try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
-      XdmDocumentCreator.createVersioned(wtx);
+      XmlDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
   }

@@ -39,7 +39,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
@@ -69,7 +69,7 @@ public final class GetRevisionTimestampTest extends TestCase {
 
   @Test
   public void test() throws IOException, QueryException {
-    XdmDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
 
     final Path database = PATHS.PATH1.getFile();

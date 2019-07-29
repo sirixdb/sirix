@@ -9,7 +9,7 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 /**
  * Processing instruction/comment test.
@@ -41,6 +41,6 @@ public class PICommentTest {
         new XmlSerializer.XmlSerializerBuilder(mHolder.getResourceManager(),
             out).emitXMLDeclaration().build();
     serializer.call();
-    Assert.assertEquals(XdmDocumentCreator.COMMENTPIXML, out.toString());
+    Assert.assertEquals(XmlDocumentCreator.COMMENTPIXML, out.toString());
   }
 }

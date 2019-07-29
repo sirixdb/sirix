@@ -41,7 +41,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.settings.Constants;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public class XdmResourceManagerTest {
 
@@ -99,7 +99,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testInsertChild() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
       assertEquals(Kind.XDM_DOCUMENT, wtx.getKind());
 
@@ -140,7 +140,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testShreddedRevision() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       assertEquals(1L, wtx.getRevisionNumber());
       wtx.commit();
     }
@@ -174,7 +174,7 @@ public class XdmResourceManagerTest {
     final XmlResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
 
     final XmlNodeTrx wtx1 = resource.beginNodeTrx();
-    XdmDocumentCreator.create(wtx1);
+    XmlDocumentCreator.create(wtx1);
     assertEquals(1L, wtx1.getRevisionNumber());
     wtx1.commit();
     wtx1.close();
@@ -212,7 +212,7 @@ public class XdmResourceManagerTest {
   @Test
   public void testIdempotentClose() {
     final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
-    XdmDocumentCreator.create(wtx);
+    XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     wtx.close();
@@ -228,7 +228,7 @@ public class XdmResourceManagerTest {
   public void testAutoCommitWithNodeThreshold() {
     // After each bunch of 5 nodes commit.
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(5)) {
-      XdmDocumentCreator.create(wtx);
+      XmlDocumentCreator.create(wtx);
       wtx.commit();
       assertEquals(4, wtx.getRevisionNumber());
     }

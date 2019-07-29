@@ -24,19 +24,22 @@ package org.sirix.utils;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+
 import java.io.IOException;
+
 import javax.xml.stream.XMLStreamException;
+
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
- * <h1>TestDocument</h1>
+ * <h1>XmlDocumentCreator</h1>
  *
  * <p>
  * This class creates an XML document that contains all features seen in the Extensible Markup
@@ -93,7 +96,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * </p>
  */
-public final class XdmDocumentCreator {
+public final class XmlDocumentCreator {
 
   /** String representation of revisioned xml file. */
   public static final String REVXML =
@@ -149,7 +152,7 @@ public final class XdmDocumentCreator {
   /**
    * Private Constructor, not used.
    */
-  private XdmDocumentCreator() {
+  private XmlDocumentCreator() {
     throw new AssertionError("Not permitted to call constructor!");
   }
 
@@ -241,7 +244,7 @@ public final class XdmDocumentCreator {
    * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersioned(final XmlNodeTrx wtx) throws SirixException {
+  public static void createVersioned(final XmlNodeTrx wtx) {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -260,7 +263,7 @@ public final class XdmDocumentCreator {
    * @param wtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createVersionedWithUpdatesAndDeletes(final XmlNodeTrx wtx) throws SirixException {
+  public static void createVersionedWithUpdatesAndDeletes(final XmlNodeTrx wtx) {
     assertNotNull(wtx);
     create(wtx);
     wtx.commit();
@@ -288,7 +291,7 @@ public final class XdmDocumentCreator {
    * @param paramWtx {@link XmlNodeTrx} to write to
    * @throws SirixException if anything went wrong
    */
-  public static void createWithoutAttributes(final XmlNodeTrx wtx) throws SirixException {
+  public static void createWithoutAttributes(final XmlNodeTrx wtx) {
     assertNotNull(wtx);
     wtx.moveToDocumentRoot();
     wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
@@ -342,8 +345,7 @@ public final class XdmDocumentCreator {
    * @throws XMLStreamException if StAX reader couldn't be created
    * @throws IOException if reading XML string fails
    */
-  public static void createRevisioned(final Database<XmlResourceManager> database)
-      throws SirixException, IOException, XMLStreamException {
+  public static void createRevisioned(final Database<XmlResourceManager> database) {
 
     try (final XmlResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE)) {
       try (final XmlNodeTrx firstWtx = resMgr.beginNodeTrx()) {

@@ -42,7 +42,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public class XmlShredderTest extends XMLTestCase {
 
@@ -129,7 +129,7 @@ public class XmlShredderTest extends XMLTestCase {
 
     try (final XmlResourceManager manager = database2.openResourceManager(XdmTestHelper.RESOURCE);
         final XmlNodeTrx expectedTrx = manager.beginNodeTrx()) {
-      XdmDocumentCreator.create(expectedTrx);
+      XmlDocumentCreator.create(expectedTrx);
       expectedTrx.commit();
       expectedTrx.moveToDocumentRoot();
 
@@ -154,7 +154,7 @@ public class XmlShredderTest extends XMLTestCase {
   public void testAttributesNSPrefix() throws Exception {
     // Setup expected.
     final XmlNodeTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
-    XdmDocumentCreator.createWithoutNamespace(expectedTrx2);
+    XmlDocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 
     // Setup parsed session.

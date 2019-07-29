@@ -40,7 +40,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -62,7 +62,7 @@ public class PathSummaryTest {
     XdmTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
     wtx = holder.getResourceManager().beginNodeTrx();
-    XdmDocumentCreator.create(wtx);
+    XmlDocumentCreator.create(wtx);
   }
 
   @After

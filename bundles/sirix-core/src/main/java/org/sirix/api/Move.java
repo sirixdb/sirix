@@ -1,9 +1,8 @@
-package org.sirix.access.trx.node;
+package org.sirix.api;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import org.sirix.api.NodeCursor;
 
 /**
  * Determines if the {@link NodeCursor} moved to a node or not. Based on the idea of providing a

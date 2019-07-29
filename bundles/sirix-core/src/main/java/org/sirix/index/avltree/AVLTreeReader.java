@@ -8,7 +8,8 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.Move;
+
+import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;

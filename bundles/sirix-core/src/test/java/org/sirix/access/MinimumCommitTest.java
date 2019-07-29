@@ -31,7 +31,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.utils.XdmDocumentCreator;
+import org.sirix.utils.XmlDocumentCreator;
 
 public final class MinimumCommitTest {
 
@@ -57,7 +57,7 @@ public final class MinimumCommitTest {
 
     holder = Holder.generateWtx();
     assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    XdmDocumentCreator.create(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().commit();
     holder.getXdmNodeWriteTrx().close();
 

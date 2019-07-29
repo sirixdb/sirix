@@ -1,7 +1,5 @@
 package org.sirix.api;
 
-import org.sirix.access.trx.node.Move;
-import org.sirix.access.trx.node.Moved;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
