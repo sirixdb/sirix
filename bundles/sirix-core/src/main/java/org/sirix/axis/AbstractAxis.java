@@ -23,9 +23,12 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+
 import javax.annotation.Nonnegative;
+
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -34,6 +37,7 @@ import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
+
 import com.google.common.base.MoreObjects;
 
 /**
@@ -118,7 +122,7 @@ public abstract class AbstractAxis implements Axis {
    *
    * @return null node key to indicate that the travesal is done
    */
-  protected final static long done() {
+  protected long done() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 

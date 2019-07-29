@@ -290,7 +290,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (mEmitXQueryResultSequence || length > 1) {
-        if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
+        if (rtx.moveToDocumentRoot().trx().hasFirstChild())
           mStack.pop();
         indent();
         mOut.append("}");

@@ -122,7 +122,7 @@ class FMSENodeComparisonUtils {
     final long newNodeKey = mNewRtx.getNodeKey();
     final long oldNodeKey = mOldRtx.getNodeKey();
     for (int i = 0, attCount = mOldRtx.getAttributeCount(); i < attCount; i++) {
-      final QNm name = mOldRtx.moveToAttribute(i).getCursor().getName();
+      final QNm name = mOldRtx.moveToAttribute(i).trx().getName();
 
       if (mNewRtx.moveToAttributeByName(name).hasMoved() && (calculateRatio(getNodeValue(mOldRtx.getNodeKey(), mOldRtx),
           getNodeValue(mNewRtx.getNodeKey(), mNewRtx)) < 0.7f

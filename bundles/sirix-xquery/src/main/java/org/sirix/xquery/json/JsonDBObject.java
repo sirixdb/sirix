@@ -304,7 +304,7 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(mRtx.moveToFirstChild().getCursor(), mCollection);
+      return mJsonUtil.getSequence(mRtx.moveToFirstChild().trx(), mCollection);
     }
 
     return null;
@@ -328,7 +328,7 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx.moveToFirstChild().getCursor(), mCollection);
+      return mJsonUtil.getSequence(rtx.moveToFirstChild().trx(), mCollection);
     }
 
     return null;

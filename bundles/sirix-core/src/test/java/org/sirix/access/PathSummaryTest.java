@@ -923,7 +923,7 @@ public class PathSummaryTest {
 
     testSecondMoveToFirstChildBeforeMoveHelper(wtx.getPathSummary());
 
-    wtx.moveToParent().getCursor().moveToParent();
+    wtx.moveToParent().trx().moveToParent();
     wtx.moveSubtreeToRightSibling(9);
     wtx.commit();
 

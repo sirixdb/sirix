@@ -23,7 +23,7 @@ public class NotMoved extends Move<NodeCursor> {
   }
 
   @Override
-  public NodeCursor getCursor() {
+  public NodeCursor trx() {
     throw new NoSuchElementException("NotMoved.get() cannot be called on an absent value");
   }
 
