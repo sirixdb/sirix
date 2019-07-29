@@ -385,7 +385,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           : mRevisions.length;
 
       if (mSerializeRest || length > 1) {
-        if (rtx.moveToDocumentRoot().getCursor().hasFirstChild())
+        if (rtx.moveToDocumentRoot().trx().hasFirstChild())
           mStack.pop();
         indent();
         if (mSerializeRest) {

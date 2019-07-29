@@ -167,7 +167,7 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
       // Case: Has right sibl. and left sibl.
       if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
         final long rightSiblKey = mWtx.getRightSiblingKey();
-        final long rightRightSiblKey = mWtx.moveToRightSibling().getCursor().getRightSiblingKey();
+        final long rightRightSiblKey = mWtx.moveToRightSibling().trx().getRightSiblingKey();
         mWtx.moveTo(nodeKey);
         mWtx.remove();
         if (removeTextNode) {

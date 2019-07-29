@@ -22,11 +22,15 @@
 package org.sirix.axis.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 import javax.annotation.Nonnegative;
+
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -79,7 +83,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   private boolean mFinished;
 
   /** Executor Service holding the execution plan for future tasks. */
-  public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+  public ExecutorService mExecutorService;
 
   /**
    * Constructor. Initializes the internal state.
@@ -97,6 +101,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     mFirst = true;
     mProducer = checkNotNull(childAxis);
     task = new ConcurrentAxisHelper(mProducer, mResults);
+    mExecutorService = Executors.newSingleThreadExecutor();
     mFinished = false;
   }
 
@@ -106,6 +111,9 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     mFirst = true;
     mFinished = false;
 
+    if (mExecutorService != null) {
+      mExecutorService = Executors.newSingleThreadExecutor();
+    }
     if (mProducer != null) {
       mProducer.reset(nodeKey);
     }
@@ -122,7 +130,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     // Start producer on first call.
     if (mFirst) {
       mFirst = false;
-      EXECUTOR.submit(task);
+      mExecutorService.submit(task);
     }
 
     if (mFinished) {
@@ -145,6 +153,23 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
 
     mFinished = true;
     return done();
+  }
+
+  /**
+   * Signals that axis traversal is done, that is {@code hasNext()} must return false. Is callable
+   * from subclasses which implement {@link #nextKey()} to signal that the axis-traversal is done and
+   * {@link #hasNext()} must return false.
+   *
+   * @return null node key to indicate that the travesal is done
+   */
+  @Override
+protected final long done() {
+    mExecutorService.shutdown();
+    try {
+        mExecutorService.awaitTermination(5, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+    }
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**

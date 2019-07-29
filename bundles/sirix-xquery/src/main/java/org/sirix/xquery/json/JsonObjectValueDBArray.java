@@ -315,7 +315,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
     if (axis.hasNext()) {
       axis.next();
 
-      return mJsonUtil.getSequence(rtx.moveToFirstChild().getCursor(), mCollection);
+      return mJsonUtil.getSequence(rtx.moveToFirstChild().trx(), mCollection);
     }
 
     return null;

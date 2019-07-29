@@ -342,7 +342,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       long pathNodeKey = -1;
       if (getNode() instanceof ValueNode && getNode().getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         final long nodeKey = getNode().getNodeKey();
-        pathNodeKey = moveToParent().getCursor().getNameNode().getPathNodeKey();
+        pathNodeKey = moveToParent().trx().getNameNode().getPathNodeKey();
         moveTo(nodeKey);
       } else if (getNode() instanceof NameNode) {
         pathNodeKey = getNameNode().getPathNodeKey();
@@ -1089,7 +1089,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey = moveToParent().getCursor().isElement()
+        final long pathNodeKey = moveToParent().trx().isElement()
             ? getNameNode().getPathNodeKey()
             : -1;
         mNodeReadOnlyTrx.setCurrentNode(node);
@@ -1155,7 +1155,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         adaptHashesWithAdd();
 
         // Get the path node key.
-        final long pathNodeKey = moveToParent().getCursor().isElement()
+        final long pathNodeKey = moveToParent().trx().isElement()
             ? getNameNode().getPathNodeKey()
             : -1;
         mNodeReadOnlyTrx.setCurrentNode(node);
@@ -1633,7 +1633,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         }
 
         final long nodeKey = getNodeKey();
-        final long pathNodeKey = moveToParent().getCursor().getPathNodeKey();
+        final long pathNodeKey = moveToParent().trx().getPathNodeKey();
         moveTo(nodeKey);
 
         // Remove old value from indexes.

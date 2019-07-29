@@ -561,7 +561,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getParent() {
     moveRtx();
     return mRtx.hasParent()
-        ? new XmlDBNode(mRtx.moveToParent().getCursor(), mCollection)
+        ? new XmlDBNode(mRtx.moveToParent().trx(), mCollection)
         : null;
   }
 
@@ -569,7 +569,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getFirstChild() {
     moveRtx();
     return mRtx.hasFirstChild()
-        ? new XmlDBNode(mRtx.moveToFirstChild().getCursor(), mCollection)
+        ? new XmlDBNode(mRtx.moveToFirstChild().trx(), mCollection)
         : null;
   }
 
@@ -577,7 +577,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getLastChild() {
     moveRtx();
     return mRtx.hasLastChild()
-        ? new XmlDBNode(mRtx.moveToLastChild().getCursor(), mCollection)
+        ? new XmlDBNode(mRtx.moveToLastChild().trx(), mCollection)
         : null;
   }
 
@@ -604,7 +604,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getNextSibling() {
     moveRtx();
     return mRtx.hasRightSibling()
-        ? new XmlDBNode(mRtx.moveToRightSibling().getCursor(), mCollection)
+        ? new XmlDBNode(mRtx.moveToRightSibling().trx(), mCollection)
         : null;
   }
 
@@ -612,7 +612,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public XmlDBNode getPreviousSibling() {
     moveRtx();
     return mRtx.hasLeftSibling()
-        ? new XmlDBNode(mRtx.moveToLeftSibling().getCursor(), mCollection)
+        ? new XmlDBNode(mRtx.moveToLeftSibling().trx(), mCollection)
         : null;
   }
 
@@ -1038,7 +1038,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_LEFT_SIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
+      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), mCollection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1163,7 +1163,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final SubtreeBuilder builder =
           new SubtreeBuilder(mCollection, wtx, InsertPosition.AS_RIGHT_SIBLING, Collections.emptyList());
       parser.parse(builder);
-      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).getCursor(), mCollection);
+      return new XmlDBNode(wtx.moveTo(builder.getStartNodeKey()).trx(), mCollection);
     } catch (final SirixException e) {
       throw new DocumentException(e);
     }
@@ -1418,7 +1418,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   private XmlDBNode replace(final long nodeKey, final XmlNodeTrx wtx) throws SirixException {
     // Move to original node.
-    wtx.moveTo(nodeKey).getCursor().moveToRightSibling();
+    wtx.moveTo(nodeKey).trx().moveToRightSibling();
     // Remove original node.
     wtx.remove();
     // Move to subtree root of new subtree.

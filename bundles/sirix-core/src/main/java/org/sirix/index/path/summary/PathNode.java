@@ -77,7 +77,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
     final PathNode[] path = new PathNode[mLevel];
     for (int i = mLevel - 1; i >= 0; i--) {
       path[i] = node;
-      node = reader.moveToParent().getCursor().getPathNode();
+      node = reader.moveToParent().trx().getPathNode();
     }
 
     final Path<QNm> p = new Path<QNm>();

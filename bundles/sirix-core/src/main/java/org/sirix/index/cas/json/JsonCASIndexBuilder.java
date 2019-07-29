@@ -54,7 +54,7 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
         ? 0
         : mRtx.isObjectKey()
             ? ((ObjectRecordNode) mRtx.getNode()).getPathNodeKey()
-            : mRtx.moveToParent().getCursor().isDocumentRoot()
+            : mRtx.moveToParent().trx().isDocumentRoot()
                 ? 0
                 : ((ObjectRecordNode) mRtx.getNode()).getPathNodeKey();
     return PCR;

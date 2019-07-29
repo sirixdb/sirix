@@ -487,7 +487,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
       if (node.hasLeftSibling()) {
         // Left sibling node.
-        deweyID = moveTo(node.getLeftSiblingKey()).getCursor().getDeweyID();
+        deweyID = moveTo(node.getLeftSiblingKey()).trx().getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -503,7 +503,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
       if (node.hasRightSibling()) {
         // Right sibling node.
-        deweyID = moveTo(node.getRightSiblingKey()).getCursor().getDeweyID();
+        deweyID = moveTo(node.getRightSiblingKey()).trx().getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -518,7 +518,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
       if (mCurrentNode.hasParent()) {
         // Parent node.
-        deweyID = moveTo(mCurrentNode.getParentKey()).getCursor().getDeweyID();
+        deweyID = moveTo(mCurrentNode.getParentKey()).trx().getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;
@@ -534,7 +534,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       Optional<SirixDeweyID> deweyID = Optional.empty();
       if (node.hasFirstChild()) {
         // Right sibling node.
-        deweyID = moveTo(node.getFirstChildKey()).getCursor().getDeweyID();
+        deweyID = moveTo(node.getFirstChildKey()).trx().getDeweyID();
       }
       moveTo(nodeKey);
       return deweyID;

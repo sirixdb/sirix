@@ -32,7 +32,7 @@ public final class Moved<T extends NodeCursor> extends Move<T> {
   }
 
   @Override
-  public T getCursor() {
+  public T trx() {
     return mNodeCursor;
   }
 
