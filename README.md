@@ -138,7 +138,7 @@ or use the following dependencies in your Maven (or Gradle?) project.
 We just changed to Java11 (OpenJDK 11).
 
 ### Maven artifacts
-At this stage of development you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.1 of Sirix :-)
+At this stage of development you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.3 of Sirix :-)
 
 Just add the following repository section to your POM file:
 ```xml
@@ -155,7 +155,7 @@ Just add the following repository section to your POM file:
 </repository>
 ```
 
-<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.2-SNAPSHOT.</strong>
+<strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.4-SNAPSHOT.</strong>
 
 Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
@@ -164,7 +164,7 @@ Core project:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-core</artifactId>
-  <version>0.9.2-SNAPSHOT</version>
+  <version>0.9.4-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -173,7 +173,7 @@ Brackit binding:
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-xquery</artifactId>
-  <version>0.9.2-SNAPSHOT</version>
+  <version>0.9.4-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -182,7 +182,7 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 <dependency>
   <groupId>io.sirix</groupId>
   <artifactId>sirix-rest-api</artifactId>
-  <version>0.9.2-SNAPSHOT</version>
+  <version>0.9.4-SNAPSHOT</version>
 </dependency>
 ```
 
