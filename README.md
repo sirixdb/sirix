@@ -49,37 +49,52 @@ return {"revision": sdb:revision($foundStatus), $foundStatus{text}}
 
 The query basically opens a database/resource in a specific revision based on a timestamp (`2019–04–13T16:24:27Z`) and searchs for all statuses, which have a `created_at` timestamp, which has to be greater than the 1st of February in 2018 and did not exist in the previous revision. `=>` is a dereferencing operator used to dereference keys in JSON objects, array values can be accessed as shown with the function bit:array-values or through specifying an index, starting with zero: array[[0]] for instance specifies the first value of the array.
 
-## Design goals
+## SirixDB Features
+SirixDB is a log-structured, temporal NoSQL document store, which stores evolutionary data. It never overwrites any data on-disk. Thus, we're able to restore and query the full revision history of a resource in the database.
 
-Sirix is designed with the following goals in mind:
+### Design Goals
+Some of the most important core principles and design goals are:
 
 <dl>
   <dt>Concurrent</dt>
-  <dd>Sirix contains very few locks and aims to be as suitable for multithreaded systems as possible.</dd>
-  <dt>Asynchronous (REST API)</dt>
-  <dd>Sirix is asynchronous: operations can happen independently; writes and
-    reads from the disk need not block. Each transaction is bound to a specific
-    revision and only ever one read/write-transaction on a resource can exist concurrently
-    to N read-only-transactions.</dd>
-  <dt>Revision history</dt>
-  <dd>Sirix stores a revision history of every resource in the database without imposing extra
-    overhead. This means that you can revert any revision into an earlier version,
-    backing up the system automatically and without imposed overhead from
-    copying, doing time travel queries to analyse the past / and or for auditing purposes, to correct humans- or application-errors... <strong>This is maybe the most important feature.</strong></dd>
+  <dd>SirixDB contains very few locks and aims to be as suitable for multithreaded systems as possible</dd>
+  <dt>Asynchronous</dt>
+  <dd>operations can happen independently; each transaction is bound to a specific revision and only one read/write-transaction on a resource is permitted concurrently to N read-only-transactions</dd>
+  <dt>Versioning/Revision history</dt>
+  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead</dd>
   <dt>Data integrity</dt>
-  <dd>Sirix, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption will be detected upon read in the future, once we replicate database pages.</dd>
+  <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future</dd>
   <dt>Copy-on-write semantics</dt>
-  <dd>Similarly to the file systems Btrfs and ZFS, Sirix uses CoW semantics, meaning that no page
-    is ever overwritten directly, but instead it is copied and written to a new
-    location.</dd>
-  <dt>Per revision and per record version / novel versioning approach</dt>
-  <dd>Sirix not only versions on a per page-basis, but also on a per record basis. Thus, when a record in a page changed, not the whole page has to be duplicated. Instead, we implemented several versioning strategies known from backup systems and developed a novel strategy, to avoid read- or write-peaks.</dd>
+  <dd>similarly to the file systems Btrfs and ZFS, SirixDB uses CoW semantics, meaning that SirixDB never overwrites data. Instead, database-page fragments are copied/written to a new location</dd>
+  <dt>Per revision and per record versioning</dt>
+  <dd>SirixDB does not only version on a per page-, but also on a per record-base. Thus, whenever we change a potentially small fraction
+of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages</dd>
   <dt>Guaranteed atomicity (without a WAL)</dt>
-  <dd>The system will never enter an inconsistent state (unless there is hardware
-    failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (WAL).</dd>
-  <dt>Log-structured / SSD friendly</dt>
-  <dd>Sirix never overrides data. It batches writes and synchs everything to a flash drive during a commit.</dd>
+  <dd>the system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (<a
+href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
+  <dt>Log-structured and SSD friendly</dt>
+  <dd>SirixDB batches writes and syncs everything sequentially to a flash drive
+during commits. It never overwrites committed data</dd>
 </dl>
+
+## Revision Histories
+**Keeping the revision history is one of the main features in
+SirixDB.** We're able to revert any revision into an earlier
+version or back up the system automatically without the overhead of
+copying. SirixDB only ever copies changed database-pages and depending
+on the versioning algorithm we chose during the creation of a
+database/resource only page-fragments as well as ancestor index-pages
+to create a new revision.
+
+We can reconstruct every revision in <em>O(n)</em>, where <em>n</em>
+denotes the number of nodes in the revision. Binary search is used on
+an in-memory (linked) map to load the revision, thus finding the
+revision root page has an asymptotic runtime complexity of <em>O(log
+n)</em>, where <em>n</em>, in this case, is the number of stored
+revisions.
+
+Currently, SirixDB offers two built-in native data models, namely a
+binary XML store as well as a JSON store.
 
 ## Versioning at the sub-file level / supporting time-travel queries
 Sirix is a storage system, which brings versioning to a sub-file granular level while taking full advantage of flash based drives as for instance SSDs. As such per revision as well as per page deltas are stored. Time-complexity for retrieval of records/nodes and the storage are logarithmic (O(log n)). Space complexity is linear (O(n)). Currently, we provide several APIs which are layered. A very low level page-API, which handles the storage and retrieval of records on a per page-fragment level (whereas a buffer manager handles the caching of pages in-memory and the versioning takes place even on a lower layer for storing and reconstructing the page-fragments in CPU-friendly algorithms), a cursor based API to store and navigate through records (currently XML/XDM nodes) on top, a DOM-alike node layer for simple in-memory processing of these nodes, which is used by Brackit, a sophisticated XQuery processor. And last but not least a RESTful asynchronous HTTP-API. We provide a seamless integration of a native JSON layer besides the XML node layer, that is we extend the XQuery Data Model (XDM) with other node types (support for JSONiq like queries through the XQuery processor Brackit). In general, however we could store every kind of data. We provide
