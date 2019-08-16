@@ -132,7 +132,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               mOut.append(",");
           }
           break;
-        case OBJECT_RECORD:
+        case OBJECT_KEY:
           mOut.append("\"" + rtx.getName().stringValue() + "\":");
           break;
         case BOOLEAN_VALUE:
@@ -185,7 +185,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           if (rtx.hasRightSibling())
             mOut.append(",");
           break;
-        case OBJECT_RECORD:
+        case OBJECT_KEY:
           if (rtx.hasRightSibling())
             mOut.append(",");
           break;

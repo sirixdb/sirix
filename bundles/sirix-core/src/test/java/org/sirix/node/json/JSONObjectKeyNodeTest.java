@@ -71,25 +71,25 @@ public class JSONObjectKeyNodeTest {
   @Test
   public void testNode() throws IOException {
     // Create empty node.
-    mNameKey = mPageWriteTrx.createNameKey("foobar", Kind.OBJECT_RECORD);
+    mNameKey = mPageWriteTrx.createNameKey("foobar", Kind.OBJECT_KEY);
     final String name = "foobar";
 
     final long pathNodeKey = 12;
     final NodeDelegate del = new NodeDelegate(14, 13, 0, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
-    final ObjectRecordNode node = new ObjectRecordNode(strucDel, mNameKey, name, pathNodeKey);
+    final ObjectKeyNode node = new ObjectKeyNode(strucDel, mNameKey, name, pathNodeKey);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectRecordNode node2 = (ObjectRecordNode) Kind.OBJECT_RECORD.deserialize(new DataInputStream(in),
+    final ObjectKeyNode node2 = (ObjectKeyNode) Kind.OBJECT_KEY.deserialize(new DataInputStream(in),
         node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
-  private final void check(final ObjectRecordNode node) {
+  private final void check(final ObjectKeyNode node) {
     // Now compare.
     assertEquals(14L, node.getNodeKey());
     assertEquals(13L, node.getParentKey());
@@ -98,7 +98,7 @@ public class JSONObjectKeyNodeTest {
 
     assertEquals(mNameKey, node.getNameKey());
     assertEquals("foobar", node.getName());
-    assertEquals(Kind.OBJECT_RECORD, node.getKind());
+    assertEquals(Kind.OBJECT_KEY, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

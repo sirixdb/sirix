@@ -61,7 +61,7 @@ import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xdm.AttributeNode;
 import org.sirix.node.xdm.CommentNode;
@@ -873,7 +873,7 @@ public enum Kind implements NodePersistenter {
   },
 
   /** JSON array node. */
-  OBJECT_RECORD((byte) 26, ObjectRecordNode.class) {
+  OBJECT_KEY((byte) 26, ObjectKeyNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -887,16 +887,16 @@ public enum Kind implements NodePersistenter {
 
       final String name = nameKey == -1
           ? ""
-          : pageReadTrx.getName(nameKey, Kind.OBJECT_RECORD);
+          : pageReadTrx.getName(nameKey, Kind.OBJECT_KEY);
 
       // Returning an instance.
-      return new ObjectRecordNode(structDel, nameKey, name, pathNodeKey);
+      return new ObjectKeyNode(structDel, nameKey, name, pathNodeKey);
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
-      final ObjectRecordNode node = (ObjectRecordNode) record;
+      final ObjectKeyNode node = (ObjectKeyNode) record;
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);

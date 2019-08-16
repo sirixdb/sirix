@@ -27,7 +27,7 @@ import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
@@ -165,7 +165,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return mCurrentNode instanceof ObjectRecordNode;
+    return mCurrentNode instanceof ObjectKeyNode;
   }
 
   @Override
@@ -238,8 +238,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public QNm getName() {
     assertNotClosed();
 
-    if (mCurrentNode.getKind() == Kind.OBJECT_RECORD) {
-      final int nameKey = ((ObjectRecordNode) mCurrentNode).getNameKey();
+    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
+      final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
       final String localName = nameKey == -1
           ? ""
           : mPageReadTrx.getName(nameKey, mCurrentNode.getKind());
@@ -270,7 +270,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == Kind.OBJECT_RECORD) {
+    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 

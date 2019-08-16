@@ -101,17 +101,59 @@ public final class Names {
   /**
    * Create name key given a name.
    *
-   * @param pKey key for given name
+   * @param key key for given name
    * @param name name to create key for
+   *
+   * @return generated key
    */
-  public void setName(final int pKey, final String name) {
-    final Integer prevValue = mCountNameMapping.get(pKey);
-    if (prevValue == null) {
-      mNameMap.put(pKey, checkNotNull(getBytes(name)));
-      mCountNameMapping.put(pKey, 1);
+  public int setName(final String name) {
+    final int key = name.hashCode();
+    final byte[] previousByteValue = mNameMap.get(key);
+
+    final String previousStringValue;
+    if (previousByteValue != null) {
+      previousStringValue = new String(previousByteValue, Constants.DEFAULT_ENCODING);
     } else {
-      mCountNameMapping.put(pKey, prevValue + 1);
+      previousStringValue = null;
     }
+
+    if (previousStringValue == null || !previousStringValue.equals(name)) {
+      final int newKey;
+
+      if (mNameMap.containsKey(key)) {
+        newKey = getNewKey(key);
+      } else {
+        newKey = key;
+      }
+
+      mNameMap.put(newKey, checkNotNull(getBytes(name)));
+      mCountNameMapping.put(newKey, 1);
+
+      return newKey;
+    } else {
+      final int previousIntegerValue = mCountNameMapping.get(key);
+      mCountNameMapping.put(key, previousIntegerValue + 1);
+
+      return key;
+    }
+  }
+
+  private int getNewKey(final int key) {
+    int newKey = key;
+
+    while (mNameMap.containsKey(newKey) && newKey <= Integer.MAX_VALUE)
+      newKey++;
+
+    if (newKey == Integer.MAX_VALUE) {
+      newKey = 0;
+      while (mNameMap.containsKey(newKey) && newKey < key)
+        newKey++;
+    }
+
+    if (newKey == key)
+      throw new IllegalStateException("Key is not unique.");
+
+    return newKey;
   }
 
   /**

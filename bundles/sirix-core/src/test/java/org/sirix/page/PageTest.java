@@ -4,12 +4,14 @@
 package org.sirix.page;
 
 import static org.testng.AssertJUnit.assertTrue;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
+
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
@@ -105,8 +107,7 @@ public class PageTest {
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
-    namePage.setName(
-        XdmTestHelper.random.nextInt(), new String(XdmTestHelper.generateRandomBytes(256)), Kind.ELEMENT);
+    namePage.setName(new String(XdmTestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
     // ValuePage setup.
     final PathPage valuePage = new PathPage();

@@ -23,6 +23,7 @@ package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -30,9 +31,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -63,7 +66,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
-import org.sirix.utils.NamePageHash;
 
 /**
  * <h1>PageWriteTrx</h1>
@@ -89,8 +91,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   /** Last reference to the actual revRoot. */
   private final RevisionRootPage mNewRoot;
 
-  /** {@link PageReadTrxImpl} instance. */
-  private final PageReadTrxImpl mPageRtx;
+  /** {@link PageReadOnlyTrxImpl} instance. */
+  private final PageReadOnlyTrxImpl mPageRtx;
 
   /** Determines if a log must be replayed or not. */
   private Restore mRestore = Restore.NO;
@@ -119,7 +121,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
    *        {@code false} otherwise
    */
   PageTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final PageReadTrxImpl pageRtx,
+      final RevisionRootPage revisionRootPage, final PageReadOnlyTrxImpl pageRtx,
       final IndexController<?, ?> indexController, final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
@@ -254,10 +256,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     final String string = (name == null
         ? ""
         : name);
-    final int nameKey = NamePageHash.generateHashForString(string);
     final NamePage namePage = getNamePage(mNewRoot);
-    namePage.setName(nameKey, string, nodeKind);
-    return nameKey;
+    return namePage.setName(string, nodeKind);
   }
 
   @Override

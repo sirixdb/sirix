@@ -4,6 +4,11 @@ package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
@@ -15,15 +20,18 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+
+import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
-import org.sirix.access.trx.page.PageReadTrxImpl;
-import org.sirix.access.trx.page.PageWriteTrxFactory;
+import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
+import org.sirix.access.trx.page.PageTrxFactory;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -135,6 +143,20 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return Math.abs(lhs - rhs);
   }
 
+  protected void inititializeIndexController(final int revision,
+      IndexController<?, ?> controller) {
+    // Deserialize index definitions.
+    final Path indexes = getResourceConfig().resourcePath.resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(String.valueOf(revision) + ".xml");
+    if (Files.exists(indexes)) {
+      try (final InputStream in = new FileInputStream(indexes.toFile())) {
+        controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+      } catch (IOException | DocumentException | SirixException e) {
+        throw new SirixIOException("Index definitions couldn't be deserialized!", e);
+      }
+    }
+  }
+
   /**
    * Create a new {@link PageTrx}.
    *
@@ -154,7 +176,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final Writer writer = mFac.createWriter();
     final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
-    return new PageWriteTrxFactory().createPageWriteTrx(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
+    return new PageTrxFactory().createPageTrx(this, abort == Abort.YES && lastCommitedUberPage.isBootstrap()
         ? new UberPage()
         : new UberPage(lastCommitedUberPage, representRevision > 0
             ? writer.readUberPageReference().getKey()
@@ -526,7 +548,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
 
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final PageReadOnlyTrx pageReadTrx = new PageReadTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
+    final PageReadOnlyTrx pageReadTrx = new PageReadOnlyTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
         revision, mFac.createReader(), null, null, mBufferManager);
 
     // Remember page transaction for debugging and safe close.

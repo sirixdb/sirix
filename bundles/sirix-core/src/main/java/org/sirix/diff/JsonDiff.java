@@ -62,7 +62,7 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
       case NULL_VALUE:
         found = true;
         break;
-      case OBJECT_RECORD:
+      case OBJECT_KEY:
         if (newRtx.getName().equals(oldRtx.getName()))
           found = true;
         break;

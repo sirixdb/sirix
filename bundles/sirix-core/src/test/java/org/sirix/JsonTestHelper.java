@@ -22,12 +22,14 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -42,7 +44,6 @@ import org.sirix.exception.SirixRuntimeException;
 import org.sirix.utils.JsonDocumentCreator;
 
 /**
- *
  * Helper class for offering convenient usage of the {@link JsonResourceManager} for test cases.
  *
  * This includes instantiation of databases plus resources.
