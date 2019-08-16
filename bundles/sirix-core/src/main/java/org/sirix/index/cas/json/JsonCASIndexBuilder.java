@@ -8,7 +8,7 @@ import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 
 /**
  * Builds a content-and-structure (CAS) index.
@@ -53,10 +53,10 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
     final long PCR = mRtx.isDocumentRoot()
         ? 0
         : mRtx.isObjectKey()
-            ? ((ObjectRecordNode) mRtx.getNode()).getPathNodeKey()
+            ? ((ObjectKeyNode) mRtx.getNode()).getPathNodeKey()
             : mRtx.moveToParent().trx().isDocumentRoot()
                 ? 0
-                : ((ObjectRecordNode) mRtx.getNode()).getPathNodeKey();
+                : ((ObjectKeyNode) mRtx.getNode()).getPathNodeKey();
     return PCR;
   }
 

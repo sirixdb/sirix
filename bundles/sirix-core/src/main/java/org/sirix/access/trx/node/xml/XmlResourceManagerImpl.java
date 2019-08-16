@@ -26,7 +26,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
+
 import javax.annotation.Nonnull;
+
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
@@ -36,9 +38,9 @@ import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryWriter;
@@ -121,6 +123,8 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
     if (controller == null) {
       controller = new XmlIndexController();
       mRtxIndexControllers.put(revision, controller);
+
+      inititializeIndexController(revision, controller);
     }
     return controller;
   }

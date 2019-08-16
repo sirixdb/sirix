@@ -45,7 +45,7 @@ public final class ObjectKeyFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.OBJECT_RECORD;
+    return getTrx().getKind() == Kind.OBJECT_KEY;
   }
 
 }

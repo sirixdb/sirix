@@ -88,10 +88,10 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectRecordNode))
+    if (!(obj instanceof ObjectKeyNode))
       return false;
 
-    final ObjectRecordNode other = (ObjectRecordNode) obj;
+    final ObjectKeyNode other = (ObjectKeyNode) obj;
     return Objects.equal(delegate(), other.delegate());
   }
 

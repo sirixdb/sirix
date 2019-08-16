@@ -6,7 +6,7 @@ import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.sirix.access.trx.page.PageReadTrxImpl;
+import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -202,9 +202,9 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   /**
-   * Replace the current {@link PageReadTrxImpl}.
+   * Replace the current {@link PageReadOnlyTrxImpl}.
    *
-   * @param pageReadTransaction {@link PageReadTrxImpl} instance
+   * @param pageReadTransaction {@link PageReadOnlyTrxImpl} instance
    */
   public final void setPageReadTransaction(@Nullable final PageReadOnlyTrx pageReadTransaction) {
     assertNotClosed();

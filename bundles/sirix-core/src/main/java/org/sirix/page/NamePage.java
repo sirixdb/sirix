@@ -26,7 +26,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+
 import javax.annotation.Nonnull;
+
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
@@ -34,6 +36,7 @@ import org.sirix.node.Kind;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+
 import com.google.common.base.MoreObjects;
 
 /**
@@ -133,7 +136,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         rawName = mPIs.getRawName(key);
         break;
-      case OBJECT_RECORD:
+      case OBJECT_KEY:
         rawName = mJSONObjectKeys.getRawName(key);
         break;
       // $CASES-OMITTED$
@@ -164,7 +167,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         name = mPIs.getName(key);
         break;
-      case OBJECT_RECORD:
+      case OBJECT_KEY:
         name = mJSONObjectKeys.getName(key);
         break;
       case ARRAY:
@@ -198,7 +201,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         count = mPIs.getCount(key);
         break;
-      case OBJECT_RECORD:
+      case OBJECT_KEY:
         count = mJSONObjectKeys.getCount(key);
         break;
       case ARRAY:
@@ -214,29 +217,22 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Create name key given a name.
    *
-   * @param key key for given name
    * @param name name to create key for
    * @param nodeKind kind of node
+   * @return the created key
    */
-  public void setName(final int key, final String name, final Kind nodeKind) {
+  public int setName(final String name, final Kind nodeKind) {
     switch (nodeKind) {
       case ELEMENT:
-        mElements.setName(key, name);
-        break;
+        return mElements.setName(name);
       case NAMESPACE:
-        mNamespaces.setName(key, name);
-        break;
+        return mNamespaces.setName(name);
       case ATTRIBUTE:
-        mAttributes.setName(key, name);
-        break;
+        return mAttributes.setName(name);
       case PROCESSING_INSTRUCTION:
-        mPIs.setName(key, name);
-        break;
-      case OBJECT_RECORD:
-        mJSONObjectKeys.setName(key, name);
-        break;
-      case ARRAY:
-        break;
+        return mPIs.setName(name);
+      case OBJECT_KEY:
+        return mJSONObjectKeys.setName(name);
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -302,7 +298,7 @@ public final class NamePage extends AbstractForwardingPage {
       case PROCESSING_INSTRUCTION:
         mPIs.removeName(key);
         break;
-      case OBJECT_RECORD:
+      case OBJECT_KEY:
         mJSONObjectKeys.removeName(key);
         break;
       // $CASES-OMITTED$

@@ -34,7 +34,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
@@ -160,8 +160,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void movePathSummary() {
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.OBJECT_RECORD) {
-      mPathSummaryReader.moveTo(((ObjectRecordNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getKind() == Kind.OBJECT_KEY) {
+      mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == Kind.ARRAY) {
       mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
@@ -304,7 +304,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         boolean firstRun = true;
         for (final Axis descendants = new DescendantAxis(mNodeRtx, IncludeSelf.YES); descendants.hasNext();) {
           descendants.next();
-          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.OBJECT_RECORD) {
+          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.OBJECT_KEY) {
             // Path Summary : New mapping.
             if (firstRun) {
               insertPathAsFirstChild(name, mNodeRtx.getKind(), ++level);

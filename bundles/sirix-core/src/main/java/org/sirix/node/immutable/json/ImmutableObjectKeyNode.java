@@ -5,7 +5,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
 
 /**
@@ -17,14 +17,14 @@ import org.sirix.node.json.ObjectNode;
 public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructuralNode {
 
   /** Mutable {@link ObjectNode}. */
-  private final ObjectRecordNode mNode;
+  private final ObjectKeyNode mNode;
 
   /**
    * Private constructor.
    *
    * @param node mutable {@link ObjectNode}
    */
-  private ImmutableObjectKeyNode(final ObjectRecordNode node) {
+  private ImmutableObjectKeyNode(final ObjectKeyNode node) {
     mNode = checkNotNull(node);
   }
 
@@ -34,7 +34,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
    * @param node the mutable {@link ImmutableObjectKeyNode} to wrap
    * @return immutable JSON-array node instance
    */
-  public static ImmutableObjectKeyNode of(final ObjectRecordNode node) {
+  public static ImmutableObjectKeyNode of(final ObjectKeyNode node) {
     return new ImmutableObjectKeyNode(node);
   }
 

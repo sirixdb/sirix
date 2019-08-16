@@ -62,11 +62,10 @@ public final class PrecedingSiblingAxis extends AbstractAxis {
 
     if (mIsFirst) {
       mIsFirst = false;
-      /*
-       * If the context node is an attribute or namespace node, the following-sibling axis is empty.
-       */
+
       final Kind kind = cursor.getKind();
       if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
+        // If the context node is an attribute or namespace node, the following-sibling axis is empty.
         return done();
       } else {
         if (cursor.hasParent()) {

@@ -6,7 +6,7 @@ import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.name.NameIndexListener;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ObjectRecordNode;
+import org.sirix.node.json.ObjectKeyNode;
 
 final class JsonNameIndexListener implements ChangeListener {
 
@@ -18,8 +18,8 @@ final class JsonNameIndexListener implements ChangeListener {
 
   @Override
   public void listen(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey) {
-    if (node instanceof ObjectRecordNode) {
-      final ObjectRecordNode objectKeyNode = (ObjectRecordNode) node;
+    if (node instanceof ObjectKeyNode) {
+      final ObjectKeyNode objectKeyNode = (ObjectKeyNode) node;
       final QNm name = new QNm(objectKeyNode.getName());
 
       mIndexListener.listen(type, objectKeyNode, name);
