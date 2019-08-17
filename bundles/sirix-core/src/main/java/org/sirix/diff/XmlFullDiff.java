@@ -55,7 +55,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
         && newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
         case ELEMENT:
-          if (newRtx.getName().equals(oldRtx.getName())
+          if (checkNamesForEquality(newRtx, oldRtx)
               && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
               && newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
             found = true;
@@ -67,7 +67,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
               newRtx.moveTo(nsp);
               oldRtx.moveTo(nsp);
 
-              if (!(newRtx.getName().equals(oldRtx.getName()))) {
+              if (!checkNamesForEquality(newRtx, oldRtx)) {
                 found = false;
                 break;
               }
@@ -80,7 +80,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
                 newRtx.moveTo(attr);
                 oldRtx.moveTo(attr);
 
-                if (!(newRtx.getName().equals(oldRtx.getName())
+                if (!(checkNamesForEquality(newRtx, oldRtx)
                     && Objects.equals(newRtx.getValue(), oldRtx.getValue()))) {
                   found = false;
                   break;
@@ -93,7 +93,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
           }
           break;
         case PROCESSING_INSTRUCTION:
-          found = newRtx.getValue().equals(oldRtx.getValue()) && newRtx.getName().equals(oldRtx.getName());
+          found = newRtx.getValue().equals(oldRtx.getValue()) && checkNamesForEquality(newRtx, oldRtx);
           break;
         case TEXT:
         case COMMENT:
@@ -176,7 +176,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
           newRtx.moveTo(attr);
           oldRtx.moveTo(attr);
 
-          if (newRtx.getName().equals(oldRtx.getName())
+          if (checkNamesForEquality(newRtx, oldRtx)
               && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
             fireDiff(DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
           else
@@ -249,7 +249,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
       switch (newRtx.getKind()) {
         case ELEMENT:
         case PROCESSING_INSTRUCTION:
-          if (newRtx.getName().equals(oldRtx.getName())) {
+          if (checkNamesForEquality(newRtx, oldRtx)) {
             found = true;
           }
           break;
@@ -264,5 +264,11 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
       }
     }
     return found;
+  }
+
+  protected boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
+    return newRtx.getURIKey() == oldRtx.getURIKey()
+        && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+        && newRtx.getPrefixKey() == oldRtx.getPrefixKey();
   }
 }
