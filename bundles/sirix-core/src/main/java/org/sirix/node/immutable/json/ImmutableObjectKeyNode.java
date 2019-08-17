@@ -62,6 +62,10 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
     return Kind.ARRAY;
   }
 
+  public int getNameKey() {
+    return mNode.getNameKey();
+  }
+
   public String getName() {
     return mNode.getName();
   }

@@ -18,6 +18,11 @@ public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingOb
   protected abstract JsonNodeReadOnlyTrx delegate();
 
   @Override
+  public int getNameKey() {
+    return delegate().getNameKey();
+  }
+
+  @Override
   public long getHash() {
     return delegate().getHash();
   }

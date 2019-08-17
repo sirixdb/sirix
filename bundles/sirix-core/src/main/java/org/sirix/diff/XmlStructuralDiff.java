@@ -50,12 +50,12 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
         && newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
         case ELEMENT:
-          if (newRtx.getName().equals(oldRtx.getName())) {
+          if (checkNamesForEquality(newRtx, oldRtx)) {
             found = true;
           }
           break;
         case PROCESSING_INSTRUCTION:
-          found = newRtx.getValue().equals(oldRtx.getValue()) && newRtx.getName().equals(oldRtx.getName());
+          found = newRtx.getValue().equals(oldRtx.getValue()) && checkNamesForEquality(newRtx, oldRtx);
           break;
         case COMMENT:
         case TEXT:
@@ -78,7 +78,7 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
       switch (newRtx.getKind()) {
         case ELEMENT:
         case PROCESSING_INSTRUCTION:
-          if (newRtx.getName().equals(oldRtx.getName())) {
+          if (checkNamesForEquality(newRtx, oldRtx)) {
             found = true;
           }
           break;
@@ -98,4 +98,10 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
   @Override
   void emitNonStructuralDiff(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx, final DiffDepth depth,
       final DiffType diff) {}
+
+  protected boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
+    return newRtx.getURIKey() == oldRtx.getURIKey()
+        && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+        && newRtx.getPrefixKey() == oldRtx.getPrefixKey();
+  }
 }

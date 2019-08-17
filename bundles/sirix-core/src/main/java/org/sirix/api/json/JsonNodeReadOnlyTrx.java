@@ -75,4 +75,6 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean getBooleanValue();
 
   Number getNumberValue();
+
+  public int getNameKey();
 }

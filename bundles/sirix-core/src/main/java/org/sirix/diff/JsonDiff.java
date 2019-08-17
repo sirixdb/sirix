@@ -63,7 +63,7 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
         found = true;
         break;
       case OBJECT_KEY:
-        if (newRtx.getName().equals(oldRtx.getName()))
+        if (checkNamesForEquality(newRtx, oldRtx))
           found = true;
         break;
       case BOOLEAN_VALUE:
@@ -83,6 +83,10 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
         // Do nothing.
     }
     return found;
+  }
+
+  private boolean checkNamesForEquality(JsonNodeReadOnlyTrx newRtx, JsonNodeReadOnlyTrx oldRtx) {
+    return newRtx.getNameKey() == oldRtx.getNameKey();
   }
 
   @Override

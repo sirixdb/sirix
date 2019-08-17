@@ -40,8 +40,8 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.xml.shredder.InsertPosition;
-import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
+import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableSet;
 
@@ -329,14 +329,14 @@ public final class DiffTestHelper {
   static void checkFullDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) throws SirixException, InterruptedException {
     DiffFactory.invokeFullXmlDiff(
-        new DiffFactory.Builder(holder.getResourceManager(), 2, 1, optimized,
+        new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
   }
 
   static void checkStructuralDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) throws SirixException, InterruptedException {
     DiffFactory.invokeStructuralXmlDiff(
-        new DiffFactory.Builder(holder.getResourceManager(), 2, 1, optimized,
+        new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
             ImmutableSet.of(observer)));
   }
 }

@@ -17,6 +17,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
@@ -26,8 +27,8 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
@@ -262,7 +263,17 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
 
   @Override
   public void setCurrentNode(ImmutableJsonNode node) {
+    assertNotClosed();
     mCurrentNode = node;
+  }
+
+  @Override
+  public int getNameKey() {
+    assertNotClosed();
+    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
+      return ((ImmutableObjectKeyNode) mCurrentNode).getNameKey();
+    }
+    return -1;
   }
 
   @Override
