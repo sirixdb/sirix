@@ -2,6 +2,7 @@ package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.time.Instant;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -11,7 +12,7 @@ import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.StructNode;
@@ -56,16 +57,16 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     assertNotClosed();
     if (mCurrentNode instanceof StructNode && hasLeftSibling()) {
       final long nodeKey = mCurrentNode.getNodeKey();
       moveToLeftSibling();
-      final Kind leftSiblKind = mCurrentNode.getKind();
+      final NodeKind leftSiblKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return leftSiblKind;
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
@@ -109,7 +110,7 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
-    if (node.getKind() == Kind.XDM_DOCUMENT) {
+    if (node.getKind() == NodeKind.XDM_DOCUMENT) {
       return 0;
     }
     return -1;
@@ -175,13 +176,13 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     assertNotClosed();
     return mCurrentNode.getHash();
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     assertNotClosed();
     return mCurrentNode.getKind();
   }
@@ -288,15 +289,15 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     assertNotClosed();
     final ImmutableNode node = mCurrentNode;
     if (node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return Kind.UNKNOWN;
+      return NodeKind.UNKNOWN;
     }
     final long nodeKey = node.getNodeKey();
     moveToParent();
-    final Kind parentKind = mCurrentNode.getKind();
+    final NodeKind parentKind = mCurrentNode.getKind();
     moveTo(nodeKey);
     return parentKind;
   }
@@ -342,31 +343,31 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     assertNotClosed();
     final ImmutableNode node = mCurrentNode;
     if (node instanceof StructNode && hasLastChild()) {
       final long nodeKey = node.getNodeKey();
       moveToLastChild();
-      final Kind lastChildKind = mCurrentNode.getKind();
+      final NodeKind lastChildKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return lastChildKind;
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     assertNotClosed();
     final ImmutableNode node = mCurrentNode;
     if (node instanceof StructNode && hasFirstChild()) {
       final long nodeKey = node.getNodeKey();
       moveToFirstChild();
-      final Kind firstChildKind = mCurrentNode.getKind();
+      final NodeKind firstChildKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return firstChildKind;
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
@@ -402,23 +403,23 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
   }
 
   @Override
-  public Kind getPathKind() {
+  public NodeKind getPathKind() {
     assertNotClosed();
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     assertNotClosed();
     final ImmutableNode node = mCurrentNode;
     if (node instanceof StructNode && hasRightSibling()) {
       final long nodeKey = node.getNodeKey();
       moveToRightSibling();
-      final Kind rightSiblKind = mCurrentNode.getKind();
+      final NodeKind rightSiblKind = mCurrentNode.getKind();
       moveTo(nodeKey);
       return rightSiblKind;
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override

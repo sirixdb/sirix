@@ -21,6 +21,7 @@
 
 package org.sirix.node.xdm;
 
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -29,13 +30,14 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
@@ -71,6 +73,35 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
 
   /** The qualified name. */
   private final QNm mQNm;
+
+  private BigInteger mHash;
+
+  /**
+   * Constructor
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   * @param nameDel {@link NameNodeDelegate} to be set
+   * @param attributeKeys list of attribute keys
+   * @param attributes attribute nameKey / nodeKey mapping in both directions
+   * @param namespaceKeys keys of namespaces to be set
+   * @param
+   */
+  public ElementNode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final List<Long> attributeKeys,
+      final BiMap<Long, Long> attributes, final List<Long> namespaceKeys, final QNm qNm) {
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+    assert nameDel != null;
+    mNameDel = nameDel;
+    assert attributeKeys != null;
+    mAttributeKeys = attributeKeys;
+    assert attributes != null;
+    mAttributes = attributes;
+    assert namespaceKeys != null;
+    mNamespaceKeys = namespaceKeys;
+    assert qNm != null;
+    mQNm = qNm;
+  }
 
   /**
    * Constructor
@@ -236,8 +267,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.ELEMENT;
+  public NodeKind getKind() {
+    return NodeKind.ELEMENT;
   }
 
   @Override
@@ -253,6 +284,29 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   @Override
   public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableElement.of(this));
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+
+    assert mHash.toByteArray().length <= 17;
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override

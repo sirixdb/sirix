@@ -1,5 +1,6 @@
 package org.sirix.node;
 
+import java.math.BigInteger;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
@@ -31,6 +32,11 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
+  public BigInteger computeHash() {
+    return delegate().computeHash();
+  }
+
+  @Override
   public void setTypeKey(final int typeKey) {
     delegate().setTypeKey(typeKey);
   }
@@ -56,12 +62,12 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     return delegate().getHash();
   }
 
   @Override
-  public void setHash(final long hash) {
+  public void setHash(final BigInteger hash) {
     delegate().setHash(hash);
   }
 

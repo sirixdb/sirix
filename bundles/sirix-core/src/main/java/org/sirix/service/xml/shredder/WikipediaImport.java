@@ -57,7 +57,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -463,12 +463,12 @@ public final class WikipediaImport implements Import<StartElement> {
     mWtx.moveToFirstChild();
     mWtx.moveToFirstChild();
 
-    assert mWtx.getKind() == Kind.ELEMENT;
+    assert mWtx.getKind() == NodeKind.ELEMENT;
     assert mWtx.getName().getLocalName().equals(page.getName().getLocalPart());
     while (mWtx.hasRightSibling()) {
       mWtx.moveToRightSibling();
     }
-    assert mWtx.getKind() == Kind.ELEMENT;
+    assert mWtx.getKind() == NodeKind.ELEMENT;
     assert mWtx.getName().getLocalName().equals(page.getName().getLocalPart());
   }
 

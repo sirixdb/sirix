@@ -40,7 +40,7 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NonStructuralWrapperAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Fixed;
@@ -199,10 +199,10 @@ public class UpdateTest {
     assertEquals("c", rtx.getName().getLocalName());
     rtx = (XmlNodeReadOnlyTrxImpl) holder.getResourceManager().beginNodeReadOnlyTrx();
     assertEquals(2, rtx.getRevisionNumber());
-    assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), Kind.ELEMENT));
-    assertEquals(0, rtx.getNameCount("blablabla", Kind.ATTRIBUTE));
+    assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), NodeKind.ELEMENT));
+    assertEquals(0, rtx.getNameCount("blablabla", NodeKind.ATTRIBUTE));
     rtx.moveTo(5);
-    assertEquals(2, rtx.getNameCount("b", Kind.ELEMENT));
+    assertEquals(2, rtx.getNameCount("b", NodeKind.ELEMENT));
     rtx.close();
   }
 

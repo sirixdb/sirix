@@ -12,7 +12,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.xdm.ImmutableComment;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutablePI;
@@ -153,9 +153,9 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
       boolean removeTextNode = false;
       boolean resetValue = false;
       if (mWtx.hasLeftSibling() && mWtx.moveToLeftSibling().hasMoved()
-          && mWtx.getKind() == Kind.TEXT && mWtx.moveToRightSibling().hasMoved()
+          && mWtx.getKind() == NodeKind.TEXT && mWtx.moveToRightSibling().hasMoved()
           && mWtx.hasRightSibling() && mWtx.moveToRightSibling().hasMoved()
-          && mWtx.getKind() == Kind.TEXT) {
+          && mWtx.getKind() == NodeKind.TEXT) {
         final Long partner = mMatching.partner(mWtx.getNodeKey());
         if (partner == null) {
           // Case: Right text node should be deleted (thus, the value must not
@@ -202,7 +202,7 @@ public class DeleteFMSEVisitor extends AbstractXdmNodeVisitor {
           if (resetValue && !value.equals(mWtx.getValue())) {
             mWtx.setValue(value);
           }
-          assert mWtx.getKind() == Kind.TEXT;
+          assert mWtx.getKind() == NodeKind.TEXT;
           assert mWtx.getRightSiblingKey() == rightRightSiblKey;
           return VisitResultType.CONTINUE;
         } else {

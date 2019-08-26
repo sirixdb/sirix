@@ -2,6 +2,7 @@ package org.sirix.page;
 
 import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseType;
+import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -41,8 +42,10 @@ public final class PageUtils {
     final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
         Constants.NULL_ID_LONG, pageReadTrx);
 
+    final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
+
     // Create a {@link DocumentRootNode}.
-    final SirixDeweyID id = pageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored
+    final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored
         ? SirixDeweyID.newRootID()
         : null;
 

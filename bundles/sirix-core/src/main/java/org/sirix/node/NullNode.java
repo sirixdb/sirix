@@ -22,6 +22,7 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import javax.annotation.Nullable;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
@@ -51,6 +52,11 @@ public final class NullNode implements StructNode {
   }
 
   @Override
+  public BigInteger computeHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
@@ -71,12 +77,12 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public void setHash(final long pHash) {
+  public void setHash(final BigInteger hash) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     throw new UnsupportedOperationException();
   }
 
@@ -96,7 +102,7 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     // Node kind is always of type Kind.
     return mNode.getKind();
   }

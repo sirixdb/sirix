@@ -1,9 +1,10 @@
 package org.sirix.node.immutable.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.StringNode;
@@ -53,7 +54,12 @@ public final class ImmutableBooleanNode extends AbstractImmutableJsonStructuralN
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.BOOLEAN_VALUE;
+  public NodeKind getKind() {
+    return NodeKind.BOOLEAN_VALUE;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return mNode.computeHash();
   }
 }

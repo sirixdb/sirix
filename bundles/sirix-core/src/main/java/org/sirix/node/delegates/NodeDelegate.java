@@ -20,19 +20,23 @@
  */
 package org.sirix.node.delegates;
 
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.PrimitiveSink;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an
@@ -55,7 +59,7 @@ public class NodeDelegate implements Node {
   private long mParentKey;
 
   /** Hash of the parent node. */
-  private long mHash;
+  private BigInteger mHashCode;
 
   /**
    * TypeKey of the parent node. Can be referenced later on over special pages.
@@ -68,29 +72,39 @@ public class NodeDelegate implements Node {
   /** {@link SirixDeweyID} reference. */
   private SirixDeweyID mID;
 
+  /** The hash function. */
+  private final HashFunction mHashFunction;
+
   /**
    * Constructor.
    *
    * @param nodeKey node key
    * @param parentKey parent node key
-   * @param hash hash of the node
+   * @param hashCode hash code of the node
+   * @param hashFunction the hash function used to compute hash codes
    * @param revision revision this node was added
+   * @param deweyID optional DeweyID
    */
-  public NodeDelegate(final @Nonnegative long nodeKey, final long parentKey, final long hash,
-      final @Nonnegative long revision, final SirixDeweyID deweyID) {
+  public NodeDelegate(final @Nonnegative long nodeKey, final long parentKey, final HashFunction hashFunction,
+      final BigInteger hashCode, final @Nonnegative long revision, final SirixDeweyID deweyID) {
     assert nodeKey >= 0 : "nodeKey must be >= 0!";
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     mNodeKey = nodeKey;
     mParentKey = parentKey;
-    mHash = hash;
+    mHashFunction = hashFunction;
+    mHashCode = hashCode;
     mRevision = revision;
     mTypeKey = TYPE_KEY;
     mID = deweyID;
   }
 
+  public HashFunction getHashFunction() {
+    return mHashFunction;
+  }
+
   @Override
-  public Kind getKind() {
-    return Kind.UNKNOWN;
+  public NodeKind getKind() {
+    return NodeKind.UNKNOWN;
   }
 
   @Override
@@ -110,13 +124,22 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public long getHash() {
-    return mHash;
+  public BigInteger computeHash() {
+    final Funnel<Node> nodeFunnel = (Node node, PrimitiveSink into) -> {
+      into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
+    };
+
+    return Node.to128BitsBigInteger(new BigInteger(1, mHashFunction.hashObject(this, nodeFunnel).asBytes()));
   }
 
   @Override
-  public void setHash(final long pHash) {
-    mHash = pHash;
+  public BigInteger getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    throw new UnsupportedOperationException();
   }
 
   public VisitResultType acceptVisitor(final XmlNodeVisitor pVisitor) {
@@ -129,7 +152,7 @@ public class NodeDelegate implements Node {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeKey, mTypeKey, mHash, mParentKey);
+    return Objects.hashCode(mNodeKey, mTypeKey, mHashCode, mParentKey);
   }
 
   @Override
@@ -140,7 +163,7 @@ public class NodeDelegate implements Node {
     final NodeDelegate other = (NodeDelegate) otherObj;
 
     return Objects.equal(mNodeKey, other.mNodeKey) && Objects.equal(mTypeKey, other.mTypeKey)
-        && Objects.equal(mHash, other.mHash) && Objects.equal(mParentKey, other.mParentKey);
+        && Objects.equal(mHashCode, other.mHashCode) && Objects.equal(mParentKey, other.mParentKey);
   }
 
   @Override
@@ -149,7 +172,7 @@ public class NodeDelegate implements Node {
                       .add("node key", mNodeKey)
                       .add("parent key", mParentKey)
                       .add("type key", mTypeKey)
-                      .add("hash", mHash)
+                      .add("hash", mHashCode)
                       .add("deweyID", mID)
                       .toString();
   }

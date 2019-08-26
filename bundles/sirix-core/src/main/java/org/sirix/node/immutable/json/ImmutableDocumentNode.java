@@ -1,9 +1,10 @@
 package org.sirix.node.immutable.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.JsonDocumentRootNode;
 
@@ -47,7 +48,12 @@ public final class ImmutableDocumentNode extends AbstractImmutableJsonStructural
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.XDM_DOCUMENT;
+  public NodeKind getKind() {
+    return NodeKind.XDM_DOCUMENT;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return mNode.computeHash();
   }
 }

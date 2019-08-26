@@ -21,7 +21,8 @@
 
 package org.sirix.node.interfaces;
 
-import org.sirix.node.Kind;
+import java.math.BigInteger;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -33,9 +34,11 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  * </p>
  */
 public interface Node extends ImmutableNode {
+  // 170141183460469231731687303715884105727
+  static final BigInteger MAX_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
 
   @Override
-  public Kind getKind();
+  public NodeKind getKind();
 
   /**
    * Set a new DeweyID (may only be necessary during moves.)
@@ -57,7 +60,7 @@ public interface Node extends ImmutableNode {
    *
    * @param hash hash for this node
    */
-  void setHash(long hash);
+  void setHash(BigInteger hash);
 
   /**
    * Set the parent key.
@@ -65,4 +68,8 @@ public interface Node extends ImmutableNode {
    * @param nodeKey the parent nodeKey
    */
   void setParentKey(long nodeKey);
+
+  static BigInteger to128BitsBigInteger(BigInteger hash) {
+    return hash.mod(MAX_VALUE_128_BIT);
+  }
 }

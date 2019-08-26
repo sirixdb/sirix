@@ -21,16 +21,18 @@
 
 package org.sirix.node.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
+import com.google.common.hash.HashCode;
 
 /**
  * <h1>JSONNumberNode</h1>
@@ -46,15 +48,61 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
 
   private Number mNumber;
 
+  private BigInteger mHash;
+
   /**
-   * Constructor for JSONBooleanNode.
+   * Constructor.
+   *
+   * @param boolValue the boolean value
+   * @param structDel delegate for {@link StructNode} implementation
+   */
+  public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structDel) {
+    assert hashCode != null;
+    mHash = hashCode;
+    mNumber = number;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
+
+  /**
+   * Constructor.
    *
    * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
    */
   public NumberNode(final Number number, final StructNodeDelegate structDel) {
     mNumber = number;
-    mStructNodeDel = checkNotNull(structDel);
+
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
+
+  @Override
+  public NodeKind getKind() {
+    return NodeKind.NUMBER_VALUE;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final HashCode valueHashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashInt(mNumber.hashCode());
+
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, valueHashCode.asBytes()));
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   public void setValue(final Number number) {
@@ -68,11 +116,6 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableNumberNode.of(this));
-  }
-
-  @Override
-  public Kind getKind() {
-    return Kind.NUMBER_VALUE;
   }
 
   @Override

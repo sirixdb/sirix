@@ -1,8 +1,9 @@
 package org.sirix.index.path.summary;
 
+import java.math.BigInteger;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -39,7 +40,7 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mNode.getKind();
   }
 
@@ -49,7 +50,12 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
   }
 
   @Override
-  public long getHash() {
+  public BigInteger computeHash() {
+    return mNode.computeHash();
+  }
+
+  @Override
+  public BigInteger getHash() {
     return mNode.getHash();
   }
 

@@ -35,7 +35,7 @@ import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * Abstract diff class which implements common functionality.
@@ -134,10 +134,10 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     }
     mNewRtxMoved = mNewRtx.moveTo(builder.mNewStartKey).hasMoved();
     mOldRtxMoved = mOldRtx.moveTo(builder.mOldStartKey).hasMoved();
-    if (mNewRtx.getKind() == Kind.XDM_DOCUMENT) {
+    if (mNewRtx.getKind() == NodeKind.XDM_DOCUMENT) {
       mNewRtx.moveToFirstChild();
     }
-    if (mOldRtx.getKind() == Kind.XDM_DOCUMENT) {
+    if (mOldRtx.getKind() == NodeKind.XDM_DOCUMENT) {
       mOldRtx.moveToFirstChild();
     }
     mRootKey = builder.mNewStartKey;
@@ -195,13 +195,13 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     // Iterate over new revision (order of operators significant -- regarding
     // the OR).
     if (mDiff != DiffType.SAMEHASH) {
-      while ((mOldRtx.getKind() != Kind.XDM_DOCUMENT && mDiff == DiffType.DELETED)
+      while ((mOldRtx.getKind() != NodeKind.XDM_DOCUMENT && mDiff == DiffType.DELETED)
           || moveCursor(mNewRtx, Revision.NEW, Move.FOLLOWING)) {
         if (mDiff != DiffType.INSERTED) {
           moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
         }
 
-        if (mNewRtx.getKind() != Kind.XDM_DOCUMENT || mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
+        if (mNewRtx.getKind() != NodeKind.XDM_DOCUMENT || mOldRtx.getKind() != NodeKind.XDM_DOCUMENT) {
           if (mHashKind == HashType.NONE || mDiffKind == DiffOptimized.NO) {
             mDiff = diff(mNewRtx, mOldRtx, mDepth);
           } else {
@@ -211,7 +211,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       }
 
       // Nodes deleted in old rev at the end of the tree.
-      if (mOldRtx.getKind() != Kind.XDM_DOCUMENT) {
+      if (mOldRtx.getKind() != NodeKind.XDM_DOCUMENT) {
         mRootKey = mOldRootKey;
         // First time it might be DiffType.INSERTED where the cursor doesn't move.
         if (mDiff == DiffType.INSERTED) {
@@ -309,7 +309,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
     boolean moved = false;
 
-    if (rtx.getKind() != Kind.XDM_DOCUMENT) {
+    if (rtx.getKind() != NodeKind.XDM_DOCUMENT) {
       switch (mDiff) {
         case SAME:
         case SAMEHASH:
@@ -322,7 +322,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         case INSERTED:
         case DELETED:
           if (move == Move.FOLLOWING && (mDiff == DiffType.INSERTED || mDiff == DiffType.DELETED)) {
-            if (rtx.getKind() == Kind.XDM_DOCUMENT) {
+            if (rtx.getKind() == NodeKind.XDM_DOCUMENT) {
               moved = false;
             } else {
               moved = true;
@@ -345,7 +345,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   private boolean moveToNext(final R rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
-      if (rtx.getKind() != Kind.XDM_DOCUMENT && mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) {
+      if (rtx.getKind() != NodeKind.XDM_DOCUMENT && mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) {
         moved = rtx.moveToRightSibling().hasMoved();
 
         if (!moved) {
@@ -470,7 +470,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       case XDM_DOCUMENT:
       case TEXT:
       case ELEMENT:
-        if (newRtx.getNodeKey() != oldRtx.getNodeKey() || newRtx.getHash() != oldRtx.getHash()) {
+        if (newRtx.getNodeKey() != oldRtx.getNodeKey() || !newRtx.getHash().equals(oldRtx.getHash())) {
           // Check if nodes are the same (even if subtrees may vary).
           if (checkNodes(newRtx, oldRtx)) {
             diff = DiffType.SAME;

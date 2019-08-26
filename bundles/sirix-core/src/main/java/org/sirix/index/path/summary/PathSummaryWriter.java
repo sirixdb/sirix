@@ -25,7 +25,7 @@ import org.sirix.axis.filter.PathKindFilter;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
@@ -123,10 +123,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @return a path node key of the found node, or the path node key of a new inserted node
    * @throws SirixException if anything went wrong
    */
-  public long getPathNodeKey(final QNm name, final Kind pathKind) {
-    final Kind kind = mNodeRtx.getNode().getKind();
+  public long getPathNodeKey(final QNm name, final NodeKind pathKind) {
+    final NodeKind kind = mNodeRtx.getNode().getKind();
     int level = 0;
-    if (kind == Kind.XDM_DOCUMENT || kind == Kind.JSON_DOCUMENT) {
+    if (kind == NodeKind.XDM_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
       mPathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     } else {
       movePathSummary();
@@ -135,7 +135,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long nodeKey = mPathSummaryReader.getNodeKey();
     final Axis axis = new FilterAxis<>(new ChildAxis(mPathSummaryReader),
-        new PathNameFilter(mPathSummaryReader, pathKind == Kind.NAMESPACE
+        new PathNameFilter(mPathSummaryReader, pathKind == NodeKind.NAMESPACE
             ? name.getPrefix()
             : Utils.buildName(name)),
         new PathKindFilter(mPathSummaryReader, pathKind));
@@ -160,9 +160,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void movePathSummary() {
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.OBJECT_KEY) {
+    } else if (mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
       mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == Kind.ARRAY) {
+    } else if (mNodeRtx.getKind() == NodeKind.ARRAY) {
       mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
@@ -178,7 +178,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @return this {@link WriteTransaction} instance
    * @throws SirixException if an I/O error occurs
    */
-  public PathSummaryWriter<R> insertPathAsFirstChild(final QNm name, final Kind pathKind, final int level) {
+  public PathSummaryWriter<R> insertPathAsFirstChild(final QNm name, final NodeKind pathKind, final int level) {
     final long parentKey = mPathSummaryReader.getNodeKey();
     final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
     final long rightSibKey = mPathSummaryReader.getFirstChildKey();
@@ -265,7 +265,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         processFoundPathNode(oldPathNodeKey, mPathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
             localNameKey, RemoveSubtreePath.YES, type);
       } else {
-        if (mPathSummaryReader.getKind() != Kind.XDM_DOCUMENT) {
+        if (mPathSummaryReader.getKind() != NodeKind.XDM_DOCUMENT) {
           /* The path summary just needs to be updated for the new renamed node. */
           mPathSummaryReader.moveTo(oldPathNodeKey);
           final PathNode pathNode =
@@ -304,7 +304,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         boolean firstRun = true;
         for (final Axis descendants = new DescendantAxis(mNodeRtx, IncludeSelf.YES); descendants.hasNext();) {
           descendants.next();
-          if (mNodeRtx.getKind() == Kind.ELEMENT || mNodeRtx.getKind() == Kind.OBJECT_KEY) {
+          if (mNodeRtx.getKind() == NodeKind.ELEMENT || mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
             // Path Summary : New mapping.
             if (firstRun) {
               insertPathAsFirstChild(name, mNodeRtx.getKind(), ++level);
@@ -321,7 +321,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
               for (int i = 0, nsps = rtx.getNamespaceCount(); i < nsps; i++) {
                 rtx.moveToNamespace(i);
                 // Path Summary : New mapping.
-                insertPathAsFirstChild(rtx.getName(), Kind.NAMESPACE, level + 1);
+                insertPathAsFirstChild(rtx.getName(), NodeKind.NAMESPACE, level + 1);
                 resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 mPathSummaryReader.moveToParent();
@@ -331,7 +331,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
               for (int i = 0, atts = rtx.getAttributeCount(); i < atts; i++) {
                 rtx.moveToAttribute(i);
                 // Path Summary : New mapping.
-                insertPathAsFirstChild(rtx.getName(), Kind.ATTRIBUTE, level + 1);
+                insertPathAsFirstChild(rtx.getName(), NodeKind.ATTRIBUTE, level + 1);
                 resetPathNodeKey(rtx.getNodeKey());
                 rtx.moveToParent();
                 mPathSummaryReader.moveToParent();
@@ -372,7 +372,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     for (final Axis descendants = new PostOrderAxis(mNodeRtx, IncludeSelf.YES); descendants.hasNext();) {
       descendants.next();
 
-      if (mNodeRtx.getKind() == Kind.ELEMENT) {
+      if (mNodeRtx.getKind() == NodeKind.ELEMENT) {
         final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) mNodeRtx;
         final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
@@ -464,7 +464,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void processElementNonStructuralNodes(final long pathRootNodeKey, final int level) {
-    if (mNodeRtx.getNode().getKind() == Kind.ELEMENT) {
+    if (mNodeRtx.getNode().getKind() == NodeKind.ELEMENT) {
       final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) mNodeRtx;
       final ImmutableElement element = (ImmutableElement) rtx.getNode();
 
@@ -567,7 +567,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Get parent path node and level.
     mNodeRtx.moveToParent();
     int level = 0;
-    if (mNodeRtx.getKind() == Kind.XDM_DOCUMENT) {
+    if (mNodeRtx.getKind() == NodeKind.XDM_DOCUMENT) {
       mPathSummaryReader.moveToDocumentRoot();
     } else {
       movePathSummary();
@@ -656,7 +656,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param page the name page
    * @throws SirixException if anything went wrong
    */
-  public void remove(final NameNode node, final Kind nodeKind, final NamePage page) {
+  public void remove(final NameNode node, final NodeKind nodeKind, final NamePage page) {
     if (mPathSummaryReader.moveTo(node.getPathNodeKey()).hasMoved()) {
       if (mPathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);

@@ -1,15 +1,15 @@
 package org.sirix.node.xdm;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableComment;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
@@ -19,6 +19,7 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 
 /**
  * Comment node implementation.
@@ -31,27 +32,70 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
-  /** {@link ValNodeDelegate} reference. */
-  private final ValNodeDelegate mValDel;
+  /** {@link ValueNodeDelegate} reference. */
+  private final ValueNodeDelegate mValDel;
 
   /** Value of the node. */
   private byte[] mValue;
 
+  private BigInteger mHash;
+
   /**
    * Constructor for TextNode.
    *
-   * @param pDel delegate for {@link Node} implementation
    * @param valDel delegate for {@link ValueNode} implementation
    * @param structDel delegate for {@link StructNode} implementation
    */
-  public CommentNode(final ValNodeDelegate valDel, final StructNodeDelegate structDel) {
-    mStructNodeDel = checkNotNull(structDel);
-    mValDel = checkNotNull(valDel);
+  public CommentNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert valDel != null;
+    mValDel = valDel;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
+
+  /**
+   * Constructor for TextNode.
+   *
+   * @param valDel delegate for {@link ValueNode} implementation
+   * @param structDel delegate for {@link StructNode} implementation
+   */
+  public CommentNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
+    assert valDel != null;
+    mValDel = valDel;
+    assert structDel != null;
+    mStructNodeDel = structDel;
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.COMMENT;
+  public NodeKind getKind() {
+    return NodeKind.COMMENT;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final HashCode valueHashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashBytes(getRawValue());
+
+    final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
+
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override
@@ -130,7 +174,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
                       .toString();
   }
 
-  public ValNodeDelegate getValNodeDelegate() {
+  public ValueNodeDelegate getValNodeDelegate() {
     return mValDel;
   }
 

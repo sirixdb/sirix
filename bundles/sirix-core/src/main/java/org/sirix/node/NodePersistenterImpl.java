@@ -21,13 +21,13 @@ public final class NodePersistenterImpl implements NodePersistenter {
   public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
       final PageReadOnlyTrx pageReadTrx) throws IOException {
     final byte id = source.readByte();
-    final Kind enumKind = Kind.getKind(id);
+    final NodeKind enumKind = NodeKind.getKind(id);
     return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
   }
 
   @Override
   public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx) throws IOException {
-    final Kind nodeKind = (Kind) record.getKind();
+    final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
     nodeKind.serialize(sink, record, pageReadTrx);
@@ -37,12 +37,12 @@ public final class NodePersistenterImpl implements NodePersistenter {
   public Optional<SirixDeweyID> deserializeDeweyID(final DataInput source, SirixDeweyID previousDeweyID,
       ResourceConfiguration resourceConfig) throws IOException {
     final byte id = source.readByte();
-    final Kind enumKind = Kind.getKind(id);
+    final NodeKind enumKind = NodeKind.getKind(id);
     return enumKind.deserializeDeweyID(source, previousDeweyID, resourceConfig);
   }
 
   @Override
-  public void serializeDeweyID(final DataOutput sink, final Kind nodeKind, final SirixDeweyID deweyID,
+  public void serializeDeweyID(final DataOutput sink, final NodeKind nodeKind, final SirixDeweyID deweyID,
       final SirixDeweyID previousDeweyID, ResourceConfiguration resourceConfig) throws IOException {
     final byte id = nodeKind.getId();
     sink.writeByte(id);

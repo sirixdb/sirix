@@ -1,5 +1,6 @@
 package org.sirix.access.trx.node.xml;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -12,9 +13,9 @@ import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
@@ -187,7 +188,7 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public int getNameCount(final String name, @Nonnull final Kind kind) {
+  public int getNameCount(final String name, @Nonnull final NodeKind kind) {
     return delegate().getNameCount(name, kind);
   }
 
@@ -217,7 +218,7 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return delegate().getKind();
   }
 
@@ -292,7 +293,7 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public Kind getPathKind() {
+  public NodeKind getPathKind() {
     return delegate().getPathKind();
   }
 
@@ -357,7 +358,7 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     return delegate().getHash();
   }
 
@@ -382,27 +383,27 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     return delegate().getFirstChildKind();
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     return delegate().getLastChildKind();
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     return delegate().getLeftSiblingKind();
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     return delegate().getRightSiblingKind();
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     return delegate().getParentKind();
   }
 

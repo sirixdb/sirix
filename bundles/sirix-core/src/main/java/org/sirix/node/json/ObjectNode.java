@@ -27,12 +27,14 @@
  */
 package org.sirix.node.json;
 
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
@@ -45,6 +47,19 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
+  private BigInteger mHash;
+
+  /**
+   * Constructor
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   */
+  public ObjectNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
 
   /**
    * Constructor
@@ -57,13 +72,35 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
   }
 
   @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableObjectNode.of(this));
+  public NodeKind getKind() {
+    return NodeKind.OBJECT;
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.OBJECT;
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+
+    assert mHash.toByteArray().length <= 17;
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableObjectNode.of(this));
   }
 
   @Override

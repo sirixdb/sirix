@@ -23,7 +23,6 @@ package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -31,11 +30,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -48,7 +45,7 @@ import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -211,7 +208,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     final Optional<Record> node = getRecord(recordKey, pageKind, index);
     if (node.isPresent()) {
       final Record nodeToDel = node.get();
-      final Node delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, -1, -1, null));
+      final Node delNode =
+          new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, null, null, mPageRtx.getRevisionNumber(), null));
       ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
       ((UnorderedKeyValuePage) cont.getComplete()).setEntry(delNode.getNodeKey(), delNode);
     } else {
@@ -241,7 +239,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public String getName(final int nameKey, final Kind nodeKind) {
+  public String getName(final int nameKey, final NodeKind nodeKind) {
     mPageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(mNewRoot);
     return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind) == null)
@@ -250,7 +248,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   }
 
   @Override
-  public int createNameKey(final @Nullable String name, final Kind nodeKind) {
+  public int createNameKey(final @Nullable String name, final NodeKind nodeKind) {
     mPageRtx.assertNotClosed();
     checkNotNull(nodeKind);
     final String string = (name == null

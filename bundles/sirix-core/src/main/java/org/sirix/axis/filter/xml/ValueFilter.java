@@ -24,7 +24,7 @@ package org.sirix.axis.filter.xml;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -82,7 +82,7 @@ public final class ValueFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return (getTrx().getKind() == Kind.TEXT || getTrx().getKind() == Kind.ATTRIBUTE)
+    return (getTrx().getKind() == NodeKind.TEXT || getTrx().getKind() == NodeKind.ATTRIBUTE)
         && (TypedValue.equals(getTrx().getValue(), mValue));
   }
 

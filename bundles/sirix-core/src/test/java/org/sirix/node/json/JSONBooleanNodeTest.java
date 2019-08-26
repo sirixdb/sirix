@@ -35,11 +35,12 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
+import com.google.common.hash.Hashing;
 
 /**
  * Text node test.
@@ -70,10 +71,11 @@ public class JSONBooleanNodeTest {
   public void test() throws IOException {
     // Create empty node.
     final boolean boolValue = true;
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final BooleanNode node = new BooleanNode(boolValue, strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
@@ -81,7 +83,7 @@ public class JSONBooleanNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final BooleanNode node2 =
-        (BooleanNode) Kind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
+        (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
@@ -93,7 +95,7 @@ public class JSONBooleanNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertTrue(node.getValue());
-    assertEquals(Kind.BOOLEAN_VALUE, node.getKind());
+    assertEquals(NodeKind.BOOLEAN_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

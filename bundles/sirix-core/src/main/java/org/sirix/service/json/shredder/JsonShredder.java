@@ -49,7 +49,7 @@ import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
@@ -424,7 +424,7 @@ public final class JsonShredder implements Callable<Long> {
         }
         break;
       case AS_RIGHT_SIBLING:
-        if (mWtx.getKind() == Kind.JSON_DOCUMENT
+        if (mWtx.getKind() == NodeKind.JSON_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
@@ -455,7 +455,7 @@ public final class JsonShredder implements Callable<Long> {
         }
         break;
       case AS_RIGHT_SIBLING:
-        if (mWtx.getKind() == Kind.JSON_DOCUMENT
+        if (mWtx.getKind() == NodeKind.JSON_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
@@ -538,7 +538,7 @@ public final class JsonShredder implements Callable<Long> {
     mParents.push(mWtx.getParentKey());
     mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
-    if (mWtx.getKind() == Kind.OBJECT || mWtx.getKind() == Kind.ARRAY) {
+    if (mWtx.getKind() == NodeKind.OBJECT || mWtx.getKind() == NodeKind.ARRAY) {
       mParents.pop();
       mParents.push(key);
       mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());

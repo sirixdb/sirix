@@ -21,6 +21,7 @@
 
 package org.sirix.node.xdm;
 
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
@@ -28,19 +29,21 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 
 /**
  * <h1>AttributeNode</h1>
@@ -55,7 +58,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   private final NameNodeDelegate mNameDel;
 
   /** Delegate for val node information. */
-  private final ValNodeDelegate mValDel;
+  private final ValueNodeDelegate mValDel;
 
   /** Node delegate. */
   private final NodeDelegate mNodeDel;
@@ -63,15 +66,16 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   /** The qualified name. */
   private final QNm mQNm;
 
+  private BigInteger mHash;
+
   /**
    * Creating an attribute.
    *
    * @param nodeDel {@link NodeDelegate} to be set
    * @param nodeDel {@link StructNodeDelegate} to be set
-   * @param valDel {@link ValNodeDelegate} to be set
-   *
+   * @param valDel {@link ValueNodeDelegate} to be set
    */
-  public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
+  public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
       final QNm qNm) {
     assert nodeDel != null : "nodeDel must not be null!";
     mNodeDel = nodeDel;
@@ -83,9 +87,54 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
     mQNm = qNm;
   }
 
+  /**
+   * Creating an attribute.
+   *
+   * @param nodeDel {@link NodeDelegate} to be set
+   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param valDel {@link ValueNodeDelegate} to be set
+   */
+  public AttributeNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+      final ValueNodeDelegate valDel, final QNm qNm) {
+    mHash = hashCode;
+    assert nodeDel != null : "nodeDel must not be null!";
+    mNodeDel = nodeDel;
+    assert nameDel != null : "nameDel must not be null!";
+    mNameDel = nameDel;
+    assert valDel != null : "valDel must not be null!";
+    mValDel = valDel;
+    assert qNm != null : "qNm must not be null!";
+    mQNm = qNm;
+  }
+
   @Override
-  public Kind getKind() {
-    return Kind.ATTRIBUTE;
+  public NodeKind getKind() {
+    return NodeKind.ATTRIBUTE;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final HashCode valueHashCode = mNodeDel.getHashFunction().hashBytes(getRawValue());
+
+    final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
+
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override
@@ -134,8 +183,8 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public void setValue(final byte[] pVal) {
-    mValDel.setValue(pVal);
+  public void setValue(final byte[] value) {
+    mValDel.setValue(value);
   }
 
   @Override
@@ -172,11 +221,11 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   /**
-   * Getting the inlying {@link ValNodeDelegate}.
+   * Getting the inlying {@link ValueNodeDelegate}.
    *
-   * @return the {@link ValNodeDelegate} instance
+   * @return the {@link ValueNodeDelegate} instance
    */
-  public ValNodeDelegate getValNodeDelegate() {
+  public ValueNodeDelegate getValNodeDelegate() {
     return mValDel;
   }
 

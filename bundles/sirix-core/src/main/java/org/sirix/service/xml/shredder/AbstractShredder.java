@@ -6,7 +6,7 @@ import java.util.Deque;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /**
@@ -110,7 +110,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
         }
         break;
       case AS_RIGHT_SIBLING:
-        if (mWtx.getKind() == Kind.XDM_DOCUMENT
+        if (mWtx.getKind() == NodeKind.XDM_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");
@@ -119,7 +119,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
         mInsertLocation = InsertPosition.AS_FIRST_CHILD;
         break;
       case AS_LEFT_SIBLING:
-        if (mWtx.getKind() == Kind.XDM_DOCUMENT
+        if (mWtx.getKind() == NodeKind.XDM_DOCUMENT
             || mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
           throw new IllegalStateException(
               "Subtree can not be inserted as sibling of document root or the root-element!");

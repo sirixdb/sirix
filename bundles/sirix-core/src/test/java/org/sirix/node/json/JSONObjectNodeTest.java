@@ -34,13 +34,14 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
+import com.google.common.hash.Hashing;
 
 /**
  * Object record node test.
@@ -69,10 +70,11 @@ public class JSONObjectNodeTest {
 
   @Test
   public void testNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final ObjectNode node = new ObjectNode(strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
@@ -80,7 +82,7 @@ public class JSONObjectNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ObjectNode node2 =
-        (ObjectNode) Kind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
+        (ObjectNode) NodeKind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
@@ -91,7 +93,7 @@ public class JSONObjectNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(16L, node.getRightSiblingKey());
 
-    assertEquals(Kind.OBJECT, node.getKind());
+    assertEquals(NodeKind.OBJECT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

@@ -15,7 +15,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.json.JsonDocumentRootNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
+import org.sirix.node.xdm.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 public enum DatabaseType {
@@ -30,11 +30,11 @@ public enum DatabaseType {
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, id);
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 
-      return new XdmDocumentRootNode(nodeDel, structDel);
+      return new XmlDocumentRootNode(nodeDel, structDel);
     }
   },
 
@@ -49,7 +49,7 @@ public enum DatabaseType {
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
       final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, null);
+          Fixed.NULL_NODE_KEY.getStandardProperty(), null, null, 0, null);
       final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
           Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 

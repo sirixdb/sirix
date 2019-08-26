@@ -28,7 +28,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * Keeps track of nodes in a matching.
@@ -163,7 +163,7 @@ public final class Matching {
       retVal += mIsInSubtree.get(nodeY, partner(mRtxOld.getNodeKey()))
           ? 1
           : 0;
-      if (mRtxOld.getKind() == Kind.ELEMENT) {
+      if (mRtxOld.getKind() == NodeKind.ELEMENT) {
         for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
           retVal += mIsInSubtree.get(nodeY, partner(axis.asXdmNodeReadTrx().getNodeKey()))

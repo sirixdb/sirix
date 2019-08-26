@@ -26,7 +26,7 @@ import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -172,7 +172,7 @@ public class Function {
    */
   public static boolean fnNilled(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) {
 
-    if (axis.hasNext() && rtx.getKind() == Kind.ELEMENT) {
+    if (axis.hasNext() && rtx.getKind() == NodeKind.ELEMENT) {
       final boolean nilled = false; // TODO how is the nilled property
                                     // defined?
       final int itemKey = rtx.getItemList().addItem(new AtomicValue(nilled));

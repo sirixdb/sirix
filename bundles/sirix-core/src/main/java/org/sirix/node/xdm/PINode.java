@@ -1,5 +1,6 @@
 package org.sirix.node.xdm;
 
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
@@ -7,14 +8,15 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
@@ -34,7 +36,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   private final NameNodeDelegate mNameDel;
 
   /** Delegate for val node information. */
-  private final ValNodeDelegate mValDel;
+  private final ValueNodeDelegate mValDel;
 
   /** Delegate for structural node information. */
   private final StructNodeDelegate mStructNodeDel;
@@ -42,15 +44,37 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   /** {@link PageReadOnlyTrx} reference. */
   private final PageReadOnlyTrx mPageReadTrx;
 
+  private BigInteger mHash;
+
   /**
-   * Creating an attribute.
+   * Creating a processing instruction.
    *
    * @param structDel {@link StructNodeDelegate} to be set
    * @param nameDel {@link NameNodeDelegate} to be set
-   * @param valDel {@link ValNodeDelegate} to be set
+   * @param valDel {@link ValueNodeDelegate} to be set
+   */
+  public PINode(final BigInteger hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameDel,
+      final ValueNodeDelegate valDel, final PageReadOnlyTrx pageReadTrx) {
+    mHash = hashCode;
+    assert structDel != null : "structDel must not be null!";
+    mStructNodeDel = structDel;
+    assert nameDel != null : "nameDel must not be null!";
+    mNameDel = nameDel;
+    assert valDel != null : "valDel must not be null!";
+    mValDel = valDel;
+    assert pageReadTrx != null : "pageReadTrx must not be null!";
+    mPageReadTrx = pageReadTrx;
+  }
+
+  /**
+   * Creating a processing instruction.
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   * @param nameDel {@link NameNodeDelegate} to be set
+   * @param valDel {@link ValueNodeDelegate} to be set
    *
    */
-  public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
+  public PINode(final StructNodeDelegate structDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
       final PageReadOnlyTrx pageReadTrx) {
     assert structDel != null : "structDel must not be null!";
     mStructNodeDel = structDel;
@@ -63,8 +87,30 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.PROCESSING_INSTRUCTION;
+  public NodeKind getKind() {
+    return NodeKind.PROCESSING_INSTRUCTION;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mValDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override
@@ -98,16 +144,19 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public void setPrefixKey(final int prefixKey) {
+    mHash = null;
     mNameDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
+    mHash = null;
     mNameDel.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
+    mHash = null;
     mNameDel.setURIKey(uriKey);
   }
 
@@ -118,6 +167,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public void setValue(final byte[] value) {
+    mHash = null;
     mValDel.setValue(value);
   }
 
@@ -137,6 +187,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+    mHash = null;
     mNameDel.setPathNodeKey(pathNodeKey);
   }
 
@@ -155,11 +206,11 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   /**
-   * Getting the inlying {@link ValNodeDelegate}.
+   * Getting the inlying {@link ValueNodeDelegate}.
    *
-   * @return the {@link ValNodeDelegate} instance
+   * @return the {@link ValueNodeDelegate} instance
    */
-  public ValNodeDelegate getValNodeDelegate() {
+  public ValueNodeDelegate getValNodeDelegate() {
     return mValDel;
   }
 
@@ -175,15 +226,15 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public QNm getName() {
-    final String uri = mPageReadTrx.getName(mNameDel.getURIKey(), Kind.NAMESPACE);
+    final String uri = mPageReadTrx.getName(mNameDel.getURIKey(), NodeKind.NAMESPACE);
     final int prefixKey = mNameDel.getPrefixKey();
     final String prefix = prefixKey == -1
         ? ""
-        : mPageReadTrx.getName(prefixKey, Kind.PROCESSING_INSTRUCTION);
+        : mPageReadTrx.getName(prefixKey, NodeKind.PROCESSING_INSTRUCTION);
     final int localNameKey = mNameDel.getLocalNameKey();
     final String localName = localNameKey == -1
         ? ""
-        : mPageReadTrx.getName(localNameKey, Kind.PROCESSING_INSTRUCTION);
+        : mPageReadTrx.getName(localNameKey, NodeKind.PROCESSING_INSTRUCTION);
     return new QNm(uri, prefix, localName);
   }
 

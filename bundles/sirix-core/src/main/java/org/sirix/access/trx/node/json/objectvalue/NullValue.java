@@ -21,7 +21,7 @@
 
 package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 public final class NullValue implements ObjectRecordValue<Void> {
 
@@ -31,7 +31,7 @@ public final class NullValue implements ObjectRecordValue<Void> {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.NULL_VALUE;
+  public NodeKind getKind() {
+    return NodeKind.NULL_VALUE;
   }
 }

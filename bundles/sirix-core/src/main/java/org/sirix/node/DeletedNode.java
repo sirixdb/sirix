@@ -50,8 +50,8 @@ public final class DeletedNode extends AbstractForwardingNode {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.DELETE;
+  public NodeKind getKind() {
+    return NodeKind.DELETE;
   }
 
   @Override

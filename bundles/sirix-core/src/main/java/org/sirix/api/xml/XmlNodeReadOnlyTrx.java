@@ -21,6 +21,7 @@
 
 package org.sirix.api.xml;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
@@ -36,7 +37,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
@@ -48,7 +49,7 @@ import org.sirix.node.xdm.ElementNode;
 import org.sirix.node.xdm.NamespaceNode;
 import org.sirix.node.xdm.PINode;
 import org.sirix.node.xdm.TextNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
+import org.sirix.node.xdm.XmlDocumentRootNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
@@ -199,6 +200,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    *
    * @return the current value of the node
    */
+  @Override
   String getValue();
 
   /**
@@ -339,7 +341,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param name name to lookup
    * @return number of nodes with the same name and node kind
    */
-  int getNameCount(String name, @Nonnull Kind kind);
+  int getNameCount(String name, @Nonnull NodeKind kind);
 
   /**
    * Get the type key of the node.
@@ -394,7 +396,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    *         with a name
    */
   @Override
-  Kind getPathKind();
+  NodeKind getPathKind();
 
   /**
    * Determines if current node is a structural node (element-, text-, comment- and processing
@@ -416,7 +418,8 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    *
    * @return hash value
    */
-  long getHash();
+  @Override
+  BigInteger getHash();
 
   /**
    * Get all attributes of currently selected node (only for elements useful, otherwise returns an
@@ -506,7 +509,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   boolean isText();
 
   /**
-   * Determines if current node is the {@link XdmDocumentRootNode}.
+   * Determines if current node is the {@link XmlDocumentRootNode}.
    *
    * @return {@code true}, if it is the document root node, {@code false} otherwise
    */

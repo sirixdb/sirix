@@ -23,6 +23,7 @@ package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import java.math.BigInteger;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -30,10 +31,9 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.XdmTestHelper;
 import org.sirix.access.trx.node.HashType;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.Fixed;
 
 public class HashTest {
 
@@ -97,43 +97,41 @@ public class HashTest {
    * </pre>
    *
    * @param wtx
-   * @throws TTException
    */
   @Ignore
-  private void testHashTreeWithInsertAndRemove(final XmlNodeTrx wtx) throws SirixException {
+  private void testHashTreeWithInsertAndRemove(final XmlNodeTrx wtx) {
 
     // inserting a element as root
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     final long rootKey = wtx.getNodeKey();
-    final long firstRootHash = wtx.getHash();
+    final BigInteger firstRootHash = wtx.getHash();
 
     // inserting a text as second child of root
     wtx.moveTo(rootKey);
     wtx.insertTextAsFirstChild(NAME1);
-    wtx.moveTo(wtx.getParentKey());
-    final long secondRootHash = wtx.getHash();
+    wtx.moveToParent();
+    final BigInteger secondRootHash = wtx.getHash();
 
     // inserting a second element on level 2 under the only element
-    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveToFirstChild();
     wtx.insertElementAsRightSibling(new QNm(NAME2));
     wtx.insertAttribute(new QNm(NAME2), NAME1);
     wtx.moveTo(rootKey);
-    final long thirdRootHash = wtx.getHash();
+    final BigInteger thirdRootHash = wtx.getHash();
 
     // Checking that all hashes are different
-    assertFalse(firstRootHash == secondRootHash);
-    assertFalse(firstRootHash == thirdRootHash);
-    assertFalse(secondRootHash == thirdRootHash);
+    assertFalse(firstRootHash.equals(secondRootHash));
+    assertFalse(firstRootHash.equals(thirdRootHash));
+    assertFalse(secondRootHash.equals(thirdRootHash));
 
     // removing the second element
-    wtx.moveTo(wtx.getFirstChildKey());
-    wtx.moveTo(wtx.getRightSiblingKey());
+    wtx.moveToFirstChild();
+    wtx.moveToRightSibling();
     wtx.remove();
     wtx.moveTo(rootKey);
     assertEquals(secondRootHash, wtx.getHash());
 
-    // adding additional element for showing that hashes are computed
-    // incrementilly
+    // adding additional element for showing that hashes are computed incrementally
     wtx.insertTextAsFirstChild(NAME1);
     wtx.insertElementAsRightSibling(new QNm(NAME1));
     wtx.insertAttribute(new QNm(NAME1), NAME2);
@@ -154,7 +152,7 @@ public class HashTest {
   private void testDeepTree(final XmlNodeTrx wtx) throws SirixException {
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
-    final long oldHash = wtx.getHash();
+    final BigInteger oldHash = wtx.getHash();
 
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     wtx.insertElementAsFirstChild(new QNm(NAME2));
@@ -167,7 +165,7 @@ public class HashTest {
     wtx.insertElementAsFirstChild(new QNm(NAME1));
 
     wtx.moveTo(1);
-    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveToFirstChild();
     wtx.remove();
     assertEquals(oldHash, wtx.getHash());
   }
@@ -179,40 +177,40 @@ public class HashTest {
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     wtx.insertElementAsFirstChild(new QNm(NAME1));
     wtx.insertElementAsFirstChild(new QNm(NAME1));
-    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-    wtx.moveTo(wtx.getFirstChildKey());
-    final long hashRoot1 = wtx.getHash();
-    wtx.moveTo(wtx.getFirstChildKey());
-    wtx.moveTo(wtx.getFirstChildKey());
-    final long hashLeaf1 = wtx.getHash();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    final BigInteger hashRoot1 = wtx.getHash();
+    wtx.moveToFirstChild();
+    wtx.moveToFirstChild();
+    final BigInteger hashLeaf1 = wtx.getHash();
     wtx.setName(new QNm(NAME2));
-    final long hashLeaf2 = wtx.getHash();
-    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-    wtx.moveTo(wtx.getFirstChildKey());
-    final long hashRoot2 = wtx.getHash();
-    assertFalse(hashRoot1 == hashRoot2);
-    assertFalse(hashLeaf1 == hashLeaf2);
-    wtx.moveTo(wtx.getFirstChildKey());
-    wtx.moveTo(wtx.getFirstChildKey());
+    final BigInteger hashLeaf2 = wtx.getHash();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    final BigInteger hashRoot2 = wtx.getHash();
+    assertFalse(hashRoot1.equals(hashRoot2));
+    assertFalse(hashLeaf1.equals(hashLeaf2));
+    wtx.moveToFirstChild();
+    wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME1));
-    final long hashLeaf3 = wtx.getHash();
+    final BigInteger hashLeaf3 = wtx.getHash();
     assertEquals(hashLeaf1, hashLeaf3);
-    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-    wtx.moveTo(wtx.getFirstChildKey());
-    final long hashRoot3 = wtx.getHash();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    final BigInteger hashRoot3 = wtx.getHash();
     assertEquals(hashRoot1, hashRoot3);
 
     // Testing root inheritance
-    wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-    wtx.moveTo(wtx.getFirstChildKey());
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
     wtx.setName(new QNm(NAME2));
-    final long hashRoot4 = wtx.getHash();
-    assertFalse(hashRoot4 == hashRoot2);
-    assertFalse(hashRoot4 == hashRoot1);
-    assertFalse(hashRoot4 == hashRoot3);
-    assertFalse(hashRoot4 == hashLeaf1);
-    assertFalse(hashRoot4 == hashLeaf2);
-    assertFalse(hashRoot4 == hashLeaf3);
+    final BigInteger hashRoot4 = wtx.getHash();
+    assertFalse(hashRoot4.equals(hashRoot2));
+    assertFalse(hashRoot4.equals(hashRoot1));
+    assertFalse(hashRoot4.equals(hashRoot3));
+    assertFalse(hashRoot4.equals(hashLeaf1));
+    assertFalse(hashRoot4.equals(hashLeaf2));
+    assertFalse(hashRoot4.equals(hashLeaf3));
   }
 
   private XmlNodeTrx createWtx(final HashType kind) throws SirixException {

@@ -26,17 +26,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.index.name.Names;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
 import com.google.common.base.MoreObjects;
 
 /**
@@ -121,7 +118,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int key, final Kind nodeKind) {
+  public byte[] getRawName(final int key, final NodeKind nodeKind) {
     final byte[] rawName;
     switch (nodeKind) {
       case ELEMENT:
@@ -152,7 +149,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int key, @Nonnull final Kind nodeKind) {
+  public String getName(final int key, @Nonnull final NodeKind nodeKind) {
     final String name;
     switch (nodeKind) {
       case ELEMENT:
@@ -171,8 +168,10 @@ public final class NamePage extends AbstractForwardingPage {
         name = mJSONObjectKeys.getName(key);
         break;
       case ARRAY:
-        name = "array";
+        name = "$$array$$";
         break;
+      case OBJECT:
+        name = "$$object$$";
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("No other node types supported!");
@@ -186,7 +185,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int key, @Nonnull final Kind nodeKind) {
+  public int getCount(final int key, @Nonnull final NodeKind nodeKind) {
     int count;
     switch (nodeKind) {
       case ELEMENT:
@@ -221,7 +220,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param nodeKind kind of node
    * @return the created key
    */
-  public int setName(final String name, final Kind nodeKind) {
+  public int setName(final String name, final NodeKind nodeKind) {
     switch (nodeKind) {
       case ELEMENT:
         return mElements.setName(name);
@@ -284,7 +283,7 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final Kind nodeKind) {
+  public void removeName(final int key, final NodeKind nodeKind) {
     switch (nodeKind) {
       case ELEMENT:
         mElements.removeName(key);

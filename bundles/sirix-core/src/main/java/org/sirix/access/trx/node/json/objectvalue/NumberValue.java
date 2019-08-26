@@ -21,7 +21,7 @@
 
 package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 public final class NumberValue implements ObjectRecordValue<Number> {
 
@@ -37,7 +37,7 @@ public final class NumberValue implements ObjectRecordValue<Number> {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.NUMBER_VALUE;
+  public NodeKind getKind() {
+    return NodeKind.NUMBER_VALUE;
   }
 }

@@ -36,12 +36,13 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.utils.NamePageHash;
+import com.google.common.hash.Hashing;
 
 /**
  * Attribute node test.
@@ -72,11 +73,12 @@ public class AttributeNodeTest {
   public void testAttributeNode() throws IOException {
     final byte[] value = {(byte) 17, (byte) 18};
 
-    final NodeDelegate del = new NodeDelegate(99, 13, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
+    node.setHash(node.computeHash());
 
     // Create empty node.
     check(node);
@@ -85,7 +87,7 @@ public class AttributeNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
@@ -101,9 +103,9 @@ public class AttributeNodeTest {
 
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.ATTRIBUTE, node.getKind());
+    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(Kind.ATTRIBUTE, node.getKind());
+    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
     assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
   }
 

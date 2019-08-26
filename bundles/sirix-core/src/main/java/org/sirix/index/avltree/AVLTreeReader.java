@@ -16,13 +16,13 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.interfaces.References;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
+import org.sirix.node.xdm.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -125,7 +125,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public void dump(final PrintStream out) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (((XdmDocumentRootNode) getNode()).hasFirstChild()) {
+    if (((XmlDocumentRootNode) getNode()).hasFirstChild()) {
       moveToFirstChild();
     } else {
       return;
@@ -156,7 +156,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    */
   AVLNode<K, V> getAVLNode() {
     assertNotClosed();
-    if (mCurrentNode.getKind() != Kind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() != NodeKind.XDM_DOCUMENT) {
       @SuppressWarnings("unchecked")
       final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
       return node;
@@ -209,7 +209,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<V> get(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -274,7 +274,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -306,7 +306,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   public Optional<AVLNode<K, V>> getAVLNode(final K key, final SearchMode mode, final Comparator<? super K> comp) {
     assertNotClosed();
     moveToDocumentRoot();
-    if (!((XdmDocumentRootNode) getNode()).hasFirstChild()) {
+    if (!((XmlDocumentRootNode) getNode()).hasFirstChild()) {
       return Optional.empty();
     }
     moveToFirstChild();
@@ -334,7 +334,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    * @return number of index entries
    */
   public long size() {
-    return ((XdmDocumentRootNode) moveToDocumentRoot().trx().getNode()).getDescendantCount();
+    return ((XmlDocumentRootNode) moveToDocumentRoot().trx().getNode()).getDescendantCount();
   }
 
   @Override
@@ -469,7 +469,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
       }
       return moveTo(node.getLeftChildKey());
     }
-    return moveTo(((XdmDocumentRootNode) mCurrentNode).getFirstChildKey());
+    return moveTo(((XmlDocumentRootNode) mCurrentNode).getFirstChildKey());
   }
 
   @Override
@@ -534,51 +534,51 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     assertNotClosed();
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     assertNotClosed();
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     assertNotClosed();
-    final Kind firstChildKind = moveToFirstChild().trx().getKind();
+    final NodeKind firstChildKind = moveToFirstChild().trx().getKind();
     moveToParent();
     return firstChildKind;
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     assertNotClosed();
-    final Kind lastChildKind = moveToLastChild().trx().getKind();
+    final NodeKind lastChildKind = moveToLastChild().trx().getKind();
     moveToParent();
     return lastChildKind;
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     assertNotClosed();
     if (hasParent()) {
       if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        return Kind.XDM_DOCUMENT;
+        return NodeKind.XDM_DOCUMENT;
       } else {
         final long nodeKey = mCurrentNode.getNodeKey();
-        final Kind parentKind = moveToParent().trx().getKind();
+        final NodeKind parentKind = moveToParent().trx().getKind();
         moveTo(nodeKey);
         return parentKind;
       }
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     assertNotClosed();
     return mCurrentNode.getKind();
   }

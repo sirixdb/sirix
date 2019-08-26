@@ -20,15 +20,18 @@
  */
 package org.sirix.node.delegates;
 
+import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 
 /**
  * Delegate method for all nodes building up the structure. That means that all nodes representing
@@ -85,7 +88,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mDelegate.getKind();
   }
 
@@ -152,6 +155,31 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public int hashCode() {
     return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling, mRightSibling, mDescendantCount);
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
+      into.putLong(node.getChildCount())
+          .putLong(node.getDescendantCount())
+          .putLong(node.getLeftSiblingKey())
+          .putLong(node.getRightSiblingKey())
+          .putLong(node.getFirstChildKey());
+    };
+
+    final BigInteger hash = new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
+
+    return Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

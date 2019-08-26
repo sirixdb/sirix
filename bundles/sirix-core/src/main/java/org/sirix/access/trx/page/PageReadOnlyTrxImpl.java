@@ -50,7 +50,7 @@ import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
@@ -282,13 +282,13 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public String getName(final int nameKey, final Kind nodeKind) {
+  public String getName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
     return mNamePage.getName(nameKey, nodeKind);
   }
 
   @Override
-  public final byte[] getRawName(final int pNameKey, final Kind pNodeKind) {
+  public final byte[] getRawName(final int pNameKey, final NodeKind pNodeKind) {
     assertNotClosed();
     return mNamePage.getRawName(pNameKey, pNodeKind);
   }
@@ -744,7 +744,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public int getNameCount(final int key, @Nonnull final Kind kind) {
+  public int getNameCount(final int key, @Nonnull final NodeKind kind) {
     assertNotClosed();
     return mNamePage.getCount(key, kind);
   }

@@ -33,7 +33,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
 
 /**
@@ -160,7 +160,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 
           // Push end element to stack if we are a start element with
           // children.
-          if (rtx.getKind() == Kind.ELEMENT && rtx.hasFirstChild()) {
+          if (rtx.getKind() == NodeKind.ELEMENT && rtx.hasFirstChild()) {
             mStack.push(rtx.getNodeKey());
           }
 

@@ -27,7 +27,7 @@ import org.sirix.axis.temporal.LastAxis;
 import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectKeyArrayStream;
@@ -47,7 +47,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
   private final long mNodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.Kind mKind;
+  private final org.sirix.node.NodeKind mKind;
 
   /** Collection this node is part of. */
   private final JsonDBCollection mCollection;
@@ -69,7 +69,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     mIsWtx = mRtx instanceof JsonNodeTrx;
     mNodeKey = mRtx.getNodeKey();
     assert mRtx.isObject();
-    mKind = Kind.ARRAY;
+    mKind = NodeKind.ARRAY;
     mJsonUtil = new JsonUtil();
   }
 

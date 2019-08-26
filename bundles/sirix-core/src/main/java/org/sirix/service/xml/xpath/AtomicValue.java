@@ -22,12 +22,13 @@
 package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
@@ -129,8 +130,8 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.ATOMIC;
+  public NodeKind getKind() {
+    return NodeKind.ATOMIC;
   }
 
   /**
@@ -227,13 +228,18 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public void setHash(final long pHash) {
+  public BigInteger computeHash() {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public long getHash() {
-    return 0;
+  public void setHash(final BigInteger hash) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public BigInteger getHash() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

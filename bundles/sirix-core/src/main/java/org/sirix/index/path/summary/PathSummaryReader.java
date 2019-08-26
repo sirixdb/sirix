@@ -1,6 +1,7 @@
 package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.time.Instant;
 import java.util.BitSet;
 import java.util.Collection;
@@ -27,14 +28,14 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
+import org.sirix.node.xdm.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
@@ -247,8 +248,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public ImmutableNode getNode() {
     assertNotClosed();
-    if (mCurrentNode instanceof XdmDocumentRootNode) {
-      return ImmutableDocumentNode.of((XdmDocumentRootNode) mCurrentNode);
+    if (mCurrentNode instanceof XmlDocumentRootNode) {
+      return ImmutableDocumentNode.of((XmlDocumentRootNode) mCurrentNode);
     }
     return ImmutablePathNode.of((PathNode) mCurrentNode);
   }
@@ -290,7 +291,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         continue;
       }
 
-      if (isAttributePattern ^ (node.getPathKind() == Kind.ATTRIBUTE)) {
+      if (isAttributePattern ^ (node.getPathKind() == NodeKind.ATTRIBUTE)) {
         continue;
       }
 
@@ -464,7 +465,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int uriKey = ((NameNode) mCurrentNode).getURIKey();
       final String uri = uriKey == -1
           ? ""
-          : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
+          : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
@@ -541,7 +542,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final Path<QNm> path = new Path<QNm>();
     for (final PathNode pathNode : paths) {
       moveTo(pathNode.getNodeKey());
-      if (pathNode.getPathKind() == Kind.ELEMENT) {
+      if (pathNode.getPathKind() == NodeKind.ELEMENT) {
         path.child(getName());
       } else {
         path.attribute(getName());
@@ -668,9 +669,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     assertNotClosed();
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   @Override
@@ -680,12 +681,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Kind getPathKind() {
+  public NodeKind getPathKind() {
     assertNotClosed();
     if (mCurrentNode instanceof PathNode) {
       return ((PathNode) mCurrentNode).getPathKind();
     }
-    return Kind.NULL;
+    return NodeKind.NULL;
   }
 
   @Override
@@ -701,39 +702,39 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     assertNotClosed();
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     assertNotClosed();
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     assertNotClosed();
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     assertNotClosed();
     if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      return Kind.XDM_DOCUMENT;
+      return NodeKind.XDM_DOCUMENT;
     }
     if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return Kind.UNKNOWN;
+      return NodeKind.UNKNOWN;
     }
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     assertNotClosed();
-    return Kind.PATH;
+    return NodeKind.PATH;
   }
 
   /**
@@ -743,7 +744,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public int getReferences() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT) {
       return 1;
     } else {
       return getPathNode().getReferences();
@@ -753,7 +754,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT) {
       return true;
     }
     return false;
@@ -819,7 +820,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     throw new UnsupportedOperationException();
   }
 

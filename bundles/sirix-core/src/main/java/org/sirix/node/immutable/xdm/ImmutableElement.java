@@ -1,12 +1,13 @@
 package org.sirix.node.immutable.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
@@ -100,7 +101,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     return mNode.getHash();
   }
 
@@ -120,7 +121,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mNode.getKind();
   }
 
@@ -190,5 +191,10 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   @Override
   public QNm getName() {
     return mNode.getName();
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return mNode.computeHash();
   }
 }

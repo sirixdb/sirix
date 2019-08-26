@@ -36,13 +36,14 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.HashBiMap;
+import com.google.common.hash.Hashing;
 
 /**
  * Element node test.
@@ -71,12 +72,13 @@ public class ElementNodeTest {
 
   @Test
   public void testElementNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
     final ElementNode node = new ElementNode(strucDel, nameDel, new ArrayList<>(), HashBiMap.create(),
         new ArrayList<>(), new QNm("ns", "a", "p"));
+    node.setHash(node.computeHash());
 
     // Create empty node.
     node.insertAttribute(97, 100);
@@ -89,7 +91,7 @@ public class ElementNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
@@ -108,7 +110,7 @@ public class ElementNodeTest {
     assertEquals(18, node.getPrefixKey());
     assertEquals(19, node.getLocalNameKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(Kind.ELEMENT, node.getKind());
+    assertEquals(NodeKind.ELEMENT, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

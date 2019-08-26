@@ -27,7 +27,7 @@
  */
 package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
@@ -36,8 +36,8 @@ public final class ObjectValue implements ObjectRecordValue<Void> {
 
 
   @Override
-  public Kind getKind() {
-    return Kind.OBJECT;
+  public NodeKind getKind() {
+    return NodeKind.OBJECT;
   }
 
   @Override

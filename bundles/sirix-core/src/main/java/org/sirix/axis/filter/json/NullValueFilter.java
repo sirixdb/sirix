@@ -23,7 +23,7 @@ package org.sirix.axis.filter.json;
 
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>NullValueFilter</h1>
@@ -45,7 +45,7 @@ public final class NullValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.NULL_VALUE;
+    return getTrx().getKind() == NodeKind.NULL_VALUE;
   }
 
 }

@@ -1,5 +1,6 @@
 package org.sirix.index.path.summary;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -9,7 +10,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import com.google.common.collect.ForwardingObject;
 
@@ -44,7 +45,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     return delegate().getHash();
   }
 
@@ -154,7 +155,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return delegate().getKind();
   }
 
@@ -209,7 +210,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public Kind getPathKind() {
+  public NodeKind getPathKind() {
     return delegate().getPathKind();
   }
 
@@ -244,27 +245,27 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     return delegate().getFirstChildKind();
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     return delegate().getLastChildKind();
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     return delegate().getLeftSiblingKind();
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     return delegate().getRightSiblingKind();
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     return delegate().getParentKind();
   }
 

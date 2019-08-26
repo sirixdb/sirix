@@ -6,7 +6,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
 import com.google.common.base.MoreObjects;
@@ -50,17 +50,17 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends AbstractF
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     if (mKey instanceof Long) {
-      return Kind.PATHAVL;
+      return NodeKind.PATHAVL;
     }
     if (mKey instanceof CASValue) {
-      return Kind.CASAVL;
+      return NodeKind.CASAVL;
     }
     if (mKey instanceof QNm) {
-      return Kind.NAMEAVL;
+      return NodeKind.NAMEAVL;
     }
-    return Kind.UNKNOWN;
+    return NodeKind.UNKNOWN;
   }
 
   @Override

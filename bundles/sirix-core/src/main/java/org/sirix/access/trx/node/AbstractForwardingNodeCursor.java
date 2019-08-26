@@ -2,7 +2,7 @@ package org.sirix.access.trx.node;
 
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import com.google.common.collect.ForwardingObject;
 
@@ -51,27 +51,27 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public Kind getFirstChildKind() {
+  public NodeKind getFirstChildKind() {
     return delegate().getFirstChildKind();
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return delegate().getKind();
   }
 
   @Override
-  public Kind getLastChildKind() {
+  public NodeKind getLastChildKind() {
     return delegate().getLastChildKind();
   }
 
   @Override
-  public Kind getLeftSiblingKind() {
+  public NodeKind getLeftSiblingKind() {
     return delegate().getLeftSiblingKind();
   }
 
   @Override
-  public Kind getRightSiblingKind() {
+  public NodeKind getRightSiblingKind() {
     return delegate().getRightSiblingKind();
   }
 
@@ -86,7 +86,7 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
   }
 
   @Override
-  public Kind getParentKind() {
+  public NodeKind getParentKind() {
     return delegate().getParentKind();
   }
 

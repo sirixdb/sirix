@@ -1,15 +1,16 @@
 package org.sirix.node.immutable.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.XdmDocumentRootNode;
+import org.sirix.node.xdm.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 /**
@@ -19,25 +20,25 @@ import org.sirix.settings.Fixed;
  */
 public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlNode {
 
-  /** Mutable {@link XdmDocumentRootNode} instance. */
-  private final XdmDocumentRootNode mNode;
+  /** Mutable {@link XmlDocumentRootNode} instance. */
+  private final XmlDocumentRootNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link XdmDocumentRootNode}
+   * @param node mutable {@link XmlDocumentRootNode}
    */
-  private ImmutableDocumentNode(final XdmDocumentRootNode node) {
+  private ImmutableDocumentNode(final XmlDocumentRootNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
    * Get an immutable document root node instance.
    *
-   * @param node the mutable {@link XdmDocumentRootNode} to wrap
+   * @param node the mutable {@link XmlDocumentRootNode} to wrap
    * @return immutable document root node instance
    */
-  public static ImmutableDocumentNode of(final XdmDocumentRootNode node) {
+  public static ImmutableDocumentNode of(final XmlDocumentRootNode node) {
     return new ImmutableDocumentNode(node);
   }
 
@@ -57,7 +58,7 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   }
 
   @Override
-  public long getHash() {
+  public BigInteger getHash() {
     return mNode.getHash();
   }
 
@@ -77,7 +78,7 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mNode.getKind();
   }
 
@@ -144,5 +145,10 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   @Override
   public String toString() {
     return mNode.toString();
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return mNode.computeHash();
   }
 }

@@ -1,6 +1,6 @@
 package org.sirix.api;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
@@ -209,40 +209,40 @@ public interface NodeCursor extends AutoCloseable {
    *
    * @return kind of right sibling
    */
-  Kind getRightSiblingKind();
+  NodeKind getRightSiblingKind();
 
   /**
    * Get the kind/type of node of the left sibling of the currently selected node.
    *
    * @return kind of left sibling
    */
-  Kind getLeftSiblingKind();
+  NodeKind getLeftSiblingKind();
 
   /**
    * Get the kind/type of node of the first child of the currently selected node.
    *
    * @return kind of right sibling
    */
-  Kind getFirstChildKind();
+  NodeKind getFirstChildKind();
 
   /**
    * Get the kind/type of node of the last child of the currently selected node.
    *
    * @return kind of last child
    */
-  Kind getLastChildKind();
+  NodeKind getLastChildKind();
 
   /**
    * Get the kind/type of node of the parent of the currently selected node.
    *
    * @return kind of parent
    */
-  Kind getParentKind();
+  NodeKind getParentKind();
 
   /**
    * Get the kind of node.
    *
    * @return kind of node
    */
-  Kind getKind();
+  NodeKind getKind();
 }

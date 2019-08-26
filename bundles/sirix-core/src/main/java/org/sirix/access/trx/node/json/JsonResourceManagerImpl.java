@@ -26,9 +26,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.json.JsonResourceStore;
@@ -100,7 +98,7 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
         new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableJsonNode) documentNode);
 
     // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(pageWriteTrx);
+    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageWriteTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;

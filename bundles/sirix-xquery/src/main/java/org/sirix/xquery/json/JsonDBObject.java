@@ -48,7 +48,7 @@ public final class JsonDBObject extends AbstractItem
   private final long mNodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.Kind mKind;
+  private final org.sirix.node.NodeKind mKind;
 
   /** Collection this node is part of. */
   private final JsonDBCollection mCollection;

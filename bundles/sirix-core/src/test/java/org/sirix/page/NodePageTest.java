@@ -45,6 +45,7 @@ import org.sirix.node.xdm.ElementNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.HashBiMap;
+import com.google.common.hash.Hashing;
 
 /**
  * Node page test.
@@ -80,11 +81,12 @@ public final class NodePageTest {
         new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(0, 1, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 = new ElementNode(strucDel, nameDel, new ArrayList<>(), HashBiMap.create(),
         new ArrayList<>(), new QNm("a", "b", "c"));
+    node1.setHash(node1.computeHash());
     node1.insertAttribute(88L, 100);
     node1.insertAttribute(87L, 101);
     node1.insertNamespace(99L);

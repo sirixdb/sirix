@@ -9,7 +9,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
@@ -117,17 +117,17 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public String getName(int nameKey, @Nonnull Kind kind) {
+  public String getName(int nameKey, @Nonnull NodeKind kind) {
     return delegate().getName(nameKey, kind);
   }
 
   @Override
-  public int getNameCount(int nameKey, @Nonnull Kind kind) {
+  public int getNameCount(int nameKey, @Nonnull NodeKind kind) {
     return delegate().getNameCount(nameKey, kind);
   }
 
   @Override
-  public byte[] getRawName(int nameKey, @Nonnull Kind kind) {
+  public byte[] getRawName(int nameKey, @Nonnull NodeKind kind) {
     return delegate().getRawName(nameKey, kind);
   }
 
