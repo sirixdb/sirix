@@ -22,7 +22,7 @@
 package org.sirix.access.trx.node.json.objectvalue;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 public final class StringValue implements ObjectRecordValue<String> {
 
@@ -38,7 +38,7 @@ public final class StringValue implements ObjectRecordValue<String> {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.STRING_VALUE;
+  public NodeKind getKind() {
+    return NodeKind.STRING_VALUE;
   }
 }

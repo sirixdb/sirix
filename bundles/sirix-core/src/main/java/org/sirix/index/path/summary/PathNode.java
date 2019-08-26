@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -34,7 +34,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
   private final NameNodeDelegate mNameNodeDel;
 
   /** Kind of node to index. */
-  private final Kind mKind;
+  private final NodeKind mKind;
 
   /** Number of references to this path node. */
   private int mReferences;
@@ -53,7 +53,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
    * @param level level of this path node
    */
   public PathNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structNodeDel,
-      @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind, @Nonnegative final int references,
+      @Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final NodeKind kind, @Nonnegative final int references,
       @Nonnegative final int level) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structNodeDel);
@@ -83,7 +83,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
     final Path<QNm> p = new Path<QNm>();
     for (final PathNode n : path) {
       reader.moveTo(n.getNodeKey());
-      if (n.getPathKind() == Kind.ELEMENT) {
+      if (n.getPathKind() == NodeKind.ELEMENT) {
         p.child(reader.getName());
       } else {
         p.attribute(reader.getName());
@@ -143,13 +143,13 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
    *
    * @return path kind
    */
-  public Kind getPathKind() {
+  public NodeKind getPathKind() {
     return mKind;
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.PATH;
+  public NodeKind getKind() {
+    return NodeKind.PATH;
   }
 
   @Override

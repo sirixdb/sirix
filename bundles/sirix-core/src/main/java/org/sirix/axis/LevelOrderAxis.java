@@ -27,7 +27,7 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * Iterates over a subtree in levelorder / in a breath first traversal.
@@ -167,7 +167,7 @@ public final class LevelOrderAxis extends AbstractAxis {
     if (mFirst) {
       mFirst = false;
 
-      if (cursor.getKind() == Kind.ATTRIBUTE || cursor.getKind() == Kind.NAMESPACE) {
+      if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
         return done();
       }
 
@@ -239,7 +239,7 @@ public final class LevelOrderAxis extends AbstractAxis {
   private void processElement() {
     if (getCursor() instanceof XmlNodeReadOnlyTrx) {
       final XmlNodeReadOnlyTrx rtx = asXdmNodeReadTrx();
-      if (rtx.getKind() == Kind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
+      if (rtx.getKind() == NodeKind.ELEMENT && mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
         for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
           rtx.moveToNamespace(i);
           mFirstChilds.add(rtx.getNodeKey());

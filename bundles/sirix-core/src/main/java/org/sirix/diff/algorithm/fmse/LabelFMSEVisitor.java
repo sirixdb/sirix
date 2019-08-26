@@ -28,7 +28,7 @@ import java.util.Map;
 import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutableText;
 
@@ -44,10 +44,10 @@ public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
   private final XmlNodeReadOnlyTrx mRtx;
 
   /** For each node type: list of inner nodes. */
-  private final Map<Kind, List<Long>> mLabels;
+  private final Map<NodeKind, List<Long>> mLabels;
 
   /** For each node type: list of leaf nodes. */
-  private final Map<Kind, List<Long>> mLeafLabels;
+  private final Map<NodeKind, List<Long>> mLeafLabels;
 
   /**
    * Constructor.
@@ -92,7 +92,7 @@ public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
    * Add leaf node label.
    */
   private void addLeafLabel() {
-    final Kind nodeKind = mRtx.getKind();
+    final NodeKind nodeKind = mRtx.getKind();
     if (!mLeafLabels.containsKey(nodeKind)) {
       mLeafLabels.put(nodeKind, new ArrayList<>());
     }
@@ -104,7 +104,7 @@ public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
    *
    * @return the Labels
    */
-  public Map<Kind, List<Long>> getLabels() {
+  public Map<NodeKind, List<Long>> getLabels() {
     return mLabels;
   }
 
@@ -113,7 +113,7 @@ public final class LabelFMSEVisitor extends AbstractXdmNodeVisitor {
    *
    * @return the leaf labels
    */
-  public Map<Kind, List<Long>> getLeafLabels() {
+  public Map<NodeKind, List<Long>> getLeafLabels() {
     return mLeafLabels;
   }
 }

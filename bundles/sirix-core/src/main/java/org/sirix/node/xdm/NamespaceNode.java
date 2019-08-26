@@ -21,6 +21,7 @@
 
 package org.sirix.node.xdm;
 
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
@@ -28,12 +29,13 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -56,6 +58,8 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   /** The qualified name. */
   private final QNm mQNm;
 
+  private BigInteger mHash;
+
   /**
    * Constructor.
    *
@@ -72,9 +76,49 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
     mQNm = qNm;
   }
 
+  /**
+   * Constructor.
+   *
+   * @param hashCode hash code
+   * @param nodeDel {@link NodeDelegate} reference
+   * @param nameDel {@link NameNodeDelegate} reference
+   * @param qNm The qualified name.
+   */
+  public NamespaceNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+      final QNm qNm) {
+    assert hashCode != null;
+    assert nodeDel != null;
+    assert nameDel != null;
+    assert qNm != null;
+    mHash = hashCode;
+    mNodeDel = nodeDel;
+    mNameDel = nameDel;
+    mQNm = qNm;
+  }
+
   @Override
-  public Kind getKind() {
-    return Kind.NAMESPACE;
+  public NodeKind getKind() {
+    return NodeKind.NAMESPACE;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override
@@ -94,16 +138,19 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public void setPrefixKey(final int prefixKey) {
+    mHash = null;
     mNameDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
+    mHash = null;
     mNameDel.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
+    mHash = null;
     mNameDel.setURIKey(uriKey);
   }
 

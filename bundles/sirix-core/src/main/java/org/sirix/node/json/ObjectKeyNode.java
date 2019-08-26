@@ -21,17 +21,21 @@
 
 package org.sirix.node.json;
 
+import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
+import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 
 /**
  * <h1>ElementNode</h1>
@@ -53,6 +57,8 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   private long mPathNodeKey;
 
+  private BigInteger mHash;
+
   /**
    * Constructor
    *
@@ -68,6 +74,51 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     mPathNodeKey = pathNodeKey;
   }
 
+  /**
+   * Constructor
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   * @param name the key name
+   */
+  public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
+      final long pathNodeKey) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+    mNameKey = nameKey;
+    mName = name;
+    mPathNodeKey = pathNodeKey;
+  }
+
+  @Override
+  public NodeKind getKind() {
+    return NodeKind.OBJECT_KEY;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final HashCode hashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashString(mName, Constants.DEFAULT_ENCODING);
+
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, hashCode.asBytes()));
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
+  }
+
   public int getNameKey() {
     return mNameKey;
   }
@@ -79,11 +130,6 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableObjectKeyNode.of(this));
-  }
-
-  @Override
-  public Kind getKind() {
-    return Kind.OBJECT_KEY;
   }
 
   @Override

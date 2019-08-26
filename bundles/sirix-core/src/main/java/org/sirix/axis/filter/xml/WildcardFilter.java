@@ -24,7 +24,7 @@ package org.sirix.axis.filter.xml;
 import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>WildcardFilter</h1>
@@ -67,7 +67,7 @@ public final class WildcardFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    final Kind kind = getTrx().getKind();
+    final NodeKind kind = getTrx().getKind();
     switch (kind) {
       case ELEMENT:
         if (mType == EType.LOCALNAME) { // local name is given

@@ -18,7 +18,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -107,7 +107,7 @@ public class PageTest {
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
-    namePage.setName(new String(XdmTestHelper.generateRandomBytes(256)), Kind.ELEMENT);
+    namePage.setName(new String(XdmTestHelper.generateRandomBytes(256)), NodeKind.ELEMENT);
 
     // ValuePage setup.
     final PathPage valuePage = new PathPage();

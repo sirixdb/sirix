@@ -34,13 +34,14 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
+import com.google.common.hash.Hashing;
 
 /**
  * Object record node test.
@@ -69,10 +70,11 @@ public class JSONArrayNodeTest {
 
   @Test
   public void testNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final ArrayNode node = new ArrayNode(strucDel, 18);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
@@ -80,7 +82,7 @@ public class JSONArrayNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final ArrayNode node2 =
-        (ArrayNode) Kind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
+        (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
 
@@ -92,7 +94,7 @@ public class JSONArrayNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(18L, node.getPathNodeKey());
 
-    assertEquals(Kind.ARRAY, node.getKind());
+    assertEquals(NodeKind.ARRAY, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

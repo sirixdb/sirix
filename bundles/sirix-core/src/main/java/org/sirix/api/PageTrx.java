@@ -7,7 +7,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -93,7 +93,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
    * @throws SirixIOException if something odd happens while storing the new key
    * @throws NullPointerException if {@code name} or {@code kind} is {@code null}
    */
-  int createNameKey(String name, @Nonnull Kind kind);
+  int createNameKey(String name, @Nonnull NodeKind kind);
 
   /**
    * Commit the transaction, that is persist changes if any and create a new revision.

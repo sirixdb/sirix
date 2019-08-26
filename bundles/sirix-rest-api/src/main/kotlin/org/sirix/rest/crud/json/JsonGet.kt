@@ -16,7 +16,7 @@ import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.node.Kind
+import org.sirix.node.NodeKind
 import org.sirix.rest.JsonSerializeHelper
 import org.sirix.rest.JsonSessionDBStore
 import org.sirix.service.json.serialize.JsonSerializer
@@ -177,8 +177,8 @@ class JsonGet(private val location: Path) {
                             trx.moveTo(nodeId.toLong())
 
                         val jsonItem: JsonDBItem = when {
-                            trx.kind === Kind.ARRAY -> JsonDBArray(trx, dbCollection)
-                            trx.kind === Kind.OBJECT -> JsonDBObject(trx, dbCollection)
+                            trx.kind === NodeKind.ARRAY -> JsonDBArray(trx, dbCollection)
+                            trx.kind === NodeKind.OBJECT -> JsonDBObject(trx, dbCollection)
                             else -> throw IllegalStateException()
                         }
 

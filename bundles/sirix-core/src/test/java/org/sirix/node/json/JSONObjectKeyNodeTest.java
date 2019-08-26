@@ -34,12 +34,13 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+import com.google.common.hash.Hashing;
 
 /**
  * Object record node test.
@@ -71,20 +72,21 @@ public class JSONObjectKeyNodeTest {
   @Test
   public void testNode() throws IOException {
     // Create empty node.
-    mNameKey = mPageWriteTrx.createNameKey("foobar", Kind.OBJECT_KEY);
+    mNameKey = mPageWriteTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
     final String name = "foobar";
 
     final long pathNodeKey = 12;
-    final NodeDelegate del = new NodeDelegate(14, 13, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(14, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
     final ObjectKeyNode node = new ObjectKeyNode(strucDel, mNameKey, name, pathNodeKey);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectKeyNode node2 = (ObjectKeyNode) Kind.OBJECT_KEY.deserialize(new DataInputStream(in),
+    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(new DataInputStream(in),
         node.getNodeKey(), null, mPageWriteTrx);
     check(node2);
   }
@@ -98,7 +100,7 @@ public class JSONObjectKeyNodeTest {
 
     assertEquals(mNameKey, node.getNameKey());
     assertEquals("foobar", node.getName());
-    assertEquals(Kind.OBJECT_KEY, node.getKind());
+    assertEquals(NodeKind.OBJECT_KEY, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasRightSibling());

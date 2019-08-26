@@ -3,7 +3,7 @@ package org.sirix.diff.algorithm.fmse;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * This functional class is used to compare leaf nodes. The comparison is done by comparing the
@@ -72,11 +72,11 @@ final class LeafNodeComparator implements NodeComparator<Long> {
     assert mOldRtx.getKind() == mNewRtx.getKind();
     double ratio = 0;
 
-    if (mOldRtx.getKind() == Kind.ATTRIBUTE || mOldRtx.getKind() == Kind.NAMESPACE
-        || mOldRtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
+    if (mOldRtx.getKind() == NodeKind.ATTRIBUTE || mOldRtx.getKind() == NodeKind.NAMESPACE
+        || mOldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
       if (mOldRtx.getName().equals(mNewRtx.getName())) {
         ratio = 1;
-        if (mOldRtx.getKind() == Kind.ATTRIBUTE || mOldRtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
+        if (mOldRtx.getKind() == NodeKind.ATTRIBUTE || mOldRtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
           ratio = mNodeComparisonUtils.calculateRatio(mOldRtx.getValue(), mNewRtx.getValue());
 
           if (ratio > FMESF) {

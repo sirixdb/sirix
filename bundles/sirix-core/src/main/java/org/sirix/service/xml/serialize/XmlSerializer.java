@@ -49,7 +49,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
@@ -197,7 +197,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           } else {
             mOut.write(CharsForSerializing.SLASH_CLOSE.getBytes());
           }
-          if (mIndent && !(rtx.getFirstChildKind() == Kind.TEXT && rtx.getChildCount() == 1)) {
+          if (mIndent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1)) {
             mOut.write(CharsForSerializing.NEWLINE.getBytes());
           }
           break;
@@ -246,7 +246,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitEndNode(final XmlNodeReadOnlyTrx rtx) {
     try {
-      if (mIndent && !(rtx.getFirstChildKind() == Kind.TEXT && rtx.getChildCount() == 1))
+      if (mIndent && !(rtx.getFirstChildKind() == NodeKind.TEXT && rtx.getChildCount() == 1))
         indent();
       mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
       writeQName(rtx);

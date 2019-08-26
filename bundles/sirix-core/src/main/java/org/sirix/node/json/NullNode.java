@@ -27,12 +27,14 @@
  */
 package org.sirix.node.json;
 
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableNullNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
@@ -46,8 +48,22 @@ public final class NullNode extends AbstractStructForwardingNode implements Immu
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
+  private BigInteger mHash;
+
   /**
-   * Constructor
+   * Constructor.
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   */
+  public NullNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+  }
+
+  /**
+   * Constructor.
    *
    * @param structDel {@link StructNodeDelegate} to be set
    */
@@ -57,13 +73,33 @@ public final class NullNode extends AbstractStructForwardingNode implements Immu
   }
 
   @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableNullNode.of(this));
+  public NodeKind getKind() {
+    return NodeKind.NULL_VALUE;
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.NULL_VALUE;
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableNullNode.of(this));
   }
 
   @Override

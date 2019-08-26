@@ -2,7 +2,7 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * Path filter for {@link PathSummaryReader}, filtering specific path types.
@@ -13,7 +13,7 @@ import org.sirix.node.Kind;
 public final class PathKindFilter extends AbstractFilter<PathSummaryReader> {
 
   /** Type to filter. */
-  private Kind mType;
+  private NodeKind mType;
 
   /**
    * Constructor. Initializes the internal state.
@@ -21,7 +21,7 @@ public final class PathKindFilter extends AbstractFilter<PathSummaryReader> {
    * @param rtx transaction this filter is bound to
    * @param type type to match
    */
-  public PathKindFilter(final PathSummaryReader rtx, final Kind type) {
+  public PathKindFilter(final PathSummaryReader rtx, final NodeKind type) {
     super(rtx);
     checkArgument(rtx instanceof PathSummaryReader);
     mType = type;

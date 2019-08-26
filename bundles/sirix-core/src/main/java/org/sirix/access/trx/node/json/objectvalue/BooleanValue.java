@@ -21,7 +21,7 @@
 
 package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 public final class BooleanValue implements ObjectRecordValue<Boolean> {
 
@@ -37,8 +37,8 @@ public final class BooleanValue implements ObjectRecordValue<Boolean> {
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.BOOLEAN_VALUE;
+  public NodeKind getKind() {
+    return NodeKind.BOOLEAN_VALUE;
   }
 
   @Override

@@ -22,13 +22,16 @@
 package org.sirix.node.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 
@@ -46,8 +49,24 @@ public final class BooleanNode extends AbstractStructForwardingNode implements I
 
   private boolean mBoolValue;
 
+  private BigInteger mHash;
+
   /**
-   * Constructor for JSONBooleanNode.
+   * Constructor.
+   *
+   * @param valDel delegate for {@link ValueNode} implementation
+   * @param structDel delegate for {@link StructNode} implementation
+   */
+  public BooleanNode(final BigInteger hashCode, final boolean boolValue, final StructNodeDelegate structDel) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+    mBoolValue = boolValue;
+  }
+
+  /**
+   * Constructor.
    *
    * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
@@ -55,6 +74,32 @@ public final class BooleanNode extends AbstractStructForwardingNode implements I
   public BooleanNode(final boolean boolValue, final StructNodeDelegate structDel) {
     mBoolValue = boolValue;
     mStructNodeDel = checkNotNull(structDel);
+  }
+
+  @Override
+  public NodeKind getKind() {
+    return NodeKind.BOOLEAN_VALUE;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(BigInteger.valueOf(Boolean.hashCode(mBoolValue)));
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   public void setValue(final boolean value) {
@@ -68,11 +113,6 @@ public final class BooleanNode extends AbstractStructForwardingNode implements I
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableBooleanNode.of(this));
-  }
-
-  @Override
-  public Kind getKind() {
-    return Kind.BOOLEAN_VALUE;
   }
 
   @Override

@@ -35,10 +35,11 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
+import com.google.common.hash.Hashing;
 
 /**
  * Namespace node test.
@@ -67,17 +68,18 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() throws IOException {
-    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate nodeDel = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
     // Create empty node.
     final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
+    node.setHash(node.computeHash());
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
@@ -90,7 +92,7 @@ public class NamespaceNodeTest {
     assertEquals(13, node.getURIKey());
     assertEquals(14, node.getPrefixKey());
     assertEquals(15, node.getLocalNameKey());
-    assertEquals(Kind.NAMESPACE, node.getKind());
+    assertEquals(NodeKind.NAMESPACE, node.getKind());
     assertEquals(true, node.hasParent());
   }
 

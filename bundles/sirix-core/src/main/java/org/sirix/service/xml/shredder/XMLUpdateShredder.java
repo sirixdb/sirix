@@ -51,7 +51,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
@@ -251,7 +251,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // If no content is in the XML, a normal insertNewContent is executed.
         new XmlShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
-        if (mWtx.getKind() == Kind.XDM_DOCUMENT) {
+        if (mWtx.getKind() == NodeKind.XDM_DOCUMENT) {
           // Find the start key for the update operation.
           long startkey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey).hasMoved()) {
@@ -447,10 +447,10 @@ public final class XMLUpdateShredder implements Callable<Long> {
          * An end tag must have been parsed immediately before and it must have been an empty element at the
          * end of a subtree, thus move this time to parent node.
          */
-        assert mWtx.hasParent() && mWtx.getKind() == Kind.ELEMENT;
+        assert mWtx.hasParent() && mWtx.getKind() == NodeKind.ELEMENT;
         mWtx.moveToParent();
       } else {
-        if (mWtx.getKind() == Kind.ELEMENT) {
+        if (mWtx.getKind() == NodeKind.ELEMENT) {
           if (mWtx.hasFirstChild() && mWtx.hasParent()) {
             // It's not an empty element, thus move to parent.
             mWtx.moveToParent();
@@ -554,7 +554,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
   private boolean checkText(final Characters paramEvent) {
     assert paramEvent != null;
     final String text = paramEvent.getData().trim();
-    return mWtx.getKind() == Kind.TEXT && mWtx.getValue().equals(text);
+    return mWtx.getKind() == NodeKind.TEXT && mWtx.getValue().equals(text);
   }
 
   /**
@@ -764,7 +764,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
         // Make sure if transaction is on a text node the node is inserted as a
         // right sibling.
-        if (mWtx.getKind() == Kind.TEXT) {
+        if (mWtx.getKind() == NodeKind.TEXT) {
           insertNode = EAdd.ASRIGHTSIBLING;
         }
 
@@ -1061,7 +1061,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     // Matching element names?
     final QName name = mEvent.getName();
     final QNm currName = mWtx.getName();
-    if (mWtx.getKind() == Kind.ELEMENT && currName.getNamespaceURI().equals(name.getNamespaceURI())
+    if (mWtx.getKind() == NodeKind.ELEMENT && currName.getNamespaceURI().equals(name.getNamespaceURI())
         && currName.getLocalName().equals(name.getLocalPart())) {
       // Check if atts and namespaces are the same.
       final long nodeKey = mWtx.getNodeKey();

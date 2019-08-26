@@ -28,7 +28,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -105,9 +105,9 @@ public class FNString extends AbstractFunction {
     final StringBuilder value = new StringBuilder();
 
     if (asXdmNodeReadTrx().getNodeKey() >= 0) { // is node
-      if (asXdmNodeReadTrx().getKind() == Kind.ATTRIBUTE || asXdmNodeReadTrx().getKind() == Kind.TEXT) {
+      if (asXdmNodeReadTrx().getKind() == NodeKind.ATTRIBUTE || asXdmNodeReadTrx().getKind() == NodeKind.TEXT) {
         value.append(asXdmNodeReadTrx().getValue());
-      } else if (asXdmNodeReadTrx().getKind() == Kind.XDM_DOCUMENT || asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
+      } else if (asXdmNodeReadTrx().getKind() == NodeKind.XDM_DOCUMENT || asXdmNodeReadTrx().getKind() == NodeKind.ELEMENT) {
         final Axis axis = new FilterAxis(new DescendantAxis(asXdmNodeReadTrx()), new TextFilter(asXdmNodeReadTrx()));
         while (axis.hasNext()) {
           axis.next();

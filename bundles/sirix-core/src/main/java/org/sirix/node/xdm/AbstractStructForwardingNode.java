@@ -1,5 +1,6 @@
 package org.sirix.node.xdm;
 
+import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.delegates.NodeDelegate;
@@ -29,6 +30,11 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
    */
   public StructNodeDelegate getStructNodeDelegate() {
     return structDelegate();
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return structDelegate().getHash();
   }
 
   @Override

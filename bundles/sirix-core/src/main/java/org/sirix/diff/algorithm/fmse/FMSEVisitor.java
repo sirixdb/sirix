@@ -26,7 +26,7 @@ import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.xdm.ImmutableComment;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutablePI;
@@ -104,7 +104,7 @@ public final class FMSEVisitor extends AbstractXdmNodeVisitor {
       mRtx.moveToFirstChild();
       do {
         descendants += mDescendants.get(mRtx.getNodeKey());
-        if (mRtx.getKind() == Kind.ELEMENT) {
+        if (mRtx.getKind() == NodeKind.ELEMENT) {
           descendants += 1;
         }
       } while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());

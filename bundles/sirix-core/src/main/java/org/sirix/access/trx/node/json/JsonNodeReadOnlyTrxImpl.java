@@ -16,7 +16,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -119,7 +119,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean getBooleanValue() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE)
+    if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE)
       return ((BooleanNode) mCurrentNode).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
@@ -127,7 +127,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public Number getNumberValue() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.NUMBER_VALUE)
+    if (mCurrentNode.getKind() == NodeKind.NUMBER_VALUE)
       return ((NumberNode) mCurrentNode).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
@@ -227,7 +227,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == Kind.JSON_DOCUMENT;
+    return mCurrentNode.getKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override
@@ -239,7 +239,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   public QNm getName() {
     assertNotClosed();
 
-    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
+    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
       final int nameKey = ((ObjectKeyNode) mCurrentNode).getNameKey();
       final String localName = nameKey == -1
           ? ""
@@ -270,7 +270,7 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
   @Override
   public int getNameKey() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
+    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
       return ((ImmutableObjectKeyNode) mCurrentNode).getNameKey();
     }
     return -1;
@@ -281,16 +281,16 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
 
-    if (mCurrentNode.getKind() == Kind.OBJECT_KEY) {
+    if (mCurrentNode.getKind() == NodeKind.OBJECT_KEY) {
       helper.add("Name of Node", getName().toString());
     }
 
-    if (mCurrentNode.getKind() == Kind.BOOLEAN_VALUE || mCurrentNode.getKind() == Kind.STRING_VALUE
-        || mCurrentNode.getKind() == Kind.NUMBER_VALUE) {
+    if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.STRING_VALUE
+        || mCurrentNode.getKind() == NodeKind.NUMBER_VALUE) {
       helper.add("Value of Node", getValue());
     }
 
-    if (mCurrentNode.getKind() == Kind.JSON_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.JSON_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
 

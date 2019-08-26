@@ -23,7 +23,7 @@ package org.sirix.axis.filter.xml;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>AttributeFilter</h1>
@@ -45,7 +45,7 @@ public final class AttributeFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == Kind.ATTRIBUTE;
+    return getTrx().getKind() == NodeKind.ATTRIBUTE;
   }
 
 }

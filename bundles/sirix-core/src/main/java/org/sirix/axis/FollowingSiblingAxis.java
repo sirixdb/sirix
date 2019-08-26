@@ -22,7 +22,7 @@
 package org.sirix.axis;
 
 import org.sirix.api.NodeCursor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>FollowingSiblingAxis</h1>
@@ -62,7 +62,7 @@ public final class FollowingSiblingAxis extends AbstractAxis {
       /*
        * If the context node is an attribute or namespace node, the following-sibling axis is empty
        */
-      if (cursor.getKind() == Kind.ATTRIBUTE || cursor.getKind() == Kind.NAMESPACE) {
+      if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
         return done();
       }
     }

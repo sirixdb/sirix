@@ -46,7 +46,7 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
@@ -264,12 +264,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       SirixDeweyID id = null;
       if (iter.hasNext()) {
         id = iter.next();
-        persistenter.serializeDeweyID(out, Kind.ELEMENT, id, null, mResourceConfig);
+        persistenter.serializeDeweyID(out, NodeKind.ELEMENT, id, null, mResourceConfig);
         serializeDeweyRecord(id, out);
       }
       while (iter.hasNext()) {
         final SirixDeweyID nextDeweyID = iter.next();
-        persistenter.serializeDeweyID(out, Kind.ELEMENT, id, nextDeweyID, mResourceConfig);
+        persistenter.serializeDeweyID(out, NodeKind.ELEMENT, id, nextDeweyID, mResourceConfig);
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }

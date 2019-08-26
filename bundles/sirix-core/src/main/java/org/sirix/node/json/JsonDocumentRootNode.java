@@ -22,14 +22,16 @@
 package org.sirix.node.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableDocumentNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
@@ -51,6 +53,8 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
+  private BigInteger mHash;
+
   /**
    * Constructor.
    *
@@ -63,8 +67,30 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.JSON_DOCUMENT;
+  public NodeKind getKind() {
+    return NodeKind.JSON_DOCUMENT;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    if (mHash == null)
+      mHash = Node.to128BitsBigInteger(computeHash());
+    return mHash;
   }
 
   @Override

@@ -1,10 +1,11 @@
 package org.sirix.node.immutable.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
@@ -51,11 +52,6 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
   }
 
   @Override
-  public long getHash() {
-    return mNode.getHash();
-  }
-
-  @Override
   public long getParentKey() {
     return mNode.getParentKey();
   }
@@ -71,7 +67,7 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mNode.getKind();
   }
 
@@ -148,5 +144,10 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
   @Override
   public StructNode structDelegate() {
     return mNode.getStructNodeDelegate();
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return mNode.computeHash();
   }
 }

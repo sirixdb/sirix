@@ -32,7 +32,7 @@ import org.sirix.XdmTestHelper;
 import org.sirix.XdmTestHelper.PATHS;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 public final class NodeReadTrxImplTest {
 
@@ -68,7 +68,7 @@ public final class NodeReadTrxImplTest {
   @Test
   public void testDocumentRoot() {
     assertEquals(true, holder.getXdmNodeReadTrx().moveToDocumentRoot().hasMoved());
-    assertEquals(Kind.XDM_DOCUMENT, holder.getXdmNodeReadTrx().getKind());
+    assertEquals(NodeKind.XDM_DOCUMENT, holder.getXdmNodeReadTrx().getKind());
     assertEquals(false, holder.getXdmNodeReadTrx().hasParent());
     assertEquals(false, holder.getXdmNodeReadTrx().hasLeftSibling());
     assertEquals(false, holder.getXdmNodeReadTrx().hasRightSibling());

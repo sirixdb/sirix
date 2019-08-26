@@ -7,7 +7,7 @@ import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
@@ -82,7 +82,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return the name
    * @throws NullPointerException if {@code kind} is {@code null}
    */
-  String getName(int nameKey, @Nonnull Kind recordKind);
+  String getName(int nameKey, @Nonnull NodeKind recordKind);
 
   /**
    * Get the number of references for a name.
@@ -91,7 +91,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @param recordKind kind of record
    * @return the number of references for a given keyy.
    */
-  int getNameCount(int nameKey, @Nonnull Kind recordKind);
+  int getNameCount(int nameKey, @Nonnull NodeKind recordKind);
 
   /**
    * Getting the raw name related to the name key and the record kind.
@@ -101,7 +101,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return a byte array containing the raw name
    * @throws NullPointerException if {@code kind} is {@code null}
    */
-  byte[] getRawName(int nameKey, @Nonnull Kind recordKind);
+  byte[] getRawName(int nameKey, @Nonnull NodeKind recordKind);
 
   /**
    * Close transaction.

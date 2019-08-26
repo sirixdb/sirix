@@ -1,7 +1,8 @@
 package org.sirix.node.interfaces.immutable;
 
+import java.math.BigInteger;
 import javax.annotation.Nullable;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 
@@ -14,7 +15,7 @@ import org.sirix.node.interfaces.Record;
 public interface ImmutableNode extends Record {
 
   @Override
-  Kind getKind();
+  NodeKind getKind();
 
   /**
    * Determines if {@code pOther} is the same item.
@@ -25,10 +26,16 @@ public interface ImmutableNode extends Record {
   boolean isSameItem(@Nullable Node other);
 
   /**
-   * Getting the persistent stored hash.
-   *
+   * Getting the stored hash.
+   * @return the hash code
    */
-  long getHash();
+  BigInteger getHash();
+
+  /**
+   * Compute the hash code.
+   * @return the computed hash code
+   */
+  BigInteger computeHash();
 
   /**
    * Gets key of the context item's parent.

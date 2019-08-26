@@ -35,13 +35,14 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.utils.NamePageHash;
+import com.google.common.hash.Hashing;
 
 /**
  * Processing instruction node test.
@@ -72,12 +73,13 @@ public class PINodeTest {
   public void testProcessInstructionNode() throws IOException {
     final byte[] value = {(byte) 17, (byte) 18};
 
-    final NodeDelegate del = new NodeDelegate(99, 13, 0, 0, SirixDeweyID.newRootID());
+    final NodeDelegate del = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final PINode node = new PINode(structDel, nameDel, valDel, mPageReadTrx);
+    node.setHash(node.computeHash());
 
     // Create empty node.
     check(node);
@@ -86,7 +88,7 @@ public class PINodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final PINode node2 = (PINode) Kind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
@@ -108,7 +110,7 @@ public class PINodeTest {
 
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.PROCESSING_INSTRUCTION, node.getKind());
+    assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getKind());
     assertEquals(true, node.hasParent());
     assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
   }

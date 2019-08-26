@@ -22,16 +22,18 @@
 package org.sirix.node.xdm;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import com.google.common.base.Objects;
@@ -44,7 +46,7 @@ import com.google.common.base.Objects;
  * not be removed.
  * </p>
  */
-public final class XdmDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXmlNode {
+public final class XmlDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXmlNode {
 
   /** {@link NodeDelegate} reference. */
   private final NodeDelegate mNodeDel;
@@ -52,20 +54,44 @@ public final class XdmDocumentRootNode extends AbstractStructForwardingNode impl
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
+  private BigInteger mHash;
+
   /**
    * Constructor.
    *
    * @param nodeDel {@link NodeDelegate} reference
    * @param structDel {@link StructNodeDelegate} reference
    */
-  public XdmDocumentRootNode(final @Nonnull NodeDelegate nodeDel, final @Nonnull StructNodeDelegate structDel) {
+  public XmlDocumentRootNode(final @Nonnull NodeDelegate nodeDel, final @Nonnull StructNodeDelegate structDel) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structDel);
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.XDM_DOCUMENT;
+  public NodeKind getKind() {
+    return NodeKind.XDM_DOCUMENT;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    if (mHash == null)
+      mHash = Node.to128BitsBigInteger(computeHash());
+    return mHash;
   }
 
   @Override
@@ -80,8 +106,8 @@ public final class XdmDocumentRootNode extends AbstractStructForwardingNode impl
 
   @Override
   public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof XdmDocumentRootNode) {
-      final XdmDocumentRootNode other = (XdmDocumentRootNode) obj;
+    if (obj instanceof XmlDocumentRootNode) {
+      final XmlDocumentRootNode other = (XmlDocumentRootNode) obj;
       return Objects.equal(mNodeDel, other.mNodeDel);
     }
     return false;

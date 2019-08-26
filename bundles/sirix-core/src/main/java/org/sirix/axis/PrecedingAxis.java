@@ -24,7 +24,7 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import org.sirix.api.NodeCursor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>PrecedingAxis</h1>
@@ -67,7 +67,7 @@ public final class PrecedingAxis extends AbstractAxis {
     // Assure, that preceding is not evaluated on an attribute or a namespace.
     if (mIsFirst) {
       mIsFirst = false;
-      if (cursor.getKind() == Kind.ATTRIBUTE || cursor.getKind() == Kind.NAMESPACE) {
+      if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
         return done();
       }
     }

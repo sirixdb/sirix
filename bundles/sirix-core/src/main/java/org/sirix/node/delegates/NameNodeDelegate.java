@@ -23,14 +23,18 @@
  */
 package org.sirix.node.delegates;
 
+import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 
 /**
  * Delegate method for all nodes containing naming-data. That means that different fixed defined
@@ -92,8 +96,31 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.UNKNOWN;
+  public NodeKind getKind() {
+    return NodeKind.UNKNOWN;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    final Funnel<NameNode> nodeFunnel = (NameNode node, PrimitiveSink into) -> {
+      into.putInt(node.getURIKey())
+          .putInt(node.getPrefixKey())
+          .putInt(node.getLocalNameKey())
+          .putLong(node.getPathNodeKey());
+    };
+
+    return Node.to128BitsBigInteger(
+        new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes()));
+  }
+
+  @Override
+  public BigInteger getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

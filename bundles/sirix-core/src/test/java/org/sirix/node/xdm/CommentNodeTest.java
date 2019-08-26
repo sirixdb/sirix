@@ -34,13 +34,14 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
+import com.google.common.hash.Hashing;
 
 /**
  * Comment node test.
@@ -71,18 +72,19 @@ public class CommentNodeTest {
   public void testCommentNode() throws IOException {
     // Create empty node.
     final byte[] value = {(byte) 17, (byte) 18};
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final CommentNode node = new CommentNode(valDel, strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final CommentNode node2 = (CommentNode) Kind.COMMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
@@ -96,7 +98,7 @@ public class CommentNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.COMMENT, node.getKind());
+    assertEquals(NodeKind.COMMENT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

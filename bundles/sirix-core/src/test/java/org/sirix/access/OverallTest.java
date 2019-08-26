@@ -30,7 +30,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /** Test a bunch of modification methods. */
@@ -90,7 +90,7 @@ public final class OverallTest extends TestCase {
           default:
         }
       } else {
-        if (holder.getXdmNodeWriteTrx().getKind() == Kind.ELEMENT) {
+        if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
           if (holder.getXdmNodeWriteTrx()
                     .getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             assertTrue(holder.getXdmNodeWriteTrx().moveToFirstChild().hasMoved());
@@ -132,7 +132,7 @@ public final class OverallTest extends TestCase {
             }
           }
         } while (holder.getXdmNodeWriteTrx() == null);
-        if (holder.getXdmNodeWriteTrx().getKind() != Kind.ELEMENT) {
+        if (holder.getXdmNodeWriteTrx().getKind() != NodeKind.ELEMENT) {
           holder.getXdmNodeWriteTrx().moveToParent();
         }
       }

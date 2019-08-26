@@ -45,7 +45,7 @@ import org.sirix.diff.algorithm.ImportDiff;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
@@ -453,7 +453,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     boolean moved = wtx.moveTo(child).hasMoved();
     assert moved;
 
-    if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.NAMESPACE) {
+    if (wtx.getKind() == NodeKind.ATTRIBUTE || wtx.getKind() == NodeKind.NAMESPACE) {
       // Attribute- and namespace-nodes can't be moved.
       return -1;
     }
@@ -464,13 +464,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     try {
       if (pos == 0) {
-        assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.XDM_DOCUMENT;
+        assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XDM_DOCUMENT;
         if (wtx.getFirstChildKey() == child) {
           LOGWRAPPER.error("Something went wrong: First child and child may never be the same!");
         } else {
           if (wtx.moveTo(child).hasMoved()) {
             boolean isTextKind = false;
-            if (wtx.getKind() == Kind.TEXT) {
+            if (wtx.getKind() == NodeKind.TEXT) {
               isTextKind = true;
             }
 
@@ -479,7 +479,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             if (isTextKind && wtx.getFirstChildKey() != child) {
               if (wtx.hasFirstChild()) {
                 wtx.moveToFirstChild();
-                if (wtx.getKind() == Kind.TEXT) {
+                if (wtx.getKind() == NodeKind.TEXT) {
                   mTotalMatching.remove(wtx.getNodeKey());
                   wtx.remove();
                 }
@@ -487,7 +487,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               }
             }
 
-            if (wtx.getKind() == Kind.XDM_DOCUMENT) {
+            if (wtx.getKind() == NodeKind.XDM_DOCUMENT) {
               rtx.moveTo(child);
               wtx.moveTo(wtx.copySubtreeAsFirstChild(rtx).getNodeKey());
             } else {
@@ -510,14 +510,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         final long nodeKey = wtx.getNodeKey();
         checkFromNodeForTextRemoval(wtx, child);
         wtx.moveTo(nodeKey);
-        if (wtx.getKind() == Kind.TEXT && wtx.moveTo(child).hasMoved() && wtx.getKind() == Kind.TEXT) {
+        if (wtx.getKind() == NodeKind.TEXT && wtx.moveTo(child).hasMoved() && wtx.getKind() == NodeKind.TEXT) {
           wtx.moveTo(nodeKey);
           mTotalMatching.remove(wtx.getNodeKey());
         }
         wtx.moveTo(nodeKey);
         if (wtx.moveToRightSibling().hasMoved()) {
           final long rightNodeKey = wtx.getNodeKey();
-          if (wtx.getKind() == Kind.TEXT && wtx.moveTo(child).hasMoved() && wtx.getKind() == Kind.TEXT) {
+          if (wtx.getKind() == NodeKind.TEXT && wtx.moveTo(child).hasMoved() && wtx.getKind() == NodeKind.TEXT) {
             wtx.moveTo(rightNodeKey);
             mTotalMatching.remove(wtx.getNodeKey());
           }
@@ -546,14 +546,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       boolean isText = false;
       if (wtx.hasLeftSibling()) {
         wtx.moveToLeftSibling();
-        if (wtx.getKind() == Kind.TEXT) {
+        if (wtx.getKind() == NodeKind.TEXT) {
           isText = true;
         }
         wtx.moveToRightSibling();
       }
       if (isText && wtx.hasRightSibling()) {
         wtx.moveToRightSibling();
-        if (wtx.getKind() == Kind.TEXT && isText) {
+        if (wtx.getKind() == NodeKind.TEXT && isText) {
           if (maybeRemoveLeftSibling) {
             boolean moved = wtx.moveToLeftSibling().hasMoved();
             assert moved;
@@ -594,17 +594,17 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         case ATTRIBUTE:
         case NAMESPACE:
         case PROCESSING_INSTRUCTION:
-          assert rtx.getKind() == Kind.ELEMENT || rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE
-              || rtx.getKind() == Kind.PROCESSING_INSTRUCTION;
+          assert rtx.getKind() == NodeKind.ELEMENT || rtx.getKind() == NodeKind.ATTRIBUTE || rtx.getKind() == NodeKind.NAMESPACE
+              || rtx.getKind() == NodeKind.PROCESSING_INSTRUCTION;
           wtx.setName(rtx.getName());
 
-          if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
+          if (wtx.getKind() == NodeKind.ATTRIBUTE || wtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
             wtx.setValue(rtx.getValue());
           }
           break;
         case TEXT:
         case COMMENT:
-          assert wtx.getKind() == Kind.TEXT;
+          assert wtx.getKind() == NodeKind.TEXT;
           wtx.setValue(rtx.getValue());
           break;
         // $CASES-OMITTED$
@@ -678,7 +678,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                 // Remove first child text node if there is one and a new text node is inserted.
                 if (wtx.hasFirstChild()) {
                   wtx.moveToFirstChild();
-                  if (wtx.getKind() == Kind.TEXT) {
+                  if (wtx.getKind() == NodeKind.TEXT) {
                     mTotalMatching.remove(wtx.getNodeKey());
                     wtx.remove();
                   }
@@ -727,7 +727,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
             process(oldRtx.getNodeKey(), newRtx.getNodeKey());
             final long newNodeKey = newRtx.getNodeKey();
             final long oldNodeKey = oldRtx.getNodeKey();
-            if (newRtx.getKind() == Kind.ELEMENT) {
+            if (newRtx.getKind() == NodeKind.ELEMENT) {
               assert newRtx.getKind() == oldRtx.getKind();
               if (newRtx.getAttributeCount() > 0) {
                 for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
@@ -781,7 +781,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     if (wtx.hasRightSibling()) {
       final long nodeKey = wtx.getNodeKey();
       wtx.moveToRightSibling();
-      if (wtx.getKind() == Kind.TEXT) {
+      if (wtx.getKind() == NodeKind.TEXT) {
         mTotalMatching.remove(wtx.getNodeKey());
         wtx.remove();
       }
@@ -825,7 +825,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert rtx != null;
     rtx.moveTo(x);
 
-    if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
+    if (rtx.getKind() == NodeKind.ATTRIBUTE || rtx.getKind() == NodeKind.NAMESPACE) {
       return 0;
     } else {
       final long nodeKey = rtx.getNodeKey();
@@ -917,10 +917,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         new LeafNodeComparator(mIdName, mWtx, mRtx, mOldPathSummary, mNewPathSummary, nodeComparisonUtils));
 
     // Remove roots ('/') from labels and append them to mapping.
-    final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
-    final Map<Kind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
-    oldLabels.remove(Kind.XDM_DOCUMENT);
-    newLabels.remove(Kind.XDM_DOCUMENT);
+    final Map<NodeKind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
+    final Map<NodeKind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
+    oldLabels.remove(NodeKind.XDM_DOCUMENT);
+    newLabels.remove(NodeKind.XDM_DOCUMENT);
 
     wtx.moveTo(mOldStartKey);
     rtx.moveTo(mNewStartKey);
@@ -945,13 +945,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param matching {@link Matching} reference
    * @param cmp functional class
    */
-  private static void match(final Map<Kind, List<Long>> oldLabels, final Map<Kind, List<Long>> newLabels,
+  private static void match(final Map<NodeKind, List<Long>> oldLabels, final Map<NodeKind, List<Long>> newLabels,
       final Matching matching, final NodeComparator<Long> cmp) {
-    final Set<Kind> labels = oldLabels.keySet();
+    final Set<NodeKind> labels = oldLabels.keySet();
     labels.retainAll(newLabels.keySet()); // intersection
 
     // 2 - for each label do
-    for (final Kind label : labels) {
+    for (final NodeKind label : labels) {
       final List<Long> first = oldLabels.get(label); // 2(a)
       final List<Long> second = newLabels.get(label); // 2(b)
 

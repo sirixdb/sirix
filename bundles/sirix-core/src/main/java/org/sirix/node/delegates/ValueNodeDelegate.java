@@ -20,11 +20,12 @@
  */
 package org.sirix.node.delegates;
 
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.zip.Deflater;
 import javax.annotation.Nullable;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
@@ -39,13 +40,13 @@ import com.google.common.base.Objects;
  * @author Sebastian Graf, University of Konstanz
  *
  */
-public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode {
+public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
   /** Delegate for common node information. */
   private NodeDelegate mDelegate;
 
   /** Storing the value. */
-  private byte[] mVal;
+  private byte[] mValue;
 
   /** Determines if input has been compressed. */
   private boolean mCompressed;
@@ -57,19 +58,34 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
    * @param val the value
    * @param compressed compress value or not
    */
-  public ValNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
+  public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
     assert nodeDel != null : "nodeDel must not be null!";
     assert val != null : "val must not be null!";
     mDelegate = nodeDel;
-    mVal = val;
+    mValue = val;
     mCompressed = compressed;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    return Node.to128BitsBigInteger(new BigInteger(1, mDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
+  }
+
+  @Override
+  public BigInteger getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public byte[] getRawValue() {
     return mCompressed
-        ? Compression.decompress(mVal)
-        : mVal;
+        ? Compression.decompress(mValue)
+        : mValue;
   }
 
   @Override
@@ -83,7 +99,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
    * @return {@code value} which might be compressed
    */
   public byte[] getCompressed() {
-    return mVal;
+    return mValue;
   }
 
   @Override
@@ -91,7 +107,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
     mCompressed = new String(value).length() > 10
         ? true
         : false;
-    mVal = mCompressed
+    mValue = mCompressed
         ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
         : value;
   }
@@ -116,21 +132,21 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mDelegate, mVal);
+    return Objects.hashCode(mDelegate, mValue);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof ValNodeDelegate))
+    if (!(obj instanceof ValueNodeDelegate))
       return false;
 
-    final ValNodeDelegate other = (ValNodeDelegate) obj;
-    return Objects.equal(mDelegate, other.mDelegate) && Arrays.equals(mVal, other.mVal);
+    final ValueNodeDelegate other = (ValueNodeDelegate) obj;
+    return Objects.equal(mDelegate, other.mDelegate) && Arrays.equals(mValue, other.mValue);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", new String(mVal)).toString();
+    return MoreObjects.toStringHelper(this).add("value", new String(mValue)).toString();
   }
 
   @Override
@@ -139,8 +155,8 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
   }
 
   @Override
-  public Kind getKind() {
-    return Kind.UNKNOWN;
+  public NodeKind getKind() {
+    return NodeKind.UNKNOWN;
   }
 
   @Override

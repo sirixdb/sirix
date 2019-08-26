@@ -26,9 +26,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
-
 import javax.annotation.Nonnull;
-
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
@@ -100,7 +98,7 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(pageWriteTrx);
+    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageWriteTrx);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;

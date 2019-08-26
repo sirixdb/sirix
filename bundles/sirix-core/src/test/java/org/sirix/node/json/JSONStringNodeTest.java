@@ -34,12 +34,13 @@ import org.sirix.Holder;
 import org.sirix.XdmTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.settings.Fixed;
+import com.google.common.hash.Hashing;
 
 /**
  * Text node test.
@@ -70,11 +71,12 @@ public class JSONStringNodeTest {
   public void test() throws IOException {
     // Create empty node.
     final byte[] value = {(byte) 17, (byte) 18};
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, SirixDeweyID.newRootID());
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
     final StringNode node = new StringNode(valDel, strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
@@ -82,7 +84,7 @@ public class JSONStringNodeTest {
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
     final StringNode node2 =
-        (StringNode) Kind.STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
+        (StringNode) NodeKind.STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
     check(node2);
   }
 
@@ -94,7 +96,7 @@ public class JSONStringNodeTest {
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.STRING_VALUE, node.getKind());
+    assertEquals(NodeKind.STRING_VALUE, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

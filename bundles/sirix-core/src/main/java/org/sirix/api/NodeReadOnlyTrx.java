@@ -1,11 +1,12 @@
 package org.sirix.api;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 
 public interface NodeReadOnlyTrx extends AutoCloseable {
@@ -127,7 +128,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return the kind of path of the current node
    */
-  Kind getPathKind();
+  NodeKind getPathKind();
 
   /**
    * Determines if the current node is the document root node or not.
@@ -157,7 +158,17 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    */
   boolean hasChildren();
 
-  long getHash();
+  /**
+   * Get the hash code of the node.
+   *
+   * @return the hash code
+   */
+  BigInteger getHash();
 
+  /**
+   * Get the value of the current node or {@code null}.
+   *
+   * @return the value of the current node or {@code null} if the node has no value
+   */
   String getValue();
 }

@@ -24,7 +24,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.xdm.TextNode;
 import org.sirix.page.PageKind;
@@ -56,7 +56,7 @@ public enum InsertPos {
       if (toNode.hasFirstChild()) {
         wtx.moveTo(toNode.getFirstChildKey());
 
-        if (wtx.getKind() == Kind.TEXT && fromNode.getKind() == Kind.TEXT) {
+        if (wtx.getKind() == NodeKind.TEXT && fromNode.getKind() == NodeKind.TEXT) {
           final StringBuilder builder = new StringBuilder(wtx.getValue());
 
           // Adapt right sibling key of moved node.
@@ -114,13 +114,13 @@ public enum InsertPos {
     void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
-      assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.XDM_DOCUMENT;
+      assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XDM_DOCUMENT;
       switch (rtx.getKind()) {
         case ELEMENT:
           wtx.insertElementAsFirstChild(rtx.getName());
           break;
         case TEXT:
-          assert wtx.getKind() == Kind.ELEMENT;
+          assert wtx.getKind() == NodeKind.ELEMENT;
           wtx.insertTextAsFirstChild(rtx.getValue());
           break;
         // $CASES-OMITTED$
@@ -148,7 +148,7 @@ public enum InsertPos {
 
       final boolean hasMoved = wtx.moveTo(toNode.getRightSiblingKey()).hasMoved();
 
-      if (fromNode.getKind() == Kind.TEXT && toNode.getKind() == Kind.TEXT) {
+      if (fromNode.getKind() == NodeKind.TEXT && toNode.getKind() == NodeKind.TEXT) {
         // Merge text: FROM and TO are of TEXT_KIND.
         wtx.moveTo(toNode.getNodeKey());
         final StringBuilder builder = new StringBuilder(wtx.getValue());
@@ -181,7 +181,7 @@ public enum InsertPos {
         // Remove first child.
         wtx.moveTo(toNode.getNodeKey());
         wtx.remove();
-      } else if (hasMoved && fromNode.getKind() == Kind.TEXT && wtx.getKind() == Kind.TEXT) {
+      } else if (hasMoved && fromNode.getKind() == NodeKind.TEXT && wtx.getKind() == NodeKind.TEXT) {
         // Merge text: RIGHT and FROM are of TEXT_KIND.
         final StringBuilder builder = new StringBuilder(wtx.getValue());
 
@@ -240,7 +240,7 @@ public enum InsertPos {
     void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
-      assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
+      assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.TEXT;
       switch (rtx.getKind()) {
         case ELEMENT:
           wtx.insertElementAsRightSibling(rtx.getName());
@@ -266,7 +266,7 @@ public enum InsertPos {
     void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
-      assert wtx.getKind() == Kind.ELEMENT;
+      assert wtx.getKind() == NodeKind.ELEMENT;
       switch (rtx.getKind()) {
         case NAMESPACE:
           final QNm name = rtx.getName();
@@ -294,7 +294,7 @@ public enum InsertPos {
     void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
-      assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
+      assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.TEXT;
       switch (rtx.getKind()) {
         case ELEMENT:
           wtx.insertElementAsLeftSibling(rtx.getName());

@@ -1,6 +1,6 @@
 package org.sirix.access.trx.node.json.objectvalue;
 
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * Marker interface.
@@ -10,7 +10,7 @@ import org.sirix.node.Kind;
  */
 public interface ObjectRecordValue<T> {
 
-  Kind getKind();
+  NodeKind getKind();
 
   T getValue();
 }

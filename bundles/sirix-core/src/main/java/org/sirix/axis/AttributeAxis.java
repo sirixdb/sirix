@@ -22,7 +22,7 @@
 package org.sirix.axis;
 
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 
 /**
  * <h1>AttributeAxis</h1>
@@ -56,11 +56,11 @@ public final class AttributeAxis extends AbstractAxis {
     // Move back to element, if there was already an attribute found. In
     // this case the current node was set to an attribute by resetToLastKey().
     if (mNextIndex > 0) {
-      assert asXdmNodeReadTrx().getKind() == Kind.ATTRIBUTE;
+      assert asXdmNodeReadTrx().getKind() == NodeKind.ATTRIBUTE;
       asXdmNodeReadTrx().moveToParent();
     }
 
-    if (asXdmNodeReadTrx().getKind() == Kind.ELEMENT) {
+    if (asXdmNodeReadTrx().getKind() == NodeKind.ELEMENT) {
       final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXdmNodeReadTrx();
       if (mNextIndex < rtx.getAttributeCount()) {
         final long key = rtx.getAttributeKey(mNextIndex);

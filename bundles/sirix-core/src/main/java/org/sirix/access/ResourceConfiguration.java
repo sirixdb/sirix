@@ -45,6 +45,8 @@ import org.sirix.node.NodePersistenterImpl;
 import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.settings.VersioningType;
 import com.google.common.base.MoreObjects;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
@@ -192,6 +194,9 @@ public final class ResourceConfiguration {
   /** Determines if dewey IDs are generated and stored or not. */
   public final boolean areDeweyIDsStored;
 
+  /** The hash function used for hashing nodes. */
+  public final HashFunction nodeHashFunction;
+
   private String resourceName;
 
   // END MEMBERS FOR FIXED FIELDS
@@ -223,6 +228,7 @@ public final class ResourceConfiguration {
     areDeweyIDsStored = builder.mUseDeweyIDs;
     recordPersister = builder.mPersistenter;
     resourceName = builder.mResource;
+    nodeHashFunction = builder.mHashFunction;
   }
 
   ResourceConfiguration setDatabaseConfiguration(final DatabaseConfiguration config) {
@@ -302,7 +308,7 @@ public final class ResourceConfiguration {
    */
   private static final String[] JSONNAMES =
       {"revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind",
-          "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
+          "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored", "persistenter"};
 
   /**
    * Serialize the configuration.
@@ -333,16 +339,18 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[4]).value(config.storageType.name());
       // Hashing type.
       jsonWriter.name(JSONNAMES[5]).value(config.hashType.name());
+      // Hash function.
+      jsonWriter.name(JSONNAMES[6]).value(config.nodeHashFunction.toString());
       // Text compression.
-      jsonWriter.name(JSONNAMES[6]).value(config.useTextCompression);
+      jsonWriter.name(JSONNAMES[7]).value(config.useTextCompression);
       // Path summary.
-      jsonWriter.name(JSONNAMES[7]).value(config.withPathSummary);
+      jsonWriter.name(JSONNAMES[8]).value(config.withPathSummary);
       // ID.
-      jsonWriter.name(JSONNAMES[8]).value(config.id);
+      jsonWriter.name(JSONNAMES[9]).value(config.id);
       // Dewey IDs stored or not.
-      jsonWriter.name(JSONNAMES[9]).value(config.areDeweyIDsStored);
+      jsonWriter.name(JSONNAMES[10]).value(config.areDeweyIDsStored);
       // Persistenter.
-      jsonWriter.name(JSONNAMES[10]).value(config.recordPersister.getClass().getName());
+      jsonWriter.name(JSONNAMES[11]).value(config.recordPersister.getClass().getName());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -399,23 +407,35 @@ public final class ResourceConfiguration {
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[5]);
       final HashType hashing = HashType.valueOf(jsonReader.nextString());
-      // Text compression.
+      // Hashing function.
       name = jsonReader.nextName();
       assert name.equals(JSONNAMES[6]);
+
+      final HashFunction hashFunction;
+      switch (jsonReader.nextString()) {
+        case "Hashing.sha256()":
+          hashFunction = Hashing.sha256();
+          break;
+        default:
+          throw new IllegalStateException("Hashing function not supported.");
+      }
+      // Text compression.
+      name = jsonReader.nextName();
+      assert name.equals(JSONNAMES[7]);
       final boolean compression = jsonReader.nextBoolean();
       // Path summary.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[7]);
+      assert name.equals(JSONNAMES[8]);
       final boolean pathSummary = jsonReader.nextBoolean();
       // Unique ID.
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[8]);
+      assert name.equals(JSONNAMES[9]);
       final int ID = jsonReader.nextInt();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[9]);
+      assert name.equals(JSONNAMES[10]);
       final boolean deweyIDsStored = jsonReader.nextBoolean();
       name = jsonReader.nextName();
-      assert name.equals(JSONNAMES[10]);
+      assert name.equals(JSONNAMES[11]);
       final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
       final Constructor<?> persistenterConstr = persistenterClazz.getConstructors()[0];
       final RecordPersister persistenter = (RecordPersister) persistenterConstr.newInstance();
@@ -427,7 +447,7 @@ public final class ResourceConfiguration {
       final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
 
       // Builder.
-      final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(file.getFileName().toString());
+      final ResourceConfiguration.Builder builder = ResourceConfiguration.newBuilder(file.getFileName().toString());
       builder.byteHandlerPipeline(pipeline)
              .hashKind(hashing)
              .versioningApproach(revisioning)
@@ -452,6 +472,9 @@ public final class ResourceConfiguration {
    * Builder class for generating new {@link ResourceConfiguration} instance.
    */
   public static final class Builder {
+
+    /** Hashing function for hashing nodes. */
+    private HashFunction mHashFunction = Hashing.sha256();
 
     /** Type of Storage (File, Berkeley). */
     private StorageType mType = STORAGE;
@@ -510,10 +533,27 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Set the record persistenter.
+     *
+     * @param persistenter the record persistenter
+     * @return reference to the builder object
+     */
     public Builder persistenter(final RecordPersister persistenter) {
       mPersistenter = checkNotNull(persistenter);
       return this;
     }
+
+//    /**
+//     * Set the hash function.
+//     *
+//     * @param hashFunction the hash function
+//     * @return reference to the builder object
+//     */
+//    public Builder hashFunction(final HashFunction hashFunction) {
+//      mHashFunction = checkNotNull(hashFunction);
+//      return this;
+//    }
 
     /**
      * Set the versioning algorithm to use.
@@ -597,6 +637,7 @@ public final class ResourceConfiguration {
                         .add("Type", mType)
                         .add("RevisionKind", mRevisionKind)
                         .add("HashKind", mHashKind)
+                        .add("HashFunction", mHashFunction)
                         .toString();
     }
 

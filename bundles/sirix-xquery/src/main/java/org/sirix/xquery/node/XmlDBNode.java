@@ -70,7 +70,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private final long mNodeKey;
 
   /** Kind of node. */
-  private final org.sirix.node.Kind mKind;
+  private final org.sirix.node.NodeKind mKind;
 
   /** Collection this node is part of. */
   private final XmlDBCollection mCollection;
@@ -150,7 +150,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (node.getImmutableNode().getNodeKey() == mRtx.getParentKey()) {
           return true;
         }
@@ -167,7 +167,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
       moveRtx();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (mDeweyID.isPresent()) {
           return mDeweyID.get().isDescendantOf(node.mDeweyID.get());
         } else {
@@ -271,7 +271,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (mDeweyID.isPresent()) {
           return mDeweyID.get().isPrecedingSiblingOf(node.mDeweyID.get());
         } else {
@@ -292,7 +292,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (mDeweyID.isPresent()) {
           return mDeweyID.get().isFollowingSiblingOf(node.mDeweyID.get());
         } else {
@@ -313,7 +313,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (mDeweyID.isPresent()) {
           return mDeweyID.get().isPrecedingOf(node.mDeweyID.get());
         } else {
@@ -334,7 +334,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
-      if (mKind != org.sirix.node.Kind.ATTRIBUTE && mKind != org.sirix.node.Kind.NAMESPACE) {
+      if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
         if (mDeweyID.isPresent()) {
           return mDeweyID.get().isFollowingOf(node.mDeweyID.get());
         } else {
@@ -414,7 +414,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public Scope getScope() {
-    if (mScope == null && mKind == org.sirix.node.Kind.ELEMENT) {
+    if (mScope == null && mKind == org.sirix.node.NodeKind.ELEMENT) {
       mScope = new SirixScope(this);
     }
     return mScope;

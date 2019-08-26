@@ -58,7 +58,7 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.DiffTuple;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -243,7 +243,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               mBuf.append(System.getProperty("line.separator"));
               break;
             case REPLACEDNEW:
-              if (newRtx.getKind() == Kind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
+              if (newRtx.getKind() == NodeKind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
               mBuf.append("  replace node sdb:select-node($doc");

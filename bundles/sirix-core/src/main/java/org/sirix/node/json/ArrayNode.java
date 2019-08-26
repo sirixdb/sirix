@@ -27,12 +27,14 @@
  */
 package org.sirix.node.json;
 
+import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xdm.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
@@ -49,6 +51,8 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   /** The path node key. */
   private final long mPathNodeKey;
 
+  private BigInteger mHash;
+
   /**
    * Constructor
    *
@@ -61,9 +65,43 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
     mPathNodeKey = pathNodeKey;
   }
 
+  /**
+   * Constructor
+   *
+   * @param structDel {@link StructNodeDelegate} to be set
+   * @param pathNodeKey the path node key
+   */
+  public ArrayNode(final BigInteger hashCode, final StructNodeDelegate structDel, final long pathNodeKey) {
+    assert hashCode != null;
+    mHash = hashCode;
+    assert structDel != null;
+    mStructNodeDel = structDel;
+    mPathNodeKey = pathNodeKey;
+  }
+
   @Override
-  public Kind getKind() {
-    return Kind.ARRAY;
+  public NodeKind getKind() {
+    return NodeKind.ARRAY;
+  }
+
+  @Override
+  public BigInteger computeHash() {
+    BigInteger result = BigInteger.ONE;
+
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+
+    return Node.to128BitsBigInteger(result);
+  }
+
+  @Override
+  public void setHash(final BigInteger hash) {
+    mHash = Node.to128BitsBigInteger(hash);
+  }
+
+  @Override
+  public BigInteger getHash() {
+    return mHash;
   }
 
   @Override

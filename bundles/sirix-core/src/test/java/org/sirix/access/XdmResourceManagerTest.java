@@ -39,7 +39,7 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
 import org.sirix.utils.XmlDocumentCreator;
 
@@ -101,10 +101,10 @@ public class XdmResourceManagerTest {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
-      assertEquals(Kind.XDM_DOCUMENT, wtx.getKind());
+      assertEquals(NodeKind.XDM_DOCUMENT, wtx.getKind());
 
       assertNotNull(wtx.moveToFirstChild());
-      assertEquals(Kind.ELEMENT, wtx.getKind());
+      assertEquals(NodeKind.ELEMENT, wtx.getKind());
       assertEquals("p:a",
           new StringBuilder(wtx.getName().getPrefix()).append(":").append(wtx.getName().getLocalName()).toString());
 

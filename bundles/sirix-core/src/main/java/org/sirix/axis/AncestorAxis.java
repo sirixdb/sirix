@@ -23,7 +23,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
 
 /**
@@ -76,7 +76,7 @@ public final class AncestorAxis extends AbstractAxis {
       return cursor.getNodeKey();
     }
 
-    if (cursor.getKind() != Kind.XDM_DOCUMENT && cursor.hasParent()
+    if (cursor.getKind() != NodeKind.XDM_DOCUMENT && cursor.hasParent()
         && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       return cursor.getParentKey();
     }

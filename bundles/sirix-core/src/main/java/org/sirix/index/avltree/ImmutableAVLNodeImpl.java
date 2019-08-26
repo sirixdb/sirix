@@ -2,7 +2,7 @@ package org.sirix.index.avltree;
 
 import org.sirix.index.avltree.interfaces.ImmutableAVLNode;
 import org.sirix.node.AbstractForwardingNode;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 
 /**
@@ -30,7 +30,7 @@ public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V> exte
   }
 
   @Override
-  public Kind getKind() {
+  public NodeKind getKind() {
     return mNode.getKind();
   }
 

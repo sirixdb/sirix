@@ -10,7 +10,7 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -107,9 +107,9 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
             assert moved;
             return VisitResultType.CONTINUE;
           case 1:
-            if (mWtx.getKind() == Kind.TEXT) {
+            if (mWtx.getKind() == NodeKind.TEXT) {
               mWtx.setValue("testUpdate");
-            } else if (mWtx.getKind() == Kind.ELEMENT) {
+            } else if (mWtx.getKind() == NodeKind.ELEMENT) {
               mWtx.setName(new QNm("testUpdate"));
             }
             return VisitResultType.CONTINUE;
@@ -137,7 +137,7 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
     try {
       final long nodeKey = mWtx.getNodeKey();
       boolean removeTextNode = false;
-      if (mWtx.getLeftSiblingKind() == Kind.TEXT && mWtx.getRightSiblingKind() == Kind.TEXT) {
+      if (mWtx.getLeftSiblingKind() == NodeKind.TEXT && mWtx.getRightSiblingKind() == NodeKind.TEXT) {
         removeTextNode = true;
       }
       mWtx.moveTo(nodeKey);
@@ -171,7 +171,7 @@ public final class ModificationVisitor extends AbstractXdmNodeVisitor {
         mWtx.moveTo(nodeKey);
         mWtx.remove();
         if (removeTextNode) {
-          assert mWtx.getKind() == Kind.TEXT;
+          assert mWtx.getKind() == NodeKind.TEXT;
           assert mWtx.getRightSiblingKey() == rightRightSiblKey;
           return VisitResultType.CONTINUE;
         } else {

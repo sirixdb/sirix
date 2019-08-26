@@ -5,7 +5,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.Kind;
+import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -58,7 +58,7 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
   }
 
   @Override
-  public int createNameKey(String name, @Nonnull Kind kind) throws SirixIOException {
+  public int createNameKey(String name, @Nonnull NodeKind kind) throws SirixIOException {
     return delegate().createNameKey(name, kind);
   }
 
