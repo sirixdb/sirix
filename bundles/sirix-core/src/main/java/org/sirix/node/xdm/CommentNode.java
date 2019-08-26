@@ -85,12 +85,12 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
 
-    return Node.to128BitsBigInteger(result);
+    return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsBigInteger(hash);
+    mHash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override

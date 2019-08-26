@@ -68,7 +68,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public BigInteger computeHash() {
-    return Node.to128BitsBigInteger(new BigInteger(1, mDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, mDelegate.getHashFunction().hashBytes(getRawValue()).asBytes()));
   }
 
   @Override

@@ -109,7 +109,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
           .putLong(node.getPathNodeKey());
     };
 
-    return Node.to128BitsBigInteger(
+    return Node.to128BitsAtMaximumBigInteger(
         new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes()));
   }
 

@@ -169,7 +169,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
     final BigInteger hash = new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
 
-    return Node.to128BitsBigInteger(hash);
+    return Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override

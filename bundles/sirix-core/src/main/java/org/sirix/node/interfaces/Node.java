@@ -34,8 +34,8 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  * </p>
  */
 public interface Node extends ImmutableNode {
-  // 170141183460469231731687303715884105727
-  static final BigInteger MAX_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
+  // 2^128-1.
+  static final BigInteger MAX_POSITIVE_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
 
   @Override
   public NodeKind getKind();
@@ -69,7 +69,7 @@ public interface Node extends ImmutableNode {
    */
   void setParentKey(long nodeKey);
 
-  static BigInteger to128BitsBigInteger(BigInteger hash) {
-    return hash.mod(MAX_VALUE_128_BIT);
+  static BigInteger to128BitsAtMaximumBigInteger(BigInteger hash) {
+    return hash.mod(MAX_POSITIVE_VALUE_128_BIT);
   }
 }

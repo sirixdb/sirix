@@ -124,12 +124,12 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
     result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
 
-    return Node.to128BitsBigInteger(result);
+    return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(BigInteger hash) {
-    mHash = Node.to128BitsBigInteger(hash);
+    mHash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override

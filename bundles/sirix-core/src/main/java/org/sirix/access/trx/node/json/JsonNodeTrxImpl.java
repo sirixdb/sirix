@@ -1741,11 +1741,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final Node node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
           PageKind.RECORDPAGE, -1);
       if (node.getNodeKey() == newNode.getNodeKey()) {
-        resultNew = Node.to128BitsBigInteger(node.getHash().subtract(oldHash));
-        resultNew = Node.to128BitsBigInteger(resultNew.add(newNodeHash));
+        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash));
+        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(newNodeHash));
       } else {
-        resultNew = Node.to128BitsBigInteger(node.getHash().subtract(oldHash.multiply(PRIME)));
-        resultNew = Node.to128BitsBigInteger(resultNew.add(newNodeHash.multiply(PRIME)));
+        resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash.multiply(PRIME)));
+        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(newNodeHash.multiply(PRIME)));
       }
       node.setHash(resultNew);
     } while (moveTo(mNodeReadOnlyTrx.getCurrentNode().getParentKey()).hasMoved());
@@ -1770,13 +1770,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         newHash = BigInteger.ZERO;
       } else if (node.getNodeKey() == startNode.getParentKey()) {
         // the parent node is just removed
-        newHash = Node.to128BitsBigInteger(node.getHash().subtract(hashToRemove.multiply(PRIME)));
-        hashToRemove = Node.to128BitsBigInteger(node.getHash());
+        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(hashToRemove.multiply(PRIME)));
+        hashToRemove = Node.to128BitsAtMaximumBigInteger(node.getHash());
         setRemoveDescendants(startNode);
       } else {
         // the ancestors are all touched regarding the modification
-        newHash = Node.to128BitsBigInteger(node.getHash().subtract(hashToRemove.multiply(PRIME)));
-        newHash = Node.to128BitsBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(hashToRemove.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
         hashToRemove = node.getHash();
         setRemoveDescendants(startNode);
       }
@@ -1827,14 +1827,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       } else if (node.getNodeKey() == startNode.getParentKey()) {
         // at the parent level, just add the node
         possibleOldHash = node.getHash();
-        newHash = Node.to128BitsBigInteger(possibleOldHash.add(hashToAdd.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(possibleOldHash.add(hashToAdd.multiply(PRIME)));
         hashToAdd = newHash;
         setAddDescendants(startNode, node, descendantCount);
       } else {
         // at the rest, remove the existing old key for this element
         // and add the new one
-        newHash = Node.to128BitsBigInteger(node.getHash().subtract(possibleOldHash.multiply(PRIME)));
-        newHash = Node.to128BitsBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(possibleOldHash.multiply(PRIME)));
+        newHash = Node.to128BitsAtMaximumBigInteger(newHash.add(hashToAdd.multiply(PRIME)));
         hashToAdd = newHash;
         possibleOldHash = node.getHash();
         setAddDescendants(startNode, node, descendantCount);
