@@ -83,12 +83,12 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
 
-    return Node.to128BitsBigInteger(result);
+    return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsBigInteger(hash);
+    mHash = Node.to128BitsAtMaximumBigInteger(hash);
 
     assert mHash.toByteArray().length <= 17;
   }

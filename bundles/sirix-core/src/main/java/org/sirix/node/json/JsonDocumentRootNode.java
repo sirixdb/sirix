@@ -78,18 +78,18 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
 
-    return Node.to128BitsBigInteger(result);
+    return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsBigInteger(hash);
+    mHash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
     if (mHash == null)
-      mHash = Node.to128BitsBigInteger(computeHash());
+      mHash = Node.to128BitsAtMaximumBigInteger(computeHash());
     return mHash;
   }
 

@@ -129,7 +129,7 @@ public class NodeDelegate implements Node {
       into.putLong(node.getNodeKey()).putLong(node.getParentKey()).putByte(node.getKind().getId());
     };
 
-    return Node.to128BitsBigInteger(new BigInteger(1, mHashFunction.hashObject(this, nodeFunnel).asBytes()));
+    return Node.to128BitsAtMaximumBigInteger(new BigInteger(1, mHashFunction.hashObject(this, nodeFunnel).asBytes()));
   }
 
   @Override
