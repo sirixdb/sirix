@@ -1064,24 +1064,21 @@ public class UpdateTest {
   @Test
   public void testFirstCopySubtreeAsFirstChild() {
     // Test for one node.
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
-      XmlDocumentCreator.create(wtx);
-      wtx.commit();
-    }
-
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
-      rtx.moveTo(4);
-      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
-        wtx.moveTo(9);
-        wtx.copySubtreeAsFirstChild(rtx);
-        testFirstCopySubtreeAsFirstChild(wtx);
-        wtx.commit();
-      }
-    }
-
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
-      testFirstCopySubtreeAsFirstChild(rtx);
-    }
+    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlDocumentCreator.create(wtx);
+    wtx.commit();
+    wtx.close();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx.moveTo(4);
+    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx.moveTo(9);
+    wtx.copySubtreeAsFirstChild(rtx);
+    testFirstCopySubtreeAsFirstChild(wtx);
+    wtx.commit();
+    wtx.close();
+    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    testFirstCopySubtreeAsFirstChild(rtx);
+    rtx.close();
   }
 
   /**
