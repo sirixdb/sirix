@@ -60,11 +60,10 @@ public final class TreeModifierImpl implements TreeModifier {
       final RevisionRootPage revisionRootPage =
           new RevisionRootPage(pageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
-      // Prepare indirect tree to hold reference to prepared revision root
-      // nodePageReference.
+      // Prepare indirect tree to hold reference to prepared revision root nodePageReference.
       final PageReference revisionRootPageReference = prepareLeafOfTree(pageRtx, log,
           uberPage.getPageCountExp(PageKind.UBERPAGE), uberPage.getIndirectPageReference(),
-          uberPage.getRevisionNumber(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, revisionRootPage);
+          uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, revisionRootPage);
 
       // Link the prepared revision root nodePageReference with the prepared
       // indirect tree.
@@ -78,8 +77,7 @@ public final class TreeModifierImpl implements TreeModifier {
   @Override
   public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, final @Nonnegative long pageKey,
-      final @Nonnegative long maxPageKey, final int index, final PageKind pageKind,
-      final RevisionRootPage revisionRootPage) {
+      final int index, final PageKind pageKind, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;
 
@@ -170,8 +168,8 @@ public final class TreeModifierImpl implements TreeModifier {
     }
   }
 
-  private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
-      final PageKind pageKind, final int index) {
+  private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx,
+      final RevisionRootPage revisionRoot, final PageKind pageKind, final int index) {
     switch (pageKind) {
       case RECORDPAGE:
         return revisionRoot.incrementAndGetCurrentMaxLevelOfIndirectPages();

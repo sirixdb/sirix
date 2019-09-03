@@ -25,35 +25,23 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
   protected AbstractForwardingPageWriteTrx() {}
 
   @Override
-  public void closeCaches() {
-    delegate().closeCaches();
-  }
-
-  @Override
-  public void clearCaches() {
-    delegate().clearCaches();
-  }
-
-  @Override
   public void close() throws SirixIOException {
     delegate().close();
   }
 
   @Override
-  public V createEntry(K key, @Nonnull V record, @Nonnull PageKind pageKind,
-      @Nonnegative int index) {
+  public V createEntry(K key, @Nonnull V record, @Nonnull PageKind pageKind, @Nonnegative int index) {
     return delegate().createEntry(key, record, pageKind, index);
   }
 
   @Override
-  public V prepareEntryForModification(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
-      @Nonnegative int index) {
+  public V prepareEntryForModification(@Nonnegative K recordKey, @Nonnull PageKind pageKind, @Nonnegative int index) {
     return delegate().prepareEntryForModification(recordKey, pageKind, index);
   }
 
   @Override
-  public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind,
-      @Nonnegative int index) throws SirixIOException {
+  public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind, @Nonnegative int index)
+      throws SirixIOException {
     delegate().removeEntry(recordKey, pageKind, index);
   }
 

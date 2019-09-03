@@ -414,7 +414,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           moveToParent();
           node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
               PageKind.RECORDPAGE, -1);
-          final BigInteger hash = node.getHash() == null ? node.computeHash() : node.getHash();
+          final BigInteger hash = node.getHash() == null
+              ? node.computeHash()
+              : node.getHash();
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));
 
           setAddDescendants(startNode, node, descendantCount);
@@ -505,8 +507,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       final long pathNodeKey = getPathNodeKey(structNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
 
-      final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey,
-          pathNodeKey, key, Fixed.NULL_NODE_KEY.getStandardProperty());
+      final ObjectKeyNode node = mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
+          key, Fixed.NULL_NODE_KEY.getStandardProperty());
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
@@ -1284,8 +1286,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Remember succesfully committed uber page in resource manager.
       mResourceManager.setLastCommittedUberPage(uberPage);
 
-      mNodeReadOnlyTrx.getPageTrx().clearCaches();
-      mNodeReadOnlyTrx.getPageTrx().closeCaches();
       mResourceManager.closeNodePageWriteTransaction(getId());
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();

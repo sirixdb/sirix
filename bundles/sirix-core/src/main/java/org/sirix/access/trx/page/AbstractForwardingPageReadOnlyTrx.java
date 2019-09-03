@@ -35,16 +35,6 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   protected AbstractForwardingPageReadOnlyTrx() {}
 
   @Override
-  public void clearCaches() {
-    delegate().clearCaches();
-  }
-
-  @Override
-  public void closeCaches() {
-    delegate().closeCaches();
-  }
-
-  @Override
   public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
     return delegate().dereferenceIndirectPageReference(indirectPageReference);
   }
@@ -56,8 +46,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
 
   @Override
   public PageReference getPageReferenceForPage(@Nonnull PageReference startReference, @Nonnegative long pageKey,
-      @Nonnegative long maxNodeKey, int indexNumber, @Nonnull PageKind pageKind) {
-    return delegate().getPageReferenceForPage(startReference, pageKey, maxNodeKey, indexNumber, pageKind);
+      int indexNumber, @Nonnull PageKind pageKind) {
+    return delegate().getPageReferenceForPage(startReference, pageKey, indexNumber, pageKind);
   }
 
   @Override

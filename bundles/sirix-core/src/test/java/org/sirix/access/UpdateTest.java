@@ -44,8 +44,8 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.settings.Fixed;
-import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.utils.NamePageHash;
+import org.sirix.utils.XmlDocumentCreator;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 
@@ -696,7 +696,7 @@ public class UpdateTest {
     while (ids.hasNext()) {
       assertTrue(axis.hasNext());
       axis.next();
-      assertEquals(ids.next(), ((XmlNodeReadOnlyTrx) axis.asXdmNodeReadTrx()).getDeweyID().get());
+      assertEquals(ids.next(), axis.asXdmNodeReadTrx().getDeweyID().get());
     }
   }
 
@@ -1064,21 +1064,24 @@ public class UpdateTest {
   @Test
   public void testFirstCopySubtreeAsFirstChild() {
     // Test for one node.
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
-    XmlDocumentCreator.create(wtx);
-    wtx.commit();
-    wtx.close();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    rtx.moveTo(4);
-    wtx = holder.getResourceManager().beginNodeTrx();
-    wtx.moveTo(9);
-    wtx.copySubtreeAsFirstChild(rtx);
-    testFirstCopySubtreeAsFirstChild(wtx);
-    wtx.commit();
-    wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    testFirstCopySubtreeAsFirstChild(rtx);
-    rtx.close();
+    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+      XmlDocumentCreator.create(wtx);
+      wtx.commit();
+    }
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      rtx.moveTo(4);
+      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+        wtx.moveTo(9);
+        wtx.copySubtreeAsFirstChild(rtx);
+        testFirstCopySubtreeAsFirstChild(wtx);
+        wtx.commit();
+      }
+    }
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      testFirstCopySubtreeAsFirstChild(rtx);
+    }
   }
 
   /**

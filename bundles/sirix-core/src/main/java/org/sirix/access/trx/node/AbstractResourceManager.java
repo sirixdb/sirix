@@ -4,7 +4,6 @@ package org.sirix.access.trx.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,10 +19,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalXmlDatabase;
@@ -143,11 +140,10 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     return Math.abs(lhs - rhs);
   }
 
-  protected void inititializeIndexController(final int revision,
-      IndexController<?, ?> controller) {
+  protected void inititializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
-    final Path indexes = getResourceConfig().resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(String.valueOf(revision) + ".xml");
+    final Path indexes = getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                         .resolve(String.valueOf(revision) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -181,7 +177,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
         : new UberPage(lastCommitedUberPage, representRevision > 0
             ? writer.readUberPageReference().getKey()
             : -1),
-        writer, id, representRevision, storeRevision, lastCommitedRev, mBufferManager, isBoundToNodeTrx);
+        writer, id, representRevision, storeRevision, lastCommitedRev, isBoundToNodeTrx);
   }
 
   @Override

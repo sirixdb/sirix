@@ -373,27 +373,11 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
       if (!mIsBoundToNodeTrx)
         mPageRtx.mResourceManager.closePageWriteTransaction(mPageRtx.getTrxId());
 
-      mPageRtx.clearCaches();
-      mPageRtx.closeCaches();
-      closeCaches();
+      mLog.close();
       mPageRtx.close();
       mPageWriter.close();
       mIsClosed = true;
     }
-  }
-
-  @Override
-  public void clearCaches() {
-    mPageRtx.assertNotClosed();
-    mPageRtx.clearCaches();
-    mLog.clear();
-  }
-
-  @Override
-  public void closeCaches() {
-    mPageRtx.assertNotClosed();
-    mPageRtx.closeCaches();
-    mLog.close();
   }
 
   /**
@@ -410,14 +394,11 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     assert recordPageKey >= 0;
     assert pageKind != null;
 
-    final long maxNodeKey = getMaxNodeKey(indexNumber, pageKind, mNewRoot);
-    final long maxPageKey = maxNodeKey >> 1;
     final PageReference pageReference = mPageRtx.getPageReference(mNewRoot, pageKind, indexNumber);
 
     // Get the reference to the unordered key/value page storing the records.
-    final PageReference reference =
-        mTreeModifier.prepareLeafOfTree(mPageRtx, mLog, getUberPage().getPageCountExp(pageKind), pageReference,
-            recordPageKey, maxPageKey, indexNumber, pageKind, mNewRoot);
+    final PageReference reference = mTreeModifier.prepareLeafOfTree(mPageRtx, mLog,
+        getUberPage().getPageCountExp(pageKind), pageReference, recordPageKey, indexNumber, pageKind, mNewRoot);
 
     PageContainer pageContainer = mLog.get(reference, mPageRtx);
 
@@ -448,33 +429,6 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     }
 
     return pageContainer;
-  }
-
-  private long getMaxNodeKey(final int index, final PageKind pageKind, final RevisionRootPage revisionRoot) {
-    final long maxNodeKey;
-
-    switch (pageKind) {
-      case RECORDPAGE:
-        maxNodeKey = revisionRoot.getMaxNodeKey();
-        break;
-      case CASPAGE:
-        maxNodeKey = getCASPage(revisionRoot).getMaxNodeKey(index);
-        break;
-      case PATHPAGE:
-        maxNodeKey = getPathPage(revisionRoot).getMaxNodeKey(index);
-        break;
-      case NAMEPAGE:
-        maxNodeKey = getNamePage(revisionRoot).getMaxNodeKey(index);
-        break;
-      case PATHSUMMARYPAGE:
-        maxNodeKey = getPathSummaryPage(revisionRoot).getMaxNodeKey(index);
-        break;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
-    }
-
-    return maxNodeKey;
   }
 
   /**
