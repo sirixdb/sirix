@@ -72,7 +72,6 @@ public final class PageTrxFactory {
    * @param trxId the transaction ID
    * @param representRev revision represent
    * @param lastStoredRev last stored revision
-   * @param bufferManager the page cache buffer
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
@@ -123,8 +122,9 @@ public final class PageTrxFactory {
 
       page.createPathSummaryTree(pageRtx, 0, log);
 
-      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx)))
+      if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getPathSummaryPageReference(), pageRtx))) {
         log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
+      }
     }
 
     if (!uberPage.isBootstrap()) {

@@ -163,20 +163,23 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
       }
 
       if (page == null) {
-        if (mTrxIntentLog == null)
+        if (mTrxIntentLog == null) {
+          // Putting to the transaction log afterwards would otherwise render the cached entry invalid
+          // as the reference log key is set and the key is reset to Constants.NULL_ID_LONG.
           page = mResourceBufferManager.getPageCache().get(reference);
+        }
 
         if (page == null) {
           page = mPageReader.read(reference, this);
 
           if (page != null && mTrxIntentLog == null) {
+            assert reference.getLogKey() == Constants.NULL_ID_INT
+                && reference.getPersistentLogKey() == Constants.NULL_ID_LONG;
             // Put page into buffer manager and set page reference (just to
             // track when the in-memory page must be removed).
             mResourceBufferManager.getPageCache().put(reference, page);
             reference.setPage(page);
           }
-        } else if (mTrxIntentLog == null) {
-          reference.setPage(page);
         }
       }
     }
@@ -274,7 +277,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * @throws SirixIOException if something odd happens within the creation process
    */
   @Override
-  public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) throws SirixIOException {
+  public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
         "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
         mResourceManager.getMostRecentRevisionNumber());
@@ -313,25 +316,25 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public final NamePage getNamePage(final RevisionRootPage revisionRoot) throws SirixIOException {
+  public final NamePage getNamePage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (NamePage) getPage(revisionRoot.getNamePageReference(), PageKind.NAMEPAGE);
   }
 
   @Override
-  public final PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) throws SirixIOException {
+  public final PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference(), PageKind.PATHSUMMARYPAGE);
   }
 
   @Override
-  public final PathPage getPathPage(final RevisionRootPage revisionRoot) throws SirixIOException {
+  public final PathPage getPathPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathPage) getPage(revisionRoot.getPathPageReference(), PageKind.PATHPAGE);
   }
 
   @Override
-  public final CASPage getCASPage(final RevisionRootPage revisionRoot) throws SirixIOException {
+  public final CASPage getCASPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (CASPage) getPage(revisionRoot.getCASPageReference(), PageKind.CASPAGE);
   }
@@ -342,7 +345,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * @param reference page reference
    * @throws SirixIOException if an I/O error occurs
    */
-  private Page getPage(final PageReference reference, final PageKind pageKind) throws SirixIOException {
+  private Page getPage(final PageReference reference, final PageKind pageKind) {
     Page page = reference.getPage();
 
     if (page == null) {
@@ -400,7 +403,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @SuppressWarnings("unchecked")
-  <E extends Page> E clone(final E toClone) throws SirixIOException {
+  <E extends Page> E clone(final E toClone) {
     try {
       final ByteArrayDataOutput output = ByteStreams.newDataOutput();
       final PagePersister pagePersister = new PagePersister();

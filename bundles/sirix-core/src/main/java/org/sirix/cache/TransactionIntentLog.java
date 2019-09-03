@@ -61,8 +61,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(
-          final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
         boolean returnVal = false;
         if (size() > CACHE_CAPACITY) {
           if (eldest != null) {
@@ -86,8 +85,8 @@ public final class TransactionIntentLog implements AutoCloseable {
    * The retrieved entry becomes the MRU (most recently used) entry.
    *
    * @param key the key whose associated value is to be returned.
-   * @return the value associated to this key, or {@code null} if no value with this key exists in
-   *         the cache
+   * @return the value associated to this key, or {@code null} if no value with this key exists in the
+   *         cache
    */
   public PageContainer get(final PageReference key, final PageReadOnlyTrx pageRtx) {
     PageContainer value = mMap.get(key);
@@ -152,10 +151,7 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("First Cache", mMap)
-                      .add("Second Cache", mSecondCache)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
   }
 
   /**
