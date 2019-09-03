@@ -1748,8 +1748,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       // Remember succesfully committed uber page in resource manager.
       mResourceManager.setLastCommittedUberPage(uberPage);
 
-      mNodeReadOnlyTrx.getPageTrx().clearCaches();
-      mNodeReadOnlyTrx.getPageTrx().closeCaches();
       mResourceManager.closeNodePageWriteTransaction(getId());
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();
@@ -1876,7 +1874,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           moveToParent();
           node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
               PageKind.RECORDPAGE, -1);
-          final BigInteger hash = node.getHash() == null ? node.computeHash() : node.getHash();
+          final BigInteger hash = node.getHash() == null
+              ? node.computeHash()
+              : node.getHash();
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));
           setAddDescendants(startNode, node, descendantCount);
         }

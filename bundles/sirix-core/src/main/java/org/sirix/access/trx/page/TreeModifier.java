@@ -53,8 +53,8 @@ public interface TreeModifier {
    * @return new {@link RevisionRootPage} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, PageReadOnlyTrxImpl pageRtx, TransactionIntentLog log,
-      @Nonnegative int baseRevision, @Nonnegative int representRevision);
+  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, PageReadOnlyTrxImpl pageRtx,
+      TransactionIntentLog log, @Nonnegative int baseRevision, @Nonnegative int representRevision);
 
   /**
    * Prepare the leaf of a tree, namely the reference to a {@link UnorderedKeyValuePage} and put the
@@ -66,7 +66,6 @@ public interface TreeModifier {
    *        tree-level
    * @param startPageReference the reference to start the tree traversal from
    * @param pageKey page key to lookup
-   * @param maxPageKey the maximum number of pages stored in the subtree
    * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
    * @param pageKind the kind of page subtree
    * @param revisionRootPage the revision root page
@@ -75,8 +74,8 @@ public interface TreeModifier {
    * @throws SirixIOException if an I/O error occured
    */
   PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
-      PageReference startReference, @Nonnegative long pageKey, @Nonnegative long maxPageKey, int indexNumber,
-      PageKind pageKind, RevisionRootPage revisionRootPage);
+      PageReference startReference, @Nonnegative long pageKey, int indexNumber, PageKind pageKind,
+      RevisionRootPage revisionRootPage);
 
   /**
    * Prepare indirect page, that is getting the referenced indirect page or a new page and put the

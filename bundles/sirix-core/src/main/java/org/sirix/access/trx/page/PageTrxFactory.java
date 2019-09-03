@@ -32,10 +32,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
@@ -44,7 +41,6 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.cache.BufferManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
@@ -83,8 +79,7 @@ public final class PageTrxFactory {
   public PageTrx<Long, Record, UnorderedKeyValuePage> createPageTrx(
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
-      final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev,
-      final @Nonnull BufferManager bufferManager, final boolean isBoundToNodeTrx) {
+      final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev, final boolean isBoundToNodeTrx) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRev);
 
@@ -110,8 +105,8 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final PageReadOnlyTrxImpl pageRtx = new PageReadOnlyTrxImpl(trxId, resourceManager, uberPage, representRev, writer, log,
-        indexController, bufferManager);
+    final PageReadOnlyTrxImpl pageRtx =
+        new PageReadOnlyTrxImpl(trxId, resourceManager, uberPage, representRev, writer, log, indexController, null);
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRev);
@@ -154,12 +149,11 @@ public final class PageTrxFactory {
 
       final PageReference revisionRootPageReference = treeModifier.prepareLeafOfTree(pageRtx, log,
           uberPage.getPageCountExp(PageKind.UBERPAGE), uberPage.getIndirectPageReference(),
-          uberPage.getRevisionNumber(), uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, newRevisionRootPage);
+          uberPage.getRevisionNumber(), -1, PageKind.UBERPAGE, newRevisionRootPage);
 
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController,
-        isBoundToNodeTrx);
+    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, isBoundToNodeTrx);
   }
 }

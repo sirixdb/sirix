@@ -138,16 +138,6 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   int getRevisionNumber();
 
   /**
-   * Clear the caches.
-   */
-  void clearCaches();
-
-  /**
-   * Close the caches.
-   */
-  void closeCaches();
-
-  /**
    * Calculate record page key from a given record key.
    *
    * @param recordKey record key to find record page key for
@@ -194,15 +184,14 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @param startReference the start reference (for instance to the indirect tree or the root-node of
    *        a BPlusTree)
    * @param pageKey the unique key of the page to search for
-   * @param maxNodeKey the maximum node key
    * @param indexNumber the index number or {@code -1}
    * @param pageKind the kind of subtree
    * @return {@link PageReference} instance pointing to the page denoted by {@code key}
    * @throws SirixIOException if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} < 0
    */
-  PageReference getPageReferenceForPage(PageReference startReference, @Nonnegative long pageKey,
-      @Nonnegative long maxNodeKey, int indexNumber, @Nonnull PageKind pageKind);
+  PageReference getPageReferenceForPage(PageReference startReference, @Nonnegative long pageKey, int indexNumber,
+      @Nonnull PageKind pageKind);
 
   /**
    * Get the {@link Reader} to read a page from persistent storage if needed.
