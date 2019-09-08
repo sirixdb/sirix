@@ -683,10 +683,15 @@ class SirixVerticleXmlTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                     val url = "$server$serverPath?nodeId=3"
 
                     httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").sendAwait()
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.completeNow()

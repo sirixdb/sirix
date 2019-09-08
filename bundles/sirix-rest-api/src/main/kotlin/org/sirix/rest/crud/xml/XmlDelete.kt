@@ -2,6 +2,7 @@ package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -10,10 +11,12 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.xquery.node.BasicXmlDBStore
+import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -64,7 +67,7 @@ class XmlDelete(private val location: Path) {
             } else {
                 val manager = database.openResourceManager(resPathName)
 
-                removeSubtree(manager, nodeId, context)
+                removeSubtree(manager, nodeId, context, ctx)
             }
         }
 
@@ -90,12 +93,24 @@ class XmlDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: XmlResourceManager, nodeId: Long, context: Context): XmlNodeTrx? {
+    private suspend fun removeSubtree(manager: XmlResourceManager, nodeId: Long, context: Context, routingContext: RoutingContext): XmlNodeTrx? {
         return context.executeBlockingAwait { future: Future<XmlNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
                 if (wtx.moveTo(nodeId).hasMoved()) {
+                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                        val hashCode = routingContext.request().getHeader(HttpHeaders.ETAG)
+
+                        if (hashCode == null) {
+                            routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                        }
+
+                        if (wtx.hash != BigInteger(hashCode)) {
+                            routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                        }
+                    }
+
                     wtx.remove()
                     wtx.commit()
                 }

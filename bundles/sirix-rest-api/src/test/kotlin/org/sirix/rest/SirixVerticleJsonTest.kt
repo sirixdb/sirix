@@ -286,7 +286,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a subtree of a resource")
     fun testDelete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -325,10 +325,15 @@ class SirixVerticleJsonTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=4").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                     val url = "$server$serverPath?nodeId=4"
 
                     httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").sendAwait()
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.completeNow()
@@ -378,6 +383,11 @@ class SirixVerticleJsonTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
                     val expectUpdatedString = """
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
@@ -385,7 +395,7 @@ class SirixVerticleJsonTest {
                     val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
                     httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
