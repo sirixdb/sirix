@@ -201,10 +201,10 @@ class SirixVerticleJsonTest {
                         }
                     }
 
-                    val hashCode = httpResponse.getHeader("Etag")
+                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                     httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(json))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
@@ -262,7 +262,7 @@ class SirixVerticleJsonTest {
                     httpResponse = client.getAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
-                    val hashCode = httpResponse.getHeader("ETag")
+                    val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                     val expectUpdatedString = """
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
@@ -271,7 +271,7 @@ class SirixVerticleJsonTest {
                     val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
                     httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {

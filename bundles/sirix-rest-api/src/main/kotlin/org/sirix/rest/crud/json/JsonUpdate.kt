@@ -2,6 +2,7 @@ package org.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -73,7 +74,7 @@ class JsonUpdate(private val location: Path) {
                         wtx.moveToFirstChild()
 
                     if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                        val hashCode = ctx.request().getHeader("ETag")
+                        val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
 
                         if (hashCode == null) {
                             ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
