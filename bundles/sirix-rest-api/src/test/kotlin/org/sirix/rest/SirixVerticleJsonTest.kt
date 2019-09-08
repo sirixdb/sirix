@@ -38,7 +38,8 @@ class SirixVerticleJsonTest {
     @DisplayName("Deploy a verticle")
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
         val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443)
-                .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
+                .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c")
+                .put("keycloak.url", "http://localhost:8080/auth/realms/master"))
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
@@ -161,7 +162,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -200,8 +201,10 @@ class SirixVerticleJsonTest {
                         }
                     }
 
+                    val hashCode = httpResponse.getHeader("Etag")
+
                     httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
@@ -217,7 +220,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -256,6 +259,11 @@ class SirixVerticleJsonTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                    val hashCode = httpResponse.getHeader("ETag")
+
                     val expectUpdatedString = """
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
@@ -263,7 +271,7 @@ class SirixVerticleJsonTest {
                     val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
                     httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {

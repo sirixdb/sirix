@@ -2,16 +2,16 @@ package org.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonNodeTrx
-import org.sirix.rest.JsonSerializeHelper
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
+import java.math.BigInteger
 import java.nio.file.Path
 
 enum class JsonInsertionMode {
@@ -72,6 +72,18 @@ class JsonUpdate(private val location: Path) {
                     if (wtx.isDocumentRoot && wtx.hasFirstChild())
                         wtx.moveToFirstChild()
 
+                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                        val hashCode = ctx.request().getHeader("ETag")
+
+                        if (hashCode == null) {
+                            ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                        }
+
+                        if (wtx.hash != BigInteger(hashCode)) {
+                            ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                        }
+                    }
+
                     val jsonReader = JsonShredder.createStringReader(resFileToStore)
 
                     if (insertionMode != null)
@@ -82,7 +94,7 @@ class JsonUpdate(private val location: Path) {
                 val serializerBuilder = JsonSerializer.newBuilder(manager, out)
                 val serializer = serializerBuilder.build()
 
-                JsonSerializeHelper().serialize(serializer, out, ctx)
+                JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
             }
 
             future.complete(null)

@@ -1,4 +1,4 @@
-package org.sirix.rest
+package org.sirix.rest.crud.xml
 
 import io.vertx.ext.auth.User
 import org.brackit.xquery.node.parser.SubtreeParser

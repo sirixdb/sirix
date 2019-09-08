@@ -1,16 +1,16 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Future
-import io.vertx.core.Handler
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.xml.XmlNodeTrx
-import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
+import java.math.BigInteger
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
@@ -82,6 +82,18 @@ class XmlUpdate(private val location: Path) {
                     if (wtx.isDocumentRoot && wtx.hasFirstChild())
                         wtx.moveToFirstChild()
 
+                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                        val hashCode = ctx.request().getHeader("ETag")
+
+                        if (hashCode == null) {
+                            ctx.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                        }
+
+                        if (wtx.hash != BigInteger(hashCode)) {
+                            ctx.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                        }
+                    }
+
                     val xmlReader = XmlShredder.createStringReader(resFileToStore)
 
                     if (insertionMode != null)
@@ -94,7 +106,7 @@ class XmlUpdate(private val location: Path) {
                 val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
                 val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                XdmSerializeHelper().serializeXml(serializer, out, ctx)
+                XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
             }
 
             future.complete(null)

@@ -14,7 +14,6 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.rest.XdmSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
@@ -108,14 +107,13 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private suspend fun serializeXdm(manager: XmlResourceManager, vertxContext: Context,
-                                     routingCtx:
-                                  RoutingContext) {
+                                     routingCtx: RoutingContext) {
         vertxContext.executeBlockingAwait { future: Future<Unit> ->
             val out = ByteArrayOutputStream()
             val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-            XdmSerializeHelper().serializeXml(serializer, out, routingCtx)
+            XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
 
             future.complete(null)
         }

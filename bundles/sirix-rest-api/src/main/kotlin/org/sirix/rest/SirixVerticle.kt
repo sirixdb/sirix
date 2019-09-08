@@ -56,7 +56,7 @@ class SirixVerticle : CoroutineVerticle() {
                 vertx,
                 oAuth2ClientOptionsOf()
                         .setFlow(OAuth2FlowType.PASSWORD)
-                        .setSite("http://localhost:8080/auth/realms/master")
+                        .setSite(config.getString("keycloak.url"))
                         .setClientID("sirix")
                         .setClientSecret(config.getString("client.secret")))
 
@@ -171,11 +171,11 @@ class SirixVerticle : CoroutineVerticle() {
                 .consumes("application/xml")
                 .produces("application/xml")
                 .coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            XmlGet(location).handle(it)
-        }
+                    Auth(keycloak, "realm:view").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    XmlGet(location).handle(it)
+                }
         post("/")
                 .consumes("application/json")
                 .produces("application/json")
@@ -190,11 +190,11 @@ class SirixVerticle : CoroutineVerticle() {
                 .consumes("application/xml")
                 .produces("application/xml")
                 .coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            XmlGet(location).handle(it)
-        }
+                    Auth(keycloak, "realm:view").handle(it)
+                    it.next()
+                }.handler(BodyHandler.create()).coroutineHandler {
+                    XmlGet(location).handle(it)
+                }
         post("/:database/:resource")
                 .consumes("application/json")
                 .produces("application/json")
