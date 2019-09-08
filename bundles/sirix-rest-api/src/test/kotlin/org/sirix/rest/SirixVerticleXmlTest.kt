@@ -38,7 +38,8 @@ class SirixVerticleXmlTest {
     @DisplayName("Deploy a verticle")
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
         val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443)
-                .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c"))
+                .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c")
+                .put("keycloak.url", "http://localhost:8080/auth/realms/master"))
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
@@ -193,11 +194,16 @@ class SirixVerticleXmlTest {
                     </rest:sequence>
                     """.trimIndent()
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                    val hashCode = httpResponse.getHeader("ETag")
+
                     var url = "$server$serverPath?nodeId=3&insert=asFirstChild"
 
                     httpResponse =
                             client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION.toString(),
-                                    "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+                                    "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(xml))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
@@ -342,6 +348,11 @@ class SirixVerticleXmlTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                    val hashCode = httpResponse.getHeader("ETag")
+
                     val expectUpdatedString = """
                     <rest:sequence xmlns:rest="https://sirix.io/rest">
                       <rest:item>
@@ -361,7 +372,7 @@ class SirixVerticleXmlTest {
                     val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
 
                     httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(xml))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
@@ -455,8 +466,10 @@ class SirixVerticleXmlTest {
                         }
                     }
 
+                    val hashCode = httpResponse.getHeader("ETag")
+
                     httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(xml))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
@@ -587,6 +600,11 @@ class SirixVerticleXmlTest {
                         }
                     }
 
+                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                    val hashCode = httpResponse.getHeader("ETag")
+
                     val expectUpdatedString = """
                     <rest:sequence xmlns:rest="https://sirix.io/rest">
                       <rest:item>
@@ -606,7 +624,7 @@ class SirixVerticleXmlTest {
                     val url = "$server$serverPath?nodeId=3&insert=asFirstChild"
 
                     httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").putHeader("ETag", hashCode).sendBufferAwait(Buffer.buffer(xml))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {

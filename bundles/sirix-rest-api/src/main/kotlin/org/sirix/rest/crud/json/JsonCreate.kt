@@ -14,7 +14,6 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.rest.JsonSerializeHelper
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
@@ -107,15 +106,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun serializeJson(manager: JsonResourceManager, vertxContext: Context,
-                                     routingCtx:
-                                  RoutingContext) {
+    private suspend fun serializeJson(manager: JsonResourceManager, vertxContext: Context, routingCtx: RoutingContext) {
         vertxContext.executeBlockingAwait { future: Future<Unit> ->
             val out = StringWriter()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out)
             val serializer = serializerBuilder.build()
 
-            JsonSerializeHelper().serialize(serializer, out, routingCtx)
+            JsonSerializeHelper().serialize(serializer, out, routingCtx, manager, null)
 
             future.complete(null)
         }

@@ -10,17 +10,17 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
+import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.rest.JsonSessionDBStore
 import org.sirix.xquery.json.BasicJsonDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
 class JsonDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val dbName = ctx.pathParam("database")
+        val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
@@ -96,10 +96,10 @@ class JsonDelete(private val location: Path) {
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
-                wtx.moveTo(nodeId)
-
-                wtx.remove()
-                wtx.commit()
+                if (wtx.moveTo(nodeId).hasMoved()) {
+                    wtx.remove()
+                    wtx.commit()
+                }
 
                 future.complete(wtx)
             }

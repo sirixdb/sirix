@@ -1,4 +1,4 @@
-package org.sirix.rest
+package org.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.vertx.ext.auth.User

@@ -16,8 +16,6 @@ import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.XdmSerializeHelper
-import org.sirix.rest.XmlSessionDBStore
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -252,7 +250,7 @@ class XmlGet(private val location: Path) {
 
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-        XdmSerializeHelper().serializeXml(serializer, out, ctx)
+        XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
     }
 
     private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {

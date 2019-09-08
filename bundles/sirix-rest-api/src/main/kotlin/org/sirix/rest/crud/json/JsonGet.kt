@@ -17,8 +17,6 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
-import org.sirix.rest.JsonSerializeHelper
-import org.sirix.rest.JsonSessionDBStore
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -219,7 +217,7 @@ class JsonGet(private val location: Path) {
                 val out = StringBuilder()
 
                 SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
-                    val serializer = JsonDBSerializer(out, false);
+                    val serializer = JsonDBSerializer(out, false)
                     XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
                 }
 
@@ -265,7 +263,7 @@ class JsonGet(private val location: Path) {
 
         val serializer = serializerBuilder.build()
 
-        JsonSerializeHelper().serialize(serializer, out, ctx)
+        JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
     }
 
     private fun parseIntRevisions(startRevision: String, endRevision: String): Array<Int> {

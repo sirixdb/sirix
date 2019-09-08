@@ -13,14 +13,13 @@ import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.rest.XmlSessionDBStore
 import org.sirix.xquery.node.BasicXmlDBStore
 import java.nio.file.Files
 import java.nio.file.Path
 
 class XmlDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val dbName = ctx.pathParam("database")
+        val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
@@ -96,10 +95,10 @@ class XmlDelete(private val location: Path) {
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
-                wtx.moveTo(nodeId)
-
-                wtx.remove()
-                wtx.commit()
+                if (wtx.moveTo(nodeId).hasMoved()) {
+                    wtx.remove()
+                    wtx.commit()
+                }
 
                 future.complete(wtx)
             }
