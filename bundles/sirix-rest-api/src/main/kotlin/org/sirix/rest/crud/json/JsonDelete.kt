@@ -2,6 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -15,6 +16,7 @@ import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.xquery.json.BasicJsonDBStore
+import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -65,7 +67,7 @@ class JsonDelete(private val location: Path) {
             } else {
                 val manager = database.openResourceManager(resPathName)
 
-                removeSubtree(manager, nodeId, context)
+                removeSubtree(manager, nodeId, context, ctx)
             }
         }
 
@@ -91,12 +93,24 @@ class JsonDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: JsonResourceManager, nodeId: Long, context: Context): JsonNodeTrx? {
+    private suspend fun removeSubtree(manager: JsonResourceManager, nodeId: Long, context: Context, routingContext: RoutingContext): JsonNodeTrx? {
         return context.executeBlockingAwait { future: Future<JsonNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
                 if (wtx.moveTo(nodeId).hasMoved()) {
+                    if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
+                        val hashCode = routingContext.request().getHeader(HttpHeaders.ETAG)
+
+                        if (hashCode == null) {
+                            routingContext.fail(IllegalStateException("Hash code is missing in ETag HTTP-Header."))
+                        }
+
+                        if (wtx.hash != BigInteger(hashCode)) {
+                            routingContext.fail(IllegalArgumentException("Someone might have changed the resource in the meantime."))
+                        }
+                    }
+
                     wtx.remove()
                     wtx.commit()
                 }
