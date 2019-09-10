@@ -194,7 +194,7 @@ class SirixVerticleXmlTest {
                     </rest:sequence>
                     """.trimIndent()
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
@@ -243,7 +243,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -348,7 +348,7 @@ class SirixVerticleXmlTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
@@ -600,7 +600,7 @@ class SirixVerticleXmlTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
@@ -683,7 +683,7 @@ class SirixVerticleXmlTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=3").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())

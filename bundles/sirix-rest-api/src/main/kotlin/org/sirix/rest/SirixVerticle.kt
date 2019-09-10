@@ -17,14 +17,8 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
-import org.sirix.rest.crud.json.JsonCreate
-import org.sirix.rest.crud.json.JsonDelete
-import org.sirix.rest.crud.json.JsonGet
-import org.sirix.rest.crud.json.JsonUpdate
-import org.sirix.rest.crud.xml.XmlCreate
-import org.sirix.rest.crud.xml.XmlDelete
-import org.sirix.rest.crud.xml.XmlGet
-import org.sirix.rest.crud.xml.XmlUpdate
+import org.sirix.rest.crud.json.*
+import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
 
 
@@ -141,11 +135,23 @@ class SirixVerticle : CoroutineVerticle() {
             JsonGet(location).handle(it)
         }
 
+        head("/:database/:resource").produces("application/xml").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            XmlHead(location).handle(it)
+        }
         get("/:database/:resource").produces("application/xml").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
         }.coroutineHandler {
             XmlGet(location).handle(it)
+        }
+        head("/:database/:resource").produces("application/json").coroutineHandler {
+            Auth(keycloak, "realm:view").handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonHead(location).handle(it)
         }
         get("/:database/:resource").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)

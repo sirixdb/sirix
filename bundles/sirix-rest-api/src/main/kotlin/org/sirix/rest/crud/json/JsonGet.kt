@@ -3,6 +3,7 @@ package org.sirix.rest.crud.json
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -35,7 +36,7 @@ import org.sirix.xquery.JsonDBSerializer
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val vertxContext = ctx.vertx().orCreateContext
+        val context = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
@@ -43,44 +44,46 @@ class JsonGet(private val location: Path) {
 
         if (dbName == null && resName == null) {
             if (query == null || query.isEmpty())
-                listDatabases(ctx)
+                listDatabases(ctx, context)
             else
-                xquery(query, null, ctx, vertxContext, ctx.get("user") as User)
+                xquery(query, null, ctx, context, ctx.get("user") as User)
         } else {
-            get(dbName, ctx, resName, query, vertxContext, ctx.get("user") as User)
+            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
         }
 
         return ctx.currentRoute()
     }
 
-    private fun listDatabases(ctx: RoutingContext) {
-        val databases = Files.list(location)
+    private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
+        context.executeBlockingAwait { future: Future<Unit> ->
+            val databases = Files.list(location)
 
-        val buffer = StringBuilder()
+            val buffer = StringBuilder()
 
-        buffer.append("{\"databases\":[")
+            buffer.append("{\"databases\":[")
 
-        databases.use {
-            val databasesList = it.collect(toList())
-            for ((index, database) in databasesList.withIndex()) {
-                if (Files.isDirectory(database)) {
-                    buffer.append(database.fileName)
+            databases.use {
+                val databasesList = it.collect(toList())
+                for ((index, database) in databasesList.withIndex()) {
+                    if (Files.isDirectory(database)) {
+                        buffer.append(database.fileName)
 
-                    if (index != databasesList.size)
-                        buffer.append(",")
+                        if (index != databasesList.size - 1)
+                            buffer.append(",")
+                    }
                 }
             }
+
+            buffer.append("]}")
+
+            val content = buffer.toString()
+
+            ctx.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                    .write(content)
+                    .end()
         }
-
-        buffer.append("]}")
-
-        val content = buffer.toString()
-
-        ctx.response().setStatusCode(200)
-                .putHeader("Content-Type", "application/xml")
-                .putHeader("Content-Length", content.length.toString())
-                .write(content)
-                .end()
     }
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
@@ -103,7 +106,6 @@ class JsonGet(private val location: Path) {
         }
 
         database.use {
-            val manager: JsonResourceManager
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
@@ -113,13 +115,13 @@ class JsonGet(private val location: Path) {
 
                     for ((index, resource) in resources.withIndex()) {
                         buffer.append(resource)
-                        if (index != resources.size)
+                        if (index != resources.size - 1)
                             buffer.append(",")
                     }
 
                     buffer.append("]}")
                 } else {
-                    manager = database.openResourceManager(resName)
+                    val manager = database.openResourceManager(resName)
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {

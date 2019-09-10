@@ -96,7 +96,6 @@ class SirixVerticleJsonTest {
                         }
                     }
                 }
-
             }
         }
     }
@@ -259,7 +258,7 @@ class SirixVerticleJsonTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
@@ -325,7 +324,7 @@ class SirixVerticleJsonTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=4").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=4").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
@@ -383,7 +382,7 @@ class SirixVerticleJsonTest {
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
