@@ -37,8 +37,9 @@ import org.sirix.exception.SirixIOException;
  * </p>
  *
  * <p>
- * Furthermore, databases are created by {@link org.sirix.access.access.conf.DatabaseConfiguration}s. After
- * creation, the settings of a database cannot be changed.
+ * Furthermore, databases are created by
+ * {@link org.sirix.access.access.conf.DatabaseConfiguration}s. After creation, the settings of a
+ * database cannot be changed.
  * </p>
  *
  *
@@ -56,7 +57,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * @return {@code true} if successful, {@code false} otherwise
    * @throws SirixIOException if anything happens while creating the resource
    */
-  boolean createResource(ResourceConfiguration config) throws SirixIOException;
+  boolean createResource(ResourceConfiguration config);
 
   /**
    * Is the resource within this database existing?
@@ -77,10 +78,10 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * Getting the resource manager to open and work with a resource stored in this database.
    *
    * @param resourceName the resource to work on
-   * @return the session
-   * @throws SirixException if can't get session
+   * @return the resource manager
+   * @throws SirixException if can't open resource manager
    */
-  T openResourceManager(String resourceName) throws SirixException;
+  T openResourceManager(String resourceName);
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.
@@ -95,7 +96,7 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * @throws SirixException if anything happens within sirix.
    */
   @Override
-  void close() throws SirixException;
+  void close();
 
   /**
    * Get the {@link DatabaseConfiguration} associated with this database.
