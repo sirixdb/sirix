@@ -3,6 +3,7 @@ package org.sirix.rest.crud.xml
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -33,7 +34,7 @@ import java.time.ZoneId
 
 class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val vertxContext = ctx.vertx().orCreateContext
+        val context = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
@@ -41,38 +42,40 @@ class XmlGet(private val location: Path) {
 
         if (dbName == null && resName == null) {
             if (query == null || query.isEmpty())
-                listDatabases(ctx)
+                listDatabases(ctx, context)
             else
-                xquery(query, null, ctx, vertxContext, ctx.get("user") as User)
+                xquery(query, null, ctx, context, ctx.get("user") as User)
         } else {
-            get(dbName, ctx, resName, query, vertxContext, ctx.get("user") as User)
+            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
         }
 
         return ctx.currentRoute()
     }
 
-    private fun listDatabases(ctx: RoutingContext) {
-        val databases = Files.list(location)
+    private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
+        context.executeBlockingAwait { future: Future<Unit> ->
+            val databases = Files.list(location)
 
-        val buffer = StringBuilder()
+            val buffer = StringBuilder()
 
-        buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+            buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
 
-        databases.use {
-            databases.filter { Files.isDirectory(it) }.forEach {
-                buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+            databases.use {
+                databases.filter { Files.isDirectory(it) }.forEach {
+                    buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+                }
             }
+
+            buffer.append("</rest:sequence>")
+
+            val content = buffer.toString()
+
+            ctx.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                    .write(content)
+                    .end()
         }
-
-        buffer.append("</rest:sequence>")
-
-        val content = buffer.toString()
-
-        ctx.response().setStatusCode(200)
-                .putHeader("Content-Type", "application/xml")
-                .putHeader("Content-Length", content.length.toString())
-                .write(content)
-                .end()
     }
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
@@ -95,7 +98,6 @@ class XmlGet(private val location: Path) {
         }
 
         database.use {
-            val manager: XmlResourceManager
             try {
                 if (resName == null) {
                     val buffer = StringBuilder()
@@ -107,7 +109,7 @@ class XmlGet(private val location: Path) {
 
                     buffer.appendln("</rest:sequence>")
                 } else {
-                    manager = database.openResourceManager(resName)
+                    val manager = database.openResourceManager(resName)
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
@@ -186,9 +188,9 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, vertxContext: Context,
+    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
                                user: User) {
-        vertxContext.executeBlockingAwait { future: Future<Unit> ->
+        context.executeBlockingAwait { future: Future<Unit> ->
             // Initialize queryResource context and store.
             val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
 

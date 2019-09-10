@@ -1,5 +1,6 @@
 package org.sirix.rest.crud.json
 
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonResourceManager
@@ -21,8 +22,8 @@ class JsonSerializeHelper {
 
     private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
         ctx.response().setStatusCode(200)
-                .putHeader("Content-Type", "application/json")
-                .putHeader("Content-Length", body.length.toString())
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
                 .write(body)
                 .end()
     }
@@ -37,9 +38,9 @@ class JsonSerializeHelper {
                 rtx.moveTo(nodeId).trx().hash
 
             ctx.response().setStatusCode(200)
-                    .putHeader("Content-Type", "application/json")
-                    .putHeader("Content-Length", body.length.toString())
-                    .putHeader("ETag", hash.toString())
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+                    .putHeader(HttpHeaders.ETAG, hash.toString())
                     .write(body)
                     .end()
         }
