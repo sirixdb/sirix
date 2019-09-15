@@ -39,7 +39,7 @@ public final class PageUtils {
     reference = page.getReference(0);
 
     // Create new record page.
-    final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
+    final UnorderedKeyValuePage recordPage = new UnorderedKeyValuePage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
         Constants.NULL_ID_LONG, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceManager().getResourceConfig();
@@ -52,8 +52,8 @@ public final class PageUtils {
     // TODO: Should be passed from the method... chaining up.
     final DatabaseType dbType = pageReadTrx.getResourceManager().getDatabase().getDatabaseConfig().getDatabaseType();
 
-    ndp.setEntry(0L, dbType.getDocumentNode(id));
+    recordPage.setEntry(0L, dbType.getDocumentNode(id));
 
-    log.put(reference, PageContainer.getInstance(ndp, ndp));
+    log.put(reference, PageContainer.getInstance(recordPage, recordPage));
   }
 }

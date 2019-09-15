@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node.xdm;
+package org.sirix.node.xml;
 
 import java.math.BigInteger;
 import java.util.Optional;
@@ -33,26 +33,34 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.immutable.xdm.ImmutableNamespace;
+import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
+import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 
 /**
- * <h1>NamespaceNode</h1>
+ * <h1>AttributeNode</h1>
  *
  * <p>
- * Node representing a namespace.
+ * Node representing an attribute.
  * </p>
  */
-public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
+public final class AttributeNode extends AbstractForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
 
-  /** {@link NodeDelegate} reference. */
+  /** Delegate for val node information. */
+  private final ValueNodeDelegate mValDel;
+
+  /** Node delegate. */
   private final NodeDelegate mNodeDel;
 
   /** The qualified name. */
@@ -61,64 +69,82 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   private BigInteger mHash;
 
   /**
-   * Constructor.
+   * Creating an attribute.
    *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameDel {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
+   * @param nodeDel {@link NodeDelegate} to be set
+   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param valDel {@link ValueNodeDelegate} to be set
    */
-  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final QNm qNm) {
-    assert nodeDel != null;
-    assert nameDel != null;
-    assert qNm != null;
+  public AttributeNode(final NodeDelegate nodeDel, final NameNodeDelegate nameDel, final ValueNodeDelegate valDel,
+      final QNm qNm) {
+    assert nodeDel != null : "nodeDel must not be null!";
     mNodeDel = nodeDel;
+    assert nameDel != null : "nameDel must not be null!";
     mNameDel = nameDel;
+    assert valDel != null : "valDel must not be null!";
+    mValDel = valDel;
+    assert qNm != null : "qNm must not be null!";
     mQNm = qNm;
   }
 
   /**
-   * Constructor.
+   * Creating an attribute.
    *
-   * @param hashCode hash code
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameDel {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
+   * @param nodeDel {@link NodeDelegate} to be set
+   * @param nodeDel {@link StructNodeDelegate} to be set
+   * @param valDel {@link ValueNodeDelegate} to be set
    */
-  public NamespaceNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
-      final QNm qNm) {
-    assert hashCode != null;
-    assert nodeDel != null;
-    assert nameDel != null;
-    assert qNm != null;
+  public AttributeNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
+      final ValueNodeDelegate valDel, final QNm qNm) {
     mHash = hashCode;
+    assert nodeDel != null : "nodeDel must not be null!";
     mNodeDel = nodeDel;
+    assert nameDel != null : "nameDel must not be null!";
     mNameDel = nameDel;
+    assert valDel != null : "valDel must not be null!";
+    mValDel = valDel;
+    assert qNm != null : "qNm must not be null!";
     mQNm = qNm;
   }
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.NAMESPACE;
+    return NodeKind.ATTRIBUTE;
   }
 
   @Override
   public BigInteger computeHash() {
+    final HashCode valueHashCode = mNodeDel.getHashFunction().hashBytes(getRawValue());
+
+    final BigInteger valueBigInteger = new BigInteger(1, valueHashCode.asBytes());
+
     BigInteger result = BigInteger.ONE;
 
     result = BigInteger.valueOf(31).multiply(result).add(mNodeDel.computeHash());
     result = BigInteger.valueOf(31).multiply(result).add(mNameDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(valueBigInteger);
 
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
-  public void setHash(final BigInteger hash) {
+  public void setHash(BigInteger hash) {
     mHash = Node.to128BitsAtMaximumBigInteger(hash);
   }
 
   @Override
   public BigInteger getHash() {
     return mHash;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+    return visitor.visit(ImmutableAttributeNode.of(this));
+  }
+
+  @Override
+  public String toString() {
+    return MoreObjects.toStringHelper(this).add("nameDel", mNameDel).add("valDel", mValDel).toString();
   }
 
   @Override
@@ -138,44 +164,41 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    mHash = null;
     mNameDel.setPrefixKey(prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
-    mHash = null;
     mNameDel.setLocalNameKey(localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    mHash = null;
     mNameDel.setURIKey(uriKey);
   }
 
   @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableNamespace.of(this));
+  public byte[] getRawValue() {
+    return mValDel.getRawValue();
+  }
+
+  @Override
+  public void setValue(final byte[] value) {
+    mValDel.setValue(value);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDel, mNameDel);
+    return Objects.hashCode(mNameDel, mValDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NamespaceNode) {
-      final NamespaceNode other = (NamespaceNode) obj;
-      return Objects.equal(mNodeDel, other.mNodeDel) && Objects.equal(mNameDel, other.mNameDel);
+    if (obj instanceof AttributeNode) {
+      final AttributeNode other = (AttributeNode) obj;
+      return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
     }
     return false;
-  }
-
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel", mNameDel).toString();
   }
 
   @Override
@@ -191,10 +214,19 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   /**
    * Getting the inlying {@link NameNodeDelegate}.
    *
-   * @return {@link NameNodeDelegate} instance
+   * @return the {@link NameNodeDelegate} instance
    */
   public NameNodeDelegate getNameNodeDelegate() {
     return mNameDel;
+  }
+
+  /**
+   * Getting the inlying {@link ValueNodeDelegate}.
+   *
+   * @return the {@link ValueNodeDelegate} instance
+   */
+  public ValueNodeDelegate getValNodeDelegate() {
+    return mValDel;
   }
 
   @Override
@@ -205,6 +237,11 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   @Override
   public QNm getName() {
     return mQNm;
+  }
+
+  @Override
+  public String getValue() {
+    return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override

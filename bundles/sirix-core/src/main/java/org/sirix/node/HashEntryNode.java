@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
+ * Copyright (c) 2019.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
@@ -22,65 +22,76 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.Record;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 
 /**
- * If a node is deleted, it will be encapsulated over this class.
+ * Hash entry node.
  *
- * @author Sebastian Graf
+ * @author Johannes Lichtenberger <johannes.lichtenberger@sirix.io>
  *
  */
-public final class DeletedNode extends AbstractForwardingNode {
+public final class HashEntryNode implements Record {
 
-  /**
-   * Delegate for common data.
-   */
-  private final NodeDelegate mDel;
+  private final long mNodeKey;
+
+  private final int mKey;
+
+  private final String mValue;
 
   /**
    * Constructor.
    *
-   * @param nodeDel node delegate
+   * @param nodeKey the node key
+   * @param key the integer hash code
+   * @param value the String value
    */
-  public DeletedNode(final NodeDelegate nodeDel) {
-    mDel = checkNotNull(nodeDel);
+  public HashEntryNode(final long nodeKey, final int key, final String value) {
+    mNodeKey = nodeKey;
+    mKey = key;
+    mValue = checkNotNull(value);
   }
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.DELETE;
+    return NodeKind.HASH_ENTRY;
+  }
+
+  public int getKey() {
+    return mKey;
+  }
+
+  public String getValue() {
+    return mValue;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mDel);
+    return Objects.hashCode(mKey, mValue);
   }
 
   @Override
   public boolean equals(final Object obj) {
-    if (!(obj instanceof DeletedNode))
+    if (!(obj instanceof HashEntryNode))
       return false;
 
-    final DeletedNode other = (DeletedNode) obj;
-    return Objects.equal(mDel, other.mDel);
+    final HashEntryNode other = (HashEntryNode) obj;
+    return Objects.equal(mKey, other.mKey) && Objects.equal(mValue, other.mValue);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("delegate", mDel.toString()).toString();
+    return MoreObjects.toStringHelper(this).add("key", mKey).add("value", mValue).toString();
   }
 
   @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return mDel.isSameItem(other);
+  public long getNodeKey() {
+    return mNodeKey;
   }
 
   @Override
-  protected NodeDelegate delegate() {
-    return mDel;
+  public long getRevision() {
+    throw new UnsupportedOperationException();
   }
 }

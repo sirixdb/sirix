@@ -26,7 +26,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.TextNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Fixed;
 

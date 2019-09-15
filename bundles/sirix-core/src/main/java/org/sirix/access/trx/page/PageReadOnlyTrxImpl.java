@@ -259,13 +259,13 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   @Override
   public String getName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
-    return mNamePage.getName(nameKey, nodeKind);
+    return mNamePage.getName(nameKey, nodeKind, this);
   }
 
   @Override
   public final byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
-    return mNamePage.getRawName(nameKey, nodeKind);
+    return mNamePage.getRawName(nameKey, nodeKind, this);
   }
 
   /**
@@ -376,11 +376,13 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     }
 
     // Try to get from resource buffer manager.
-    final PageContainer recordPageContainerFromBuffer =
-        mResourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
+    if (mTrxIntentLog == null) {
+      final PageContainer recordPageContainerFromBuffer =
+          mResourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
 
-    if (recordPageContainerFromBuffer != null) {
-      return recordPageContainerFromBuffer;
+      if (recordPageContainerFromBuffer != null) {
+        return recordPageContainerFromBuffer;
+      }
     }
 
     // Load list of page "fragments" from persistent storage.
@@ -661,7 +663,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   @Override
   public int getNameCount(final int key, @Nonnull final NodeKind kind) {
     assertNotClosed();
-    return mNamePage.getCount(key, kind);
+    return mNamePage.getCount(key, kind, this);
   }
 
   @Override

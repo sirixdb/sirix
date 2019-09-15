@@ -16,6 +16,7 @@ import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
@@ -89,6 +90,11 @@ public final class JsonDBArraySlice extends AbstractItem
 
     mFromIndex = fromIndex;
     mToIndex = toIndex;
+  }
+
+  @Override
+  public JsonResourceManager getResourceManager() {
+    return mRtx.getResourceManager();
   }
 
   @Override

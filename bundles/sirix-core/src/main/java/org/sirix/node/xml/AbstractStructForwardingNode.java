@@ -1,4 +1,4 @@
-package org.sirix.node.xdm;
+package org.sirix.node.xml;
 
 import java.math.BigInteger;
 import javax.annotation.Nonnegative;

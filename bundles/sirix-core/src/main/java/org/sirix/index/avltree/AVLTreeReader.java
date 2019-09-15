@@ -22,7 +22,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;

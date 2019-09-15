@@ -74,7 +74,7 @@ import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
-import org.sirix.node.xdm.ElementNode;
+import org.sirix.node.xml.ElementNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
@@ -1027,9 +1027,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final NameNode node = ((NameNode) getCurrentNode());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-      page.removeName(node.getPrefixKey(), nodeKind);
-      page.removeName(node.getLocalNameKey(), nodeKind);
-      page.removeName(node.getURIKey(), NodeKind.NAMESPACE);
+      page.removeName(node.getPrefixKey(), nodeKind, mPageWriteTrx);
+      page.removeName(node.getLocalNameKey(), nodeKind, mPageWriteTrx);
+      page.removeName(node.getURIKey(), NodeKind.NAMESPACE, mPageWriteTrx);
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (mBuildPathSummary) {
@@ -1054,7 +1054,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final NodeKind nodeKind = node.getKind();
       final int oldLocalNameKey = node.getLocalNameKey();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-      page.removeName(oldLocalNameKey, nodeKind);
+      page.removeName(oldLocalNameKey, nodeKind, mPageWriteTrx);
 
       // Create new key for mapping.
       final int localNameKey = name == null

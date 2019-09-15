@@ -12,7 +12,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.NamespaceNode;
+import org.sirix.node.xml.NamespaceNode;
 
 /**
  * Immutable namespace node wrapper.

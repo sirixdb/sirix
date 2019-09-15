@@ -15,7 +15,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.json.JsonDocumentRootNode;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 public enum DatabaseType {

@@ -6,12 +6,12 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.xdm.AttributeNode;
-import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.ElementNode;
-import org.sirix.node.xdm.NamespaceNode;
-import org.sirix.node.xdm.PINode;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
 
 /**
  * Node factory for creating nodes.

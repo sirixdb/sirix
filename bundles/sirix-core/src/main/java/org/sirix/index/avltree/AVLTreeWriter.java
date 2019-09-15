@@ -17,7 +17,7 @@ import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageReference;

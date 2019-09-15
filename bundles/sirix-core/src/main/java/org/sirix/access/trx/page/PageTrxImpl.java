@@ -242,9 +242,9 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   public String getName(final int nameKey, final NodeKind nodeKind) {
     mPageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(mNewRoot);
-    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind) == null)
+    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, mPageRtx) == null)
         ? mPageRtx.getName(nameKey, nodeKind)
-        : currentNamePage.getName(nameKey, nodeKind);
+        : currentNamePage.getName(nameKey, nodeKind, mPageRtx);
   }
 
   @Override
@@ -255,7 +255,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
         ? ""
         : name);
     final NamePage namePage = getNamePage(mNewRoot);
-    return namePage.setName(string, nodeKind);
+    return namePage.setName(string, nodeKind, this);
   }
 
   @Override

@@ -64,13 +64,13 @@ import org.sirix.node.json.NumberNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.StringNode;
-import org.sirix.node.xdm.AttributeNode;
-import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.ElementNode;
-import org.sirix.node.xdm.NamespaceNode;
-import org.sirix.node.xdm.PINode;
-import org.sirix.node.xdm.TextNode;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
@@ -1239,6 +1239,61 @@ public enum NodeKind implements NodePersistenter {
         ResourceConfiguration resourceConfig) throws IOException {}
   },
 
+  HASH_ENTRY((byte) 32, HashEntryNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadOnlyTrx pageReadTrx) throws IOException {
+      return new HashEntryNode(getVarLong(source), source.readInt(), source.readUTF());
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+        throws IOException {
+      final HashEntryNode node = (HashEntryNode) record;
+
+      putVarLong(sink, node.getNodeKey());
+      sink.writeInt(node.getKey());
+      sink.writeUTF(node.getValue());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      return null;
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, NodeKind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
+  },
+
+  HASH_NAME_COUNT_TO_NAME_ENTRY((byte) 33, HashCountEntryNode.class) {
+    @Override
+    public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
+        final PageReadOnlyTrx pageReadTrx) throws IOException {
+      return new HashCountEntryNode(getVarLong(source), source.readInt());
+    }
+
+    @Override
+    public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
+        throws IOException {
+      final HashCountEntryNode node = (HashCountEntryNode) record;
+
+      putVarLong(sink, node.getNodeKey());
+      sink.writeInt(node.getValue());
+    }
+
+    @Override
+    public Optional<SirixDeweyID> deserializeDeweyID(DataInput source, SirixDeweyID previousDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {
+      return null;
+    }
+
+    @Override
+    public void serializeDeweyID(DataOutput sink, NodeKind nodeKind, SirixDeweyID deweyID, SirixDeweyID prevDeweyID,
+        ResourceConfiguration resourceConfig) throws IOException {}
+  },
+
   /** Node type not known. */
   UNKNOWN((byte) 22, null) {
     @Override
@@ -1387,7 +1442,8 @@ public enum NodeKind implements NodePersistenter {
     }
   }
 
-  private static final BigInteger getHash(final DataInput source, final PageReadOnlyTrx pageReadTrx) throws IOException {
+  private static final BigInteger getHash(final DataInput source, final PageReadOnlyTrx pageReadTrx)
+      throws IOException {
     final BigInteger hashCode;
     if (pageReadTrx.getResourceManager().getResourceConfig().hashType == HashType.NONE)
       hashCode = null;
@@ -1547,7 +1603,9 @@ public enum NodeKind implements NodePersistenter {
     assert !BigInteger.ZERO.equals(hashCode);
     final byte[] bigIntegerBytes = hashCode.toByteArray();
     final List<Byte> bytes = new ArrayList<>();
-    final int maxLength = bigIntegerBytes.length < 17 ? bigIntegerBytes.length : 17;
+    final int maxLength = bigIntegerBytes.length < 17
+        ? bigIntegerBytes.length
+        : 17;
 
     for (int i = 1; i < maxLength; i++) {
       bytes.add(bigIntegerBytes[i]);

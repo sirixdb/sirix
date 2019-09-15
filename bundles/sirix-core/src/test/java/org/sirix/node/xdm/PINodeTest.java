@@ -41,6 +41,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
+import org.sirix.node.xml.PINode;
 import org.sirix.utils.NamePageHash;
 import com.google.common.hash.Hashing;
 

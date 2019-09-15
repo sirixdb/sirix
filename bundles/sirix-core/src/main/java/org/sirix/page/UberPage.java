@@ -113,8 +113,7 @@ public final class UberPage extends AbstractForwardingPage {
    * @param resourceConfig {@link ResourceConfiguration} reference
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
-    mDelegate =
-        new PageDelegate(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());
+    mDelegate = new PageDelegate(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());
     mPreviousUberPageKey = previousUberPageKey;
     if (committedUberPage.isBootstrap()) {
       mRevision = committedUberPage.mRevision;
@@ -237,9 +236,7 @@ public final class UberPage extends AbstractForwardingPage {
     log.put(mRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
 
     final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
-    log.put(
-        mRootPage.getPathSummaryPageReference(),
-        PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
+    log.put(mRootPage.getPathSummaryPageReference(), PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
 
     log.put(reference, PageContainer.getInstance(mRootPage, mRootPage));
   }

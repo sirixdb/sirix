@@ -120,13 +120,12 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param committedRevisionRootPage page to clone
    * @param representRev revision number to use
    */
-  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage,
-      final @Nonnegative int representRev) {
-    mDelegate = new PageDelegate(committedRevisionRootPage,
-        committedRevisionRootPage.mDelegate.getBitmap());
+  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
+    mDelegate = new PageDelegate(committedRevisionRootPage, committedRevisionRootPage.mDelegate.getBitmap());
     mRevision = representRev;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
     mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
+    mCommitMessage = committedRevisionRootPage.mCommitMessage;
     mCurrentMaxLevelOfIndirectPages = committedRevisionRootPage.mCurrentMaxLevelOfIndirectPages;
   }
 

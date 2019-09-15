@@ -14,7 +14,7 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.AttributeNode;
+import org.sirix.node.xml.AttributeNode;
 import org.sirix.settings.Constants;
 
 /**

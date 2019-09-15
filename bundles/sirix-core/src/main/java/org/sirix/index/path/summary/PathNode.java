@@ -12,7 +12,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.xdm.AbstractStructForwardingNode;
+import org.sirix.node.xml.AbstractStructForwardingNode;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 

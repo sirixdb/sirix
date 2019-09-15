@@ -38,6 +38,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
