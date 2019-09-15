@@ -16,6 +16,7 @@ import org.brackit.xquery.xdm.type.ListOrUnionType;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
@@ -76,6 +77,11 @@ public final class JsonDBObject extends AbstractItem
     mNodeKey = mRtx.getNodeKey();
     mKind = mRtx.getKind();
     mJsonUtil = new JsonUtil();
+  }
+
+  @Override
+  public JsonResourceManager getResourceManager() {
+    return mRtx.getResourceManager();
   }
 
   @Override

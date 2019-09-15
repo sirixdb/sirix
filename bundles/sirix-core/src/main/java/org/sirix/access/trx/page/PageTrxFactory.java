@@ -41,12 +41,15 @@ import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonResourceManager;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
@@ -127,7 +130,20 @@ public final class PageTrxFactory {
       }
     }
 
-    if (!uberPage.isBootstrap()) {
+    if (uberPage.isBootstrap()) {
+      final NamePage namePage = pageRtx.getNamePage(newRevisionRootPage);
+
+      if (resourceManager instanceof JsonResourceManager) {
+        namePage.createNameIndexTree(pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
+      } else if (resourceManager instanceof XmlResourceManager) {
+        namePage.createNameIndexTree(pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(pageRtx, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
+      } else {
+        throw new IllegalStateException("Resource manager type not known.");
+      }
+    } else {
       if (PageContainer.emptyInstance().equals(log.get(newRevisionRootPage.getNamePageReference(), pageRtx))) {
         final Page namePage = pageRtx.getNamePage(newRevisionRootPage);
         log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));

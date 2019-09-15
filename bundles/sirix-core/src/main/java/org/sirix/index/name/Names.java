@@ -1,12 +1,17 @@
 package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.Optional;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
+import org.sirix.node.HashCountEntryNode;
+import org.sirix.node.HashEntryNode;
+import org.sirix.node.NodeKind;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.PageKind;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
 import com.google.common.collect.HashBiMap;
 
@@ -18,16 +23,25 @@ import com.google.common.collect.HashBiMap;
  */
 public final class Names {
 
+  /** Map the hash of a name the node key. */
+  private final Map<Integer, Long> mCountNodeMap;
+
   /** Map the hash of a name to its name. */
   private final Map<Integer, byte[]> mNameMap;
 
   /** Map which is used to count the occurences of a name mapping. */
   private final Map<Integer, Integer> mCountNameMapping;
 
+  private long mMaxNodeKey;
+
+  private int mIndexNumber;
+
   /**
    * Constructor creating a new index structure.
    */
-  private Names() {
+  private Names(final int indexNumber) {
+    mIndexNumber = indexNumber;
+    mCountNodeMap = new HashMap<>();
     mNameMap = new HashMap<>();
     mCountNameMapping = new HashMap<>();
   }
@@ -37,37 +51,42 @@ public final class Names {
    *
    * @param in the persistent storage
    */
-  private Names(final DataInput in) throws IOException {
-    final int mapSize = in.readInt();
-    mNameMap = HashBiMap.create(mapSize);
-    mCountNameMapping = new HashMap<>(mapSize);
-    for (int i = 0, l = mapSize; i < l; i++) {
-      final int key = in.readInt();
-      final int valSize = in.readInt();
-      final byte[] bytes = new byte[valSize];
-      for (int j = 0; j < bytes.length; j++) {
-        bytes[j] = in.readByte();
-      }
-      mNameMap.put(key, bytes);
-      mCountNameMapping.put(key, in.readInt());
-    }
-  }
+  private Names(final PageReadOnlyTrx pageReadTrx, final int indexNumber, final long maxNodeKey) {
+    mIndexNumber = indexNumber;
+    mMaxNodeKey = maxNodeKey;
+    // It's okay, we don't allow to store more than Integer.MAX key value pairs.
+    mCountNodeMap = new HashMap<>((int) maxNodeKey + 1);
+    mNameMap = HashBiMap.create((int) maxNodeKey + 1);
+    mCountNameMapping = new HashMap<>((int) maxNodeKey + 1);
 
-  /**
-   * Serialize name-index.
-   *
-   * @param out the persistent storage
-   */
-  public void serialize(final DataOutput out) throws IOException {
-    out.writeInt(mNameMap.size());
-    for (final Entry<Integer, byte[]> entry : mNameMap.entrySet()) {
-      out.writeInt(entry.getKey());
-      final byte[] bytes = entry.getValue();
-      out.writeInt(bytes.length);
-      for (final byte byteVal : bytes) {
-        out.writeByte(byteVal);
+    // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
+    for (long i = 1, l = maxNodeKey; i < l; i += 2) {
+      final long nodeKeyOfNode = i;
+      final Optional<? extends Record> nameNode = pageReadTrx.getRecord(nodeKeyOfNode, PageKind.NAMEPAGE, indexNumber);
+
+      if (nameNode.isPresent() && nameNode.get().getKind() != NodeKind.DELETE) {
+        final HashEntryNode hashEntryNode = (HashEntryNode) nameNode.orElseThrow(
+            () -> new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfNode));
+
+        final int key = hashEntryNode.getKey();
+
+        mNameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+
+        final long nodeKeyOfCountNode = i + 1;
+
+        final Optional<? extends Record> countNode =
+            pageReadTrx.getRecord(nodeKeyOfCountNode, PageKind.NAMEPAGE, indexNumber);
+        try {
+          final HashCountEntryNode hashKeyToNameCountEntryNode =
+              (HashCountEntryNode) countNode.orElseThrow(() -> new IllegalStateException(
+                  "Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode));
+
+          mCountNameMapping.put(key, hashKeyToNameCountEntryNode.getValue());
+          mCountNodeMap.put(key, nodeKeyOfCountNode);
+        } catch (final Exception e) {
+          System.out.println();
+        }
       }
-      out.writeInt(mCountNameMapping.get(entry.getKey()).intValue());
     }
   }
 
@@ -76,14 +95,23 @@ public final class Names {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key) {
+  public void removeName(final int key, final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
     final Integer prevValue = mCountNameMapping.get(key);
     if (prevValue != null) {
+      final long countNodeKey = mCountNodeMap.get(key);
+
       if (prevValue - 1 == 0) {
         mNameMap.remove(key);
         mCountNameMapping.remove(key);
+
+        pageTrx.removeEntry(countNodeKey - 1, PageKind.NAMEPAGE, mIndexNumber);
+        pageTrx.removeEntry(countNodeKey, PageKind.NAMEPAGE, mIndexNumber);
       } else {
         mCountNameMapping.put(key, prevValue - 1);
+
+        final HashCountEntryNode hashCountEntryNode =
+            (HashCountEntryNode) pageTrx.prepareEntryForModification(countNodeKey, PageKind.NAMEPAGE, mIndexNumber);
+        hashCountEntryNode.decrementValue();
       }
     }
   }
@@ -101,12 +129,14 @@ public final class Names {
   /**
    * Create name key given a name.
    *
-   * @param key key for given name
    * @param name name to create key for
    *
    * @return generated key
    */
-  public int setName(final String name) {
+  public int setName(final String name, final PageTrx<Long, Record, UnorderedKeyValuePage> pageTrx) {
+    assert name != null;
+    assert pageTrx != null;
+
     final int key = name.hashCode();
     final byte[] previousByteValue = mNameMap.get(key);
 
@@ -126,13 +156,30 @@ public final class Names {
         newKey = key;
       }
 
+      mMaxNodeKey++;
+
+      final HashEntryNode hashEntryNode = new HashEntryNode(mMaxNodeKey, newKey, name);
+      final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(mMaxNodeKey + 1, 1);
+
+      pageTrx.createEntry(mMaxNodeKey++, hashEntryNode, PageKind.NAMEPAGE, mIndexNumber);
+
+      mCountNodeMap.put(newKey, mMaxNodeKey);
+      pageTrx.createEntry(mMaxNodeKey, hashCountEntryNode, PageKind.NAMEPAGE, mIndexNumber);
+
       mNameMap.put(newKey, checkNotNull(getBytes(name)));
       mCountNameMapping.put(newKey, 1);
 
       return newKey;
     } else {
       final int previousIntegerValue = mCountNameMapping.get(key);
+
       mCountNameMapping.put(key, previousIntegerValue + 1);
+
+      final long nodeKey = mCountNodeMap.get(key);
+
+      final HashCountEntryNode hashCountEntryNode =
+          (HashCountEntryNode) pageTrx.prepareEntryForModification(nodeKey, PageKind.NAMEPAGE, mIndexNumber);
+      hashCountEntryNode.incrementValue();
 
       return key;
     }
@@ -199,17 +246,16 @@ public final class Names {
    *
    * @return new instance of {@link Names}
    */
-  public static Names getInstance() {
-    return new Names();
+  public static Names getInstance(final int indexNumber) {
+    return new Names(indexNumber);
   }
 
   /**
    * Clone an instance.
    *
-   * @param in input source, the persistent storage
    * @return cloned index
    */
-  public static Names clone(final DataInput in) throws IOException {
-    return new Names(in);
+  public static Names clone(final PageReadOnlyTrx readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
+    return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
   }
 }

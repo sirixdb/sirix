@@ -33,7 +33,7 @@ import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.TextNode;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**

@@ -10,7 +10,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.json.StringNode;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.TextNode;
 
 /**
  * Immutable JSONValueString wrapper.

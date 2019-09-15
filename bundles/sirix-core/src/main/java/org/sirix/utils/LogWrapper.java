@@ -38,68 +38,68 @@ public final class LogWrapper {
   /**
    * Constructor.
    * 
-   * @param pLogger logger
+   * @param logger logger
    */
-  public LogWrapper(final Logger pLogger) {
-    mLogger = checkNotNull(pLogger);
+  public LogWrapper(final Logger logger) {
+    mLogger = checkNotNull(logger);
   }
 
   /**
    * Log error information.
    * 
-   * @param pMessage Message to log.
-   * @param pObjects Objects for message
+   * @param message Message to log.
+   * @param objects Objects for message
    */
-  public void error(final String pMessage, final Object... pObjects) {
+  public void error(final String message, final Object... objects) {
     if (mLogger.isErrorEnabled()) {
-      mLogger.error(pMessage, pObjects);
+      mLogger.error(message, objects);
     }
   }
 
   /**
    * Log error information.
    * 
-   * @param pExc Exception to log.
+   * @param exception Exception to log.
    */
-  public void error(final Exception pExc) {
+  public void error(final Exception exception) {
     if (mLogger.isErrorEnabled()) {
-      mLogger.error(pExc.getMessage(), pExc);
+      mLogger.error(exception.getMessage(), exception);
     }
   }
 
   /**
    * Log debugging information.
    * 
-   * @param pMessage Message to log.
-   * @param pObjects objects for data
+   * @param message Message to log.
+   * @param objects objects for data
    */
-  public void debug(final String pMessage, final Object... pObjects) {
+  public void debug(final String message, final Object... objects) {
     if (mLogger.isDebugEnabled()) {
-      mLogger.debug(pMessage, pObjects);
+      mLogger.debug(message, objects);
     }
   }
 
   /**
    * Log information.
    * 
-   * @param pMessage Message to log.
-   * @param pObjects objects for data
+   * @param message Message to log.
+   * @param objects objects for data
    */
-  public void info(final String pMessage, final Object... pObjects) {
+  public void info(final String message, final Object... objects) {
     if (mLogger.isInfoEnabled()) {
-      mLogger.info(pMessage, pObjects);
+      mLogger.info(message, objects);
     }
   }
 
   /**
    * Warn information.
    * 
-   * @param pMessage Message to log.
-   * @param pObjects objects for data
+   * @param message Message to log.
+   * @param objects objects for data
    */
-  public void warn(final String pMessage, final Object... pObjects) {
+  public void warn(final String message, final Object... objects) {
     if (mLogger.isWarnEnabled()) {
-      mLogger.warn(pMessage, pObjects);
+      mLogger.warn(message, objects);
     }
   }
 

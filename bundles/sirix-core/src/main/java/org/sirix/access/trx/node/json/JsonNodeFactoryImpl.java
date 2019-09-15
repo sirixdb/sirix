@@ -59,10 +59,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public PathNode createPathNode(final @Nonnegative long parentKey, final long leftSibKey, final long rightSibKey,
       @Nonnull final QNm name, @Nonnull final NodeKind kind, final @Nonnegative int level) {
-    final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
-    final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? NamePageHash.generateHashForString(name.getPrefix())
-        : -1;
+    final int uriKey = -1;
+    final int prefixKey = -1;
     final int localName = name.getLocalName() != null && !name.getLocalName().isEmpty()
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;

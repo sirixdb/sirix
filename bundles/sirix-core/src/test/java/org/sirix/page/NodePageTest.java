@@ -41,7 +41,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.xdm.ElementNode;
+import org.sirix.node.xml.ElementNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 import com.google.common.collect.HashBiMap;

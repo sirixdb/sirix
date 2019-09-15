@@ -20,6 +20,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
+import org.sirix.index.IndexDefs.NameIndexType;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
@@ -85,8 +86,8 @@ public final class CreateNameIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef =
-        IndexDefs.createSelectiveNameIdxDef(include, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), NameIndexType.JSON);
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {

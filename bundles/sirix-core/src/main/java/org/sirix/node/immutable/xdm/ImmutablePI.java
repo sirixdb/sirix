@@ -14,7 +14,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.PINode;
+import org.sirix.node.xml.PINode;
 
 /**
  * Immutable processing instruction node wrapper.

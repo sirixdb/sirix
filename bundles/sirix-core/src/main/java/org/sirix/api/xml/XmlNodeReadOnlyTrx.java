@@ -43,13 +43,13 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.AttributeNode;
-import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.ElementNode;
-import org.sirix.node.xdm.NamespaceNode;
-import org.sirix.node.xdm.PINode;
-import org.sirix.node.xdm.TextNode;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**

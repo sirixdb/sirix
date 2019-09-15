@@ -12,7 +12,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.CommentNode;
+import org.sirix.node.xml.CommentNode;
 
 /**
  * Immutable comment node wrapper.

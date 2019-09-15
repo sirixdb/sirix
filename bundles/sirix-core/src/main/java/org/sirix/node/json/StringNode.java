@@ -34,7 +34,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import org.sirix.node.xdm.AbstractStructForwardingNode;
+import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
 
 /**

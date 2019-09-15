@@ -4,6 +4,7 @@ import org.brackit.xquery.atomic.AbstractAtomic;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.xquery.StructuredDBItem;
 import com.google.common.base.Preconditions;
 
@@ -39,6 +40,11 @@ public final class AtomicJsonDBItem extends AbstractAtomic
 
   private final void moveRtx() {
     mRtx.moveTo(mNodeKey);
+  }
+
+  @Override
+  public JsonResourceManager getResourceManager() {
+    return mRtx.getResourceManager();
   }
 
   @Override

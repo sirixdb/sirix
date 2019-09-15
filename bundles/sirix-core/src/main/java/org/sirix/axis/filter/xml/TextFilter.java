@@ -24,7 +24,7 @@ package org.sirix.axis.filter.xml;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.TextNode;
 
 /**
  * <h1>TextFilter</h1>

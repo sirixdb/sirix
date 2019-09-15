@@ -661,7 +661,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       if (mPathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);
       } else {
-        assert page.getCount(node.getLocalNameKey(), nodeKind) != 0;
+        assert page.getCount(node.getLocalNameKey(), nodeKind, mPageWriteTrx) != 0;
         if (mPathSummaryReader.getReferences() > 1) {
           final PathNode pathNode =
               (PathNode) mPageWriteTrx.prepareEntryForModification(mPathSummaryReader.getNodeKey(),

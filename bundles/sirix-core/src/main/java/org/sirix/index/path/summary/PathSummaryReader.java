@@ -22,6 +22,7 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
@@ -35,7 +36,7 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.xdm.XmlDocumentRootNode;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.settings.Fixed;
@@ -111,7 +112,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         first = false;
       } else {
         final Set<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null
-            ? new HashSet<PathNode>()
+            ? new HashSet<>()
             : mQNmMapping.get(this.getName());
         pathNodes.add(this.getPathNode());
         mQNmMapping.put(this.getName(), pathNodes);
@@ -463,7 +464,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
       final int uriKey = ((NameNode) mCurrentNode).getURIKey();
-      final String uri = uriKey == -1
+      final String uri = uriKey == -1 || mPageReadTrx.getResourceManager() instanceof JsonResourceManager
           ? ""
           : mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();

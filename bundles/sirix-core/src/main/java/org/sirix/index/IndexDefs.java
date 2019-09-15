@@ -5,6 +5,7 @@ import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
+import org.sirix.page.PageConstants;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -30,8 +31,8 @@ public final class IndexDefs {
    * @param paths the paths to index
    * @return a new {@link IndexDef} instance
    */
-  public static IndexDef createCASIdxDef(final boolean unique, final Optional<Type> optType,
-      final Set<Path<QNm>> paths, final int indexDefNo) {
+  public static IndexDef createCASIdxDef(final boolean unique, final Optional<Type> optType, final Set<Path<QNm>> paths,
+      final int indexDefNo) {
     final Type type = optType.isPresent()
         ? optType.get()
         : Type.STR;
@@ -48,20 +49,56 @@ public final class IndexDefs {
     return new IndexDef(paths, indexDefNo);
   }
 
-  public static IndexDef createNameIdxDef(final int indexDefNo) {
-    return new IndexDef(ImmutableSet.of(), ImmutableSet.<QNm>of(), indexDefNo);
+  public enum NameIndexType {
+    JSON,
+
+    XML;
   }
 
-  public static IndexDef createFilteredNameIdxDef(final Set<QNm> excluded, final int indexDefNo) {
-    return new IndexDef(ImmutableSet.of(), excluded, indexDefNo);
+  public static IndexDef createNameIdxDef(final int indexDefNo, final NameIndexType type) {
+    switch (type) {
+      case JSON:
+        return new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
+      case XML:
+        return new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
+      default:
+        throw new IllegalStateException("Type " + type + " not known.");
+    }
   }
 
-  public static IndexDef createSelectiveNameIdxDef(final Set<QNm> included, final int indexDefNo) {
-    return new IndexDef(included, ImmutableSet.of(), indexDefNo);
+  public static IndexDef createFilteredNameIdxDef(final Set<QNm> excluded, final int indexDefNo,
+      final NameIndexType type) {
+    switch (type) {
+      case JSON:
+        return new IndexDef(ImmutableSet.of(), excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
+      case XML:
+        return new IndexDef(ImmutableSet.of(), excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
+      default:
+        throw new IllegalStateException("Type " + type + " not known.");
+    }
   }
 
-  public static IndexDef createSelectiveFilteredNameIdxDef(final Set<QNm> included,
-      final Set<QNm> excluded, final int indexDefNo) {
-    return new IndexDef(included, excluded, indexDefNo);
+  public static IndexDef createSelectiveNameIdxDef(final Set<QNm> included, final int indexDefNo,
+      final NameIndexType type) {
+    switch (type) {
+      case JSON:
+        return new IndexDef(included, ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
+      case XML:
+        return new IndexDef(included, ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
+      default:
+        throw new IllegalStateException("Type " + type + " not known.");
+    }
+  }
+
+  public static IndexDef createSelectiveFilteredNameIdxDef(final Set<QNm> included, final Set<QNm> excluded,
+      final int indexDefNo, final NameIndexType type) {
+    switch (type) {
+      case JSON:
+        return new IndexDef(included, excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo);
+      case XML:
+        return new IndexDef(included, excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo);
+      default:
+        throw new IllegalStateException("Type " + type + " not known.");
+    }
   }
 }

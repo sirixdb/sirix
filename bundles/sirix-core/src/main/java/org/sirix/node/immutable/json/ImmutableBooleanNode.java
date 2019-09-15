@@ -8,7 +8,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.StringNode;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.TextNode;
 
 /**
  * Immutable JSONBooleanNode wrapper.

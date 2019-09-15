@@ -73,12 +73,12 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xdm.AttributeNode;
-import org.sirix.node.xdm.CommentNode;
-import org.sirix.node.xdm.ElementNode;
-import org.sirix.node.xdm.NamespaceNode;
-import org.sirix.node.xdm.PINode;
-import org.sirix.node.xdm.TextNode;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.node.xml.CommentNode;
+import org.sirix.node.xml.ElementNode;
+import org.sirix.node.xml.NamespaceNode;
+import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
@@ -1540,9 +1540,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       final NameNode node = ((NameNode) getCurrentNode());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-      page.removeName(node.getPrefixKey(), nodeKind);
-      page.removeName(node.getLocalNameKey(), nodeKind);
-      page.removeName(node.getURIKey(), NodeKind.NAMESPACE);
+      page.removeName(node.getPrefixKey(), nodeKind, mPageWriteTrx);
+      page.removeName(node.getLocalNameKey(), nodeKind, mPageWriteTrx);
+      page.removeName(node.getURIKey(), NodeKind.NAMESPACE, mPageWriteTrx);
 
       assert nodeKind != NodeKind.XDM_DOCUMENT;
       if (mBuildPathSummary) {
@@ -1569,9 +1569,9 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
           final int oldLocalNameKey = node.getLocalNameKey();
           final int oldUriKey = node.getURIKey();
           final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-          page.removeName(oldPrefixKey, nodeKind);
-          page.removeName(oldLocalNameKey, nodeKind);
-          page.removeName(oldUriKey, NodeKind.NAMESPACE);
+          page.removeName(oldPrefixKey, nodeKind, mPageWriteTrx);
+          page.removeName(oldLocalNameKey, nodeKind, mPageWriteTrx);
+          page.removeName(oldUriKey, NodeKind.NAMESPACE, mPageWriteTrx);
 
           // Create new keys for mapping.
           final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
