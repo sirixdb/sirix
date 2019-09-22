@@ -9,6 +9,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.json.JsonResourceManager;
@@ -28,7 +29,14 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
    * Default constructor.
    */
   public JsonResourceStore() {
-    super(new ConcurrentHashMap<>());
+    super(new ConcurrentHashMap<>(), null);
+  }
+
+  /**
+   * Constructor.
+   */
+  public JsonResourceStore(final User user) {
+    super(new ConcurrentHashMap<>(), user);
   }
 
   @Override
@@ -51,7 +59,7 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
 
       // Create the resource manager instance.
       final JsonResourceManager resourceManager = new JsonResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock, mUser);
 
       // Put it in the databases cache.
       Databases.putResourceManager(resourceFile, resourceManager);

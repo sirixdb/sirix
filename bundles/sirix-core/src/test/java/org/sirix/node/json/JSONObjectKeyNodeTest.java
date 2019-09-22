@@ -31,7 +31,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
@@ -57,8 +57,8 @@ public class JSONObjectKeyNodeTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.closeEverything();
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.closeEverything();
+    XmlTestHelper.deleteEverything();
     mHolder = Holder.openResourceManager();
     mPageWriteTrx = mHolder.getResourceManager().beginPageTrx();
   }

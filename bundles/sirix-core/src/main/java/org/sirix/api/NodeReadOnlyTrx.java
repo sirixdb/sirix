@@ -2,7 +2,9 @@ package org.sirix.api;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Optional;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
@@ -171,4 +173,11 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    * @return the value of the current node or {@code null} if the node has no value
    */
   String getValue();
+
+  /**
+   * Get the user who committed the revision, if available.
+   *
+   * @return the user who committed the revision, if available
+   */
+  Optional<User> getUser();
 }

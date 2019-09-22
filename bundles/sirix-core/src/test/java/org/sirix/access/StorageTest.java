@@ -24,7 +24,7 @@ package org.sirix.access;
 import static org.testng.AssertJUnit.assertEquals;
 import java.io.IOException;
 import java.nio.file.Files;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -50,12 +50,12 @@ public final class StorageTest {
 
   @BeforeClass
   public void setUp() throws SirixException, IOException {
-    XdmTestHelper.closeEverything();
-    XdmTestHelper.deleteEverything();
-    Files.createDirectories(XdmTestHelper.PATHS.PATH1.getFile());
+    XmlTestHelper.closeEverything();
+    XmlTestHelper.deleteEverything();
+    Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile());
     Files.createDirectories(
-        XdmTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
-    Files.createFile(XdmTestHelper.PATHS.PATH1.getFile()
+        XmlTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
+    Files.createFile(XmlTestHelper.PATHS.PATH1.getFile()
                                               .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                               .resolve("data.sirix"));
     mResourceConfig = new ResourceConfiguration.Builder("shredded").build();
@@ -63,8 +63,8 @@ public final class StorageTest {
 
   @AfterClass
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.closeEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   /**
@@ -110,7 +110,7 @@ public final class StorageTest {
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() {
-    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile());
+    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
     Object[][] returnVal =
         {{Storage.class, new Storage[] {new FileStorage(mResourceConfig.setDatabaseConfiguration(dbConfig)),
             new RAMStorage(mResourceConfig.setDatabaseConfiguration(dbConfig))}}};

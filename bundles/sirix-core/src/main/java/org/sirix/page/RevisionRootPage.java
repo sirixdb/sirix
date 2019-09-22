@@ -26,8 +26,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -81,6 +84,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /** Current maximum level of indirect pages in the tree. */
   private int mCurrentMaxLevelOfIndirectPages;
 
+  /** The user, which committed or is probably committing the revision. */
+  private User mUser;
+
   /**
    * Create revision root page.
    */
@@ -110,8 +116,13 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       in.readFully(commitMessage);
       mCommitMessage = new String(commitMessage, Constants.DEFAULT_ENCODING);
     }
-
     mCurrentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
+
+    if (in.readBoolean()) {
+      mUser = new User(in.readUTF(), UUID.fromString(in.readUTF()));
+    } else {
+      mUser = null;
+    }
   }
 
   /**
@@ -123,6 +134,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
     mDelegate = new PageDelegate(committedRevisionRootPage, committedRevisionRootPage.mDelegate.getBitmap());
     mRevision = representRev;
+    mUser = committedRevisionRootPage.mUser;
     mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
     mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
     mCommitMessage = committedRevisionRootPage.mCommitMessage;
@@ -236,6 +248,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     }
 
     out.writeByte(mCurrentMaxLevelOfIndirectPages);
+    final boolean hasUser = mUser != null;
+    out.writeBoolean(hasUser
+        ? true
+        : false);
+    if (hasUser) {
+      out.writeUTF(mUser.getName());
+      out.writeUTF(mUser.getId().toString());
+    }
   }
 
   public int getCurrentMaxLevelOfIndirectPages() {
@@ -294,7 +314,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     mCommitMessage = commitMessage;
   }
 
+  public void setUser(final User user) {
+    mUser = user;
+  }
+
   public CommitCredentials getCommitCredentials() {
     return new CommitCredentials(null, mCommitMessage);
+  }
+
+  public Optional<User> getUser() {
+    return Optional.ofNullable(mUser);
   }
 }

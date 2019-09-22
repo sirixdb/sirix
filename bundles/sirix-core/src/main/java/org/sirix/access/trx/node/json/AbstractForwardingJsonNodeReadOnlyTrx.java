@@ -2,7 +2,9 @@ package org.sirix.access.trx.node.json;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Optional;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.Move;
 import org.sirix.api.PageReadOnlyTrx;
@@ -17,6 +19,11 @@ import com.google.common.collect.ForwardingObject;
 public abstract class AbstractForwardingJsonNodeReadOnlyTrx extends ForwardingObject implements JsonNodeReadOnlyTrx {
   @Override
   protected abstract JsonNodeReadOnlyTrx delegate();
+
+  @Override
+  public Optional<User> getUser() {
+    return delegate().getUser();
+  }
 
   @Override
   public int getNameKey() {

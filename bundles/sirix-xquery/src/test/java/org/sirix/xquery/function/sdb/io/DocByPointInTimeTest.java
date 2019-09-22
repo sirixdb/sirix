@@ -36,8 +36,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -57,7 +57,7 @@ public final class DocByPointInTimeTest extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
@@ -65,7 +65,7 @@ public final class DocByPointInTimeTest extends TestCase {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -80,7 +80,7 @@ public final class DocByPointInTimeTest extends TestCase {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
-      final String resName = XdmTestHelper.RESOURCE;
+      final String resName = XmlTestHelper.RESOURCE;
 
       final String xq1 = "sdb:open('" + dbName + "','" + resName + "', xs:dateTime(\"2219-05-01T00:00:00-00:00\"))";
 

@@ -19,6 +19,7 @@ import org.sirix.xquery.node.BasicXmlDBStore
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
+import org.sirix.rest.crud.SirixDBUtils
 
 class XmlDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -58,8 +59,10 @@ class XmlDelete(private val location: Path) {
             ctx.response().setStatusCode(200).end()
             return
         }
+        
+        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
 
-        val database = Databases.openXmlDatabase(dbFile)
+        val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
         database.use {
             if (nodeId == null) {

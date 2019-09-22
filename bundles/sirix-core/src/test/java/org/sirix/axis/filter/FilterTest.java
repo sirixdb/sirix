@@ -25,7 +25,7 @@ import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
@@ -34,7 +34,7 @@ public class FilterTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   public static void testFilterConventions(final Filter<? extends NodeReadOnlyTrx> filter, final boolean expected) {
@@ -56,6 +56,6 @@ public class FilterTest {
 
   @After
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 }

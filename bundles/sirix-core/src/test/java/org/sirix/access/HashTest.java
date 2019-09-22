@@ -29,7 +29,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
@@ -42,7 +42,7 @@ public class HashTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @Test
@@ -214,16 +214,16 @@ public class HashTest {
   }
 
   private XmlNodeTrx createWtx(final HashType kind) throws SirixException {
-    final var database = XdmTestHelper.getDatabase(XdmTestHelper.PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-    final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+    final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
+    final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
     final XmlNodeTrx wTrx = manager.beginNodeTrx();
     return wTrx;
   }
 
   @After
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
 }

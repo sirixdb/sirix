@@ -7,6 +7,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.ItemList;
 import org.sirix.api.Move;
@@ -36,6 +37,11 @@ public abstract class AbstractForwardingXmlNodeReadOnlyTrx extends ForwardingObj
 
   @Override
   protected abstract XmlNodeReadOnlyTrx delegate();
+
+  @Override
+  public Optional<User> getUser() {
+    return delegate().getUser();
+  }
 
   @Override
   public ItemList<AtomicValue> getItemList() {

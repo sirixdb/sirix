@@ -14,6 +14,7 @@ import java.math.BigInteger
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 import io.vertx.core.http.HttpHeaders
+import org.sirix.rest.crud.SirixDBUtils
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {
@@ -68,9 +69,10 @@ class XmlUpdate(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
+            
+            val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
             val dbFile = location.resolve(dbPathName)
-
-            val database = Databases.openXmlDatabase(dbFile)
+            val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {
                 val manager = database.openResourceManager(resPathName)

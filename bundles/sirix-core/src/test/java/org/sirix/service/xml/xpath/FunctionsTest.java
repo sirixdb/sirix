@@ -26,7 +26,7 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 
@@ -47,8 +47,8 @@ public class FunctionsTest {
    */
   @Before
   public final void setUp() throws Exception {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
@@ -495,7 +495,7 @@ public class FunctionsTest {
   @After
   public final void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
 
   }
 

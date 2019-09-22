@@ -4,9 +4,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.sirix.access.User;
 import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
@@ -36,6 +38,11 @@ public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeC
     mId = trxId;
     mPageReadTrx = checkNotNull(pageReadTransaction);
     mCurrentNode = checkNotNull(documentNode);
+  }
+
+  @Override
+  public Optional<User> getUser() {
+    return mPageReadTrx.getActualRevisionRootPage().getUser();
   }
 
   @SuppressWarnings("unchecked")

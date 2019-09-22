@@ -30,7 +30,7 @@ import java.io.IOException;
 import javax.xml.stream.XMLStreamException;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
@@ -347,7 +347,7 @@ public final class XmlDocumentCreator {
    */
   public static void createRevisioned(final Database<XmlResourceManager> database) {
 
-    try (final XmlResourceManager resMgr = database.openResourceManager(XdmTestHelper.RESOURCE)) {
+    try (final XmlResourceManager resMgr = database.openResourceManager(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

@@ -9,6 +9,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlResourceManager;
@@ -28,7 +29,14 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
    * Default constructor.
    */
   public XmlResourceStore() {
-    super(new ConcurrentHashMap<>());
+    super(new ConcurrentHashMap<>(), null);
+  }
+
+  /**
+   * Constructor.
+   */
+  public XmlResourceStore(final User user) {
+    super(new ConcurrentHashMap<>(), user);
   }
 
   @Override
@@ -51,7 +59,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
 
       // Create the resource manager instance.
       final XmlResourceManager resourceManager = new XmlResourceManagerImpl(database, this, resourceConfig,
-          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock);
+          bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock, mUser);
 
       // Put it in the databases cache.
       Databases.putResourceManager(resourceFile, resourceManager);

@@ -28,6 +28,7 @@ import java.math.BigInteger;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -168,7 +170,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /** Collection holding post-commit hooks. */
   private final List<PostCommitHook> mPostCommitHooks = new ArrayList<>();
 
-  private HashFunction mHashFunction;
+  private final HashFunction mHashFunction;
 
   /**
    * Constructor.
@@ -218,7 +220,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         : null;
 
     mHashKind = resourceManager.getResourceConfig().hashType;
-
     mCompression = resourceManager.getResourceConfig().useTextCompression;
 
     // // Redo last transaction if the system crashed.
@@ -229,6 +230,16 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     // throw new IllegalStateException(e);
     // }
     // }
+  }
+
+  @Override
+  public Optional<User> getUser() {
+    return mResourceManager.getUser();
+  }
+
+  @Override
+  public Optional<User> getUserOfRevisionToRepresent() {
+    return mNodeReadOnlyTrx.getUser();
   }
 
   /** Acquire a lock if necessary. */

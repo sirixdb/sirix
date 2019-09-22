@@ -25,6 +25,11 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
   protected AbstractForwardingPageWriteTrx() {}
 
   @Override
+  public int getRevisionToRepresent() {
+    return delegate().getRevisionToRepresent();
+  }
+
+  @Override
   public void close() throws SirixIOException {
     delegate().close();
   }

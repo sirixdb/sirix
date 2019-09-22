@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.IndexController;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -280,5 +281,7 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   boolean hasRunningNodeWriteTrx();
 
   Optional<R> getNodeReadTrxByRevisionNumber(int revision);
+
+  Optional<User> getUser();
 
 }

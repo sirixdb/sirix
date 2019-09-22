@@ -1,8 +1,10 @@
 package org.sirix.access.trx.node.xml;
 
+import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -14,14 +16,18 @@ import org.sirix.exception.SirixException;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractForwardingXmlNodeTrx extends AbstractForwardingXmlNodeReadOnlyTrx
-    implements XmlNodeTrx {
+public abstract class AbstractForwardingXmlNodeTrx extends AbstractForwardingXmlNodeReadOnlyTrx implements XmlNodeTrx {
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingXmlNodeTrx() {}
 
   @Override
   protected abstract XmlNodeTrx delegate();
+
+  @Override
+  public Optional<User> getUser() {
+    return delegate().getUser();
+  }
 
   @Override
   public XmlNodeTrx rollback() {
@@ -74,8 +80,7 @@ public abstract class AbstractForwardingXmlNodeTrx extends AbstractForwardingXml
   }
 
   @Override
-  public XmlNodeTrx insertAttribute(QNm name, @Nonnull String value, @Nonnull Movement move)
-      throws SirixException {
+  public XmlNodeTrx insertAttribute(QNm name, @Nonnull String value, @Nonnull Movement move) throws SirixException {
     return delegate().insertAttribute(name, value, move);
   }
 

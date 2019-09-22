@@ -32,7 +32,7 @@ import java.nio.file.Paths;
 import javax.xml.stream.XMLStreamException;
 import org.mockito.InOrder;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.DiffOptimized;
@@ -51,7 +51,7 @@ public final class DiffTestHelper {
   protected static final long TIMEOUT_S = 5;
 
   static void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   static void setUpFirst(final Holder holder) throws SirixException {

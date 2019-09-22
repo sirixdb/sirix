@@ -55,7 +55,7 @@ class JsonGet(private val location: Path) {
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { future: Future<Unit> ->
+        context.executeBlockingAwait { _: Future<Unit> ->
             val databases = Files.list(location)
 
             val buffer = StringBuilder()

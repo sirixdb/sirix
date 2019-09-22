@@ -37,8 +37,8 @@ import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -90,13 +90,13 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @Override
   @After
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -198,9 +198,9 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
   // }
 
   private void test(final Path folder) throws Exception {
-    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-    final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
+    final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
     int i = 2;
     final List<Path> files =
         Files.list(folder).filter(file -> file.getFileName().endsWith(".xml")).collect(Collectors.toList());
@@ -245,7 +245,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).prettyPrint().build();
           serializer.call();
-          final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
+          final StringBuilder sBuilder = XmlTestHelper.readFile(file, false);
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);

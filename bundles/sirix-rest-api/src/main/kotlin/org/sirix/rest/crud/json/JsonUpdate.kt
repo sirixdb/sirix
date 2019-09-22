@@ -7,6 +7,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
+import org.sirix.access.User as SirixDBUser
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.service.json.serialize.JsonSerializer
@@ -14,6 +15,10 @@ import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.math.BigInteger
 import java.nio.file.Path
+import java.util.UUID
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.oauth2.KeycloakHelper
+import org.sirix.rest.crud.SirixDBUtils
 
 enum class JsonInsertionMode {
     ASFIRSTCHILD {
@@ -58,9 +63,10 @@ class JsonUpdate(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
+            
+            val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
             val dbFile = location.resolve(dbPathName)
-
-            val database = Databases.openJsonDatabase(dbFile)
+            val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
             database.use {
                 val manager = database.openResourceManager(resPathName)

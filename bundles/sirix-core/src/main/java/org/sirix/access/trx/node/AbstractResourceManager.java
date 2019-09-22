@@ -21,11 +21,13 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
 import org.sirix.access.trx.page.PageTrxFactory;
@@ -100,6 +102,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   /** The resource store with which this manager has been created. */
   final ResourceStore<? extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>> mResourceStore;
 
+  /** The user interacting with SirixDB. */
+  final User mUser;
+
   /**
    * Package private constructor.
    *
@@ -113,7 +118,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       final @Nonnull ResourceStore<? extends ResourceManager<R, W>> resourceStore,
       final @Nonnull ResourceConfiguration resourceConf, final @Nonnull BufferManager bufferManager,
       final @Nonnull Storage storage, final @Nonnull UberPage uberPage, final @Nonnull Semaphore readSemaphore,
-      final @Nonnull Lock writeLock) {
+      final @Nonnull Lock writeLock, final @Nullable User user) {
     mDatabase = checkNotNull(database);
     mResourceStore = checkNotNull(resourceStore);
     mResourceConfig = checkNotNull(resourceConf);
@@ -132,6 +137,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     mWriteLock = checkNotNull(writeLock);
 
     mLastCommittedUberPage = new AtomicReference<>(uberPage);
+    mUser = user;
 
     mClosed = false;
   }
@@ -158,17 +164,17 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param id the transaction ID
    * @param representRevision the revision which is represented
-   * @param storeRevision the revision which is stored
+   * @param storedRevision the revision which is stored
    * @param abort determines if a transaction must be aborted (rollback) or not
    * @return a new {@link PageTrx} instance
    */
   @Override
   public PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(final @Nonnegative long id,
-      final @Nonnegative int representRevision, final @Nonnegative int storeRevision, final Abort abort,
+      final @Nonnegative int representRevision, final @Nonnegative int storedRevision, final Abort abort,
       boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
-    checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
+    checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
     final Writer writer = mFac.createWriter();
     final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber();
     final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
@@ -177,7 +183,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
         : new UberPage(lastCommitedUberPage, representRevision > 0
             ? writer.readUberPageReference().getKey()
             : -1),
-        writer, id, representRevision, storeRevision, lastCommitedRev, isBoundToNodeTrx);
+        writer, id, representRevision, storedRevision, lastCommitedRev, isBoundToNodeTrx);
   }
 
   @Override
@@ -703,4 +709,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  @Override
+  public Optional<User> getUser() {
+    return Optional.ofNullable(mUser);
+  }
 }
