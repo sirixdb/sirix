@@ -33,8 +33,8 @@ import javax.xml.stream.events.StartElement;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.exception.SirixException;
@@ -58,12 +58,12 @@ public class WikipediaImportTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @After
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -98,8 +98,8 @@ public class WikipediaImportTest {
         PATHS.PATH2.getFile().toAbsolutePath().toString(),
         PATHS.PATH3.getFile().toAbsolutePath().toString());
 
-    final StringBuilder actual = XdmTestHelper.readFile(PATHS.PATH3.getFile().toAbsolutePath(), false);
-    final StringBuilder expected = XdmTestHelper.readFile(EXPECTED, false);
+    final StringBuilder actual = XmlTestHelper.readFile(PATHS.PATH3.getFile().toAbsolutePath(), false);
+    final StringBuilder expected = XmlTestHelper.readFile(EXPECTED, false);
     assertEquals("XML files match", expected.toString(), actual.toString());
   }
 }

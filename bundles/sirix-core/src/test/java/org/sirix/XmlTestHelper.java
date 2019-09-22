@@ -38,10 +38,11 @@ import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.node.NodeKind.DumbNode;
@@ -58,7 +59,7 @@ import org.sirix.utils.XmlDocumentCreator;
  * @author Sebastian Graf, University of Konstanz
  *
  */
-public final class XdmTestHelper {
+public final class XmlTestHelper {
 
   /** Temporary directory path. */
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
@@ -125,6 +126,34 @@ public final class XdmTestHelper {
           Databases.createXmlDatabase(config);
         }
         final var database = Databases.openXmlDatabase(file);
+        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+        INSTANCES.put(file, database);
+        return database;
+      } catch (final SirixRuntimeException e) {
+        fail(e.toString());
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Getting a database and create one if not existing. This includes the creation of a resource with
+   * the settings in the builder as standard.
+   *
+   * @param file to be created
+   * @return a database-obj
+   */
+  @Ignore
+  public static final Database<XmlResourceManager> getDatabase(final Path file, final User user) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      try {
+        final DatabaseConfiguration config = new DatabaseConfiguration(file);
+        if (!Files.exists(file)) {
+          Databases.createXmlDatabase(config);
+        }
+        final var database = Databases.openXmlDatabase(file, user);
         database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
         INSTANCES.put(file, database);
         return database;
@@ -227,7 +256,7 @@ public final class XdmTestHelper {
    * @throws SirixException if anything went wrong
    */
   public static void createTestDocument() {
-    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
@@ -242,7 +271,7 @@ public final class XdmTestHelper {
    * @throws SirixException if anything went wrong
    */
   public static void createPICommentTestDocument() {
-    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XmlResourceManager manager = database.openResourceManager(RESOURCE);
         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
@@ -268,6 +297,6 @@ public final class XdmTestHelper {
    * @return a {@link DumbNode} with random values
    */
   public static final Record generateOne() {
-    return new DumbNode(XdmTestHelper.random.nextInt(Integer.MAX_VALUE));
+    return new DumbNode(XmlTestHelper.random.nextInt(Integer.MAX_VALUE));
   }
 }

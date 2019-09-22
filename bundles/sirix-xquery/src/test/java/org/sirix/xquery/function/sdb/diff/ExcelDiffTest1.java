@@ -24,8 +24,8 @@ import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.axis.DescendantAxis;
@@ -55,13 +55,13 @@ public final class ExcelDiffTest1 extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @Override
   @After
   public void tearDown() throws SirixException, IOException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -76,8 +76,8 @@ public final class ExcelDiffTest1 extends TestCase {
    * @throws Exception if any exception occurs
    */
   private void test(final Path folder) throws Exception {
-    try (final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XmlResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
+    try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      XmlResourceManager resource = database.openResourceManager(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
 
@@ -116,7 +116,7 @@ public final class ExcelDiffTest1 extends TestCase {
           }
 
           resource.close();
-          resource = database.openResourceManager(XdmTestHelper.RESOURCE);
+          resource = database.openResourceManager(XmlTestHelper.RESOURCE);
 
           System.out.println();
           System.out.println();
@@ -138,7 +138,7 @@ public final class ExcelDiffTest1 extends TestCase {
           final OutputStream out = new ByteArrayOutputStream();
           final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
           serializer.call();
-          final StringBuilder sBuilder = XdmTestHelper.readFile(file, false);
+          final StringBuilder sBuilder = XmlTestHelper.readFile(file, false);
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
@@ -174,7 +174,7 @@ public final class ExcelDiffTest1 extends TestCase {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.getFileName().toString();
-      final String resName = XdmTestHelper.RESOURCE;
+      final String resName = XmlTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 

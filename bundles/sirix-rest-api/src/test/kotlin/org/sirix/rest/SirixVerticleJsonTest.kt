@@ -5,6 +5,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
+import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.junit5.Timeout

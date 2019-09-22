@@ -27,7 +27,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.exception.SirixException;
 
@@ -55,7 +55,7 @@ public final class StructuralDiffTest {
 
   @After
   public void tearDown() throws SirixException {
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test

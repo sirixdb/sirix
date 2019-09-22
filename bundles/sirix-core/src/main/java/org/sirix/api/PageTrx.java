@@ -38,15 +38,13 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
    * @param page the page to put into the cache
    * @return this page write transaction instance
    */
-  PageTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference,
-      @Nonnull PageContainer page);
+  PageTrx<K, V, S> appendLogRecord(@Nonnull PageReference reference, @Nonnull PageContainer page);
 
   /**
    * Create fresh key/value (value must be a record) and prepare key/value-tuple for modifications
    * (CoW). The record might be a node, in this case the key is the node.
    *
-   * @param key optional key associated with the record to add (otherwise the record nodeKey is
-   *        used)
+   * @param key optional key associated with the record to add (otherwise the record nodeKey is used)
    * @param value value to add (usually a node)
    * @param pageKind kind of subtree the page belongs to
    * @param index the index number
@@ -58,12 +56,11 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
-   * storing the page in the cache and setting up the entry for upcoming modification. The key of
-   * the entry might be the node key and the value the node itself.
+   * storing the page in the cache and setting up the entry for upcoming modification. The key of the
+   * entry might be the node key and the value the node itself.
    *
    * @param key key of the entry to be modified
-   * @param pageKind the kind of subtree (for instance regular data pages or the kind of index
-   *        pages)
+   * @param pageKind the kind of subtree (for instance regular data pages or the kind of index pages)
    * @param index the index number
    * @return instance of the class implementing the {@link Record} instance
    * @throws SirixIOException if an I/O-error occurs
@@ -112,8 +109,7 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
   UberPage commit(String commitMessage);
 
   /**
-   * Committing a {@link PageTrx}. This method is recursively invoked by all
-   * {@link PageReference}s.
+   * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.
    *
    * @param reference to be commited
    * @throws SirixException if the write fails
@@ -157,4 +153,11 @@ public interface PageTrx<K extends Comparable<? super K>, V extends Record, S ex
    * @return the transaction intent log
    */
   TransactionIntentLog getLog();
+
+  /**
+   * Get the revision, which this page trx is going to represent in case of a revert.
+   * 
+   * @return the revision to represent
+   */
+  int getRevisionToRepresent();
 }

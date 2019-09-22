@@ -73,22 +73,23 @@ public final class PageTrxFactory {
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID
-   * @param representRev revision represent
-   * @param lastStoredRev last stored revision
+   * @param representRevision revision represent
+   * @param lastStoredRevision last stored revision
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
   public PageTrx<Long, Record, UnorderedKeyValuePage> createPageTrx(
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
-      final UberPage uberPage, final Writer writer, final @Nonnegative long trxId, final @Nonnegative int representRev,
-      final @Nonnegative int lastStoredRev, final @Nonnegative int lastCommitedRev, final boolean isBoundToNodeTrx) {
+      final UberPage uberPage, final Writer writer, final @Nonnegative long trxId,
+      final @Nonnegative int representRevision, final @Nonnegative int lastStoredRevision,
+      final @Nonnegative int lastCommitedRevision, final boolean isBoundToNodeTrx) {
     final boolean usePathSummary = resourceManager.getResourceConfig().withPathSummary;
-    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRev);
+    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
 
     // Deserialize index definitions.
     final Path indexes =
         resourceManager.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                        .resolve(String.valueOf(lastStoredRev) + ".xml");
+                                                        .resolve(String.valueOf(lastStoredRevision) + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -107,13 +108,13 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final PageReadOnlyTrxImpl pageRtx =
-        new PageReadOnlyTrxImpl(trxId, resourceManager, uberPage, representRev, writer, log, indexController, null);
+    final PageReadOnlyTrxImpl pageRtx = new PageReadOnlyTrxImpl(trxId, resourceManager, uberPage, representRevision,
+        writer, log, indexController, null);
 
     // Create new revision root page.
-    final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRev);
+    final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
     final RevisionRootPage newRevisionRootPage =
-        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRev, lastStoredRev);
+        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
     // First create revision tree if needed.
@@ -170,6 +171,7 @@ public final class PageTrxFactory {
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, isBoundToNodeTrx);
+    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
+        isBoundToNodeTrx);
   }
 }

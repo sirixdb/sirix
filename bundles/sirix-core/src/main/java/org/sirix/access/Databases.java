@@ -159,8 +159,24 @@ public final class Databases {
    * @throws NullPointerException if {@code file} is {@code null}
    */
   @SuppressWarnings("unchecked")
-  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
-    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(), DatabaseType.XML);
+  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file, final User user) {
+    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(user), DatabaseType.XML);
+  }
+
+  /**
+   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
+   * instance bound to the {@link File} is returned.
+   *
+   * @param file determines where the database is located sessionConf a
+   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @return {@link Database} instance.
+   * @throws SirixIOException if an I/O exception occurs
+   * @throws SirixUsageException if Sirix is not used properly
+   * @throws NullPointerException if {@code file} is {@code null}
+   */
+  @SuppressWarnings("unchecked")
+  public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file, final User user) {
+    return (Database<JsonResourceManager>) openDatabase(file, new JsonResourceStore(user), DatabaseType.JSON);
   }
 
   /**
@@ -177,6 +193,22 @@ public final class Databases {
   @SuppressWarnings("unchecked")
   public static synchronized Database<JsonResourceManager> openJsonDatabase(final Path file) {
     return (Database<JsonResourceManager>) openDatabase(file, new JsonResourceStore(), DatabaseType.JSON);
+  }
+
+  /**
+   * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
+   * instance bound to the {@link File} is returned.
+   *
+   * @param file determines where the database is located sessionConf a
+   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @return {@link Database} instance.
+   * @throws SirixIOException if an I/O exception occurs
+   * @throws SirixUsageException if Sirix is not used properly
+   * @throws NullPointerException if {@code file} is {@code null}
+   */
+  @SuppressWarnings("unchecked")
+  public static synchronized Database<XmlResourceManager> openXmlDatabase(final Path file) {
+    return (Database<XmlResourceManager>) openDatabase(file, new XmlResourceStore(), DatabaseType.XML);
   }
 
   private static Database<?> openDatabase(final Path file,

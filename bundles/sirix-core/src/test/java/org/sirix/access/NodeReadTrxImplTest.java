@@ -28,8 +28,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
@@ -40,15 +40,15 @@ public final class NodeReadTrxImplTest {
 
   @Before
   public void setUp() {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -57,8 +57,8 @@ public final class NodeReadTrxImplTest {
     Databases.createXmlDatabase(PATHS.PATH2.getConfig());
 
     try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
-      db.createResource(new ResourceConfiguration.Builder(XdmTestHelper.RESOURCE).build());
-      try (final XmlResourceManager resMgr = db.openResourceManager(XdmTestHelper.RESOURCE);
+      db.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
+      try (final XmlResourceManager resMgr = db.openResourceManager(XmlTestHelper.RESOURCE);
           final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
         assertEquals(0, rtx.getRevisionNumber());
       }

@@ -17,8 +17,12 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   /** Central repository of all open resource managers. */
   protected final ConcurrentMap<Path, R> mResourceManagers;
 
-  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers) {
+  /** The user, which interacts with SirixDB. */
+  protected final User mUser;
+
+  public AbstractResourceStore(final ConcurrentMap<Path, R> resourceManagers, final User user) {
     mResourceManagers = resourceManagers;
+    mUser = user;
   }
 
   protected UberPage getUberPage(final Storage storage) {

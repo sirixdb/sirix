@@ -6,7 +6,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.utils.XmlDocumentCreator;
@@ -23,15 +23,15 @@ public class PICommentTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createPICommentTestDocument();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createPICommentTestDocument();
     mHolder = Holder.generateWtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     mHolder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test

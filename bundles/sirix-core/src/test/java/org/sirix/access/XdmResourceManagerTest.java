@@ -32,8 +32,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -49,14 +49,14 @@ public class XdmResourceManagerTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -64,11 +64,11 @@ public class XdmResourceManagerTest {
     try (final var database = Holder.openResourceManager().getDatabase()) {
       assertEquals(database, holder.getDatabase());
 
-      try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
         assertEquals(manager, holder.getResourceManager());
       }
 
-      try (final XmlResourceManager manager2 = database.openResourceManager(XdmTestHelper.RESOURCE)) {
+      try (final XmlResourceManager manager2 = database.openResourceManager(XmlTestHelper.RESOURCE)) {
         assertNotSame(manager2, holder.getResourceManager());
       }
     }
@@ -91,8 +91,8 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testNonExisting() throws SirixException, InterruptedException {
-    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var database2 = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     assertTrue(database == database2);
   }
 
@@ -170,8 +170,8 @@ public class XdmResourceManagerTest {
 
   @Test
   public void testExisting() {
-    final var database = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XmlResourceManager resource = database.openResourceManager(XdmTestHelper.RESOURCE);
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XmlResourceManager resource = database.openResourceManager(XmlTestHelper.RESOURCE);
 
     final XmlNodeTrx wtx1 = resource.beginNodeTrx();
     XmlDocumentCreator.create(wtx1);
@@ -180,7 +180,7 @@ public class XdmResourceManagerTest {
     wtx1.close();
     resource.close();
 
-    final XmlResourceManager resource2 = database.openResourceManager(XdmTestHelper.RESOURCE);
+    final XmlResourceManager resource2 = database.openResourceManager(XmlTestHelper.RESOURCE);
     final XmlNodeReadOnlyTrx rtx1 = resource2.beginNodeReadOnlyTrx();
     assertEquals(1L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
@@ -198,8 +198,8 @@ public class XdmResourceManagerTest {
     wtx2.commit();
     wtx2.close();
 
-    final var database2 = XdmTestHelper.getDatabase(PATHS.PATH1.getFile());
-    final XmlResourceManager resource3 = database2.openResourceManager(XdmTestHelper.RESOURCE);
+    final var database2 = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final XmlResourceManager resource3 = database2.openResourceManager(XmlTestHelper.RESOURCE);
     final XmlNodeReadOnlyTrx rtx2 = resource3.beginNodeReadOnlyTrx();
     assertEquals(2L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);

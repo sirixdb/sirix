@@ -30,7 +30,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -45,15 +45,15 @@ public class ThreadTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createTestDocument();
     holder = Holder.openResourceManager();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test

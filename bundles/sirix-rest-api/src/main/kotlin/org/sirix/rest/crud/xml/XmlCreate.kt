@@ -20,6 +20,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import org.sirix.rest.crud.SirixDBUtils
 
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -56,7 +57,9 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
         
-        val database = Databases.openXmlDatabase(dbFile)
+        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+        
+        val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
         database.use {
             ctx.fileUploads().forEach { fileUpload ->

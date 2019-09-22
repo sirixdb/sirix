@@ -2,7 +2,9 @@ package org.sirix.index.path.summary;
 
 import java.math.BigInteger;
 import java.time.Instant;
+import java.util.Optional;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
@@ -28,6 +30,11 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
 
   @Override
   protected abstract PathSummaryReader delegate();
+
+  @Override
+  public Optional<User> getUser() {
+    return delegate().getUser();
+  }
 
   @Override
   public CommitCredentials getCommitCredentials() {

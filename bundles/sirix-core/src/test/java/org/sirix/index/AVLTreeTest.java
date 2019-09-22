@@ -14,7 +14,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -41,14 +41,14 @@ public class AVLTreeTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.openResourceManager();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test

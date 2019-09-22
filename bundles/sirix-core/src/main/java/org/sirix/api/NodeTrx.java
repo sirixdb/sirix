@@ -1,6 +1,8 @@
 package org.sirix.api;
 
+import java.util.Optional;
 import javax.annotation.Nonnegative;
+import org.sirix.access.User;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -81,4 +83,11 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
   void close();
 
   PageTrx<Long, Record, UnorderedKeyValuePage> getPageWtx();
+
+  /**
+   * Get the user who committed the revision you reverted to, if available.
+   *
+   * @return the user who committed the revision you reverted to, if available
+   */
+  Optional<User> getUserOfRevisionToRepresent();
 }

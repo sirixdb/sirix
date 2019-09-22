@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -179,11 +180,13 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
    *
    * @param transactionID ID of transaction
    * @param resourceManager the {@link session} instance this transaction is bound to
-   * @param pageWriteTrx {@link PageTrx} to interact with the page layer
+   * @param nodeReadTrx {@link PageTrx} to interact with the page layer
+   * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount maximum number of node modifications before auto commit
    * @param timeUnit unit of the number of the next param {@code pMaxTime}
    * @param maxTime maximum number of seconds before auto commit
-   * @param trx the transaction to use
+   * @param documentNode the documnet node, which is the only node present in a bootstrapped resource
+   * @param nodeFactory the node factory used to create nodes
    * @throws SirixIOException if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
@@ -221,7 +224,6 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         : null;
 
     mHashKind = resourceManager.getResourceConfig().hashType;
-
     mDeweyIDsStored = resourceManager.getResourceConfig().areDeweyIDsStored;
     mCompression = resourceManager.getResourceConfig().useTextCompression;
 
@@ -233,6 +235,16 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     // throw new IllegalStateException(e);
     // }
     // }
+  }
+
+  @Override
+  public Optional<User> getUser() {
+    return mResourceManager.getUser();
+  }
+
+  @Override
+  public Optional<User> getUserOfRevisionToRepresent() {
+    return mNodeReadOnlyTrx.getUser();
   }
 
   @Override

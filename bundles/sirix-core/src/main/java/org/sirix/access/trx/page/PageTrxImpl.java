@@ -103,6 +103,9 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   /** The tree modifier. */
   private final TreeModifier mTreeModifier;
 
+  /** The revision to represent. */
+  private final int mRepresentRevision;
+
   /** {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise */
   private final boolean mIsBoundToNodeTrx;
 
@@ -114,19 +117,27 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
    * @param revisionRootPage the revision root page
    * @param pageRtx the page reading transaction used as a delegate
    * @param indexController the index controller, which is used to update indexes
+   * @param representRevision the revision to represent
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
   PageTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final PageReadOnlyTrxImpl pageRtx,
-      final IndexController<?, ?> indexController, final boolean isBoundToNodeTrx) {
+      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
     mLog = checkNotNull(log);
     mNewRoot = checkNotNull(revisionRootPage);
     mPageRtx = checkNotNull(pageRtx);
     mIndexController = checkNotNull(indexController);
+    checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
+    mRepresentRevision = representRevision;
     mIsBoundToNodeTrx = isBoundToNodeTrx;
+  }
+
+  @Override
+  public int getRevisionToRepresent() {
+    return mRepresentRevision;
   }
 
   @Override
@@ -307,11 +318,13 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     uberPageReference.setPage(uberPage);
     final int revision = uberPage.getRevisionNumber();
 
+    mPageRtx.mResourceManager.getUser().ifPresent(user -> getActualRevisionRootPage().setUser(user));
+
+    if (commitMessage != null)
+      getActualRevisionRootPage().setCommitMessage(commitMessage);
+
     // Recursively write indirectly referenced pages.
-    if (commitMessage == null)
-      uberPage.commit(this);
-    else
-      uberPage.commit(commitMessage, this);
+    uberPage.commit(this);
 
     uberPageReference.setPage(uberPage);
     mPageWriter.writeUberPageReference(uberPageReference);

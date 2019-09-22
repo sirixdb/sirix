@@ -39,8 +39,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -65,7 +65,7 @@ public final class DiffTest extends TestCase {
   @Override
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
     XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
     holder.getXdmNodeWriteTrx().close();
@@ -75,7 +75,7 @@ public final class DiffTest extends TestCase {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -86,8 +86,8 @@ public final class DiffTest extends TestCase {
     Databases.createXmlDatabase(config);
 
     try (final var database = Databases.openXmlDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(XdmTestHelper.RESOURCE).build());
-      try (final XmlResourceManager manager = database.openResourceManager(XdmTestHelper.RESOURCE);
+      database.createResource(ResourceConfiguration.newBuilder(XmlTestHelper.RESOURCE).build());
+      try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
@@ -100,7 +100,7 @@ public final class DiffTest extends TestCase {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = databasePath.getFileName().toString();
-      final String resName = XdmTestHelper.RESOURCE;
+      final String resName = XmlTestHelper.RESOURCE;
 
       final String xq = "sdb:diff('" + dbName + "','" + resName + "',1,2)";
 
@@ -138,7 +138,7 @@ public final class DiffTest extends TestCase {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
       final String dbName = database.toString();
-      final String resName = XdmTestHelper.RESOURCE;
+      final String resName = XmlTestHelper.RESOURCE;
 
       final String xq1 = "sdb:diff('" + dbName + "', '" + resName + "',1,5)";
 

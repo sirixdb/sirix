@@ -39,7 +39,7 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
@@ -56,15 +56,15 @@ public class StAXSerializerTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test

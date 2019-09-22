@@ -16,7 +16,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixException;
@@ -50,9 +50,9 @@ public class PageTest {
 
   @BeforeClass
   public void setUp() throws SirixException {
-    XdmTestHelper.closeEverything();
-    XdmTestHelper.deleteEverything();
-    XdmTestHelper.createTestDocument();
+    XmlTestHelper.closeEverything();
+    XmlTestHelper.deleteEverything();
+    XmlTestHelper.createTestDocument();
     mHolder = Holder.generateDeweyIDResourceMgr();
     mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }
@@ -102,15 +102,15 @@ public class PageTest {
     // final RevisionRootPage revRootPage = new RevisionRootPage();
 
     // NodePage setup.
-    final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XdmTestHelper.random.nextInt(Integer.MAX_VALUE),
+    final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
         PageKind.RECORDPAGE, Constants.NULL_ID_LONG, mPageReadTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-      final Record record = XdmTestHelper.generateOne();
+      final Record record = XmlTestHelper.generateOne();
       nodePage.setEntry(record.getNodeKey(), record);
     }
     // NamePage setup.
     final NamePage namePage = new NamePage();
-    final String name = new String(XdmTestHelper.generateRandomBytes(256));
+    final String name = new String(XmlTestHelper.generateRandomBytes(256));
     namePage.setName(name, NodeKind.ELEMENT, createPageTrxMock("name"));
 
     // ValuePage setup.

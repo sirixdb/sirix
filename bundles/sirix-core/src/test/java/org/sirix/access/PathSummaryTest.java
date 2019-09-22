@@ -31,7 +31,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.DescendantAxis;
@@ -59,7 +59,7 @@ public class PathSummaryTest {
 
   @Before
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
     wtx = holder.getResourceManager().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
@@ -68,7 +68,7 @@ public class PathSummaryTest {
   @After
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   /**

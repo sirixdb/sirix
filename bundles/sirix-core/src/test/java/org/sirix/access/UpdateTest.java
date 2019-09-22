@@ -25,12 +25,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import java.util.Iterator;
+import java.util.Optional;
+import java.util.UUID;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.access.trx.node.xml.XmlNodeReadOnlyTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -57,14 +59,14 @@ public class UpdateTest {
 
   @Before
   public void setUp() {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceMgr();
   }
 
   @After
   public void tearDown() {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
   }
 
   @Test
@@ -72,6 +74,49 @@ public class UpdateTest {
     // try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
     // wtx.insertSubtreeAsFirstChild();
     // }
+  }
+
+  @Test
+  public void testUserNamePersistence() {
+    final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
+    try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      XmlDocumentCreator.create(wtx);
+      assertEquals(Optional.of(user), wtx.getUser());
+      wtx.commit();
+      assertEquals(Optional.of(user), wtx.getUser());
+
+      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+        assertEquals(Optional.of(user), rtx.getUser());
+      }
+    }
+  }
+
+  @Test
+  public void testUserNameRetrievalWhenReverting() {
+    final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      XmlDocumentCreator.createVersioned(wtx);
+      assertEquals(Optional.of(user), wtx.getUser());
+      wtx.commit();
+      assertEquals(Optional.of(user), wtx.getUser());
+    }
+
+    final var newUser = new User("Marc Kramis", UUID.randomUUID());
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), newUser);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      assertEquals(Optional.of(user), wtx.getUserOfRevisionToRepresent());
+      assertEquals(Optional.of(newUser), wtx.getUser());
+      wtx.revertTo(1);
+      assertEquals(Optional.of(user), wtx.getUserOfRevisionToRepresent());
+      assertEquals(Optional.of(newUser), wtx.getUser());
+    }
   }
 
   @Test

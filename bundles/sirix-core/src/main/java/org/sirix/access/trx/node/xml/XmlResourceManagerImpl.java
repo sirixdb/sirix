@@ -27,9 +27,10 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalXmlDatabase;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.AbstractResourceManager;
 import org.sirix.access.trx.node.InternalResourceManager;
 import org.sirix.access.xml.XmlResourceStore;
@@ -40,7 +41,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManager;
-import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.io.Storage;
 import org.sirix.node.interfaces.Node;
@@ -68,17 +68,23 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   /**
    * Package private constructor.
    *
-   * @param database {@link LocalXmlDatabase} for centralized operations on related sessions
+   * @param database {@link Database} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
-   * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
-   * @throws SirixException if Sirix encounters an exception
+   * @param bufferManager the cache of in-memory pages shared amongst all node transactions
+   * @param storage the storage itself, used for I/O
+   * @param uberPage the UberPage, which is the main entry point into a resource
+   * @param readSemaphore the read semaphore, which is used to determine how many concurrent
+   *        reading-transactions might be opened
+   * @param writeLock the write lock, which ensures, that only a single read-write transaction is
+   *        opened on a resource
+   * @param user a user, which interacts with SirixDB, might be {@code null}
    */
   public XmlResourceManagerImpl(final Database<XmlResourceManager> database,
       final @Nonnull XmlResourceStore resourceStore, final @Nonnull ResourceConfiguration resourceConf,
       final @Nonnull BufferManager bufferManager, final @Nonnull Storage storage, final @Nonnull UberPage uberPage,
-      final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock) {
-    super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock);
+      final @Nonnull Semaphore readSemaphore, final @Nonnull Lock writeLock, final @Nullable User user) {
+    super(database, resourceStore, resourceConf, bufferManager, storage, uberPage, readSemaphore, writeLock, user);
 
     mRtxIndexControllers = new ConcurrentHashMap<>();
     mWtxIndexControllers = new ConcurrentHashMap<>();
@@ -90,9 +96,8 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-      PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, int maxNodeCount, TimeUnit timeUnit, int maxTime,
-      Node documentNode) {
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+      int maxNodeCount, TimeUnit timeUnit, int maxTime, Node documentNode) {
     // The node read-only transaction.
     final InternalXmlNodeReadTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageWriteTrx, (ImmutableXmlNode) documentNode);

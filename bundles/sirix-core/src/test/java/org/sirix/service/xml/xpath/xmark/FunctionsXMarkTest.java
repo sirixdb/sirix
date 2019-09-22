@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XdmTestHelper;
-import org.sirix.XdmTestHelper.PATHS;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -60,7 +60,7 @@ public class FunctionsXMarkTest {
   @Before
   @Ignore
   public void setUp() throws Exception {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
     XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
@@ -462,7 +462,7 @@ public class FunctionsXMarkTest {
   @Ignore
   public void tearDown() throws SirixException {
     holder.close();
-    XdmTestHelper.closeEverything();
+    XmlTestHelper.closeEverything();
 
   }
 

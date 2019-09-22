@@ -14,6 +14,7 @@ import javax.annotation.Nonnegative;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.Axis;
 import org.sirix.api.Move;
@@ -118,6 +119,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         mQNmMapping.put(this.getName(), pathNodes);
       }
     }
+  }
+
+  @Override
+  public Optional<User> getUser() {
+    return mPageReadTrx.getActualRevisionRootPage().getUser();
   }
 
   @Override

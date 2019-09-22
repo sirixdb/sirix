@@ -2,7 +2,7 @@ package org.sirix.access.conf;
 
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
-import org.sirix.XdmTestHelper;
+import org.sirix.XmlTestHelper;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.exception.SirixException;
@@ -21,12 +21,12 @@ public class DatabaseConfigurationTest {
 
   @BeforeMethod
   public void setUp() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   @AfterMethod
   public void tearDown() throws SirixException {
-    XdmTestHelper.deleteEverything();
+    XmlTestHelper.deleteEverything();
   }
 
   /**
@@ -38,10 +38,10 @@ public class DatabaseConfigurationTest {
    */
   @Test
   public void testDeSerialize() throws SirixIOException {
-    DatabaseConfiguration conf = new DatabaseConfiguration(XdmTestHelper.PATHS.PATH1.getFile());
+    DatabaseConfiguration conf = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
     assertTrue(Databases.createXmlDatabase(conf));
     DatabaseConfiguration serializedConf =
-        DatabaseConfiguration.deserialize(XdmTestHelper.PATHS.PATH1.getFile());
+        DatabaseConfiguration.deserialize(XmlTestHelper.PATHS.PATH1.getFile());
     assertEquals(conf.toString(), serializedConf.toString());
   }
 }

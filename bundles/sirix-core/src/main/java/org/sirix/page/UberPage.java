@@ -75,7 +75,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Create uber page.
    *
-   * @param resourceConfig {@link ResourceConfiguration} reference
+   * @param user optional user.
    */
   public UberPage() {
     mDelegate = new PageDelegate(1);
@@ -325,12 +325,6 @@ public final class UberPage extends AbstractForwardingPage {
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
       final PageTrx<K, V, S> pageWriteTrx) {
-    mDelegate.commit(pageWriteTrx);
-  }
-
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-      final String commitMessage, final PageTrx<K, V, S> pageWriteTrx) {
-    pageWriteTrx.getActualRevisionRootPage().setCommitMessage(commitMessage);
     mDelegate.commit(pageWriteTrx);
   }
 }
