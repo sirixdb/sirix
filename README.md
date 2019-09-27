@@ -164,17 +164,14 @@ Just add the following repository section to your POM or build.gradle file:
 repository{
     ...
 
- maven {
+    maven {
         url "https://oss.sonatype.org/content/repositories/snapshots/"
         mavenContent {
             snapshotsOnly()
-
         }
-
-
     }
     ...
-    }
+}
 ```
 
 <strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.4-SNAPSHOT.</strong>
