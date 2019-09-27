@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -38,6 +40,7 @@ import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.RevisionInfo;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
@@ -184,6 +187,25 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
             ? writer.readUberPageReference().getKey()
             : -1),
         writer, id, representRevision, storedRevision, lastCommitedRev, isBoundToNodeTrx);
+  }
+
+  @Override
+  public List<RevisionInfo> getHistory() {
+    final int lastCommittedRevision = mLastCommittedUberPage.get().getRevisionNumber();
+
+    final var revisionInfos = new ArrayList<RevisionInfo>();
+
+    // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
+    for (int i = lastCommittedRevision; i >= 0; i--) {
+      try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx()) {
+        final CommitCredentials commitCredentials = rtx.getCommitCredentials();
+
+        revisionInfos.add(new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(),
+            rtx.getRevisionTimestamp(), commitCredentials.getMessage()));
+      }
+    }
+
+    return revisionInfos;
   }
 
   @Override

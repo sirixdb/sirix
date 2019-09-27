@@ -308,8 +308,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private boolean hasMoreRevisionsToSerialize(final JsonNodeReadOnlyTrx rtx) {
-    return rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1] || (mRevisions.length == 1
-        && mRevisions[0] == -1 && rtx.getRevisionNumber() < rtx.getResourceManager().getMostRecentRevisionNumber());
+    return rtx.getRevisionNumber() < mRevisions[mRevisions.length - 1] || (mRevisions.length == 1 && mRevisions[0] == -1
+        && rtx.getRevisionNumber() < rtx.getResourceManager().getMostRecentRevisionNumber());
   }
 
   /**
@@ -458,7 +458,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
-      checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+      checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
       mStream = checkNotNull(stream);
