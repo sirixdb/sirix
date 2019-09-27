@@ -31,6 +31,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
+import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.access.DatabaseType
 
 class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -80,6 +82,16 @@ class XmlGet(private val location: Path) {
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
                             vertxContext: Context, user: User) {
+        val history = ctx.pathParam("history")
+
+        if (history != null && dbName != null && resName != null) {
+            vertxContext.executeBlockingAwait { _: Future<Unit> ->
+              SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
+            }
+
+            return
+        }
+        
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)

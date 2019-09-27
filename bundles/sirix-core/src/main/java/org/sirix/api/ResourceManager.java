@@ -23,6 +23,7 @@ package org.sirix.api;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
@@ -71,6 +72,13 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return the resource path
    */
   Path getResourcePath();
+
+  /**
+   * Get the history, that is the metadata informations about the revisions.
+   * 
+   * @return the history
+   */
+  List<RevisionInfo> getHistory();
 
   /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
