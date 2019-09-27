@@ -102,7 +102,7 @@ binary XML store as well as a JSON store.
 
 <p>&nbsp;&nbsp;</p>
 
-Articles published on Medium: 
+Articles published on Medium:
 - [Asynchronous, Temporal  REST With Vert.x, Keycloak and Kotlin Coroutines](https://hackernoon.com/asynchronous-temporal-rest-with-vert-x-keycloak-and-kotlin-coroutines-217b25756314?source=friends_link&sk=5eabb36b2984cf61a2dff3f9fe45addc)
 - [Pushing Database Versioning to Its Limits by Means of a Novel Sliding Snapshot Algorithm and Efficient Time Travel Queries](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/why-and-how-we-built-a-temporal-database-system-called-sirixdb-open-source-from-scratch-a7446f56f201)
 - [How we built an asynchronous, temporal RESTful API based on Vert.x, Keycloak and Kotlin/Coroutines for Sirix.io (Open Source)](https://medium.com/sirixdb-sirix-io-how-we-built-a-novel-temporal/how-we-built-an-asynchronous-temporal-restful-api-based-on-vert-x-4570f681a3)
@@ -146,7 +146,7 @@ We just changed to Java11 (OpenJDK 11).
 ### Maven artifacts
 At this stage of development you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.3 of Sirix :-)
 
-Just add the following repository section to your POM file:
+Just add the following repository section to your POM or build.gradle file:
 ```xml
 <repository>
   <id>sonatype-nexus-snapshots</id>
@@ -159,6 +159,22 @@ Just add the following repository section to your POM file:
     <enabled>true</enabled>
   </snapshots>
 </repository>
+```
+```groovy
+repository{
+    ...
+
+ maven {
+        url "https://oss.sonatype.org/content/repositories/snapshots/"
+        mavenContent {
+            snapshotsOnly()
+
+        }
+
+
+    }
+    ...
+    }
 ```
 
 <strong>Note that we changed the groupId from `com.github.sirixdb.sirix` to `io.sirix`. Most recent version is 0.9.4-SNAPSHOT.</strong>
@@ -173,6 +189,9 @@ Core project:
   <version>0.9.4-SNAPSHOT</version>
 </dependency>
 ```
+```groovy
+compile group: 'io.sirix', name: 'sirix-core', version: '0.9.4-SNAPSHOT'
+```
 
 Brackit binding:
 ```xml
@@ -181,6 +200,9 @@ Brackit binding:
   <artifactId>sirix-xquery</artifactId>
   <version>0.9.4-SNAPSHOT</version>
 </dependency>
+```
+```groovy
+compile group: 'io.sirix', name: 'sirix-xquery', version: '0.9.4-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
@@ -192,9 +214,13 @@ Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authe
 </dependency>
 ```
 
+```groovy
+compile group: 'io.sirix', name: 'sirix-rest-api', version: '0.9.4-SNAPSHOT'
+```
+
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding).
 
-### Docker images for the Sirix HTTP(S)-Server / the REST-API 
+### Docker images for the Sirix HTTP(S)-Server / the REST-API
 First, we need a running Keycloak server for now on port 8080.
 
 As a Keycloak instance is needed for the RESTful-API we'll build a simple docker compose file maybe with a demo database user and some roles in the future.
@@ -229,7 +255,7 @@ We are currently working on the documentation. You may find first drafts and sni
 Please also have a look at and play with our sirix-example bundle which is available via maven or our new asynchronous RESTful API (shown next).
 
 The following sections show different APIs to interact with Sirix.
-    
+
 ## RESTful-API
 We provide a simple, asynchronous RESTful-API. Authorization is done via OAuth2 (Password Credentials/Resource Owner Flow) using a Keycloak authorization server instance. Keycloak can be set up as described in this excellent [tutorial](
 https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x-and-oauth2/).
@@ -279,7 +305,7 @@ val xml = """
 """.trimIndent()
 
 var httpResponse = client.putAbs("$server/database/resource1").putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
-  
+
 if (200 == response.statusCode()) {
   println("Stored document.")
 } else {
@@ -441,7 +467,7 @@ Databases.createXmlDatabase(config);
 
 // Open the database.
 try (var database = Databases.openXmlDatabase(file)) {
-  /* 
+  /*
    * Create a resource in the database with the name "resource".
    * Store deweyIDs (hierarchical node labels), use text node compression,
    * build a summary of all paths in the resource and use the SLIDING_SNAPSHOT
@@ -461,25 +487,25 @@ try (var database = Databases.openXmlDatabase(file)) {
       var wtx = manager.beginNodeTrx()) {
     // Import an XML-document.
     wtx.insertSubtreeAsFirstChild(XMLShredder.createFileReader(LOCATION.resolve("input.xml")));
-    
+
     // Move to the node which automatically got the node-key 2 from Sirix during the import of the XML-document.
     wtx.moveTo(2);
-    
+
     // Then move the subtree located at this node to the first child of node 4.
     wtx.moveSubtreeToFirstChild(4)
-    
+
     // Get the name of the current node.
     final QName name = wtx.getName();
-    
+
     // Get the value of the current node.
     final String value = wtx.getValue();
-    
+
     // Commit revision 1.
     wtx.commit();
-    
+
     // Reuse transaction handle and insert an element to the first child where the current transaction cursor resides.
     wtx.insertElementAsFirstChild(new QName("foo"));
-    
+
     // Commit revision 2 with a commit message.
     wtx.commit("[MOD] Inserted another element.");
 
@@ -645,7 +671,7 @@ public interface DiffObserver {
 
 On top of this API we built a brackit(.org) binding, which enables XQuery support as well as another DOM-alike API with DBNode-instances (in-memory) nodes (for instance `public DBNode getLastChild()`, `public DBNode getFirstChild()`, `public Stream<DBNode> getChildren()`...). You can also mix the APIs.
 
-## Simple XQuery Examples 
+## Simple XQuery Examples
 Test if fragments of the resource are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 ```xquery
 (* Loading document: *)
@@ -739,7 +765,7 @@ You may find us on [Slack](https://sirixdb.slack.com) for quick questions.
 
 <p align="center"><img src="https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png"/></p>
 
-A screencast is available depicting the SunburstView and the TextView side by side: 
+A screencast is available depicting the SunburstView and the TextView side by side:
 http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 <p>Currently, as we focused on various improvements in performance and features of the core storage system, the visualizations are a bit dated (and not working), but in the future we aim to bring them into the web (for instance using d3) instead of providing a standalone desktop GUI.</p>
@@ -747,7 +773,7 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 ## Why should you even bother?
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML or JSON) storage system much better suits your needs as it doesn't require a predefined schema before even knowing the structure of the data which has to be persisted.
 
-Do you have to store a snapshot of this irregular data? Furthermore questions such as 
+Do you have to store a snapshot of this irregular data? Furthermore questions such as
 
 - How do we store snapshots of time varying data effectively and efficiently?
 - How do we know which data has been modified ever since a specified snapshot/revision?
@@ -757,13 +783,13 @@ Do you have to store a snapshot of this irregular data? Furthermore questions su
 - Which items have been added?
 - Which items have been deleted?
 
-Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. 
-Furthermore Sirix handles the import of differences between a Sirix-resource and a new version thereof in the form of 
-an XML-document (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms 
-the stored resource into a new snapshot/revision/version, which is the same as the new XML document once 
+Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively.
+Furthermore Sirix handles the import of differences between a Sirix-resource and a new version thereof in the form of
+an XML-document (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms
+the stored resource into a new snapshot/revision/version, which is the same as the new XML document once
 the newest revision is serialized (despite whitespace). Despite this, we also support the import of a series of snapshots of
 temporal data, whereas the detection of the differences is completely up to Sirix. Specifying unique node-IDs to match pairs
-of nodes is not required. 
+of nodes is not required.
 
 Once several (for instance at the very minimum two) versions of resources have been stored in Sirix it's possible to determine
 the differences of subtrees or the whole resource/tree-structure.
@@ -799,7 +825,7 @@ Furthermore in stark contrast to all other approaches the authors are aware of m
 - Flexible backend.
 - Optional encryption and/or compression of each page on disk.
 
-Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward. Afterwards we'll explore how to efficiently distribute Sirix with Vert.x or directly via an Ignite or Hazelcast data grid. 
+Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward. Afterwards we'll explore how to efficiently distribute Sirix with Vert.x or directly via an Ignite or Hazelcast data grid.
 
 Besides, the architecture for versioning data is not restricted to tree-structures by all means as demonstrated in the Ph.D. Thesis of Sebastian Graf (Sirix originated a few years ago as a fork of Treetank going back to its roots and focusing on the versioning of tree-structured data): http://nbn-resolving.de/urn:nbn:de:bsz:352-272505
 
