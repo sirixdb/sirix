@@ -33,6 +33,8 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.stream.Collectors.toList
 import org.sirix.xquery.JsonDBSerializer
+import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.access.DatabaseType
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -79,7 +81,7 @@ class JsonGet(private val location: Path) {
             val content = buffer.toString()
 
             ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                     .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
                     .write(content)
                     .end()
@@ -88,6 +90,16 @@ class JsonGet(private val location: Path) {
 
     private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
                             vertxContext: Context, user: User) {
+        val history = ctx.pathParam("history")
+
+        if (history != null && dbName != null && resName != null) {
+            vertxContext.executeBlockingAwait { _: Future<Unit> ->
+              SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
+            }
+
+            return
+        }
+
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
