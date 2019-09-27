@@ -319,7 +319,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   public CommitCredentials getCommitCredentials() {
-    return new CommitCredentials(null, mCommitMessage);
+    return new CommitCredentials(mUser, mCommitMessage);
   }
 
   public Optional<User> getUser() {

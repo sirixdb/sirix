@@ -27,25 +27,27 @@
  */
 package org.sirix.access.trx.node;
 
+import org.sirix.access.User;
+
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
 public final class CommitCredentials {
-  private final String mUserName;
+  private final User user;
 
-  private final String mCommitMessage;
+  private final String commitMessage;
 
-  public CommitCredentials(final String userName, final String commitMessage) {
-    mUserName = userName;
-    mCommitMessage = commitMessage;
+  public CommitCredentials(final User user, final String commitMessage) {
+    this.user = user;
+    this.commitMessage = commitMessage;
   }
 
-  public String getUserName() {
-    return mUserName;
+  public User getUser() {
+    return user;
   }
 
   public String getMessage() {
-    return mCommitMessage;
+    return commitMessage;
   }
 }
