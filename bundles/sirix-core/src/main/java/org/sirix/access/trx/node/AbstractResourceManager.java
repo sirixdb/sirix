@@ -196,7 +196,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final var revisionInfos = new ArrayList<RevisionInfo>();
 
     // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
-    for (int revision = lastCommittedRevision; revision >= 0; revision--) {
+    for (int revision = lastCommittedRevision; revision > 0; revision--) {
       try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(revision)) {
         final CommitCredentials commitCredentials = rtx.getCommitCredentials();
 
