@@ -120,6 +120,23 @@ public class UpdateTest {
   }
 
   @Test
+  public void testGettingHistory() {
+    final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
+    try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      XmlDocumentCreator.createVersioned(wtx);
+    }
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      final var history = manager.getHistory();
+
+      assertEquals(3, history.size());
+    }
+  }
+
+  @Test
   public void testDelete() {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
