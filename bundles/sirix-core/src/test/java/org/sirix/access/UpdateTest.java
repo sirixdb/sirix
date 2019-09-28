@@ -154,6 +154,81 @@ public class UpdateTest {
 
   @Test
   public void testGettingHistoryWithCommitMessageAndDifferentUser() {
+    final var user = setupCommitHistoryTest();
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      final var history = manager.getHistory();
+
+      assertEquals(3, history.size());
+
+      assertEquals(3, history.get(0).getRevision());
+      assertNotNull(history.get(0).getRevisionTimestamp());
+      assertEquals("Insert a second element and text node", history.get(0).getCommitMessage().get());
+      assertEquals("Marc Kramis", history.get(0).getUser().getName());
+
+      assertEquals(2, history.get(1).getRevision());
+      assertNotNull(history.get(1).getRevisionTimestamp());
+      assertEquals("Insert element and text nodes", history.get(1).getCommitMessage().get());
+      assertEquals("Johannes Lichtenberger", history.get(1).getUser().getName());
+
+      assertEquals(1, history.get(2).getRevision());
+      assertNotNull(history.get(2).getRevisionTimestamp());
+      assertTrue(history.get(2).getCommitMessage().isEmpty());
+      assertEquals("Johannes Lichtenberger", history.get(2).getUser().getName());
+    }
+  }
+
+  @Test
+  public void testGettingHistoryWithPaging() {
+    final var user = setupCommitHistoryTest();
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      final var history = manager.getHistory(3, 1);
+
+      assertEquals(3, history.size());
+
+      assertEquals(3, history.get(0).getRevision());
+      assertNotNull(history.get(0).getRevisionTimestamp());
+      assertEquals("Insert a second element and text node", history.get(0).getCommitMessage().get());
+      assertEquals("Marc Kramis", history.get(0).getUser().getName());
+
+      assertEquals(2, history.get(1).getRevision());
+      assertNotNull(history.get(1).getRevisionTimestamp());
+      assertEquals("Insert element and text nodes", history.get(1).getCommitMessage().get());
+      assertEquals("Johannes Lichtenberger", history.get(1).getUser().getName());
+
+      assertEquals(1, history.get(2).getRevision());
+      assertNotNull(history.get(2).getRevisionTimestamp());
+      assertTrue(history.get(2).getCommitMessage().isEmpty());
+      assertEquals("Johannes Lichtenberger", history.get(2).getUser().getName());
+    }
+  }
+
+  @Test
+  public void testGettingHistoryWithNumberOfRevisionsToRetrieve() {
+    final var user = setupCommitHistoryTest();
+
+    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
+        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
+      final var history = manager.getHistory(2);
+
+      assertEquals(2, history.size());
+
+      assertEquals(3, history.get(0).getRevision());
+      assertNotNull(history.get(0).getRevisionTimestamp());
+      assertEquals("Insert a second element and text node", history.get(0).getCommitMessage().get());
+      assertEquals("Marc Kramis", history.get(0).getUser().getName());
+
+      assertEquals(2, history.get(1).getRevision());
+      assertNotNull(history.get(1).getRevisionTimestamp());
+      assertEquals("Insert element and text nodes", history.get(1).getCommitMessage().get());
+      assertEquals("Johannes Lichtenberger", history.get(1).getUser().getName());
+    }
+  }
+
+  private User setupCommitHistoryTest() {
     final var user = new User("Johannes Lichtenberger", UUID.randomUUID());
     try (final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
         final var manager = database.openResourceManager(XmlTestHelper.RESOURCE);
@@ -177,28 +252,7 @@ public class UpdateTest {
       wtx.insertTextAsFirstChild("OOPS4!");
       wtx.commit("Insert a second element and text node");
     }
-
-    try (final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile(), user);
-        final var manager = database.openResourceManager(XmlTestHelper.RESOURCE)) {
-      final var history = manager.getHistory();
-
-      assertEquals(3, history.size());
-
-      assertEquals(3, history.get(0).getRevision());
-      assertNotNull(history.get(0).getRevisionTimestamp());
-      assertEquals("Insert a second element and text node", history.get(0).getCommitMessage().get());
-      assertEquals("Marc Kramis", history.get(0).getUser().getName());
-
-      assertEquals(2, history.get(1).getRevision());
-      assertNotNull(history.get(1).getRevisionTimestamp());
-      assertEquals("Insert element and text nodes", history.get(1).getCommitMessage().get());
-      assertEquals("Johannes Lichtenberger", history.get(1).getUser().getName());
-
-      assertEquals(1, history.get(2).getRevision());
-      assertNotNull(history.get(2).getRevisionTimestamp());
-      assertTrue(history.get(2).getCommitMessage().isEmpty());
-      assertEquals("Johannes Lichtenberger", history.get(2).getUser().getName());
-    }
+    return user;
   }
 
   @Test

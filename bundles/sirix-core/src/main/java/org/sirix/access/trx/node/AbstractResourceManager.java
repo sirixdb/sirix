@@ -191,30 +191,65 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public List<RevisionInfo> getHistory() {
-    final int lastCommittedRevision = mLastCommittedUberPage.get().getRevisionNumber();
+    return getHistoryInformations(Integer.MAX_VALUE);
+  }
+
+  @Override
+  public List<RevisionInfo> getHistory(int revisions) {
+    return getHistoryInformations(revisions);
+  }
+
+  @Override
+  public List<RevisionInfo> getHistory(int fromRevision, int toRevision) {
+    assertAccess(fromRevision);
+    assertAccess(toRevision);
+
+    checkArgument(fromRevision > toRevision);
 
     final var revisionInfos = new ArrayList<RevisionInfo>();
 
     // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
-    for (int revision = lastCommittedRevision; revision > 0; revision--) {
-      try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(revision)) {
-        final CommitCredentials commitCredentials = rtx.getCommitCredentials();
-
-        revisionInfos.add(new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(),
-            rtx.getRevisionTimestamp(), commitCredentials.getMessage()));
-      }
+    for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
+      revisionInfos.add(getRevisionInfo(revision));
     }
 
     return revisionInfos;
   }
 
+  private List<RevisionInfo> getHistoryInformations(int revisions) {
+    final int lastCommittedRevision = mLastCommittedUberPage.get().getRevisionNumber();
+
+    final var revisionInfos = new ArrayList<RevisionInfo>();
+
+    // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
+    for (int revision = lastCommittedRevision; revision > 0
+        && revision > lastCommittedRevision - revisions; revision--) {
+      revisionInfos.add(getRevisionInfo(revision));
+    }
+
+    return revisionInfos;
+  }
+
+  private RevisionInfo getRevisionInfo(int revision) {
+    try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(revision)) {
+      final CommitCredentials commitCredentials = rtx.getCommitCredentials();
+
+      return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
+          commitCredentials.getMessage());
+    }
+  }
+
   @Override
   public Path getResourcePath() {
+    assertNotClosed();
+
     return mResourceConfig.resourcePath;
   }
 
   @Override
   public Lock getCommitLock() {
+    assertNotClosed();
+
     return mCommitLock;
   }
 
@@ -389,9 +424,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void assertAccess(final @Nonnegative int revision) {
-    if (mClosed) {
-      throw new IllegalStateException("Resource manager is already closed!");
-    }
+    assertNotClosed();
     if (revision < 0) {
       throw new IllegalArgumentException("Revision must be at least 0!");
     } else if (revision > mLastCommittedUberPage.get().getRevision()) {
@@ -404,13 +437,21 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  private void assertNotClosed() {
+    if (mClosed) {
+      throw new IllegalStateException("Resource manager is already closed!");
+    }
+  }
+
   @Override
   public int getAvailableNodeReadTrx() {
+    assertNotClosed();
     return mReadSemaphore.availablePermits();
   }
 
   @Override
   public boolean hasRunningNodeWriteTrx() {
+    assertNotClosed();
     if (mWriteLock.tryLock()) {
       mWriteLock.unlock();
       return true;
@@ -428,6 +469,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void setNodePageWriteTransaction(final @Nonnegative long transactionID,
       @Nonnull final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+    assertNotClosed();
     mNodePageTrxMap.put(transactionID, pageWriteTrx);
   }
 
@@ -438,7 +480,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) throws SirixIOException {
+  public void closeNodePageWriteTransaction(final @Nonnegative long transactionID) {
+    assertNotClosed();
     final PageReadOnlyTrx pageRtx = mNodePageTrxMap.remove(transactionID);
     if (pageRtx != null)
       // assert pageRtx != null : "Must be in the page trx map!";
@@ -452,6 +495,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void closeWriteTransaction(final @Nonnegative long transactionID) {
+    assertNotClosed();
+
     // Remove from internal map.
     removeFromPageMapping(transactionID);
 
@@ -466,6 +511,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void closeReadTransaction(final @Nonnegative long transactionID) {
+    assertNotClosed();
+
     // Remove from internal map.
     removeFromPageMapping(transactionID);
 
@@ -480,6 +527,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void closePageWriteTransaction(final @Nonnegative long transactionID) {
+    assertNotClosed();
+
     // Remove from internal map.
     mPageTrxMap.remove(transactionID);
 
@@ -494,6 +543,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void closePageReadTransaction(final @Nonnegative long transactionID) {
+    assertNotClosed();
+
     // Remove from internal map.
     mPageTrxMap.remove(transactionID);
 
@@ -507,6 +558,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID transaction ID to remove
    */
   private void removeFromPageMapping(final @Nonnegative long transactionID) {
+    assertNotClosed();
+
     // Purge transaction from internal state.
     mNodeReaderMap.remove(transactionID);
 
@@ -526,16 +579,22 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public void setLastCommittedUberPage(final UberPage page) {
+    assertNotClosed();
+
     mLastCommittedUberPage.set(checkNotNull(page));
   }
 
   @Override
   public ResourceConfiguration getResourceConfig() {
+    assertNotClosed();
+
     return mResourceConfig;
   }
 
   @Override
   public int getMostRecentRevisionNumber() {
+    assertNotClosed();
+
     return mLastCommittedUberPage.get().getRevisionNumber();
   }
 
@@ -584,13 +643,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx() throws SirixException {
+  public PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx() {
     return beginPageTrx(mLastCommittedUberPage.get().getRevisionNumber());
   }
 
   @Override
-  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision)
-      throws SirixException {
+  public synchronized PageTrx<Long, Record, UnorderedKeyValuePage> beginPageTrx(final @Nonnegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -627,28 +685,37 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public synchronized Database<?> getDatabase() {
+    assertNotClosed();
+
     return mDatabase;
   }
 
   @Override
   public Optional<R> getNodeReadTrxByTrxId(final long ID) {
+    assertNotClosed();
+
     return Optional.ofNullable(mNodeReaderMap.get(ID));
   }
 
   @Override
   public Optional<R> getNodeReadTrxByRevisionNumber(final int revision) {
+    assertNotClosed();
+
     return mNodeReaderMap.values().stream().filter(rtx -> rtx.getRevisionNumber() == revision).findFirst();
   }
 
   @SuppressWarnings("unchecked")
   @Override
   public synchronized Optional<W> getNodeWriteTrx() {
+    assertNotClosed();
+
     return mNodeReaderMap.values().stream().filter(rtx -> rtx instanceof NodeTrx).map(rtx -> (W) rtx).findAny();
   }
 
   @Override
   public R beginNodeReadOnlyTrx(final Instant pointInTime) {
     checkNotNull(pointInTime);
+    assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();
 
@@ -700,8 +767,9 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public int getRevisionNumber(Instant pointInTime) {
+  public int getRevisionNumber(final Instant pointInTime) {
     checkNotNull(pointInTime);
+    assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();
 
@@ -733,6 +801,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public Optional<User> getUser() {
+    assertNotClosed();
+
     return Optional.ofNullable(mUser);
   }
 }
