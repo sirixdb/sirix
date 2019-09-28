@@ -44,9 +44,21 @@ class SirixDBUtils {
                 val manager = database.openResourceManager(resourceName)
 
                 manager.use {
+                    val numberOfRevisions = ctx.queryParam("revisions")
+                    val startRevision = ctx.queryParam("startRevision")
+                    val endRevision = ctx.queryParam("endRevision")
+
                     val buffer = StringBuilder()
 
-                    val historyList = manager.getHistory()
+                    val historyList = if (numberOfRevisions == null) {
+                        if (startRevision == null && endRevision == null)
+                            manager.getHistory()
+                        else
+                            manager.getHistory(startRevision[0] as Int, endRevision[0] as Int)
+                    } else {
+                        val revisions = numberOfRevisions[0] as Int
+                        manager.getHistory(revisions)
+                    }
 
                     when (type) {
                         DatabaseType.JSON -> {
