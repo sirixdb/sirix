@@ -67,7 +67,6 @@ class SirixDBUtils {
 
                                 buffer.append("\"commitMessage\":")
                                 buffer.append(revisionTuple.getCommitMessage().orElse(""))
-
                                 buffer.append("\"}");
 
                                 if (index != historyList.size - 1)
