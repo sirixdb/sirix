@@ -15,12 +15,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -59,6 +64,9 @@ import org.sirix.settings.Fixed;
 
 public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {
+
+  /** Thread pool. */
+  final ExecutorService mThreadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /** The database. */
   final Database<? extends ResourceManager<R, W>> mDatabase;
@@ -206,36 +214,38 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
 
     checkArgument(fromRevision > toRevision);
 
-    final var revisionInfos = new ArrayList<RevisionInfo>();
+    final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
-    // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
     for (int revision = fromRevision; revision > 0 && revision >= toRevision; revision--) {
-      revisionInfos.add(getRevisionInfo(revision));
+      revisionInfos.add(mThreadPool.submit(new RevisionInfoRunnable(this, revision)));
     }
 
-    return revisionInfos;
+    return getResult(revisionInfos);
   }
 
   private List<RevisionInfo> getHistoryInformations(int revisions) {
+    checkArgument(revisions > 0);
+
     final int lastCommittedRevision = mLastCommittedUberPage.get().getRevisionNumber();
+    final var revisionInfos = new ArrayList<Future<RevisionInfo>>();
 
-    final var revisionInfos = new ArrayList<RevisionInfo>();
-
-    // TODO: Do this in parallel but maybe using Kotlin Coroutines, if we switch to Kotlin.
     for (int revision = lastCommittedRevision; revision > 0
         && revision > lastCommittedRevision - revisions; revision--) {
-      revisionInfos.add(getRevisionInfo(revision));
+      revisionInfos.add(mThreadPool.submit(new RevisionInfoRunnable(this, revision)));
     }
 
-    return revisionInfos;
+    return getResult(revisionInfos);
   }
 
-  private RevisionInfo getRevisionInfo(int revision) {
-    try (final NodeReadOnlyTrx rtx = beginNodeReadOnlyTrx(revision)) {
-      final CommitCredentials commitCredentials = rtx.getCommitCredentials();
+  private List<RevisionInfo> getResult(final ArrayList<Future<RevisionInfo>> revisionInfos) {
+    return revisionInfos.stream().map(this::getFromFuture).collect(Collectors.toList());
+  }
 
-      return new RevisionInfo(commitCredentials.getUser(), rtx.getRevisionNumber(), rtx.getRevisionTimestamp(),
-          commitCredentials.getMessage());
+  private RevisionInfo getFromFuture(Future<RevisionInfo> revisionInfo) {
+    try {
+      return revisionInfo.get();
+    } catch (InterruptedException | ExecutionException e) {
+      throw new IllegalStateException(e);
     }
   }
 
@@ -385,6 +395,12 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!mClosed) {
+      mThreadPool.shutdown();
+      try {
+        mThreadPool.awaitTermination(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+      }
+
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : mNodeReaderMap.values()) {
         if (rtx instanceof XmlNodeTrx) {
@@ -411,6 +427,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       mResourceStore.closeResource(mResourceConfig.getResource());
 
       mFac.close();
+
       mClosed = true;
     }
   }
