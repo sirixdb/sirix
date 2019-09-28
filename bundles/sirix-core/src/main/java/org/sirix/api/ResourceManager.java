@@ -75,10 +75,29 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
 
   /**
    * Get the history, that is the metadata informations about the revisions.
-   * 
+   *
    * @return the history
    */
   List<RevisionInfo> getHistory();
+
+  /**
+   * Get the history, that is the metadata informations about the revisions.
+   *
+   * @param revisions number of revision informations to retrieve starting with the most recent
+   *
+   * @return the history
+   */
+  List<RevisionInfo> getHistory(int revisions);
+
+  /**
+   * Get the history, that is the metadata informations about the revisions.
+   *
+   * @param fromRevision start revision (must be bigger than {@code toRevision})
+   * @param toRevision start revision (must be lower than {@code fromRevision})
+   *
+   * @return the history
+   */
+  List<RevisionInfo> getHistory(int fromRevision, int toRevision);
 
   /**
    * Get the single node writer if available, wrapped in an {@link Optional}.
