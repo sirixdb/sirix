@@ -55,19 +55,19 @@ class SirixDBUtils {
                             historyList.forEachIndexed { index, revisionTuple ->
                                 buffer.append("{\"revision\":")
                                 buffer.append(revisionTuple.getRevision())
-                                buffer.append("},");
+                                buffer.append(",");
 
-                                buffer.append("{\"revisionTimestamp\":")
+                                buffer.append("\"revisionTimestamp\":\"")
                                 buffer.append(revisionTuple.getRevisionTimestamp())
-                                buffer.append("},");
+                                buffer.append("\",");
 
-                                buffer.append("{\"user\":")
+                                buffer.append("\"user\":\"")
                                 buffer.append(revisionTuple.getUser().getName())
-                                buffer.append("},");
+                                buffer.append("\",");
 
-                                buffer.append("{\"commitMessage\":")
+                                buffer.append("\"commitMessage\":")
                                 buffer.append(revisionTuple.getCommitMessage().orElse(""))
-                                buffer.append("},");
+                                buffer.append("\"}");
 
                                 if (index != historyList.size - 1)
                                     buffer.append(",")
