@@ -54,20 +54,20 @@ class SirixDBUtils {
 
                             historyList.forEachIndexed { index, revisionTuple ->
                                 buffer.append("{\"revision\":")
-                                buffer.append(revisionTuple.getRevision())
-                                buffer.append(",");
+                                buffer.append(revisionTuple.revision)
+                                buffer.append(",")
 
                                 buffer.append("\"revisionTimestamp\":\"")
-                                buffer.append(revisionTuple.getRevisionTimestamp())
-                                buffer.append("\",");
+                                buffer.append(revisionTuple.revisionTimestamp)
+                                buffer.append("\",")
 
                                 buffer.append("\"user\":\"")
-                                buffer.append(revisionTuple.getUser().getName())
-                                buffer.append("\",");
+                                buffer.append(revisionTuple.user.name)
+                                buffer.append("\",")
 
                                 buffer.append("\"commitMessage\":")
-                                buffer.append(revisionTuple.getCommitMessage().orElse(""))
-                                buffer.append("\"}");
+                                buffer.append(revisionTuple.commitMessage.orElse(""))
+                                buffer.append("\"}")
 
                                 if (index != historyList.size - 1)
                                     buffer.append(",")
@@ -80,20 +80,20 @@ class SirixDBUtils {
 
                             historyList.forEach { revisionTuple ->
                                 buffer.append("<revision revisionNumber=\"")
-                                buffer.append(revisionTuple.getRevision())
-                                buffer.append("\" ");
+                                buffer.append(revisionTuple.revision)
+                                buffer.append("\" ")
 
                                 buffer.append("revisionTimestamp=\"")
-                                buffer.append(revisionTuple.getRevisionTimestamp())
-                                buffer.append("\" ");
+                                buffer.append(revisionTuple.revisionTimestamp)
+                                buffer.append("\" ")
 
                                 buffer.append("user=\"")
-                                buffer.append(revisionTuple.getUser().getName())
-                                buffer.append("\" ");
+                                buffer.append(revisionTuple.user.name)
+                                buffer.append("\" ")
 
                                 buffer.append("commitMessage=\"")
-                                buffer.append(revisionTuple.getCommitMessage().orElse(""))
-                                buffer.append("\"/>");
+                                buffer.append(revisionTuple.commitMessage.orElse(""))
+                                buffer.append("\"/>")
                             }
 
                             buffer.append("</rest:sequence>")
