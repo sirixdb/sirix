@@ -20,8 +20,8 @@ EXPOSE 9443
 
 # Copy your fat jar to the container
 COPY target/$VERTICLE_FILE $VERTICLE_HOME/
-COPY src/main/resources/cert.pem $VERTICLE_HOME/sirix-data
-COPY src/main/resources/key.pem $VERTICLE_HOME/sirix-data
+COPY src/main/resources/cert.pem $VERTICLE_HOME/sirix-data/
+COPY src/main/resources/key.pem $VERTICLE_HOME/sirix-data/
 COPY src/main/resources/sirix-conf.json $VERTICLE_HOME/
 
 # Launch the verticle
