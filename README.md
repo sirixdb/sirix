@@ -24,6 +24,8 @@
 
 <p>&nbsp;</p>
 
+**Note: Work on a [Front-end](https://github.com/sirixdb/sirix-web-frontend) built with [Vue.js](https://vuejs.org), [D3.js](https://d3js) and Typescript has just begun**
+
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
