@@ -1,4 +1,5 @@
 module sirix.xquery {
+    requires auto.service;
     requires brackit;
     requires com.google.common;
     requires google.http.client;

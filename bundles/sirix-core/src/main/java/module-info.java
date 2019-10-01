@@ -1,4 +1,5 @@
 module sirix.core {
+    requires auto.service;
     requires brackit;
     requires brownies.collections;
     requires com.github.benmanes.caffeine;
@@ -40,6 +41,7 @@ module sirix.core {
     exports org.sirix.index.path.xml;
     exports org.sirix.io;
     exports org.sirix.node;
+    exports org.sirix.node.interfaces;
     exports org.sirix.node.interfaces.immutable;
     exports org.sirix.node.immutable.xdm;
     exports org.sirix.settings;
