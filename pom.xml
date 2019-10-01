@@ -372,12 +372,12 @@
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
-			<version>27.0-jre</version>
+			<version>27.0.1-jre</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava-testlib</artifactId>
-			<version>27.0-jre</version>
+			<version>27.0.1-jre</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.code.findbugs</groupId>
@@ -425,6 +425,7 @@
 		<module>bundles/sirix-xquery</module>
 		<module>bundles/sirix-rest-api</module>
 		<module>bundles/sirix-examples</module>
+		<module>bundles/sirix-fs</module>
 	</modules>
 	<url>https://sirix.io</url>
 </project>

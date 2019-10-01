@@ -10,8 +10,8 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
 import com.google.common.base.Optional;
+import org.sirix.node.NodeKind;
 
 /**
  * Determines the operation to perform on sirix.
@@ -31,7 +31,7 @@ enum OperationType implements Operation<XmlNodeTrx> {
       checkNotNull(visitor);
       checkNotNull(index);
       checkArgument(
-          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
+          wtx.getKind() == NodeKind.ELEMENT, "Transaction must be located at an element node!");
       if (Files.isDirectory(child)) {
         index.put(child, org.sirix.fs.FileSystemPath.ISDIRECTORY);
         wtx.insertElementAsFirstChild(new QNm("dir"));
@@ -57,7 +57,7 @@ enum OperationType implements Operation<XmlNodeTrx> {
       checkNotNull(visitor);
       checkNotNull(index);
       checkArgument(
-          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
+          wtx.getKind() == NodeKind.ELEMENT, "Transaction must be located at an element node!");
       final long nodeKey = wtx.getNodeKey();
       processVisitor(visitor, wtx, child);
       wtx.moveTo(nodeKey);
@@ -74,7 +74,7 @@ enum OperationType implements Operation<XmlNodeTrx> {
       checkNotNull(visitor);
       checkNotNull(index);
       checkArgument(
-          wtx.getKind() == Kind.ELEMENT, "Transaction must be located at an element node!");
+          wtx.getKind() == NodeKind.ELEMENT, "Transaction must be located at an element node!");
       wtx.remove();
     }
   };
