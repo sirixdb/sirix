@@ -87,7 +87,7 @@
 		<dependency>
 			<groupId>org.magicwerk</groupId>
 			<artifactId>brownies-collections</artifactId>
-			<version>0.9.13</version>
+			<version>0.9.14</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.crypto.tink</groupId>
