@@ -2,6 +2,7 @@ version: '3'
 services:
   web:
     build: .
+    image: sirixdb/sirix
     ports:
       - "9443:9443"
     volumes:
@@ -12,18 +13,7 @@ services:
     image: jboss/keycloak
     ports:
       - 8080:8080
-    KEYCLOAK_URL=http://localhost:8080/auth
-    KEYCLOAK_USER: admin
-    KEYCLOAK_PASSWORD: admin
-    KEYCLOAK_IMPORT:
-    volumes:
-      - C:\logs\keycloak:/usr/app/logs
-      - C:\settings:/etc/settings
-  networks:
-    keycloak:
-      driver: bridge
-      ipam:
-        driver: default
-        config:
-          - subnet: 172.0.0.0/16
-
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_LOGLEVEL=DEBUG
