@@ -20,16 +20,18 @@
  */
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-import javax.annotation.Nonnegative;
+import com.google.common.collect.ForwardingObject;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nonnegative;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Forwarding the implementation of all methods in the {@link Page} interface to a delegate.

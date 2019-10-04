@@ -1,12 +1,13 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnegative;
+import com.google.common.collect.PeekingIterator;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
-import com.google.common.collect.PeekingIterator;
+
+import javax.annotation.Nonnegative;
 
 /**
  * Interface for all axis, excluding temporal XPath axis.

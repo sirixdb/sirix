@@ -21,24 +21,9 @@
 
 package org.sirix;
 
-import static org.junit.Assert.fail;
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Hashtable;
-import java.util.Map;
-import java.util.Random;
-import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.DatabaseType;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.User;
+import org.sirix.access.*;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeTrx;
@@ -49,6 +34,19 @@ import org.sirix.node.NodeKind.DumbNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.XmlDocumentCreator;
+
+import javax.annotation.Nonnull;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.Random;
+
+import static org.junit.Assert.fail;
 
 /**
  *

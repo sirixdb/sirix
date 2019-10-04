@@ -1,8 +1,6 @@
 package org.sirix.xquery.function.sdb.index.create;
 
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -24,7 +22,10 @@ import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBNode;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Function for creating path indexes on stored documents, optionally restricted to a set of paths.

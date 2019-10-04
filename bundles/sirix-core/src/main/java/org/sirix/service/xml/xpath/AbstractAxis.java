@@ -21,10 +21,6 @@
 
 package org.sirix.service.xml.xpath;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -34,6 +30,12 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>AbsAxis</h1>

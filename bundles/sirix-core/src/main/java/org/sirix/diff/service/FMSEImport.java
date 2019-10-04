@@ -20,14 +20,6 @@
  */
 package org.sirix.diff.service;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -41,6 +33,16 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnull;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Import using the FMSE algorithm.

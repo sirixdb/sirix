@@ -1,8 +1,5 @@
 package org.sirix.node.immutable.xdm;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -12,6 +9,11 @@ import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
+
+import java.math.BigInteger;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable document root node wrapper.

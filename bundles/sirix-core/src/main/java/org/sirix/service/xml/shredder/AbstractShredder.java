@@ -1,13 +1,15 @@
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Skeleton implementation of {@link Shredder} interface methods.

@@ -20,24 +20,9 @@
  */
 package org.sirix.node;
 
-import static org.sirix.node.Utils.getVarLong;
-import static org.sirix.node.Utils.putVarLong;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnegative;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
@@ -56,28 +41,25 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.StringNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.json.*;
+import org.sirix.node.xml.*;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.hash.HashFunction;
+
+import javax.annotation.Nonnegative;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.util.*;
+
+import static org.sirix.node.Utils.getVarLong;
+import static org.sirix.node.Utils.putVarLong;
 
 /**
  * Enumeration for different nodes. All nodes are determined by a unique id.

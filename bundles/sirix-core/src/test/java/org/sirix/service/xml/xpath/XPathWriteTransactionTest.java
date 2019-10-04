@@ -21,9 +21,6 @@
 
 package org.sirix.service.xml.xpath;
 
-import static org.junit.Assert.fail;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,11 +28,16 @@ import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.fail;
 
 /**
  * Testcase for working with XPath and WriteTransactions

@@ -21,15 +21,17 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
-import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
-import java.util.ArrayList;
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 
 /**
  * <h1>GeneralComp</h1>

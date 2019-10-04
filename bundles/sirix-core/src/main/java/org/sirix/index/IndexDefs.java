@@ -1,12 +1,13 @@
 package org.sirix.index;
 
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.page.PageConstants;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link IndexDef} factory.

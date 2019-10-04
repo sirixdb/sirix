@@ -21,20 +21,22 @@
 
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.sirix.exception.SirixIOException;
+
+import javax.annotation.Nullable;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import javax.annotation.Nullable;
-import org.sirix.exception.SirixIOException;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>Database Configuration</h1>

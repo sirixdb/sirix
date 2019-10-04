@@ -15,11 +15,11 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.xquery.node.BasicXmlDBStore
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
-import org.sirix.rest.crud.SirixDBUtils
 
 class XmlDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {

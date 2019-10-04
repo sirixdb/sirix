@@ -21,25 +21,26 @@
 
 package org.sirix.service.xml.shredder;
 
-import static org.junit.Assert.assertEquals;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.LinkedList;
-import java.util.List;
-import javax.xml.XMLConstants;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLEventFactory;
-import javax.xml.stream.events.StartElement;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
+
+import javax.xml.XMLConstants;
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.events.StartElement;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.LinkedList;
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Test WikipediaImport.

@@ -21,8 +21,6 @@
 
 package org.sirix.access;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,6 +30,9 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public final class MinimumCommitTest {
 

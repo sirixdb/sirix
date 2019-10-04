@@ -21,36 +21,30 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.Utils;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.ContentHandler;
-import org.xml.sax.DTDHandler;
-import org.xml.sax.EntityResolver;
-import org.xml.sax.ErrorHandler;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.xml.sax.SAXNotRecognizedException;
-import org.xml.sax.SAXNotSupportedException;
-import org.xml.sax.XMLReader;
+import org.xml.sax.*;
 import org.xml.sax.helpers.AttributesImpl;
 import org.xml.sax.helpers.DefaultHandler;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>SaxSerializer</h1>

@@ -21,13 +21,8 @@
 
 package org.sirix.page;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
+import com.google.common.collect.HashBiMap;
+import com.google.common.hash.Hashing;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -44,8 +39,11 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.xml.ElementNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
-import com.google.common.collect.HashBiMap;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+import java.util.ArrayList;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Node page test.

@@ -21,23 +21,19 @@
 
 package org.sirix.service.xml.xpath;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.axis.AbstractAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingSiblingAxis;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.ParentAxis;
-import org.sirix.axis.SelfAxis;
+import org.sirix.axis.*;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class ExpressionSingleTest {
 

@@ -21,11 +21,12 @@
 
 package org.sirix.axis;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
  * <h1>DescendantAxis</h1>

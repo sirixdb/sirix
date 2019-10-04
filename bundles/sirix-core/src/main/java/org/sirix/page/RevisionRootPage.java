@@ -21,15 +21,7 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.base.MoreObjects;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
@@ -40,7 +32,17 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>RevisionRootPage</h1>

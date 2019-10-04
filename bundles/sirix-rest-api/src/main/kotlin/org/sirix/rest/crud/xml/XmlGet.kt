@@ -12,15 +12,17 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
+import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
@@ -31,8 +33,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
-import org.sirix.rest.crud.SirixDBUtils
-import org.sirix.access.DatabaseType
 
 class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {

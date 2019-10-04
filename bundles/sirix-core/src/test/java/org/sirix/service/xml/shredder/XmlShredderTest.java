@@ -21,13 +21,6 @@
 
 package org.sirix.service.xml.shredder;
 
-import java.io.FileInputStream;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Iterator;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.events.XMLEvent;
 import org.custommonkey.xmlunit.XMLTestCase;
 import org.junit.After;
 import org.junit.Before;
@@ -36,13 +29,21 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.XmlDocumentCreator;
+
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.events.XMLEvent;
+import java.io.FileInputStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Iterator;
 
 public class XmlShredderTest extends XMLTestCase {
 

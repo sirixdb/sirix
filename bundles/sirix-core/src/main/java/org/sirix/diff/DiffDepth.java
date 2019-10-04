@@ -21,9 +21,10 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import java.io.Serializable;
 import javax.annotation.Nonnegative;
+import java.io.Serializable;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * Immutable serializable diff depth container class to save the depth of the node in the old

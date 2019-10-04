@@ -20,8 +20,6 @@
  */
 package org.sirix;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -29,10 +27,13 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.Transaction;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Generating a standard resource within the {@link PATHS#PATH1} path. It also generates a standard

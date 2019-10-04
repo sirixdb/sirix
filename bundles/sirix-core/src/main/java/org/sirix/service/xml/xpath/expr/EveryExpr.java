@@ -21,11 +21,12 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
+
+import java.util.List;
 
 /**
  * <h1>EveryExpr</h1>

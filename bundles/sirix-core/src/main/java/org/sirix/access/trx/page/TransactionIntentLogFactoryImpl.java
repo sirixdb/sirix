@@ -27,11 +27,6 @@
  */
 package org.sirix.access.trx.page;
 
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.cache.PersistentFileCache;
 import org.sirix.cache.TransactionIntentLog;
@@ -39,6 +34,12 @@ import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.file.FileWriter;
 import org.sirix.page.PagePersister;
 import org.sirix.page.SerializationType;
+
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

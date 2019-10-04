@@ -25,14 +25,7 @@ import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
-import org.sirix.node.immutable.json.ImmutableArrayNode;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 
 /**
  * <h1>AbstractVisitor</h1>

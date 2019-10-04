@@ -1,20 +1,16 @@
 package org.sirix.index.path.summary;
 
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.Optional;
+import com.google.common.collect.ForwardingObject;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
-import org.sirix.api.Move;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import com.google.common.collect.ForwardingObject;
+
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Forwards all methods to the delegate.

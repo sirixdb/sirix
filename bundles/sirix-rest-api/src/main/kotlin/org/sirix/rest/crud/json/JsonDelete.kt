@@ -11,18 +11,15 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
-import org.sirix.access.User as SirixDBUser
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.xquery.json.BasicJsonDBStore
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
-import io.vertx.ext.auth.oauth2.KeycloakHelper
-import java.util.UUID
-import org.sirix.rest.crud.SirixDBUtils
 
 class JsonDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {

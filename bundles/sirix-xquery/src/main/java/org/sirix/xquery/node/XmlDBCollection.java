@@ -1,14 +1,6 @@
 package org.sirix.xquery.node;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
-import javax.xml.stream.XMLEventReader;
+import com.google.common.base.Preconditions;
 import org.brackit.xquery.node.AbstractNodeCollection;
 import org.brackit.xquery.node.parser.CollectionParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
@@ -31,7 +23,16 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Preconditions;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import javax.xml.stream.XMLEventReader;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Database collection.

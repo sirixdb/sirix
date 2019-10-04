@@ -1,13 +1,14 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
-import junit.framework.TestCase;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public final class LoadIntegrationTest extends TestCase {
 

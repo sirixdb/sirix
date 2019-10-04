@@ -27,10 +27,11 @@
  */
 package org.sirix.xquery.function.sdb.io;
 
+import junit.framework.TestCase;
+import org.sirix.utils.SirixFiles;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.sirix.utils.SirixFiles;
-import junit.framework.TestCase;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

@@ -1,7 +1,5 @@
 package org.sirix.index.cas;
 
-import static java.util.Objects.requireNonNull;
-import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
@@ -12,6 +10,10 @@ import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.PCRCollector;
 import org.sirix.index.path.PathFilter;
+
+import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * CASFilter filter.

@@ -1,11 +1,12 @@
 package org.sirix.cache;
 
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import org.sirix.page.PageReference;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import org.sirix.page.PageReference;
+
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 public final class RecordPageCache implements Cache<PageReference, PageContainer> {
 

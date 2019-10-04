@@ -1,10 +1,5 @@
 package org.sirix.xquery.function.sdb.io;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -25,6 +20,13 @@ import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <p>

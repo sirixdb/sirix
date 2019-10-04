@@ -1,9 +1,6 @@
 package org.sirix.index.name;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import com.google.common.collect.HashBiMap;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.node.HashCountEntryNode;
@@ -13,7 +10,12 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Constants;
-import com.google.common.collect.HashBiMap;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Names index structure.

@@ -21,19 +21,21 @@
 
 package org.sirix.service.xml.serialize;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayOutputStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.ByteArrayOutputStream;
+
+import static org.junit.Assert.assertEquals;
 
 public class XmlSerializerTest {
 

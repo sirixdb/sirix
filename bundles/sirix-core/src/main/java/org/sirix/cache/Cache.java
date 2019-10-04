@@ -21,8 +21,8 @@
 
 package org.sirix.cache;
 
-import java.util.Map;
 import javax.annotation.Nonnull;
+import java.util.Map;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a

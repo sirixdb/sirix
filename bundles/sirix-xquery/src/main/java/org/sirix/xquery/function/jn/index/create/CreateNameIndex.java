@@ -1,8 +1,6 @@
 package org.sirix.xquery.function.jn.index.create;
 
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -24,7 +22,10 @@ import org.sirix.index.IndexDefs.NameIndexType;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Function for creating name indexes on stored documents, optionally restricted to a set of

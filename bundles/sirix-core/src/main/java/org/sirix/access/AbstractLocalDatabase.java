@@ -1,7 +1,20 @@
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Maps;
+import com.google.crypto.tink.CleartextKeysetHandle;
+import com.google.crypto.tink.JsonKeysetWriter;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+import org.sirix.access.trx.TransactionManagerImpl;
+import org.sirix.api.*;
+import org.sirix.cache.BufferManager;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.utils.SirixFiles;
+
+import javax.annotation.Nonnegative;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,25 +25,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.annotation.Nonnegative;
-import org.sirix.access.trx.TransactionManagerImpl;
-import org.sirix.api.Database;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.Transaction;
-import org.sirix.api.TransactionManager;
-import org.sirix.cache.BufferManager;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.utils.SirixFiles;
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.collect.Maps;
-import com.google.crypto.tink.CleartextKeysetHandle;
-import com.google.crypto.tink.JsonKeysetWriter;
-import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
     implements Database<T> {

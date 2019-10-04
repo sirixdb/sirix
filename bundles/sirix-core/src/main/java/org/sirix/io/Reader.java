@@ -21,13 +21,14 @@
 
 package org.sirix.io;
 
-import javax.annotation.Nullable;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nullable;
 
 /**
  * Interface for reading the stored pages in every backend.

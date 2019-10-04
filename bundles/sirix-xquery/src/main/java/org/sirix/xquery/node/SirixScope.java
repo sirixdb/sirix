@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Scope;
@@ -9,6 +8,8 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nullable;
 
 /**
  * Sirix scope.

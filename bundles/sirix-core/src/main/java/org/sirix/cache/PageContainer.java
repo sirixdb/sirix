@@ -21,12 +21,13 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nullable;
 
 /**
  * <h1>PageContainer</h1>

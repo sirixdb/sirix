@@ -28,8 +28,8 @@
 
 -->
 
-<assembly xmlns:p="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/assembly-1.0.0.xsd ">
+<assembly xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+>
 	<!-- Name of the JAR (sirix-jar-with-dependencies.jar) -->
 	<id>jar-with-dependencies</id>
 	<formats>

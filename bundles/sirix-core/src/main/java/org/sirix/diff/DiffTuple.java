@@ -21,13 +21,15 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import org.sirix.diff.DiffFactory.DiffType;
+
+import javax.annotation.Nonnegative;
 import java.io.Serializable;
 import java.util.Map;
-import javax.annotation.Nonnegative;
-import org.sirix.diff.DiffFactory.DiffType;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Container for diffs.

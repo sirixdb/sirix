@@ -21,10 +21,11 @@
 
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.settings.Fixed;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>NonStructuralWrapperAxis</h1>

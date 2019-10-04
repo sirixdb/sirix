@@ -21,8 +21,9 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import javax.annotation.Nonnull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+
+import javax.annotation.Nonnull;
 
 /**
  * <h1>VarRefExpr</h1>

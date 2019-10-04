@@ -21,19 +21,8 @@
 
 package org.sirix.api.xml;
 
-import java.math.BigInteger;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.ItemList;
-import org.sirix.api.Move;
-import org.sirix.api.Moved;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.ResourceManager;
+import org.sirix.api.*;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -43,14 +32,14 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
+import org.sirix.node.xml.*;
 import org.sirix.service.xml.xpath.AtomicValue;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.math.BigInteger;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * <h1>NodeReadTrx</h1>

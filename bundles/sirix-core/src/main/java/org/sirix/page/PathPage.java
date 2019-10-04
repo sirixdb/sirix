@@ -1,16 +1,17 @@
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.TransactionIntentLog;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Page to hold references to a value summary.

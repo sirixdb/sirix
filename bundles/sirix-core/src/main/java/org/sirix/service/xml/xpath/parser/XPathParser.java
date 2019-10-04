@@ -21,49 +21,26 @@
 
 package org.sirix.service.xml.xpath.parser;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.NoSuchElementException;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
-import org.sirix.axis.AncestorAxis;
-import org.sirix.axis.AttributeAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingAxis;
-import org.sirix.axis.FollowingSiblingAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.ParentAxis;
-import org.sirix.axis.PrecedingAxis;
-import org.sirix.axis.PrecedingSiblingAxis;
-import org.sirix.axis.SelfAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NestedFilter;
-import org.sirix.axis.filter.xml.AttributeFilter;
-import org.sirix.axis.filter.xml.CommentFilter;
-import org.sirix.axis.filter.xml.DocumentRootNodeFilter;
-import org.sirix.axis.filter.xml.ElementFilter;
-import org.sirix.axis.filter.xml.ItemFilter;
-import org.sirix.axis.filter.xml.NodeFilter;
-import org.sirix.axis.filter.xml.PIFilter;
-import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.TypeFilter;
-import org.sirix.axis.filter.xml.WildcardFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.*;
 import org.sirix.axis.filter.xml.WildcardFilter.EType;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.ValueNode;
-import org.sirix.service.xml.xpath.AtomicValue;
-import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.service.xml.xpath.PipelineBuilder;
-import org.sirix.service.xml.xpath.SequenceType;
-import org.sirix.service.xml.xpath.SingleType;
+import org.sirix.service.xml.xpath.*;
 import org.sirix.service.xml.xpath.filter.DocumentNodeAxis;
 import org.sirix.service.xml.xpath.filter.SchemaAttributeFilter;
 import org.sirix.service.xml.xpath.filter.SchemaElementFilter;
 import org.sirix.utils.TypedValue;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * <h1>XPath Parser</h1>

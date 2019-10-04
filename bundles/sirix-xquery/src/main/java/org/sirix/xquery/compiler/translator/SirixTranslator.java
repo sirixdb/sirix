@@ -1,12 +1,7 @@
 package org.sirix.xquery.compiler.translator;
 
-import java.util.ArrayDeque;
-import java.util.BitSet;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import javax.annotation.Nonnegative;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
@@ -23,44 +18,19 @@ import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.axis.AncestorAxis;
-import org.sirix.axis.AttributeAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingAxis;
-import org.sirix.axis.FollowingSiblingAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.ParentAxis;
-import org.sirix.axis.PrecedingAxis;
-import org.sirix.axis.PrecedingSiblingAxis;
-import org.sirix.axis.SelfAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.AttributeFilter;
-import org.sirix.axis.filter.xml.CommentFilter;
-import org.sirix.axis.filter.xml.DocumentRootNodeFilter;
-import org.sirix.axis.filter.xml.ElementFilter;
-import org.sirix.axis.filter.xml.NamespaceFilter;
-import org.sirix.axis.filter.xml.PIFilter;
-import org.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
-import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
-import org.sirix.axis.temporal.AllTimeAxis;
-import org.sirix.axis.temporal.FirstAxis;
-import org.sirix.axis.temporal.FutureAxis;
-import org.sirix.axis.temporal.LastAxis;
-import org.sirix.axis.temporal.NextAxis;
-import org.sirix.axis.temporal.PastAxis;
-import org.sirix.axis.temporal.PreviousAxis;
+import org.sirix.axis.filter.xml.*;
+import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
+
+import javax.annotation.Nonnegative;
+import java.util.*;
 
 /**
  * Translates queries (optimizes currently path-expressions if {@code OPTIMIZE} is set to true).

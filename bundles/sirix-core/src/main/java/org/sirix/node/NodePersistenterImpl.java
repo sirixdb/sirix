@@ -1,14 +1,15 @@
 package org.sirix.node;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
+
+import javax.annotation.Nonnegative;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Optional;
 
 /**
  * Serialize and deserialize nodes.

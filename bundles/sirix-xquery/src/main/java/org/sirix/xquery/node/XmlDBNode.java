@@ -1,20 +1,14 @@
 package org.sirix.xquery.node;
 
-import java.util.Collections;
-import java.util.Objects;
-import java.util.Optional;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
 import org.brackit.xquery.node.parser.NavigationalSubtreeParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.OperationNotSupportedException;
-import org.brackit.xquery.xdm.Scope;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.node.AbstractTemporalNode;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.TemporalNode;
@@ -24,22 +18,8 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.axis.AbstractTemporalAxis;
-import org.sirix.axis.AncestorAxis;
-import org.sirix.axis.AttributeAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.NonStructuralWrapperAxis;
-import org.sirix.axis.PrecedingAxis;
-import org.sirix.axis.temporal.AllTimeAxis;
-import org.sirix.axis.temporal.FirstAxis;
-import org.sirix.axis.temporal.FutureAxis;
-import org.sirix.axis.temporal.LastAxis;
-import org.sirix.axis.temporal.NextAxis;
-import org.sirix.axis.temporal.PastAxis;
-import org.sirix.axis.temporal.PreviousAxis;
+import org.sirix.axis.*;
+import org.sirix.axis.temporal.*;
 import org.sirix.exception.SirixException;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.InsertPosition;
@@ -49,8 +29,11 @@ import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 import org.sirix.xquery.stream.node.TemporalSirixNodeStream;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
+
+import javax.annotation.Nullable;
+import java.util.Collections;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * A node which is used to provide all XDM functionality as well as temporal functions.

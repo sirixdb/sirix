@@ -1,12 +1,13 @@
 package org.sirix.xquery.stream.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.SirixAxis;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBObject;
-import com.google.common.base.MoreObjects;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * {@link Stream}, wrapping a Sirix {@link Axis}.

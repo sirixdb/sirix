@@ -21,7 +21,7 @@
 
 package org.sirix.node.json;
 
-import java.math.BigInteger;
+import com.google.common.hash.HashCode;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -32,7 +32,8 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
-import com.google.common.hash.HashCode;
+
+import java.math.BigInteger;
 
 /**
  * <h1>JSONNumberNode</h1>

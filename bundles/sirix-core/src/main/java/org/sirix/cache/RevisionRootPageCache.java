@@ -27,10 +27,11 @@
  */
 package org.sirix.cache;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
+import org.sirix.page.RevisionRootPage;
+
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import org.sirix.page.RevisionRootPage;
-import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

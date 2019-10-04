@@ -21,11 +21,12 @@
 
 package org.sirix.diff;
 
-import java.util.HashSet;
-import java.util.Set;
-import javax.annotation.Nonnull;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
+
+import javax.annotation.Nonnull;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Implements {@link DiffObservable}, which can be used for all classes, which implement the

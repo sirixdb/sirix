@@ -1,7 +1,6 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -11,11 +10,7 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.sequence.FunctionConversionSequence;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.type.AnyJsonItemType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -25,7 +20,9 @@ import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBStore;
-import com.google.gson.stream.JsonReader;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>

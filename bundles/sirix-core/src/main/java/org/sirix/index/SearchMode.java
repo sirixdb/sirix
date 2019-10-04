@@ -1,7 +1,7 @@
 package org.sirix.index;
 
-import java.util.Comparator;
 import javax.annotation.Nonnull;
+import java.util.Comparator;
 
 /**
  * The search mode in a datastructure.

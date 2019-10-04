@@ -21,8 +21,9 @@
 
 package org.sirix.diff;
 
-import javax.annotation.Nonnull;
 import org.sirix.diff.DiffFactory.DiffType;
+
+import javax.annotation.Nonnull;
 
 /**
  * Interface for observers, which are listening for diffs.

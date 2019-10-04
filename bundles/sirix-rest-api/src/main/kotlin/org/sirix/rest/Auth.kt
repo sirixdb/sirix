@@ -2,7 +2,6 @@ package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -10,8 +9,6 @@ import io.vertx.kotlin.core.json.json
 import io.vertx.kotlin.core.json.obj
 import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.isAuthorizedAwait
-import io.vertx.kotlin.ext.auth.oauth2.introspectTokenAwait
-import java.util.*
 
 /**
  * Authentication.

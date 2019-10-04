@@ -21,20 +21,6 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLEventFactory;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Namespace;
-import javax.xml.stream.events.XMLEvent;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -44,6 +30,22 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.XMLToken;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Attribute;
+import javax.xml.stream.events.Namespace;
+import javax.xml.stream.events.XMLEvent;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>StAXSerializer</h1>

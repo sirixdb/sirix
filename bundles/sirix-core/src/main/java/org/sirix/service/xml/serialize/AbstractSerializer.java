@@ -21,20 +21,22 @@
 
 package org.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.concurrent.Callable;
-import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.concurrent.Callable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.

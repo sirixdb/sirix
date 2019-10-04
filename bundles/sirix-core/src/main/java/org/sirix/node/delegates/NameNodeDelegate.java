@@ -23,18 +23,19 @@
  */
 package org.sirix.node.delegates;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.PrimitiveSink;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * Delegate method for all nodes containing naming-data. That means that different fixed defined

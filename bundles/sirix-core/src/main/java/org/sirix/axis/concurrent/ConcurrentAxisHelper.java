@@ -21,13 +21,15 @@
 
 package org.sirix.axis.concurrent;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.concurrent.BlockingQueue;
-import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnull;
+import java.util.concurrent.BlockingQueue;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>ConcurrentAxisHelper</h1>

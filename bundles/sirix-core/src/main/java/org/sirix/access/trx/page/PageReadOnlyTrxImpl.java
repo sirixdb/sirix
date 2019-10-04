@@ -21,15 +21,10 @@
 
 package org.sirix.access.trx.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -39,37 +34,29 @@ import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.cache.BufferManager;
-import org.sirix.cache.Cache;
-import org.sirix.cache.IndexLogKey;
-import org.sirix.cache.PageContainer;
-import org.sirix.cache.TransactionIntentLog;
+import org.sirix.cache.*;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.CASPage;
-import org.sirix.page.IndirectPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
-import com.google.common.base.MoreObjects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>PageReadOnlyTrxImpl</h1>

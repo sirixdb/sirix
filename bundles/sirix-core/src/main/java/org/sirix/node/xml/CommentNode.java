@@ -1,8 +1,8 @@
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -17,9 +17,10 @@ import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.HashCode;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * Comment node implementation.

@@ -21,8 +21,9 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
+
+import javax.annotation.Nonnull;
 
 /**
  * <h1>ForAxis</h1>

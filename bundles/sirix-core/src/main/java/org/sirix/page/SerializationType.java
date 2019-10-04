@@ -27,14 +27,15 @@
  */
 package org.sirix.page;
 
+import org.magicwerk.brownies.collections.GapList;
+import org.sirix.exception.SirixIOException;
+
+import javax.annotation.Nonnegative;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.BitSet;
 import java.util.List;
-import javax.annotation.Nonnegative;
-import org.magicwerk.brownies.collections.GapList;
-import org.sirix.exception.SirixIOException;
 
 /**
  * Defines the serialization/deserialization type.

@@ -21,14 +21,15 @@
 
 package org.sirix.cache;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 /**
  * @author Sebastian Graf, University of Konstanz

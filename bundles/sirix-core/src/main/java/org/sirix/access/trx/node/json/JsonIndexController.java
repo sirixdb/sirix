@@ -1,7 +1,5 @@
 package org.sirix.access.trx.node.json;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -22,6 +20,9 @@ import org.sirix.index.path.json.JsonPathIndexImpl;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Index controller, used to control the handling of indexes.

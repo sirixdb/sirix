@@ -1,7 +1,7 @@
 package org.sirix.api;
 
-import java.util.NoSuchElementException;
 import javax.annotation.Nullable;
+import java.util.NoSuchElementException;
 
 /**
  * Determines that a {@link NodeCursor} hasn't moved to the node.

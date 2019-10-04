@@ -21,8 +21,9 @@
 
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>NestedAxis</h1>

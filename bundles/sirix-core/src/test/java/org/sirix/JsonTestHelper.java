@@ -21,15 +21,6 @@
 
 package org.sirix;
 
-import static org.junit.Assert.fail;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
-
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -42,6 +33,15 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixRuntimeException;
 import org.sirix.utils.JsonDocumentCreator;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
+
+import static org.junit.Assert.fail;
 
 /**
  * Helper class for offering convenient usage of the {@link JsonResourceManager} for test cases.

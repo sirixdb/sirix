@@ -1,9 +1,5 @@
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.List;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.SubtreeHandler;
@@ -14,6 +10,12 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Subtree builder to build a new tree.

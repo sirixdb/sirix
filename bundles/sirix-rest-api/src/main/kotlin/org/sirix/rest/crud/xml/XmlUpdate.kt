@@ -1,20 +1,20 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.xml.XmlNodeTrx
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
-import io.vertx.core.http.HttpHeaders
-import org.sirix.rest.crud.SirixDBUtils
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {

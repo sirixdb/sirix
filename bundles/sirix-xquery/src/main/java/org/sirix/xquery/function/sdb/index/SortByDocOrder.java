@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.sdb.index;
 
-import java.util.Comparator;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.Tuple;
 import org.brackit.xquery.atomic.QNm;
@@ -11,6 +10,8 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.node.Node;
 import org.sirix.xquery.function.sdb.SDBFun;
+
+import java.util.Comparator;
 
 /**
  * <p>

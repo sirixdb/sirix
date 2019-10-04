@@ -1,15 +1,5 @@
 package org.sirix.axis.concurrent;
 
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -22,6 +12,12 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.XdmNameFilter;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class QueryXmlResourceWithConcurrentAxis {
 

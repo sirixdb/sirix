@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.parser;
 
-import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,6 +29,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathAxis;
+
+import static org.junit.Assert.assertEquals;
 
 public class XPathParserTest {
 

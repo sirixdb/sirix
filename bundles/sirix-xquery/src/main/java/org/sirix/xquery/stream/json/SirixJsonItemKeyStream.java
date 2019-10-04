@@ -1,13 +1,15 @@
 package org.sirix.xquery.stream.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.Set;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBObject;
+
+import java.util.Iterator;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class SirixJsonItemKeyStream implements Stream<JsonDBObject> {
 

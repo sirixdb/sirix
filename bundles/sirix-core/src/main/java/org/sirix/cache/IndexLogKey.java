@@ -1,10 +1,11 @@
 package org.sirix.cache;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
-import org.sirix.page.PageKind;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import org.sirix.page.PageKind;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
 
 /**
  * Index log key.

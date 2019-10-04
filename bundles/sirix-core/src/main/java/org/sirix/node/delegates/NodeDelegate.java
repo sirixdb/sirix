@@ -20,10 +20,11 @@
  */
 package org.sirix.node.delegates;
 
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.PrimitiveSink;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -32,11 +33,11 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.PrimitiveSink;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an

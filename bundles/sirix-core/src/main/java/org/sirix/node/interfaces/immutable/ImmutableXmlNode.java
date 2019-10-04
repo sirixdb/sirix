@@ -1,9 +1,10 @@
 package org.sirix.node.interfaces.immutable;
 
-import java.util.Optional;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.SirixDeweyID;
+
+import java.util.Optional;
 
 public interface ImmutableXmlNode extends ImmutableNode {
   /**

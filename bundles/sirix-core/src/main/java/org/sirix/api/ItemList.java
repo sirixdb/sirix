@@ -21,8 +21,9 @@
 
 package org.sirix.api;
 
-import java.util.Optional;
 import org.sirix.node.interfaces.Node;
+
+import java.util.Optional;
 
 /**
  * <h1>ItemList</h1>

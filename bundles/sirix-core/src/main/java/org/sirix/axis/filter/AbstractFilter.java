@@ -21,12 +21,14 @@
 
 package org.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
+import com.google.common.base.Predicate;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
-import com.google.common.base.Predicate;
+
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>AbstractFilter</h1>

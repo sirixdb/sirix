@@ -20,28 +20,10 @@
  */
 package org.sirix.page;
 
-import static org.sirix.node.Utils.getVarLong;
-import static org.sirix.node.Utils.putVarLong;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.PeekingIterator;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -54,10 +36,15 @@ import org.sirix.node.interfaces.RecordPersister;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.PeekingIterator;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.io.*;
+import java.util.*;
+import java.util.Map.Entry;
+
+import static org.sirix.node.Utils.getVarLong;
+import static org.sirix.node.Utils.putVarLong;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>

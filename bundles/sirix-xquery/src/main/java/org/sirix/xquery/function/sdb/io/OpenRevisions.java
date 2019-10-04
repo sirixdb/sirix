@@ -1,7 +1,5 @@
 package org.sirix.xquery.function.sdb.io;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.DTD;
@@ -16,6 +14,9 @@ import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.time.Instant;
+import java.util.ArrayList;
 
 public final class OpenRevisions extends AbstractFunction {
 

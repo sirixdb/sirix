@@ -21,13 +21,14 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * <h1>ExceptAxis</h1>

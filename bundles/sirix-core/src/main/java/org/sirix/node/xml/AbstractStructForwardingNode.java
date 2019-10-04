@@ -1,12 +1,13 @@
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.StructNode;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.math.BigInteger;
 
 /**
  * Skeletal implementation of {@link StructNode} interface.

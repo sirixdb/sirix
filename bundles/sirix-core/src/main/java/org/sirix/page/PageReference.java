@@ -21,12 +21,14 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import java.util.Objects;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nullable;
+import java.util.Objects;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * <h1>PageReference</h1>

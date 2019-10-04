@@ -21,9 +21,6 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -36,6 +33,11 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Abstract diff class which implements common functionality.

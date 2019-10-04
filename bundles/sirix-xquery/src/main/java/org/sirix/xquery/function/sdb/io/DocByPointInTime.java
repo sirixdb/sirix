@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.sdb.io;
 
-import java.time.Instant;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.DateTime;
@@ -12,6 +11,8 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBCollection;
+
+import java.time.Instant;
 
 /**
  * <p>

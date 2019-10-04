@@ -1,6 +1,8 @@
 package org.sirix.axis.temporal;
 
-import java.util.Iterator;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.testing.IteratorFeature;
+import com.google.common.collect.testing.IteratorTester;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -11,9 +13,8 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
+
+import java.util.Iterator;
 
 /**
  * Test {@link PastAxis}.

@@ -21,8 +21,9 @@
 
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -33,9 +34,9 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.hash.HashCode;
+
+import javax.annotation.Nonnegative;
+import java.math.BigInteger;
 
 /**
  * <h1>ElementNode</h1>

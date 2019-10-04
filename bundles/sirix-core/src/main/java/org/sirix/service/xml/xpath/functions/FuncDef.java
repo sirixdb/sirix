@@ -21,10 +21,11 @@
 
 package org.sirix.service.xml.xpath.functions;
 
-import java.util.HashMap;
-import java.util.Map;
 import org.sirix.service.xml.xpath.functions.sequences.FNBoolean;
 import org.sirix.service.xml.xpath.functions.sequences.FNCount;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * <h1>FuncDef</h1>

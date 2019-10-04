@@ -1,17 +1,13 @@
 package org.sirix.access.trx.node.xml;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.NodeFactory;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
+import org.sirix.node.xml.*;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 /**
  * Node factory for creating nodes.

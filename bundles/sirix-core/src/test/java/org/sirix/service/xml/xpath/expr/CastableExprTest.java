@@ -21,9 +21,6 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,6 +30,10 @@ import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathError;
+
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 /**
  * JUnit-test class to test the functionality of the CastableExpr.

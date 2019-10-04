@@ -27,6 +27,10 @@
  */
 package org.sirix.io.bytepipe;
 
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+
+import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -34,9 +38,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
-import javax.annotation.Nonnull;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
 
 /**
  * @author Johannes Lichtenberger <johannes.lichtenberger@sirix.io>

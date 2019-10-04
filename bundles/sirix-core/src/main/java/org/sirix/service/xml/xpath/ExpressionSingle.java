@@ -22,15 +22,7 @@
 package org.sirix.service.xml.xpath;
 
 import org.sirix.api.Axis;
-import org.sirix.axis.AncestorAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FollowingAxis;
-import org.sirix.axis.FollowingSiblingAxis;
-import org.sirix.axis.NestedAxis;
-import org.sirix.axis.ParentAxis;
-import org.sirix.axis.PrecedingAxis;
-import org.sirix.axis.PrecedingSiblingAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;

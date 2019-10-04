@@ -20,13 +20,10 @@
  */
 package org.sirix.diff.export;
 
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffTuple;
+
+import java.util.*;
 
 /**
  * Builds an edit script.

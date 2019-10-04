@@ -1,9 +1,5 @@
 package org.sirix.node.immutable.xdm;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -16,6 +12,12 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import org.sirix.node.xml.AttributeNode;
 import org.sirix.settings.Constants;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable attribute node wrapper.

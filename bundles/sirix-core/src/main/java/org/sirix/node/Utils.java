@@ -1,10 +1,11 @@
 package org.sirix.node;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 public final class Utils {
 

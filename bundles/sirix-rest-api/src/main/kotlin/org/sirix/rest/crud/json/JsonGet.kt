@@ -12,29 +12,25 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.json.serialize.JsonSerializer
+import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.json.BasicJsonDBStore
-import org.sirix.xquery.json.JsonDBArray
-import org.sirix.xquery.json.JsonDBCollection
-import org.sirix.xquery.json.JsonDBItem
-import org.sirix.xquery.json.JsonDBObject
+import org.sirix.xquery.json.*
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.stream.Collectors.toList
-import org.sirix.xquery.JsonDBSerializer
-import org.sirix.rest.crud.SirixDBUtils
-import org.sirix.access.DatabaseType
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {

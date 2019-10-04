@@ -1,20 +1,17 @@
 package org.sirix.rest.crud
 
-import org.sirix.access.User as SirixDBUser
-
+import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.web.RoutingContext
-import java.util.*
-import org.sirix.api.Database
+import io.vertx.ext.web.handler.impl.HttpStatusException
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.exception.SirixUsageException
-import io.vertx.ext.web.handler.impl.HttpStatusException
-import io.netty.handler.codec.http.HttpResponseStatus
 import java.nio.file.Path
-import org.sirix.api.json.JsonResourceManager
-import io.vertx.core.http.HttpHeaders
-import org.sirix.access.DatabaseType
+import java.util.*
+import org.sirix.access.User as SirixDBUser
 
 class SirixDBUtils {
     companion object {

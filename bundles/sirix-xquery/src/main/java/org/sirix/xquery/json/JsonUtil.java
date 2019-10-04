@@ -1,15 +1,10 @@
 package org.sirix.xquery.json;
 
-import java.math.BigDecimal;
-import org.brackit.xquery.atomic.Bool;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.Dec;
-import org.brackit.xquery.atomic.Flt;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
+
+import java.math.BigDecimal;
 
 public final class JsonUtil {
   public JsonUtil() {}

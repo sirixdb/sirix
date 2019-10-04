@@ -21,7 +21,6 @@
 
 package org.sirix.axis;
 
-import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,6 +30,8 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathAxis;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * JUnit-test class to test the functionality of the DubFilter.

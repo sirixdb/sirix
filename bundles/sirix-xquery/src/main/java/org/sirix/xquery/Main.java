@@ -27,17 +27,6 @@
  */
 package org.sirix.xquery;
 
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -47,6 +36,14 @@ import org.brackit.xquery.util.io.URIHandler;
 import org.brackit.xquery.xdm.node.Node;
 import org.brackit.xquery.xdm.node.TemporalNodeCollection;
 import org.sirix.xquery.node.BasicXmlDBStore;
+
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 /**
  * @author Sebastian Baechle

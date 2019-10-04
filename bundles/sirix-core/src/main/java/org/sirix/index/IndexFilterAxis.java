@@ -1,11 +1,13 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Iterator;
-import java.util.Set;
+import com.google.common.collect.AbstractIterator;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import com.google.common.collect.AbstractIterator;
+
+import java.util.Iterator;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class IndexFilterAxis<K extends Comparable<? super K>>
     extends AbstractIterator<NodeReferences> {

@@ -21,14 +21,16 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import javax.annotation.Nullable;
+import com.google.common.base.Objects;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Null node (NullObject pattern).

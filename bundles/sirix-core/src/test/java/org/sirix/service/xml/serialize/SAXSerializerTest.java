@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.serialize;
 
-import java.io.IOException;
 import org.custommonkey.xmlunit.XMLTestCase;
 import org.junit.After;
 import org.junit.Before;
@@ -34,6 +33,8 @@ import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.XMLFilterImpl;
+
+import java.io.IOException;
 
 /**
  * Test SAXSerializer.

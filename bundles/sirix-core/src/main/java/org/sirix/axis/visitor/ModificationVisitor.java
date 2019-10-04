@@ -1,8 +1,5 @@
 package org.sirix.axis.visitor;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Random;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -17,6 +14,11 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.Random;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to modify nodes.

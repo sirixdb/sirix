@@ -21,11 +21,12 @@
 
 package org.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>PredicateFilterAxis</h1>

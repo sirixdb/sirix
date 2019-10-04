@@ -21,22 +21,20 @@
 
 package org.sirix.axis.visitor;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.visitor.JsonNodeVisitor;
-import org.sirix.api.visitor.NodeVisitor;
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.XmlNodeVisitor;
+import org.sirix.api.visitor.*;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>VisitorDescendantAxis</h1>

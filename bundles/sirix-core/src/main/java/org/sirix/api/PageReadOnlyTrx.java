@@ -1,24 +1,17 @@
 package org.sirix.api;
 
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.CASPage;
-import org.sirix.page.IndirectPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.util.Optional;
 
 /**
  * Interface for reading pages.

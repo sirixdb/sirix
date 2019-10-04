@@ -21,22 +21,6 @@
 
 package org.sirix.service.json.serialize;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.concurrent.ConcurrentMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -51,6 +35,24 @@ import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.ConcurrentMap;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 
 /**
  * <h1>JsonSerializer</h1>

@@ -21,19 +21,6 @@
 
 package org.sirix.service.xml.serialize;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
-import java.io.ByteArrayOutputStream;
-import java.util.Iterator;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Characters;
-import javax.xml.stream.events.EndElement;
-import javax.xml.stream.events.Namespace;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -43,6 +30,16 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.*;
+import java.io.ByteArrayOutputStream;
+import java.util.Iterator;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 /**
  * Test StAXSerializer.

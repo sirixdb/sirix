@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.functions.sequences;
 
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
@@ -29,6 +28,8 @@ import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
+
+import java.util.List;
 
 /**
  * <h1>FNBooleean</h1>

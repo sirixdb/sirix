@@ -21,7 +21,6 @@
 
 package org.sirix.axis.filter;
 
-import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -29,6 +28,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
+
+import static org.junit.Assert.assertEquals;
 
 public class FilterTest {
 

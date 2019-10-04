@@ -1,13 +1,5 @@
 package org.sirix.access.trx.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.time.Instant;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.sirix.access.User;
 import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
 import org.sirix.api.Move;
@@ -21,6 +13,16 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.time.Instant;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractNodeReadTrx<T extends NodeCursor> implements NodeCursor, NodeReadOnlyTrx {
 

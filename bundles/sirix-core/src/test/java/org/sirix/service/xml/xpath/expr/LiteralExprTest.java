@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static org.junit.Assert.assertEquals;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,6 +30,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * JUnit-test class to test the functionality of the LiteralExpr.

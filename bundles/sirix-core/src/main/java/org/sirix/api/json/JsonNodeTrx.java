@@ -1,8 +1,8 @@
 package org.sirix.api.json;
 
+import com.google.gson.stream.JsonReader;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.api.NodeTrx;
-import com.google.gson.stream.JsonReader;
 
 public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertObjectAsFirstChild();

@@ -3,7 +3,6 @@ package org.sirix.rest.crud.xml
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import org.sirix.access.trx.node.HashType
-import org.sirix.api.json.JsonResourceManager
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream

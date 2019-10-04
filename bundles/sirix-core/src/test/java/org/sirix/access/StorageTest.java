@@ -21,9 +21,6 @@
 
 package org.sirix.access;
 
-import static org.testng.AssertJUnit.assertEquals;
-import java.io.IOException;
-import java.nio.file.Files;
 import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -39,6 +36,11 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+
+import java.io.IOException;
+import java.nio.file.Files;
+
+import static org.testng.AssertJUnit.assertEquals;
 
 /**
  * Storage test.

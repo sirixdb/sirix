@@ -1,16 +1,5 @@
 package org.sirix.xquery.function.jn;
 
-import static org.sirix.xquery.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
-import static org.sirix.xquery.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
-import static org.sirix.xquery.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
-import static org.sirix.xquery.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
-import static org.sirix.xquery.function.jn.index.find.FindNameIndex.FIND_NAME_INDEX;
-import static org.sirix.xquery.function.jn.index.find.FindPathIndex.FIND_PATH_INDEX;
-import static org.sirix.xquery.function.jn.io.Doc.DOC;
-import static org.sirix.xquery.function.jn.io.DocByPointInTime.OPEN;
-import static org.sirix.xquery.function.jn.io.Load.LOAD;
-import static org.sirix.xquery.function.jn.io.OpenRevisions.OPEN_REVISIONS;
-import static org.sirix.xquery.function.jn.io.Store.STORE;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -29,19 +18,21 @@ import org.sirix.xquery.function.jn.index.scan.ScanCASIndex;
 import org.sirix.xquery.function.jn.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.jn.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.jn.index.scan.ScanPathIndex;
-import org.sirix.xquery.function.jn.io.Doc;
-import org.sirix.xquery.function.jn.io.DocByPointInTime;
-import org.sirix.xquery.function.jn.io.Load;
-import org.sirix.xquery.function.jn.io.OpenRevisions;
-import org.sirix.xquery.function.jn.io.Store;
-import org.sirix.xquery.function.jn.temporal.AllTimes;
-import org.sirix.xquery.function.jn.temporal.First;
-import org.sirix.xquery.function.jn.temporal.Future;
-import org.sirix.xquery.function.jn.temporal.Last;
-import org.sirix.xquery.function.jn.temporal.Next;
-import org.sirix.xquery.function.jn.temporal.Past;
-import org.sirix.xquery.function.jn.temporal.Previous;
+import org.sirix.xquery.function.jn.io.*;
+import org.sirix.xquery.function.jn.temporal.*;
 import org.sirix.xquery.function.jn.trx.SelectJsonItem;
+
+import static org.sirix.xquery.function.jn.index.create.CreateCASIndex.CREATE_CAS_INDEX;
+import static org.sirix.xquery.function.jn.index.create.CreateNameIndex.CREATE_NAME_INDEX;
+import static org.sirix.xquery.function.jn.index.create.CreatePathIndex.CREATE_PATH_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindNameIndex.FIND_NAME_INDEX;
+import static org.sirix.xquery.function.jn.index.find.FindPathIndex.FIND_PATH_INDEX;
+import static org.sirix.xquery.function.jn.io.Doc.DOC;
+import static org.sirix.xquery.function.jn.io.DocByPointInTime.OPEN;
+import static org.sirix.xquery.function.jn.io.Load.LOAD;
+import static org.sirix.xquery.function.jn.io.OpenRevisions.OPEN_REVISIONS;
+import static org.sirix.xquery.function.jn.io.Store.STORE;
 
 /**
  * Function definitions.

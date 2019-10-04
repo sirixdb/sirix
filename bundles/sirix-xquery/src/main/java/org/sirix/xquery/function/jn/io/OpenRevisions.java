@@ -1,7 +1,5 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.time.Instant;
-import java.util.ArrayList;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.DTD;
@@ -17,6 +15,9 @@ import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
 import org.sirix.xquery.json.JsonDBItem;
 import org.sirix.xquery.json.JsonDBObject;
+
+import java.time.Instant;
+import java.util.ArrayList;
 
 public final class OpenRevisions extends AbstractFunction {
 

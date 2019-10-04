@@ -20,11 +20,13 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.sirix.utils.Pair;
+
+import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
-import javax.annotation.Nonnull;
-import org.sirix.utils.Pair;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Useful functions.

@@ -1,15 +1,10 @@
 package org.sirix.index.path;
 
-import java.util.Iterator;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
-import org.sirix.index.ChangeListener;
-import org.sirix.index.Filter;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexFilterAxis;
-import org.sirix.index.SearchMode;
+import org.sirix.index.*;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
@@ -17,8 +12,10 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
+
+import java.util.Iterator;
+import java.util.Optional;
+import java.util.Set;
 
 public interface PathIndex<B, L extends ChangeListener> {
   B createBuilder(PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx, PathSummaryReader pathSummaryReader,

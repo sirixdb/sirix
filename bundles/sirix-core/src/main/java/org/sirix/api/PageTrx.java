@@ -1,7 +1,5 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
@@ -13,6 +11,9 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 /**
  * Interface for writing pages to disk and to create in-memory records.

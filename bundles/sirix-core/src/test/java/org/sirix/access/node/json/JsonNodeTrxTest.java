@@ -1,15 +1,17 @@
 package org.sirix.access.node.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.io.IOException;
-import java.io.StringWriter;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.shredder.JsonShredder;
+
+import java.io.IOException;
+import java.io.StringWriter;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public final class JsonNodeTrxTest {
   @Before

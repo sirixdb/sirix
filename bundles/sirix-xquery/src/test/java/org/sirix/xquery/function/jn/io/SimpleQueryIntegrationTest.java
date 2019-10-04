@@ -1,9 +1,6 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -15,7 +12,11 @@ import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
 import org.sirix.xquery.json.JsonDBObject;
-import junit.framework.TestCase;
+
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public final class SimpleQueryIntegrationTest extends TestCase {
 

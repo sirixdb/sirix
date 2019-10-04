@@ -27,12 +27,13 @@
  */
 package org.sirix.xquery.json;
 
-import java.nio.file.Path;
-import java.util.Set;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.json.JsonStore;
-import com.google.gson.stream.JsonReader;
+
+import java.nio.file.Path;
+import java.util.Set;
 
 /**
  * Database store.

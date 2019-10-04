@@ -1,8 +1,9 @@
 package org.sirix.cache;
 
-import java.util.Map;
-import javax.annotation.Nonnull;
 import com.google.common.collect.ImmutableMap;
+
+import javax.annotation.Nonnull;
+import java.util.Map;
 
 public class EmptyCache<K, V> implements Cache<K, V> {
   public EmptyCache() {}

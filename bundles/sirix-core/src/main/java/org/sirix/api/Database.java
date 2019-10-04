@@ -21,13 +21,14 @@
 
 package org.sirix.api;
 
-import java.nio.file.Path;
-import java.util.List;
-import javax.annotation.Nonnegative;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+
+import javax.annotation.Nonnegative;
+import java.nio.file.Path;
+import java.util.List;
 
 /**
  * <p>

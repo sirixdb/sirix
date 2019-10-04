@@ -20,16 +20,7 @@
  */
 package org.sirix.diff;
 
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isA;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import javax.xml.stream.XMLStreamException;
+import com.google.common.collect.ImmutableSet;
 import org.mockito.InOrder;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
@@ -43,7 +34,16 @@ import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
 import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableSet;
+
+import javax.xml.stream.XMLStreamException;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.Mockito.*;
 
 public final class DiffTestHelper {
 

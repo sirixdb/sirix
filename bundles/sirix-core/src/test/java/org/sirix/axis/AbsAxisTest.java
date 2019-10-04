@@ -21,11 +21,6 @@
 
 package org.sirix.axis;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,6 +30,11 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
+
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static org.junit.Assert.*;
 
 public class AbsAxisTest {
 

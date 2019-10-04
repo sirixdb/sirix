@@ -21,10 +21,11 @@
 
 package org.sirix.service.xml.xpath;
 
+import org.sirix.api.ItemList;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.sirix.api.ItemList;
 
 /**
  * <h1>ItemList</h1>

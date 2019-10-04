@@ -21,11 +21,6 @@
 
 package org.sirix.access;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -41,6 +36,11 @@ import org.sirix.node.NodeKind;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+
+import static org.junit.Assert.*;
 
 /**
  * Test the {@link PathSummaryReader}.

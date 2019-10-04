@@ -21,13 +21,6 @@
 
 package org.sirix.access.trx.node.json;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
@@ -49,6 +42,14 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
 
 /**
  * <h1>XdmResourceManager</h1>

@@ -20,16 +20,17 @@
  */
 package org.sirix.page.interfaces;
 
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
 
 /**
  * Page interface all pages have to implement.

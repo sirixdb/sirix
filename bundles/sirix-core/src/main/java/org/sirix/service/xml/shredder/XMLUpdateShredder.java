@@ -21,6 +21,28 @@
 
 package org.sirix.service.xml.shredder;
 
+import org.brackit.xquery.atomic.QNm;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
+import org.sirix.node.NodeKind;
+import org.sirix.service.ShredderCommit;
+import org.sirix.settings.Fixed;
+import org.sirix.utils.LogWrapper;
+import org.sirix.utils.TypedValue;
+import org.slf4j.LoggerFactory;
+
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.*;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -32,31 +54,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.Callable;
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLEventFactory;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamConstants;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Attribute;
-import javax.xml.stream.events.Characters;
-import javax.xml.stream.events.Namespace;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
-import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.Databases;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
-import org.sirix.exception.SirixUsageException;
-import org.sirix.node.NodeKind;
-import org.sirix.service.ShredderCommit;
-import org.sirix.settings.Fixed;
-import org.sirix.utils.LogWrapper;
-import org.sirix.utils.TypedValue;
-import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XMLUpdateShredder</h1>

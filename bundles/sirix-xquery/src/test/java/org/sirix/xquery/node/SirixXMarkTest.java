@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import java.io.FileNotFoundException;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;
@@ -10,6 +9,8 @@ import org.brackit.xquery.xdm.node.NodeCollection;
 import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 import org.sirix.xquery.SirixCompileChain;
+
+import java.io.FileNotFoundException;
 
 /**
  * XMark test.

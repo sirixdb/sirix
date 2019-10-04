@@ -20,25 +20,13 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.axis.AbstractAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
-import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.PostOrderAxis;
+import org.sirix.axis.*;
 import org.sirix.axis.visitor.DeleteFMSEVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.diff.algorithm.ImportDiff;
@@ -50,6 +38,10 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.slf4j.LoggerFactory;
+
+import java.util.*;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Provides the fast match / edit script (fmes) tree to tree correction algorithm as described in

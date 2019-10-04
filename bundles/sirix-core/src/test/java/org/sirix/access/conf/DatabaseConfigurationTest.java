@@ -1,7 +1,5 @@
 package org.sirix.access.conf;
 
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertTrue;
 import org.sirix.XmlTestHelper;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -10,6 +8,9 @@ import org.sirix.exception.SirixIOException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertTrue;
 
 /**
  * Test case for de-/serialization of {@link DatabaseConfiguration}s.

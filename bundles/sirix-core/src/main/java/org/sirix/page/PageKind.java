@@ -20,14 +20,15 @@
  */
 package org.sirix.page;
 
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import javax.annotation.Nonnull;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.page.interfaces.Page;
 
 /**
  * All Page types.

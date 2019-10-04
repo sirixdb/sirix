@@ -20,8 +20,8 @@
  */
 package org.sirix.utils;
 
-import java.util.Objects;
 import javax.annotation.Nullable;
+import java.util.Objects;
 
 /**
  * A Pair of objects.

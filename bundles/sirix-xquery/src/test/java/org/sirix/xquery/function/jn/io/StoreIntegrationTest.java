@@ -1,11 +1,11 @@
 package org.sirix.xquery.function.jn.io;
 
+import junit.framework.TestCase;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
-import junit.framework.TestCase;
 
 public final class StoreIntegrationTest extends TestCase {
 

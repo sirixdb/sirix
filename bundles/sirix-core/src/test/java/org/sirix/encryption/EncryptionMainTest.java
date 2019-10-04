@@ -20,8 +20,9 @@
  */
 package org.sirix.encryption;
 
-import java.io.File;
 import org.sirix.Holder;
+
+import java.io.File;
 
 public class EncryptionMainTest {
 

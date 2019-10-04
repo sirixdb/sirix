@@ -21,10 +21,8 @@
 
 package org.sirix.node.xml;
 
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
@@ -37,8 +35,11 @@ import org.sirix.node.immutable.xdm.ImmutableNamespace;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * <h1>NamespaceNode</h1>

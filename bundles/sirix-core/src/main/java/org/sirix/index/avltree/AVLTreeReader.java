@@ -1,14 +1,6 @@
 package org.sirix.index.avltree;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.PrintStream;
-import java.util.ArrayDeque;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-
+import com.google.common.collect.AbstractIterator;
 import org.sirix.api.Move;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageReadOnlyTrx;
@@ -28,7 +20,16 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.collect.AbstractIterator;
+
+import javax.annotation.Nonnegative;
+import java.io.PrintStream;
+import java.util.ArrayDeque;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Simple AVLTreeReader (balanced binary search-tree -- based on BaseX(.org) version).

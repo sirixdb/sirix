@@ -1,7 +1,7 @@
 package org.sirix.index.avltree.interfaces;
 
-import java.util.Set;
 import javax.annotation.Nonnegative;
+import java.util.Set;
 
 public interface References {
 

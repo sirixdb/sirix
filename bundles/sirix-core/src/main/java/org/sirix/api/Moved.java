@@ -1,9 +1,10 @@
 package org.sirix.api;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+
 import javax.annotation.Nullable;
 
-import com.google.common.base.MoreObjects;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Determines that a {@link NodeCursor} has been moved.

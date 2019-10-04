@@ -21,10 +21,11 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnegative;
 import org.sirix.api.NodeCursor;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
 
 /**
  * <h1>AncestorAxis</h1>

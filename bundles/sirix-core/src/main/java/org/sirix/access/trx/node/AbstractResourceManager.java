@@ -1,51 +1,12 @@
 package org.sirix.access.trx.node;
 
 
-
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.access.DatabaseConfiguration;
-import org.sirix.access.LocalXmlDatabase;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.access.ResourceStore;
-import org.sirix.access.User;
+import org.sirix.access.*;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
 import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
 import org.sirix.access.trx.page.PageTrxFactory;
-import org.sirix.api.Database;
-import org.sirix.api.NodeCursor;
-import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.NodeTrx;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.api.PageTrx;
-import org.sirix.api.ResourceManager;
-import org.sirix.api.RevisionInfo;
+import org.sirix.api.*;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
@@ -61,6 +22,28 @@ import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceManager<R, W>, InternalResourceManager<R, W> {

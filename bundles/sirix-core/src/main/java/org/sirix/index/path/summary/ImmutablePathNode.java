@@ -1,13 +1,14 @@
 package org.sirix.index.path.summary;
 
-import java.math.BigInteger;
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * Wraps a {@link PathNode} to provide immutability.

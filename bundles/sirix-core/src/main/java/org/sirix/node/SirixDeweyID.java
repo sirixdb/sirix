@@ -21,9 +21,10 @@
  */
 package org.sirix.node;
 
-import java.util.Arrays;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.SimpleDeweyID;
+
+import java.util.Arrays;
 
 /**
  * 

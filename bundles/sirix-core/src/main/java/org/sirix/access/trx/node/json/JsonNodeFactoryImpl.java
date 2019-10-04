@@ -1,9 +1,6 @@
 package org.sirix.access.trx.node.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.zip.Deflater;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
+import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.PageTrx;
 import org.sirix.index.path.summary.PathNode;
@@ -13,20 +10,19 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.StringNode;
+import org.sirix.node.json.*;
 import org.sirix.page.PageKind;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
-import com.google.common.hash.HashFunction;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.util.zip.Deflater;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Node factory to create nodes.

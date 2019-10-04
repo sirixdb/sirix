@@ -21,7 +21,6 @@
 
 package org.sirix.access;
 
-import java.util.Random;
 import junit.framework.TestCase;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
@@ -32,6 +31,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Fixed;
+
+import java.util.Random;
 
 /** Test a bunch of modification methods. */
 public final class OverallTest extends TestCase {

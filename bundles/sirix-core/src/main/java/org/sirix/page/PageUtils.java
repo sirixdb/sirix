@@ -1,6 +1,5 @@
 package org.sirix.page;
 
-import javax.annotation.Nonnull;
 import org.sirix.access.DatabaseType;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
@@ -10,6 +9,8 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnull;
 
 /**
  * Page utilities.

@@ -21,12 +21,7 @@
 
 package org.sirix.node.json;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,7 +36,10 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
-import com.google.common.hash.Hashing;
+
+import java.io.*;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Object record node test.

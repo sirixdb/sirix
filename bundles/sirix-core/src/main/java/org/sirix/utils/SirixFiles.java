@@ -1,6 +1,7 @@
 package org.sirix.utils;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import org.sirix.exception.SirixIOException;
+
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
@@ -9,7 +10,8 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Set;
-import org.sirix.exception.SirixIOException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Static methods for file operations.

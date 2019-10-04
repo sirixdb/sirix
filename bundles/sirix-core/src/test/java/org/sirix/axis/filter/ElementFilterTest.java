@@ -21,7 +21,7 @@
 
 package org.sirix.axis.filter;
 
-import java.util.Iterator;
+import com.google.common.collect.FluentIterable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,7 +32,8 @@ import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.xml.ElementFilter;
 import org.sirix.exception.SirixException;
-import com.google.common.collect.FluentIterable;
+
+import java.util.Iterator;
 
 public class ElementFilterTest {
 

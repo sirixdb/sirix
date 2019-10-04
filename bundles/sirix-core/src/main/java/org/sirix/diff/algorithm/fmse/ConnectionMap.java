@@ -20,9 +20,10 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.HashMap;
 import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Stores whether two objects have a (unidirectional) connection. /!\ The identities of the objects

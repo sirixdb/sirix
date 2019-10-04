@@ -21,11 +21,12 @@
 
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.IOException;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+
+import java.io.DataInput;
+import java.io.IOException;
 
 /**
  * <h1>IndirectPage</h1>

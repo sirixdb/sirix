@@ -21,13 +21,15 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.List;
-import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
+
+import javax.annotation.Nonnull;
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>VariableAxis</h1>

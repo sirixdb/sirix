@@ -1,8 +1,5 @@
 package org.sirix.index.name;
 
-import java.util.Optional;
-import java.util.Set;
-import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
 import org.sirix.index.SearchMode;
@@ -10,6 +7,10 @@ import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import javax.annotation.Nonnull;
+import java.util.Optional;
+import java.util.Set;
 
 public final class NameIndexListener {
 

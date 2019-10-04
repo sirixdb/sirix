@@ -21,11 +21,12 @@
 
 package org.sirix.axis.filter.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.AbstractFilter;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>ValueAxisTest</h1>

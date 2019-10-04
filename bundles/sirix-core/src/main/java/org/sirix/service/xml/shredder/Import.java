@@ -21,8 +21,9 @@
 
 package org.sirix.service.xml.shredder;
 
-import java.util.List;
 import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
+
+import java.util.List;
 
 /**
  * <h1>Import</h1>

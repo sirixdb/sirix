@@ -1,9 +1,5 @@
 package org.sirix.service.json.serializer;
 
-import static org.junit.Assert.assertEquals;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.Writer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -13,6 +9,12 @@ import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.utils.JsonDocumentCreator;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
+
+import static org.junit.Assert.assertEquals;
 
 public final class JsonSerializerTest {
   private static final String mJson =

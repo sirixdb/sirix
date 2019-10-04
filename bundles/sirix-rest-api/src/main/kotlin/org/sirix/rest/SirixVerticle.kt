@@ -3,7 +3,6 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.net.PemKeyCertOptions
-import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router

@@ -1,10 +1,11 @@
 package org.sirix.diff.algorithm.fmse;
 
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.xml.TextNode;
+
+import javax.xml.namespace.QName;
 
 class FMSENodeComparisonUtils {
 

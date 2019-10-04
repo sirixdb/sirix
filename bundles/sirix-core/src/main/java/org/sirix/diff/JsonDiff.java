@@ -21,11 +21,12 @@
 
 package org.sirix.diff;
 
-import java.util.Objects;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
+
+import java.util.Objects;
 
 /**
  * Json diff.

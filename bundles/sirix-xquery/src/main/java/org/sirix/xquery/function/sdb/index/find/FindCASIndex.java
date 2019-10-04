@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.sdb.index.find;
 
-import java.util.Optional;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Int32;
@@ -18,6 +17,8 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.util.Optional;
 
 /**
  * <p>

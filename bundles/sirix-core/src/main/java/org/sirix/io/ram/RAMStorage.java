@@ -1,8 +1,5 @@
 package org.sirix.io.ram;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import javax.annotation.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
@@ -14,6 +11,10 @@ import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nullable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * In memory storage.

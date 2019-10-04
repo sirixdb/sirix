@@ -27,12 +27,6 @@ XmlInsertionMode * Copyright (c) 2018, Sirix
  */
 package org.sirix.xquery;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -42,6 +36,14 @@ import org.brackit.xquery.xdm.json.Array;
 import org.brackit.xquery.xdm.json.Record;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.service.json.serialize.JsonSerializer;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

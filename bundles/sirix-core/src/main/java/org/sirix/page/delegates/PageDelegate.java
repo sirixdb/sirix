@@ -21,13 +21,7 @@
 
 package org.sirix.page.delegates;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.BitSet;
-import java.util.List;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
@@ -37,7 +31,15 @@ import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.BitSet;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * <h1>PageDelegate</h1>

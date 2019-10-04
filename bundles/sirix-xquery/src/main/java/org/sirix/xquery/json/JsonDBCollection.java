@@ -1,12 +1,7 @@
 package org.sirix.xquery.json;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.Preconditions;
+import com.google.gson.stream.JsonReader;
 import org.brackit.xquery.jsonitem.AbstractJsonItemCollection;
 import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
@@ -25,8 +20,14 @@ import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Preconditions;
-import com.google.gson.stream.JsonReader;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
     implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {

@@ -21,13 +21,6 @@
 
 package org.sirix.access;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,13 +28,18 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.api.NodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.Assert.*;
 
 public class XdmResourceManagerTest {
 

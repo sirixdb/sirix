@@ -21,17 +21,18 @@
 
 package org.sirix.settings;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import javax.annotation.Nonnegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 /**
  * Different versioning algorithms.

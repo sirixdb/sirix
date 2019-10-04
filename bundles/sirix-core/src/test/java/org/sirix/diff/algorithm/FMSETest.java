@@ -1,6 +1,20 @@
 package org.sirix.diff.algorithm;
 
-import static java.util.stream.Collectors.toList;
+import org.custommonkey.xmlunit.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.diff.service.FMSEImport;
+import org.sirix.exception.SirixException;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
+import org.sirix.service.xml.shredder.InsertPosition;
+import org.sirix.service.xml.shredder.XmlShredder;
+
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -10,24 +24,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Predicate;
-import org.custommonkey.xmlunit.DetailedDiff;
-import org.custommonkey.xmlunit.Diff;
-import org.custommonkey.xmlunit.Difference;
-import org.custommonkey.xmlunit.XMLTestCase;
-import org.custommonkey.xmlunit.XMLUnit;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.XmlTestHelper;
-import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.diff.service.FMSEImport;
-import org.sirix.exception.SirixException;
-import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import org.sirix.service.xml.shredder.InsertPosition;
-import org.sirix.service.xml.shredder.XmlShredder;
+
+import static java.util.stream.Collectors.toList;
 
 /**
  * Test the FMSE implementation.

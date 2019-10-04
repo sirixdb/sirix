@@ -1,16 +1,6 @@
 package org.sirix.index.bplustree;
 
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.io.ByteArrayDataInput;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.node.interfaces.Record;
@@ -18,7 +8,13 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.SerializationType;
 import org.sirix.page.interfaces.KeyValuePage;
-import com.google.common.io.ByteArrayDataInput;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.*;
+import java.util.Map.Entry;
 
 /**
  * Leaf node key/value page.

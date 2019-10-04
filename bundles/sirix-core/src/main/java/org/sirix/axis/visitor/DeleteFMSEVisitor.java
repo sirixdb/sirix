@@ -1,10 +1,5 @@
 package org.sirix.axis.visitor;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.List;
-import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -20,6 +15,13 @@ import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnegative;
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete unmatched nodes

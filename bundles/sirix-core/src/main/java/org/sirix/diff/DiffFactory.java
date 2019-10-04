@@ -21,10 +21,6 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Set;
-import javax.annotation.Nonnegative;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -36,6 +32,12 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
+
+import javax.annotation.Nonnegative;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Factory method for public access.

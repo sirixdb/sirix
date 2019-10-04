@@ -1,10 +1,12 @@
 package org.sirix.access.trx;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashSet;
-import java.util.Set;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
+
+import java.util.HashSet;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class TransactionManagerImpl implements TransactionManager {
 

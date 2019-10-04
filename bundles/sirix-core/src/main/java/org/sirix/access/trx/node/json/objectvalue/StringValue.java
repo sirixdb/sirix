@@ -21,8 +21,9 @@
 
 package org.sirix.access.trx.node.json.objectvalue;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.node.NodeKind;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class StringValue implements ObjectRecordValue<String> {
 

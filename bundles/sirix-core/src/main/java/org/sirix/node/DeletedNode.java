@@ -21,12 +21,14 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.Node;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.interfaces.Node;
+
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.

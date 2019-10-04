@@ -1,10 +1,6 @@
 package org.sirix.index;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.util.Collections;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -19,14 +15,16 @@ import org.sirix.access.trx.node.xml.XmlIndexController;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.index.IndexDef;
-import org.sirix.index.IndexDefs;
-import org.sirix.index.IndexType;
-import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
-import com.google.common.collect.ImmutableSet;
+
+import java.util.Collections;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Test the AVLTree implementation.

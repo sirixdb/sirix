@@ -1,6 +1,5 @@
 package org.sirix.index.cas;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.PageTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.avltree.AVLTreeWriter;
@@ -9,6 +8,8 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class CASIndexBuilderFactory {
 

@@ -27,9 +27,6 @@ XmlInsertionMode * Copyright (c) 2018, Sirix
  */
 package org.sirix.xquery;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.OutputStream;
-import java.io.PrintStream;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -40,6 +37,11 @@ import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.xquery.node.XmlDBNode;
+
+import java.io.OutputStream;
+import java.io.PrintStream;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

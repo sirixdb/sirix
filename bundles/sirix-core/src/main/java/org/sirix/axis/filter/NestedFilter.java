@@ -21,11 +21,12 @@
 
 package org.sirix.axis.filter;
 
-import java.util.ArrayList;
-import java.util.List;
-import javax.annotation.Nonnull;
 import org.sirix.api.Filter;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
+
+import javax.annotation.Nonnull;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <h1>NestedFilter</h1>

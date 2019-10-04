@@ -21,12 +21,7 @@
 
 package org.sirix.page;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import javax.annotation.Nonnull;
+import com.google.common.base.MoreObjects;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.cache.TransactionIntentLog;
@@ -36,7 +31,13 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnull;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * <h1>NamePage</h1>

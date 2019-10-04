@@ -1,12 +1,13 @@
 package org.sirix.node.interfaces;
 
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.node.SirixDeweyID;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.node.SirixDeweyID;
 
 /**
  * Persistenting a record (first byte of a record must be its type).

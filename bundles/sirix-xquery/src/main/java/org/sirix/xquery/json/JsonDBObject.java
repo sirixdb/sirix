@@ -1,5 +1,6 @@
 package org.sirix.xquery.json;
 
+import com.google.common.base.Preconditions;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
@@ -22,19 +23,12 @@ import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.json.JsonNameFilter;
-import org.sirix.axis.temporal.AllTimeAxis;
-import org.sirix.axis.temporal.FirstAxis;
-import org.sirix.axis.temporal.FutureAxis;
-import org.sirix.axis.temporal.LastAxis;
-import org.sirix.axis.temporal.NextAxis;
-import org.sirix.axis.temporal.PastAxis;
-import org.sirix.axis.temporal.PreviousAxis;
+import org.sirix.axis.temporal.*;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.stream.json.SirixJsonStream;
 import org.sirix.xquery.stream.json.TemporalSirixJsonObjectStream;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Preconditions;
 
 public final class JsonDBObject extends AbstractItem
     implements TemporalJsonDBItem<JsonDBObject>, Record, JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {

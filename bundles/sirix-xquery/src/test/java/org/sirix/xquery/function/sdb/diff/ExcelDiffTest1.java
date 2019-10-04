@@ -1,17 +1,6 @@
 package org.sirix.xquery.function.sdb.diff;
 
-import static java.util.stream.Collectors.toList;
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.function.Predicate;
+import junit.framework.TestCase;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.serialize.StringSerializer;
@@ -39,7 +28,16 @@ import org.sirix.service.xml.shredder.XmlShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.function.Predicate;
+
+import static java.util.stream.Collectors.toList;
 
 public final class ExcelDiffTest1 extends TestCase {
 

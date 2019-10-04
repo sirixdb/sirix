@@ -21,20 +21,21 @@
 
 package org.sirix.access;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.google.common.base.MoreObjects;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.cache.BufferManagerImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * This class represents one concrete database for enabling several {@link ResourceManager}

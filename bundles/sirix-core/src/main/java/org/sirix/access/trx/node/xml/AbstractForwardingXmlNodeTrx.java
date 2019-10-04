@@ -1,14 +1,15 @@
 package org.sirix.access.trx.node.xml;
 
-import java.util.Optional;
-import javax.annotation.Nonnull;
-import javax.xml.stream.XMLEventReader;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.api.Movement;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
+
+import javax.annotation.Nonnull;
+import javax.xml.stream.XMLEventReader;
+import java.util.Optional;
 
 /**
  * Forwards all methods to the delegate.

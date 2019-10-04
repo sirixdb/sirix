@@ -21,15 +21,13 @@
 
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import javax.annotation.Nullable;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
+
+import javax.annotation.Nullable;
+import java.util.*;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible second cache as a

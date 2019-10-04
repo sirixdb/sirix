@@ -1,10 +1,11 @@
 package org.sirix.node.interfaces.immutable;
 
-import java.math.BigInteger;
-import javax.annotation.Nullable;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 /**
  * An immutable node.

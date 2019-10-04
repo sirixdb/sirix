@@ -1,10 +1,6 @@
 package org.sirix.cache;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * An LRU cache, based on <code>LinkedHashMap</code> holding last key changes for a user.

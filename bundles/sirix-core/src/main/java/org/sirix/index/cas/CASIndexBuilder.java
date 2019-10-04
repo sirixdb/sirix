@@ -1,7 +1,5 @@
 package org.sirix.index.cas;
 
-import java.util.Optional;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -22,6 +20,9 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
+import java.util.Set;
 
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));

@@ -21,14 +21,15 @@
 
 package org.sirix.utils;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import org.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import org.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import org.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.exception.SirixException;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * <h1>JSON-TestDocument</h1>

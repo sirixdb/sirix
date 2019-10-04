@@ -1,12 +1,13 @@
 package org.sirix.index;
 
-import java.util.Set;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.NonStructuralWrapperAxis;
+
+import java.util.Set;
 
 /**
  * Build an index by traversing the current revision.

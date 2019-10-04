@@ -1,17 +1,14 @@
 package org.sirix.cache;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import javax.annotation.Nullable;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.page.PageReference;
-import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.PageReference;
+import org.sirix.settings.Constants;
+
+import javax.annotation.Nullable;
+import java.util.*;
 
 /**
  * The transaction intent log, used for logging everything a write transaction changes.

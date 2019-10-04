@@ -20,15 +20,17 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.HashMap;
-import java.util.Map;
-import javax.annotation.Nonnegative;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.node.NodeKind;
+
+import javax.annotation.Nonnegative;
+import java.util.HashMap;
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Keeps track of nodes in a matching.

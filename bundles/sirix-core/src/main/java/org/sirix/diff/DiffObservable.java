@@ -21,9 +21,10 @@
 
 package org.sirix.diff;
 
-import javax.annotation.Nonnull;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
+
+import javax.annotation.Nonnull;
 
 /**
  * Observable class to fire diffs for interested observers, which implement the {@link DiffObserver}

@@ -1,11 +1,12 @@
 package org.sirix.node.immutable.json;
 
-import java.math.BigInteger;
-import javax.annotation.Nullable;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
 
 public abstract class AbstractImmutableJsonStructuralNode implements ImmutableStructNode, ImmutableJsonNode {
 

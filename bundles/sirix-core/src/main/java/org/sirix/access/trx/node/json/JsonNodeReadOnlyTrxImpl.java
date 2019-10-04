@@ -1,9 +1,6 @@
 package org.sirix.access.trx.node.json;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
+import com.google.common.base.MoreObjects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
 import org.sirix.access.trx.node.InternalResourceManager;
@@ -23,16 +20,15 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.BooleanNode;
-import org.sirix.node.json.NullNode;
-import org.sirix.node.json.NumberNode;
-import org.sirix.node.json.ObjectKeyNode;
-import org.sirix.node.json.ObjectNode;
-import org.sirix.node.json.StringNode;
+import org.sirix.node.json.*;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import javax.annotation.Nonnegative;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeReadOnlyTrx>
     implements InternalJsonNodeReadOnlyTrx {

@@ -1,11 +1,12 @@
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.io.Writer;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class PersistentFileCache implements AutoCloseable {
   /** Write to a persistent file. */

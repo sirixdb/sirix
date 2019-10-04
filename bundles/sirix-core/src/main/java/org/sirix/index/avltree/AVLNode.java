@@ -1,7 +1,7 @@
 package org.sirix.index.avltree;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
@@ -9,8 +9,10 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * AVLNode which is mutable.

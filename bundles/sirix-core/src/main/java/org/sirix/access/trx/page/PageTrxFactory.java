@@ -27,12 +27,6 @@
  */
 package org.sirix.access.trx.page;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import javax.annotation.Nonnegative;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.IndexController;
@@ -49,14 +43,15 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nonnegative;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Page transaction factory.

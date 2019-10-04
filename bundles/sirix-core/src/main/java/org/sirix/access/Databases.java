@@ -1,17 +1,5 @@
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
@@ -23,6 +11,20 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.SirixFiles;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Utility methods for {@link Database} handling.

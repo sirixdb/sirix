@@ -21,10 +21,7 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.common.base.MoreObjects;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
@@ -35,7 +32,12 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.base.MoreObjects;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>UberPage</h1>

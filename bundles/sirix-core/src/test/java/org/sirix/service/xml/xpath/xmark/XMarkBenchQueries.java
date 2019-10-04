@@ -21,8 +21,9 @@
 
 package org.sirix.service.xml.xpath.xmark;
 
-import java.lang.reflect.Field;
 import org.sirix.exception.SirixIOException;
+
+import java.lang.reflect.Field;
 
 /**
  * This class defines all XMark queries by factor and its corresponding results.

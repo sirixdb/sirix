@@ -1,11 +1,5 @@
 package org.sirix.service.json.shredder;
 
-import static org.junit.Assert.assertEquals;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.Writer;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,6 +8,14 @@ import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.assertEquals;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");

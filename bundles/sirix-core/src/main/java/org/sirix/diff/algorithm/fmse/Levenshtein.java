@@ -29,10 +29,12 @@
 
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnull;
 import org.sirix.diff.algorithm.fmse.utils.SubCost01;
 import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
+
+import javax.annotation.Nonnull;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Implements the levenstein distance function.

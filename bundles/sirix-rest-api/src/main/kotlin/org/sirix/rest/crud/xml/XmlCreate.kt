@@ -14,13 +14,13 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import org.sirix.rest.crud.SirixDBUtils
 
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {

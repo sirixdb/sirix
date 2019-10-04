@@ -21,11 +21,12 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
-import java.util.HashMap;
-import java.util.Map;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * <h1>CompKind</h1>

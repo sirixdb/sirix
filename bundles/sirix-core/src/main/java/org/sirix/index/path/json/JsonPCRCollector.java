@@ -1,7 +1,5 @@
 package org.sirix.index.path.json;
 
-import java.util.Objects;
-import java.util.Set;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -12,6 +10,9 @@ import org.sirix.index.path.PCRValue;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import java.util.Objects;
+import java.util.Set;
 
 public final class JsonPCRCollector implements PCRCollector {
 

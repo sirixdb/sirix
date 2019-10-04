@@ -1,6 +1,5 @@
 package org.sirix.access;
 
-import java.io.ByteArrayOutputStream;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -10,6 +9,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.utils.XmlDocumentCreator;
+
+import java.io.ByteArrayOutputStream;
 
 /**
  * Processing instruction/comment test.

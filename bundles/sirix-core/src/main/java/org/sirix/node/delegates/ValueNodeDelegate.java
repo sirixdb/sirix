@@ -20,18 +20,19 @@
  */
 package org.sirix.node.delegates;
 
-import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.zip.Deflater;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Constants;
 import org.sirix.utils.Compression;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.zip.Deflater;
 
 /**
  * Delegate method for all nodes containing "value"-data. That means that independent values are

@@ -1,7 +1,5 @@
 package org.sirix.access.trx.page;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.Restore;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -11,6 +9,9 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 /**
  * Forwards all methods to the delegate.

@@ -1,11 +1,5 @@
 package org.sirix.access.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.nio.file.Path;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.Lock;
-import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
@@ -17,6 +11,14 @@ import org.sirix.cache.BufferManager;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
 import org.sirix.page.UberPage;
+
+import javax.annotation.Nonnull;
+import java.nio.file.Path;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Lock;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Manages all resource stuff.

@@ -21,14 +21,15 @@
 
 package org.sirix.service.xml.shredder;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.NoSuchElementException;
-import java.util.Queue;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
+import java.util.NoSuchElementException;
+import java.util.Queue;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>QueueEventReader</h1>

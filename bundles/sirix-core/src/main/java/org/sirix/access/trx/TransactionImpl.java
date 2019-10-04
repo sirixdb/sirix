@@ -1,11 +1,13 @@
 package org.sirix.access.trx;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.ArrayList;
-import java.util.List;
 import org.sirix.api.Transaction;
 import org.sirix.api.TransactionManager;
 import org.sirix.api.xml.XmlNodeTrx;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class TransactionImpl implements Transaction {
 

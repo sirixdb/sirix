@@ -21,12 +21,13 @@
 
 package org.sirix.service.xml.xpath;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.Fixed;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>XPath Axis</h1>

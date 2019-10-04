@@ -1,9 +1,7 @@
 package org.sirix.index.cas;
 
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Optional;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 import org.brackit.xquery.atomic.Atomic;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -21,8 +19,11 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
+
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.Optional;
+import java.util.Set;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
   B createBuilder(R rtx, PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,

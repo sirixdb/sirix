@@ -21,9 +21,9 @@
 
 package org.sirix.node;
 
-import org.sirix.node.interfaces.Record;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import org.sirix.node.interfaces.Record;
 
 /**
  * Hash entry node.

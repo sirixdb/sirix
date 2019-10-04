@@ -21,14 +21,7 @@
 
 package org.sirix.axis;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-
-import javax.annotation.Nonnegative;
-
+import com.google.common.base.MoreObjects;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -38,7 +31,12 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.settings.Fixed;
 
-import com.google.common.base.MoreObjects;
+import javax.annotation.Nonnegative;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * <h1>AbstractAxis</h1>

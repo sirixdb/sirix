@@ -20,8 +20,23 @@
  */
 package org.sirix.access;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.MoreObjects;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import org.sirix.access.trx.node.HashType;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.StorageType;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.ByteHandlerKind;
+import org.sirix.io.bytepipe.SnappyCompressor;
+import org.sirix.node.NodePersistenterImpl;
+import org.sirix.node.interfaces.RecordPersister;
+import org.sirix.settings.VersioningType;
+
+import javax.annotation.Nonnegative;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -33,22 +48,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import javax.annotation.Nonnegative;
-import org.sirix.access.trx.node.HashType;
-import org.sirix.exception.SirixIOException;
-import org.sirix.io.StorageType;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.io.bytepipe.ByteHandlerKind;
-import org.sirix.io.bytepipe.SnappyCompressor;
-import org.sirix.node.NodePersistenterImpl;
-import org.sirix.node.interfaces.RecordPersister;
-import org.sirix.settings.VersioningType;
-import com.google.common.base.MoreObjects;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>ResourceConfiguration</h1>

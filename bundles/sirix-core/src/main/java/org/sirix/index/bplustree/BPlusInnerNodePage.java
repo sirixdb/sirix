@@ -1,15 +1,6 @@
 package org.sirix.index.bplustree;
 
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import java.util.TreeMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.io.ByteArrayDataInput;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AbstractForwardingPage;
@@ -20,7 +11,13 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import com.google.common.io.ByteArrayDataInput;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.*;
+import java.util.Map.Entry;
 
 /**
  * Inner node key/value page.

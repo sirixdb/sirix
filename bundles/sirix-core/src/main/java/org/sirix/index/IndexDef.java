@@ -1,12 +1,5 @@
 package org.sirix.index;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Una;
 import org.brackit.xquery.module.Namespaces;
@@ -17,6 +10,15 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.node.Node;
+
+import javax.annotation.Nullable;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public final class IndexDef implements Materializable {
   private static final QNm EXCLUDING_TAG = new QNm("excluding");

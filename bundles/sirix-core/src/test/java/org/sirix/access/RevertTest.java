@@ -21,7 +21,6 @@
 
 package org.sirix.access;
 
-import static org.junit.Assert.assertEquals;
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -31,6 +30,8 @@ import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
+
+import static org.junit.Assert.assertEquals;
 
 public final class RevertTest {
 

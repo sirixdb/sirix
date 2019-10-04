@@ -21,14 +21,6 @@
 
 package org.sirix.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
-import java.io.IOException;
-
-import javax.xml.stream.XMLStreamException;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
@@ -37,6 +29,11 @@ import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import javax.xml.stream.XMLStreamException;
+import java.io.IOException;
+
+import static org.junit.Assert.*;
 
 /**
  * <h1>XmlDocumentCreator</h1>

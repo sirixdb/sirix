@@ -21,24 +21,18 @@
 
 package org.sirix.io.file;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
-import java.nio.ByteBuffer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
+
+import java.io.*;
+import java.nio.ByteBuffer;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.

@@ -1,8 +1,8 @@
 package org.sirix.index.avltree.keyvalue;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nullable;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import com.google.common.collect.ComparisonChain;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.xdm.Type;
@@ -10,9 +10,11 @@ import org.sirix.exception.SirixException;
 import org.sirix.index.AtomicUtil;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.collect.ComparisonChain;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nullable;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Value representing a text value, attribute value, element QName or any other byte encoded value.

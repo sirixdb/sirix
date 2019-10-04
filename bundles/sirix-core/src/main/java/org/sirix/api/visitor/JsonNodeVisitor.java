@@ -21,14 +21,7 @@
 
 package org.sirix.api.visitor;
 
-import org.sirix.node.immutable.json.ImmutableArrayNode;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.immutable.json.ImmutableDocumentNode;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.immutable.json.ImmutableNumberNode;
-import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
-import org.sirix.node.immutable.json.ImmutableStringNode;
+import org.sirix.node.immutable.json.*;
 
 /**
  * Interface which must be implemented from visitors to implement functionality based on the visitor

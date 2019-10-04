@@ -1,13 +1,15 @@
 package org.sirix.node.immutable.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.xml.ElementNode;
+
+import java.math.BigInteger;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Immutable array node wrapper.

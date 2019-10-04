@@ -1,6 +1,5 @@
 package org.sirix.xquery.function.sdb.io;
 
-import java.io.IOException;
 import org.brackit.xquery.ErrorCode;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -12,23 +11,15 @@ import org.brackit.xquery.node.parser.StreamSubtreeParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
-import org.brackit.xquery.xdm.DocumentException;
-import org.brackit.xquery.xdm.Item;
-import org.brackit.xquery.xdm.Iter;
-import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Signature;
-import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.*;
 import org.brackit.xquery.xdm.node.Node;
-import org.brackit.xquery.xdm.type.AnyNodeType;
-import org.brackit.xquery.xdm.type.AtomicType;
-import org.brackit.xquery.xdm.type.Cardinality;
-import org.brackit.xquery.xdm.type.ElementType;
-import org.brackit.xquery.xdm.type.SequenceType;
+import org.brackit.xquery.xdm.type.*;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.XmlDBCollection;
 import org.sirix.xquery.node.XmlDBStore;
+
+import java.io.IOException;
 
 /**
  * <p>

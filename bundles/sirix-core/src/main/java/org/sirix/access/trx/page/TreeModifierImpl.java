@@ -27,16 +27,13 @@
  */
 package org.sirix.access.trx.page;
 
-import javax.annotation.Nonnegative;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionIntentLog;
-import org.sirix.page.IndirectPage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.settings.Constants;
+
+import javax.annotation.Nonnegative;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

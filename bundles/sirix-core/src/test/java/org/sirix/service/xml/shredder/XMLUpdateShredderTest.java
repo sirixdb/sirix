@@ -21,6 +21,20 @@
 
 package org.sirix.service.xml.shredder;
 
+import org.custommonkey.xmlunit.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.XmlTestHelper;
+import org.sirix.XmlTestHelper.PATHS;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.exception.SirixException;
+import org.sirix.service.ShredderCommit;
+import org.sirix.service.xml.serialize.XmlSerializer;
+import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
+
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.OutputStream;
@@ -29,23 +43,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.custommonkey.xmlunit.DetailedDiff;
-import org.custommonkey.xmlunit.Diff;
-import org.custommonkey.xmlunit.Difference;
-import org.custommonkey.xmlunit.XMLTestCase;
-import org.custommonkey.xmlunit.XMLUnit;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.sirix.XmlTestHelper;
-import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.xml.XmlResourceManager;
-import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.service.ShredderCommit;
-import org.sirix.service.xml.serialize.XmlSerializer;
-import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 
 /**
  * Test XMLUpdateShredder.

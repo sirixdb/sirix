@@ -1,20 +1,11 @@
 package org.sirix.xquery;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.function.Function;
+import com.google.common.base.Preconditions;
 import org.brackit.xquery.BrackitQueryContext;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.AnyURI;
-import org.brackit.xquery.atomic.DTD;
 import org.brackit.xquery.atomic.Date;
-import org.brackit.xquery.atomic.DateTime;
-import org.brackit.xquery.atomic.QNm;
-import org.brackit.xquery.atomic.Time;
+import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.update.UpdateList;
 import org.brackit.xquery.update.op.UpdateOp;
 import org.brackit.xquery.xdm.Item;
@@ -29,7 +20,9 @@ import org.sirix.xquery.json.JsonDBStore;
 import org.sirix.xquery.node.BasicXmlDBStore;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.node.XmlDBStore;
-import com.google.common.base.Preconditions;
+
+import java.util.*;
+import java.util.function.Function;
 
 /**
  * Query context for Sirix.

@@ -1,10 +1,10 @@
 package org.sirix.axis;
 
+import com.google.common.collect.AbstractIterator;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import com.google.common.collect.AbstractIterator;
 
 /**
  * TemporalAxis abstract class.

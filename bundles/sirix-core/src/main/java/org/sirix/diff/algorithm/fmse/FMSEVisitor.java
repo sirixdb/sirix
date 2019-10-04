@@ -20,8 +20,6 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.util.Map;
 import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -32,6 +30,10 @@ import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.immutable.xdm.ImmutablePI;
 import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import java.util.Map;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Initialize data structures.

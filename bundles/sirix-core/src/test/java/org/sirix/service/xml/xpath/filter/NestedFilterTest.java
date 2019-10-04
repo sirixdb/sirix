@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import java.util.List;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -29,13 +28,10 @@ import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.NestedFilter;
-import org.sirix.axis.filter.xml.AttributeFilter;
-import org.sirix.axis.filter.xml.ElementFilter;
-import org.sirix.axis.filter.xml.ItemFilter;
-import org.sirix.axis.filter.xml.NodeFilter;
-import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.*;
 import org.sirix.exception.SirixException;
+
+import java.util.List;
 
 public class NestedFilterTest {
 

@@ -1,15 +1,7 @@
 package org.sirix.index;
 
 import org.brackit.xquery.QueryException;
-import org.brackit.xquery.atomic.Atomic;
-import org.brackit.xquery.atomic.Dbl;
-import org.brackit.xquery.atomic.Dec;
-import org.brackit.xquery.atomic.Flt;
-import org.brackit.xquery.atomic.Int;
-import org.brackit.xquery.atomic.Int32;
-import org.brackit.xquery.atomic.Int64;
-import org.brackit.xquery.atomic.Numeric;
-import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.atomic.*;
 import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.exception.SirixException;

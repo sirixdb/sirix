@@ -21,7 +21,6 @@
 
 package org.sirix.service.xml.xpath.functions;
 
-import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.DescendantAxis;
@@ -30,6 +29,8 @@ import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.NodeKind;
 import org.sirix.utils.TypedValue;
+
+import java.util.List;
 
 /**
  * <h1>FNString</h1>

@@ -21,25 +21,23 @@
 
 package org.sirix.io.file;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.page.PagePersister;
-import org.sirix.page.PageReference;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.SerializationType;
-import org.sirix.page.UberPage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.Page;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.

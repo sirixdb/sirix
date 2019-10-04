@@ -1,7 +1,5 @@
 package org.sirix.api;
 
-import java.util.Optional;
-import javax.annotation.Nonnegative;
 import org.sirix.access.User;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
@@ -9,6 +7,9 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import javax.annotation.Nonnegative;
+import java.util.Optional;
 
 public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
 

@@ -21,18 +21,6 @@
 
 package org.sirix.access.trx.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -49,20 +37,26 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.CASPage;
-import org.sirix.page.NamePage;
-import org.sirix.page.PageKind;
-import org.sirix.page.PageReference;
-import org.sirix.page.PathPage;
-import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RevisionRootPage;
-import org.sirix.page.UberPage;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.*;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.VersioningType;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>PageWriteTrx</h1>

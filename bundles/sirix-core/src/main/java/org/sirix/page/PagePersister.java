@@ -21,12 +21,13 @@
 
 package org.sirix.page;
 
+import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.interfaces.Page;
+
+import javax.annotation.Nonnull;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import javax.annotation.Nonnull;
-import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.page.interfaces.Page;
 
 /**
  * Persists pages on secondary storage.

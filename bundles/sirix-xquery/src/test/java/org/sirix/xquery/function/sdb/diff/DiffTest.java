@@ -27,11 +27,7 @@
  */
 package org.sirix.xquery.function.sdb.diff;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+import junit.framework.TestCase;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
@@ -52,7 +48,12 @@ import org.sirix.utils.XmlDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.node.BasicXmlDBStore;
-import junit.framework.TestCase;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>

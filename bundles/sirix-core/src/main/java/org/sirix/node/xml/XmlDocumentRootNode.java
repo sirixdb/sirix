@@ -21,11 +21,7 @@
 
 package org.sirix.node.xml;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
-import java.util.Optional;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import com.google.common.base.Objects;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
@@ -36,7 +32,13 @@ import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.math.BigInteger;
+import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>DocumentNode</h1>

@@ -21,13 +21,15 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
+
+import javax.annotation.Nonnull;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * <h1>UnionAxis</h1>
