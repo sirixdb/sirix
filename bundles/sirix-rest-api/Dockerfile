@@ -34,4 +34,5 @@ VOLUME $VERTICLE_HOME
 EXPOSE 9443
 
 # Launch the verticle
-CMD ["java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
+ENTRYPOINT ["sh", "-c"]
+CMD ["exec java -jar -Duser.home=$VERTICLE_HOME $VERTICLE_FILE -conf sirix-conf.json -cp $VERTICLE_HOME/*"]
