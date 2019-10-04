@@ -90,7 +90,6 @@ public class AbsAxisTest {
         keys[offset++] = axis.asXdmNodeReadTrx().getNodeKey();
       }
     } catch (final NoSuchElementException e) {
-
     }
 
     // Axis Convention 5.
