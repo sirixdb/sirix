@@ -434,7 +434,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public void setName(final QNm name) throws OperationNotSupportedException, DocumentException {
+  public void setName(final QNm name) throws DocumentException {
     if (mIsWtx) {
       moveRtx();
       final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
@@ -849,7 +849,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (!(child.getKind() == Kind.ELEMENT))
         return prepend(wtx, child.getKind(), child.getName(), child.getValue());
 
-      SubtreeBuilder builder = null;
+      SubtreeBuilder builder;
       if (wtx.hasFirstChild()) {
         wtx.moveToFirstChild();
 
@@ -1266,7 +1266,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<XmlDBNode> getAttributes() throws OperationNotSupportedException, DocumentException {
+  public Stream<XmlDBNode> getAttributes() throws DocumentException {
     moveRtx();
     return new SirixNodeStream(new AttributeAxis(mRtx), mCollection);
   }
@@ -1411,7 +1411,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private SubtreeBuilder createBuilder(final XmlNodeTrx wtx) {
-    SubtreeBuilder builder = null;
+    SubtreeBuilder builder;
     try {
       if (wtx.hasLeftSibling()) {
         wtx.moveToLeftSibling();

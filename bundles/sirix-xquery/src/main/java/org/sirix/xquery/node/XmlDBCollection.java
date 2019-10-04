@@ -212,7 +212,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   @Override
-  public XmlDBNode add(SubtreeParser parser) throws OperationNotSupportedException, DocumentException {
+  public XmlDBNode add(SubtreeParser parser) throws DocumentException {
     try {
       final String resourceName =
           new StringBuilder(2).append("resource").append(mDatabase.listResources().size() + 1).toString();
