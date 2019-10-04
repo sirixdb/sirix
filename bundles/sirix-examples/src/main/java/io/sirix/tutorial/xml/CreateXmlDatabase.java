@@ -18,11 +18,11 @@ public final class CreateXmlDatabase {
 
     private static final Path XML = Paths.get("src", "main", "resources", "xml");
 
-    public static void main(String[] args) throws FileNotFoundException, IOException {
+    public static void main(String[] args) throws IOException {
         createXmlDatabase();
     }
 
-    static void createXmlDatabase() throws FileNotFoundException, IOException {
+    static void createXmlDatabase() throws IOException {
         final var pathToXmlFile = XML.resolve("orga.xml");
         final var databaseFile = Constants.SIRIX_DATA_LOCATION.resolve("xml-database");
 

@@ -10,7 +10,6 @@ import org.brackit.xquery.xdm.node.NodeStore;
 import org.junit.After;
 import org.sirix.xquery.SirixCompileChain;
 
-import java.io.FileNotFoundException;
 
 /**
  * XMark test.
@@ -40,7 +39,7 @@ public final class SirixXMarkTest extends XMarkTest {
   }
 
   @Override
-  public void setUp() throws Exception, FileNotFoundException {
+  public void setUp() throws Exception {
     super.setUp();
     // mTransaction = ((DBCollection) coll).beginTransaction();
   }

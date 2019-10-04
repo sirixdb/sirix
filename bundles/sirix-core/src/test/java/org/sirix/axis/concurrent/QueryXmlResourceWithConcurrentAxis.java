@@ -29,13 +29,13 @@ public class QueryXmlResourceWithConcurrentAxis {
 
     private static final Path DATABASE_PATH = SIRIX_DATA_LOCATION.resolve("xml-xmark-database");
 
-    public static void main(String[] args) throws FileNotFoundException, IOException {
+    public static void main(String[] args) throws IOException {
         createXmlDatabase();
 
         queryXmlDatabase();
     }
 
-    static void createXmlDatabase() throws FileNotFoundException, IOException {
+    static void createXmlDatabase() throws IOException {
         final var pathToXmlFile = XML.resolve("10mb.xml");
 
         if (Files.exists(DATABASE_PATH))
