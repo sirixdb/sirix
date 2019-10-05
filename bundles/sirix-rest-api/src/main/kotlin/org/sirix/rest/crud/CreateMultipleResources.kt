@@ -25,6 +25,8 @@ class CreateMultipleResources(private val location: Path) {
             ctx.fail(IllegalArgumentException("All uploaded files must be either of type XML or JSON."))
         }
 
+        if (ctx.failed()) return ctx.currentRoute()
+
         if (xmlCount > 0) XmlCreate(location, true).handle(ctx)
         else if (jsonCount > 0) JsonCreate(location, true).handle(ctx)
 
