@@ -31,6 +31,10 @@ doc
 lib
 target
 
+# Gradle
+.gradle
+build/
+
 # Sirix project
 sirix-performance
 bundles/sirix-rest-api/.idea/vcs.xml
