@@ -143,7 +143,7 @@ git clone https://github.com/sirixdb/sirix.git
 
 or use the following dependencies in your Maven (or Gradle?) project.
 
-We just changed to Java11 (OpenJDK 11).
+We just changed to Java13 (OpenJDK 13).
 
 ### Maven artifacts
 At this stage of development you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.3 of Sirix :-)

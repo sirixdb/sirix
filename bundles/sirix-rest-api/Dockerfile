@@ -1,7 +1,7 @@
 # Stage-1
 # Build jar
 
-FROM maven:3-jdk-11 as builder
+FROM maven:3-jdk-13 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app
 
@@ -16,7 +16,7 @@ RUN mvn package -DskipTests
 # Stage-2
 # Copy jar and run the server 
 
-FROM openjdk:14-alpine as server
+FROM openjdk:13-alpine as server
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
