@@ -1,14 +1,10 @@
 version: '3'
 services:
-  web:
-    build: .
-    image: sirixdb/sirix
-    ports:
-      - "9443:9443"
-    volumes:
-      - /opt/intrexx
+  waitforkeycloak:
+    image: dadarek/wait-for-dependencies
     depends_on:
       - keycloak
+    command: keycloak:8080
   keycloak:
     image: jboss/keycloak
     ports:
@@ -17,3 +13,12 @@ services:
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=admin
       - KEYCLOAK_LOGLEVEL=DEBUG
+  web:
+    build: .
+    image: sirixdb/sirix
+    ports:
+      - "9443:9443"
+    volumes:
+      - /opt/intrexx
+    depends_on:
+      - waitforkeycloak
