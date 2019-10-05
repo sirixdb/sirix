@@ -1,0 +1,6 @@
+dependencies {
+    compile project(':sirix-core')
+
+}
+
+description = 'sirix-xquery'
