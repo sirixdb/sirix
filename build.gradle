@@ -1,0 +1,79 @@
+allprojects {
+    group = 'io.sirix'
+    version = '0.9.4-SNAPSHOT'
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'maven-publish'
+
+    repositories {
+        mavenLocal()
+        maven {
+            url = 'https://oss.sonatype.org/content/repositories/snapshots/'
+        }
+
+        maven {
+            url = 'http://central.maven.org/maven2'
+        }
+
+        maven {
+            url = 'http://download.oracle.com/maven'
+        }
+
+        maven {
+            url = 'http://download.java.net/maven/2'
+        }
+
+        maven {
+            url = 'https://oss.sonatype.org/content/repositories/snapshots'
+        }
+    }
+
+    dependencies {
+        compile 'com.beust:jcommander:1.69'
+        compile 'org.aspectj:aspectjrt:1.8.10'
+        compile 'org.slf4j:slf4j-api:1.7.25'
+        compile 'org.perfidix:perfidix:3.6.9'
+        compile 'xmlunit:xmlunit:1.6'
+        compile 'ch.qos.logback:logback-classic:1.2.3'
+        compile 'ch.qos.logback:logback-core:1.2.3'
+        compile 'com.google.inject:guice:4.2.2'
+        compile 'com.google.code.gson:gson:2.8.1'
+        compile 'com.google.guava:guava:27.0-jre'
+        compile 'com.google.guava:guava-testlib:27.0-jre'
+        compile 'com.google.code.findbugs:jsr305:3.0.2'
+        compile 'com.github.sirixdb.brackit:brackit:0.1.5'
+        compile 'com.github.ben-manes.caffeine:caffeine:2.7.0'
+        testCompile 'org.testng:testng:6.11'
+        testCompile 'org.junit.jupiter:junit-jupiter-api:5.1.0'
+        testCompile 'org.junit.jupiter:junit-jupiter-engine:5.1.0'
+        testCompile 'org.junit.vintage:junit-vintage-engine:5.1.0'
+        testCompile 'org.junit.platform:junit-platform-launcher:1.1.0'
+        testCompile 'org.junit.platform:junit-platform-runner:1.1.0'
+        testCompile 'org.mockito:mockito-core:2.23.4'
+        testCompile 'com.github.sirixdb.brackit:brackit:0.1.5'
+        compileOnly 'com.google.auto.value:auto-value:1.6.2'
+    }
+
+    sourceCompatibility = '11'
+
+    configurations.all {
+    }
+
+    publishing {
+        publications {
+            maven(MavenPublication) {
+                from(components.java)
+            }
+        }
+    }
+
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+    }
+
+    test {
+        useTestNG()
+    }
+}

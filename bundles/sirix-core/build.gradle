@@ -1,0 +1,12 @@
+plugins {
+    id 'com.github.johnrengelman.shadow' version '5.1.0'
+    id 'java'
+}
+
+dependencies {
+    compile 'org.xerial.snappy:snappy-java:1.1.7.2'
+    compile 'org.magicwerk:brownies-collections:0.9.13'
+    compile 'com.google.crypto.tink:tink:1.2.1'
+}
+
+description = 'sirix-core'
