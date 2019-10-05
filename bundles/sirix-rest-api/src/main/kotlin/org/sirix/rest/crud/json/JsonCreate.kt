@@ -2,7 +2,6 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
-import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -15,16 +14,13 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
-import io.vertx.ext.auth.User
-import org.sirix.access.User as SirixDBUser
-import org.sirix.rest.crud.SirixDBUtils
 
 class JsonCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {

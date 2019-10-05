@@ -22,7 +22,7 @@ class SirixDBUtils {
             val user = ctx.get("user") as User
             val accessToken = KeycloakHelper.accessToken(user.principal())
             val userId = accessToken.getString("sub")
-            val userName = accessToken.getString("userName")
+            val userName = accessToken.getString("preferred_username")
             val userUuid = UUID.fromString(userId)
             return SirixDBUser(userName, userUuid)
         }

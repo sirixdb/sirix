@@ -18,6 +18,7 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
+import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -89,17 +90,11 @@ class SirixVerticle : CoroutineVerticle() {
             JsonCreate(location, false).handle(it)
         }
 
-        post("/:database").consumes("application/xml").coroutineHandler {
+        post("/:database").consumes("multipart/form-data").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, true).handle(it)
-        }
-        post("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            JsonCreate(location, true).handle(it)
+            CreateMultipleResources(location).handle(it)
         }
 
         // Update.

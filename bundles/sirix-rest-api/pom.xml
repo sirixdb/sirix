@@ -12,7 +12,7 @@
     <artifactId>sirix-rest-api</artifactId>
     <packaging>jar</packaging>
     <name>sirix-rest-api</name>
-    <description>Non-blocking RESTful-API for Sirix.</description>
+    <description>Non-blocking REST-API for SirixDB.</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
