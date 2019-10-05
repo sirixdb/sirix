@@ -63,7 +63,6 @@ class JsonUpdate(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
-            
             val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
             val dbFile = location.resolve(dbPathName)
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
