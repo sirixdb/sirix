@@ -27,7 +27,7 @@ COPY --from=builder /usr/app/target/$VERTICLE_FILE ./
 COPY src/main/resources/cert.pem ./sirix-data/
 COPY src/main/resources/key.pem ./sirix-data/
 COPY src/main/resources/sirix-conf.json ./
-# Replace localhost url with keycloack url in docker compose file
+# Replace localhost url with keycloak url in docker compose file
 RUN sed -i 's/localhost/keycloack/g' sirix-conf.json
 
 VOLUME $VERTICLE_HOME
