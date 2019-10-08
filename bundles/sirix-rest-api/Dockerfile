@@ -16,7 +16,7 @@ RUN mvn package -DskipTests
 # Stage-2
 # Copy jar and run the server 
 
-FROM openjdk:11-alpine as server
+FROM openjdk:14-alpine as server
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
