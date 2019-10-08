@@ -1,0 +1,29 @@
+version: '3'
+services:
+  waitforkeycloak:
+    image: dadarek/wait-for-dependencies
+    depends_on:
+      - keycloak
+    command: keycloak:8080
+  keycloak:
+    image: jboss/keycloak
+    ports:
+      - 8080:8080
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_LOGLEVEL=DEBUG
+    command:
+      - "-b 0.0.0.0"
+      - "-Dkeycloak.import=/opt/sirix/realm-export.json"
+    volumes:
+      - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/sirix/realm-export.json
+  web:
+    build: .
+    image: sirixdb/sirix
+    ports:
+      - "9443:9443"
+    volumes:
+      - /opt/sirix
+    depends_on:
+      - waitforkeycloak
