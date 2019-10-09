@@ -12,29 +12,25 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.json.serialize.JsonSerializer
+import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
-import org.sirix.xquery.json.BasicJsonDBStore
-import org.sirix.xquery.json.JsonDBArray
-import org.sirix.xquery.json.JsonDBCollection
-import org.sirix.xquery.json.JsonDBItem
-import org.sirix.xquery.json.JsonDBObject
+import org.sirix.xquery.json.*
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.stream.Collectors.toList
-import org.sirix.xquery.JsonDBSerializer
-import org.sirix.rest.crud.SirixDBUtils
-import org.sirix.access.DatabaseType
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -81,20 +77,22 @@ class JsonGet(private val location: Path) {
             val content = buffer.toString()
 
             ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
-                    .write(content)
-                    .end()
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                .write(content)
+                .end()
         }
     }
 
-    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
-                            vertxContext: Context, user: User) {
+    private suspend fun get(
+        dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+        vertxContext: Context, user: User
+    ) {
         val history = ctx.pathParam("history")
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Future<Unit> ->
-              SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
+                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
             }
 
             return
@@ -137,12 +135,16 @@ class JsonGet(private val location: Path) {
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
-                            queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                                    vertxContext, user)
+                            queryResource(
+                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                vertxContext, user
+                            )
                         } else {
                             val revisions: Array<Int> =
-                                    getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
-                                            endRevisionTimestamp, manager, revision, revisionTimestamp)
+                                getRevisionsToSerialize(
+                                    startRevision, endRevision, startRevisionTimestamp,
+                                    endRevisionTimestamp, manager, revision, revisionTimestamp
+                                )
                             serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                         }
                     }
@@ -155,9 +157,11 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
-                                        endRevisionTimestamp: String?, manager: JsonResourceManager, revision: String?,
-                                        revisionTimestamp: String?): Array<Int> {
+    private fun getRevisionsToSerialize(
+        startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
+        endRevisionTimestamp: String?, manager: JsonResourceManager, revision: String?,
+        revisionTimestamp: String?
+    ): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
             startRevisionTimestamp != null && endRevisionTimestamp != null -> {
@@ -168,9 +172,11 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database<JsonResourceManager>, revision: String?,
-                                      revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
-                                      nodeId: String?, query: String, vertxContext: Context, user: User) {
+    private suspend fun queryResource(
+        dbName: String?, database: Database<JsonResourceManager>, revision: String?,
+        revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
+        nodeId: String?, query: String, vertxContext: Context, user: User
+    ) {
 
         withContext(vertxContext.dispatcher()) {
             val dbCollection = JsonDBCollection(dbName, database)
@@ -217,8 +223,10 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
-                               user: User) {
+    private suspend fun xquery(
+        query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
+        user: User
+    ) {
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), user)
@@ -238,10 +246,10 @@ class JsonGet(private val location: Path) {
                 val body = out.toString()
 
                 routingContext.response().setStatusCode(200)
-                        .putHeader("Content-Type", "application/json")
-                        .putHeader("Content-Length", body.length.toString())
-                        .write(body)
-                        .end()
+                    .putHeader("Content-Type", "application/json")
+                    .putHeader("Content-Length", body.length.toString())
+                    .write(body)
+                    .end()
             }
 
             future.complete(null)
@@ -254,8 +262,10 @@ class JsonGet(private val location: Path) {
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: JsonResourceManager,
-                                   revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
+    private fun getRevisionNumbers(
+        manager: JsonResourceManager,
+        revisions: Pair<LocalDateTime, LocalDateTime>
+    ): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
         var firstRevisionNumber = manager.getRevisionNumber(zdtFirstRevision.toInstant())
@@ -267,8 +277,10 @@ class JsonGet(private val location: Path) {
         return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
     }
 
-    private fun serializeResource(manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
-                                  ctx: RoutingContext) {
+    private fun serializeResource(
+        manager: JsonResourceManager, revisions: Array<Int>, nodeId: Long?,
+        ctx: RoutingContext
+    ) {
         val out = StringWriter()
 
         val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
@@ -284,8 +296,10 @@ class JsonGet(private val location: Path) {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String,
-                                        endRevision: String): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(
+        startRevision: String,
+        endRevision: String
+    ): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

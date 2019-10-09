@@ -1,20 +1,20 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.xml.XmlNodeTrx
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
-import io.vertx.core.http.HttpHeaders
-import org.sirix.rest.crud.SirixDBUtils
 
 enum class XmlInsertionMode {
     ASFIRSTCHILD {
@@ -64,12 +64,14 @@ class XmlUpdate(private val location: Path) {
         return ctx.currentRoute()
     }
 
-    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
-                               resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun update(
+        dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
+        resFileToStore: String, ctx: RoutingContext
+    ) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
-            
+
             val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
             val dbFile = location.resolve(dbPathName)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)

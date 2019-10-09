@@ -5,7 +5,6 @@ import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
-import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.web.client.WebClient
 import io.vertx.ext.web.client.WebClientOptions
 import io.vertx.junit5.Timeout
@@ -38,9 +37,11 @@ class SirixVerticleJsonTest {
     @BeforeEach
     @DisplayName("Deploy a verticle")
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
-        val options = DeploymentOptions().setConfig(JsonObject().put("https.port", 9443)
+        val options = DeploymentOptions().setConfig(
+            JsonObject().put("https.port", 9443)
                 .put("client.secret", "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c")
-                .put("keycloak.url", "http://localhost:8080/auth/realms/master"))
+                .put("keycloak.url", "http://localhost:8080/auth/realms/master")
+        )
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
@@ -66,8 +67,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -76,23 +79,33 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    httpResponse = client.getAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                             testContext.completeNow()
                         }
                     }
@@ -121,8 +134,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -131,18 +146,28 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?query=let%20%24nodeKey%20%3A%3D%20sdb%3Anodekey(.%3D%3Efoo%5B%5B2%5D%5D)%0Areturn%20%7B%22nodeKey%22%3A%20%24nodeKey%7D").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    httpResponse =
+                        client.getAbs("$server$serverPath?query=let%20%24nodeKey%20%3A%3D%20sdb%3Anodekey(.%3D%3Efoo%5B%5B2%5D%5D)%0Areturn%20%7B%22nodeKey%22%3A%20%24nodeKey%7D")
+                            .putHeader(
+                                HttpHeaders.AUTHORIZATION
+                                    .toString(), "Bearer $accessToken"
+                            ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         val expectedQueryResponse = """
@@ -150,8 +175,10 @@ class SirixVerticleJsonTest {
                         """.trimIndent()
 
                         testContext.verify {
-                            assertEquals(expectedQueryResponse.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedQueryResponse.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                             testContext.completeNow()
                         }
                     }
@@ -181,8 +208,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -191,25 +220,37 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
-                    httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer(json))
+                    httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                             testContext.completeNow()
                         }
                     }
@@ -239,8 +280,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -249,18 +292,27 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
@@ -270,13 +322,20 @@ class SirixVerticleJsonTest {
 
                     val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
-                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                    httpResponse = client.postAbs(url).putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                        .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                             testContext.completeNow()
                         }
                     }
@@ -305,8 +364,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -315,25 +376,36 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.headAbs("$server$serverPath?nodeId=4").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=4").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
                     val url = "$server$serverPath?nodeId=4"
 
-                    httpResponse = client.deleteAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
+                    httpResponse = client.deleteAbs(url).putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.completeNow()
@@ -363,8 +435,10 @@ class SirixVerticleJsonTest {
                 """.trimIndent()
 
                 val credentials = json {
-                    obj("username" to "admin",
-                            "password" to "admin")
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
                 }
 
                 val response = client.postAbs("$server/login").sendJsonAwait(credentials)
@@ -373,18 +447,26 @@ class SirixVerticleJsonTest {
                     val user = response.bodyAsJsonObject()
                     val accessToken = user.getString("access_token")
 
-                    var httpResponse = client.putAbs("$server$serverPath").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectedJson.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectedJson.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                    httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
 
@@ -394,19 +476,28 @@ class SirixVerticleJsonTest {
 
                     val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
 
-                    httpResponse = client.postAbs(url).putHeader(HttpHeaders.AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").putHeader(HttpHeaders.ETAG.toString(), hashCode).sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+                    httpResponse = client.postAbs(url).putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                        .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
 
                     if (200 == httpResponse.statusCode()) {
                         testContext.verify {
-                            assertEquals(expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
+                            assertEquals(
+                                expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
                         }
                     }
 
-                    httpResponse = client.getAbs("$server$serverPath?query=jn:all-times(.)").putHeader(HttpHeaders
+                    httpResponse = client.getAbs("$server$serverPath?query=jn:all-times(.)").putHeader(
+                        HttpHeaders
                             .AUTHORIZATION
-                            .toString(), "Bearer $accessToken").putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
 
                     if (200 == httpResponse.statusCode()) {
                         val expectedResult = """
@@ -416,8 +507,8 @@ class SirixVerticleJsonTest {
                         testContext.verify {
                             println(httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")))
                             val result =
-                                    httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
-                                            .replace("\"revisionTimestamp\":\"(?!\").+?\",\"revision".toRegex(), "\"revision")
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                                    .replace("\"revisionTimestamp\":\"(?!\").+?\",\"revision".toRegex(), "\"revision")
                             println(result)
                             assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
                             testContext.completeNow()

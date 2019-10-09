@@ -78,8 +78,10 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun shredder(dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
-                                 ctx: RoutingContext) {
+    private suspend fun shredder(
+        dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
+        ctx: RoutingContext
+    ) {
         val dbFile = location.resolve(dbPathName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -88,11 +90,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         insertResource(dbFile, resPathName, dispatcher, resFileToStore, context, ctx)
     }
 
-    private suspend fun insertResource(dbFile: Path?, resPathName: String,
-                                       dispatcher: CoroutineDispatcher,
-                                       resFileToStore: String,
-                                       context: Context,
-                                       ctx: RoutingContext) {
+    private suspend fun insertResource(
+        dbFile: Path?, resPathName: String,
+        dispatcher: CoroutineDispatcher,
+        resFileToStore: String,
+        context: Context,
+        ctx: RoutingContext
+    ) {
         val database = Databases.openJsonDatabase(dbFile)
 
         database.use {
@@ -121,8 +125,10 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun createDatabaseIfNotExists(dbFile: Path,
-                                                  context: Context): DatabaseConfiguration? {
+    private suspend fun createDatabaseIfNotExists(
+        dbFile: Path,
+        context: Context
+    ): DatabaseConfiguration? {
         return context.executeBlockingAwait { future: Future<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
@@ -140,9 +146,11 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun createOrRemoveAndCreateResource(database: Database<JsonResourceManager>,
-                                                        resConfig: ResourceConfiguration?,
-                                                        resPathName: String, dispatcher: CoroutineDispatcher) {
+    private suspend fun createOrRemoveAndCreateResource(
+        database: Database<JsonResourceManager>,
+        resConfig: ResourceConfiguration?,
+        resPathName: String, dispatcher: CoroutineDispatcher
+    ) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
                 database.removeResource(resPathName)
@@ -151,7 +159,11 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         }
     }
 
-    private suspend fun insertJsonSubtreeAsFirstChild(manager: JsonResourceManager, resFileToStore: String, context: Context) {
+    private suspend fun insertJsonSubtreeAsFirstChild(
+        manager: JsonResourceManager,
+        resFileToStore: String,
+        context: Context
+    ) {
         context.executeBlockingAwait { future: Future<Unit> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
