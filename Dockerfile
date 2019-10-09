@@ -18,6 +18,7 @@ RUN mvn package -DskipTests
 # Copy jar and run the server 
 
 FROM openjdk:13-alpine as server
+RUN apk add --no-cache bash
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
@@ -25,12 +26,11 @@ WORKDIR /opt/sirix
 
 # Copy fat jar to the container
 COPY --from=builder /usr/app/bundles/sirix-rest-api/target/$VERTICLE_FILE ./
+
+# Copy additional configuration files
 COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/key.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
-COPY bundles/sirix-rest-api/src/test/resources/realm-export.json ./
-# Replace localhost url with keycloak url in docker compose file
-# RUN sed -i 's/localhost/keycloack/g' sirix-conf.json
 
 VOLUME $VERTICLE_HOME
 EXPOSE 9443
