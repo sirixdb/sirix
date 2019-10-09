@@ -11,18 +11,15 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.sirix.access.Databases
-import org.sirix.access.User as SirixDBUser
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.xquery.json.BasicJsonDBStore
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
-import io.vertx.ext.auth.oauth2.KeycloakHelper
-import java.util.UUID
-import org.sirix.rest.crud.SirixDBUtils
 
 class JsonDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -82,16 +79,17 @@ class JsonDelete(private val location: Path) {
     }
 
 
-
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
             Databases.removeDatabase(dbFile)
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<JsonResourceManager>,
-                                       resPathName: String?,
-                                       ctx: RoutingContext): Any? {
+    private suspend fun removeResource(
+        dispatcher: CoroutineDispatcher, database: Database<JsonResourceManager>,
+        resPathName: String?,
+        ctx: RoutingContext
+    ): Any? {
         return try {
             withContext(dispatcher) {
                 database.removeResource(resPathName)
@@ -101,7 +99,12 @@ class JsonDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: JsonResourceManager, nodeId: Long, context: Context, routingContext: RoutingContext): JsonNodeTrx? {
+    private suspend fun removeSubtree(
+        manager: JsonResourceManager,
+        nodeId: Long,
+        context: Context,
+        routingContext: RoutingContext
+    ): JsonNodeTrx? {
         return context.executeBlockingAwait { future: Future<JsonNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()

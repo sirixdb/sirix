@@ -7,18 +7,14 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
-import org.sirix.access.User as SirixDBUser
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonNodeTrx
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.math.BigInteger
 import java.nio.file.Path
-import java.util.UUID
-import io.vertx.ext.auth.User
-import io.vertx.ext.auth.oauth2.KeycloakHelper
-import org.sirix.rest.crud.SirixDBUtils
 
 enum class JsonInsertionMode {
     ASFIRSTCHILD {
@@ -58,8 +54,10 @@ class JsonUpdate(private val location: Path) {
         return ctx.currentRoute()
     }
 
-    private suspend fun update(dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
-                               resFileToStore: String, ctx: RoutingContext) {
+    private suspend fun update(
+        dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
+        resFileToStore: String, ctx: RoutingContext
+    ) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
