@@ -79,16 +79,16 @@ class XmlHead(private val location: Path) {
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: XmlResourceManager): Int {
         return rev?.toInt()
-                ?: if (revTimestamp != null) {
-                    var revision = getRevisionNumber(manager, revTimestamp)
-                    if (revision == 0) {
-                        ++revision
-                    } else {
-                        revision
-                    }
+            ?: if (revTimestamp != null) {
+                var revision = getRevisionNumber(manager, revTimestamp)
+                if (revision == 0) {
+                    ++revision
                 } else {
-                    manager.mostRecentRevisionNumber
+                    revision
                 }
+            } else {
+                manager.mostRecentRevisionNumber
+            }
     }
 
     private fun getRevisionNumber(manager: XmlResourceManager, revision: String): Int {

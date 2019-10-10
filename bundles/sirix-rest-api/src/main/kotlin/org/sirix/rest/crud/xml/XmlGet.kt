@@ -12,15 +12,17 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
-import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
+import org.sirix.xquery.XmlDBSerializer
 import org.sirix.xquery.node.BasicXmlDBStore
 import org.sirix.xquery.node.XmlDBCollection
 import org.sirix.xquery.node.XmlDBNode
@@ -31,8 +33,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
-import org.sirix.rest.crud.SirixDBUtils
-import org.sirix.access.DatabaseType
 
 class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -73,25 +73,27 @@ class XmlGet(private val location: Path) {
             val content = buffer.toString()
 
             ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
-                    .write(content)
-                    .end()
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                .write(content)
+                .end()
         }
     }
 
-    private suspend fun get(dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
-                            vertxContext: Context, user: User) {
+    private suspend fun get(
+        dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+        vertxContext: Context, user: User
+    ) {
         val history = ctx.pathParam("history")
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Future<Unit> ->
-              SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
+                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
             }
 
             return
         }
-        
+
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
@@ -125,12 +127,16 @@ class XmlGet(private val location: Path) {
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
-                            queryResource(dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                                    vertxContext, user)
+                            queryResource(
+                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                vertxContext, user
+                            )
                         } else {
                             val revisions: Array<Int> =
-                                    getRevisionsToSerialize(startRevision, endRevision, startRevisionTimestamp,
-                                            endRevisionTimestamp, manager, revision, revisionTimestamp)
+                                getRevisionsToSerialize(
+                                    startRevision, endRevision, startRevisionTimestamp,
+                                    endRevisionTimestamp, manager, revision, revisionTimestamp
+                                )
                             serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                         }
                     }
@@ -143,9 +149,11 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private fun getRevisionsToSerialize(startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
-                                        endRevisionTimestamp: String?, manager: XmlResourceManager, revision: String?,
-                                        revisionTimestamp: String?): Array<Int> {
+    private fun getRevisionsToSerialize(
+        startRevision: String?, endRevision: String?, startRevisionTimestamp: String?,
+        endRevisionTimestamp: String?, manager: XmlResourceManager, revision: String?,
+        revisionTimestamp: String?
+    ): Array<Int> {
         return when {
             startRevision != null && endRevision != null -> parseIntRevisions(startRevision, endRevision)
             startRevisionTimestamp != null && endRevisionTimestamp != null -> {
@@ -156,9 +164,11 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private suspend fun queryResource(dbName: String?, database: Database<XmlResourceManager>, revision: String?,
-                                      revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
-                                      nodeId: String?, query: String, vertxContext: Context, user: User) {
+    private suspend fun queryResource(
+        dbName: String?, database: Database<XmlResourceManager>, revision: String?,
+        revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
+        nodeId: String?, query: String, vertxContext: Context, user: User
+    ) {
         withContext(vertxContext.dispatcher()) {
             val dbCollection = XmlDBCollection(dbName, database)
 
@@ -200,8 +210,10 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
-                               user: User) {
+    private suspend fun xquery(
+        query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
+        user: User
+    ) {
         context.executeBlockingAwait { future: Future<Unit> ->
             // Initialize queryResource context and store.
             val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
@@ -216,18 +228,20 @@ class XmlGet(private val location: Path) {
                 out.use {
                     PrintStream(out).use { printStream ->
                         SirixCompileChain.createWithNodeStore(dbStore).use { compileChain ->
-                            XQuery(compileChain, query).prettyPrint().serialize(queryCtx,
-                                    XmlDBSerializer(printStream, true, true))
+                            XQuery(compileChain, query).prettyPrint().serialize(
+                                queryCtx,
+                                XmlDBSerializer(printStream, true, true)
+                            )
                         }
                     }
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
                     routingContext.response().setStatusCode(200)
-                            .putHeader("Content-Type", "application/xml")
-                            .putHeader("Content-Length", body.length.toString())
-                            .write(body)
-                            .end()
+                        .putHeader("Content-Type", "application/xml")
+                        .putHeader("Content-Length", body.length.toString())
+                        .write(body)
+                        .end()
                 }
             }
 
@@ -241,8 +255,10 @@ class XmlGet(private val location: Path) {
         return manager.getRevisionNumber(zdt.toInstant())
     }
 
-    private fun getRevisionNumbers(manager: XmlResourceManager,
-                                   revisions: Pair<LocalDateTime, LocalDateTime>): Array<Int> {
+    private fun getRevisionNumbers(
+        manager: XmlResourceManager,
+        revisions: Pair<LocalDateTime, LocalDateTime>
+    ): Array<Int> {
         val zdtFirstRevision = revisions.first.atZone(ZoneId.systemDefault())
         val zdtLastRevision = revisions.second.atZone(ZoneId.systemDefault())
         var firstRevisionNumber = manager.getRevisionNumber(zdtFirstRevision.toInstant())
@@ -254,8 +270,10 @@ class XmlGet(private val location: Path) {
         return (firstRevisionNumber..lastRevisionNumber).toSet().toTypedArray()
     }
 
-    private fun serializeResource(manager: XmlResourceManager, revisions: Array<Int>, nodeId: Long?,
-                                  ctx: RoutingContext) {
+    private fun serializeResource(
+        manager: XmlResourceManager, revisions: Array<Int>, nodeId: Long?,
+        ctx: RoutingContext
+    ) {
         val out = ByteArrayOutputStream()
 
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions.toIntArray())
@@ -271,8 +289,10 @@ class XmlGet(private val location: Path) {
         return (startRevision.toInt()..endRevision.toInt()).toSet().toTypedArray()
     }
 
-    private fun parseTimestampRevisions(startRevision: String,
-                                        endRevision: String): Pair<LocalDateTime, LocalDateTime> {
+    private fun parseTimestampRevisions(
+        startRevision: String,
+        endRevision: String
+    ): Pair<LocalDateTime, LocalDateTime> {
         val firstRevisionDateTime = LocalDateTime.parse(startRevision)
         val lastRevisionDateTime = LocalDateTime.parse(endRevision)
 

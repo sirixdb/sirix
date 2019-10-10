@@ -15,11 +15,11 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
+import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.xquery.node.BasicXmlDBStore
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
-import org.sirix.rest.crud.SirixDBUtils
 
 class XmlDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -59,7 +59,7 @@ class XmlDelete(private val location: Path) {
             ctx.response().setStatusCode(200).end()
             return
         }
-        
+
         val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
 
         val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
@@ -84,9 +84,11 @@ class XmlDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeResource(dispatcher: CoroutineDispatcher, database: Database<XmlResourceManager>,
-                                       resPathName: String?,
-                                       ctx: RoutingContext): Any? {
+    private suspend fun removeResource(
+        dispatcher: CoroutineDispatcher, database: Database<XmlResourceManager>,
+        resPathName: String?,
+        ctx: RoutingContext
+    ): Any? {
         return try {
             withContext(dispatcher) {
                 database.removeResource(resPathName)
@@ -96,7 +98,12 @@ class XmlDelete(private val location: Path) {
         }
     }
 
-    private suspend fun removeSubtree(manager: XmlResourceManager, nodeId: Long, context: Context, routingContext: RoutingContext): XmlNodeTrx? {
+    private suspend fun removeSubtree(
+        manager: XmlResourceManager,
+        nodeId: Long,
+        context: Context,
+        routingContext: RoutingContext
+    ): XmlNodeTrx? {
         return context.executeBlockingAwait { future: Future<XmlNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()

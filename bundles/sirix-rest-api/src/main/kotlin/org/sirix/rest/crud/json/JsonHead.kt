@@ -78,16 +78,16 @@ class JsonHead(private val location: Path) {
 
     private fun getRevisionNumber(rev: String?, revTimestamp: String?, manager: JsonResourceManager): Int {
         return rev?.toInt()
-                ?: if (revTimestamp != null) {
-                    var revision = getRevisionNumber(manager, revTimestamp)
-                    if (revision == 0) {
-                        ++revision
-                    } else {
-                        revision
-                    }
+            ?: if (revTimestamp != null) {
+                var revision = getRevisionNumber(manager, revTimestamp)
+                if (revision == 0) {
+                    ++revision
                 } else {
-                    manager.mostRecentRevisionNumber
+                    revision
                 }
+            } else {
+                manager.mostRecentRevisionNumber
+            }
     }
 
     private fun getRevisionNumber(manager: JsonResourceManager, revision: String): Int {

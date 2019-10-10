@@ -26,8 +26,8 @@ public final class JsonNodeTrxTest {
   public void insertSubtreeIntoObject() throws IOException {
     JsonTestHelper.createTestDocument();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(8);
@@ -49,8 +49,8 @@ public final class JsonNodeTrxTest {
   public void insertSubtreeIntoArrayAsFirstChild() throws IOException {
     JsonTestHelper.createTestDocument();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(3);
@@ -70,8 +70,8 @@ public final class JsonNodeTrxTest {
   public void insertArrayIntoArrayAsRightSibling() throws IOException {
     JsonTestHelper.createTestDocument();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
@@ -94,8 +94,8 @@ public final class JsonNodeTrxTest {
   public void insertObjectIntoArrayAsRightSibling() throws IOException {
     JsonTestHelper.createTestDocument();
 
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var writer = new StringWriter();
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);

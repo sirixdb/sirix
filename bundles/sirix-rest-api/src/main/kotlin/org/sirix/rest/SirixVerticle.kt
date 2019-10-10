@@ -3,7 +3,6 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.net.PemKeyCertOptions
-import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
@@ -18,6 +17,7 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
+import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -34,26 +34,31 @@ class SirixVerticle : CoroutineVerticle() {
         val router = createRouter()
 
         // Start an HTTP/2 server
-        val server = vertx.createHttpServer(httpServerOptionsOf()
+        val server = vertx.createHttpServer(
+            httpServerOptionsOf()
                 .setSsl(true)
                 .setUseAlpn(true)
                 .setPemKeyCertOptions(
-                        PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString())
-                                .setCertPath(
-                                        location.resolve("cert.pem").toString())))
+                    PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString())
+                        .setCertPath(
+                            location.resolve("cert.pem").toString()
+                        )
+                )
+        )
 
         server.requestHandler { router.handle(it) }
-                .listenAwait(config.getInteger("https.port", 9443))
+            .listenAwait(config.getInteger("https.port", 9443))
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
         val keycloak = KeycloakAuth.discoverAwait(
-                vertx,
-                oAuth2ClientOptionsOf()
-                        .setFlow(OAuth2FlowType.PASSWORD)
-                        .setSite(config.getString("keycloak.url"))
-                        .setClientID("sirix")
-                        .setClientSecret(config.getString("client.secret")))
+            vertx,
+            oAuth2ClientOptionsOf()
+                .setFlow(OAuth2FlowType.PASSWORD)
+                .setSite(config.getString("keycloak.url"))
+                .setClientID("sirix")
+                .setClientSecret(config.getString("client.secret"))
+        )
 
         // To get the access token.
         post("/login").handler(BodyHandler.create()).coroutineHandler { rc ->
@@ -89,38 +94,32 @@ class SirixVerticle : CoroutineVerticle() {
             JsonCreate(location, false).handle(it)
         }
 
-        post("/:database").consumes("application/xml").coroutineHandler {
+        post("/:database").consumes("multipart/form-data").coroutineHandler {
             Auth(keycloak, "realm:create").handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, true).handle(it)
-        }
-        post("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            JsonCreate(location, true).handle(it)
+            CreateMultipleResources(location).handle(it)
         }
 
         // Update.
         post("/:database/:resource")
-                .consumes("application/xml")
-                .produces("application/xml")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:modify").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    XmlUpdate(location).handle(it)
-                }
+            .consumes("application/xml")
+            .produces("application/xml")
+            .coroutineHandler {
+                Auth(keycloak, "realm:modify").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                XmlUpdate(location).handle(it)
+            }
         post("/:database/:resource")
-                .consumes("application/json")
-                .produces("application/json")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:modify").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    JsonUpdate(location).handle(it)
-                }
+            .consumes("application/json")
+            .produces("application/json")
+            .coroutineHandler {
+                Auth(keycloak, "realm:modify").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                JsonUpdate(location).handle(it)
+            }
 
         // Get.
         get("/").produces("application/xml").coroutineHandler {
@@ -175,42 +174,42 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/")
-                .consumes("application/xml")
-                .produces("application/xml")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:view").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    XmlGet(location).handle(it)
-                }
+            .consumes("application/xml")
+            .produces("application/xml")
+            .coroutineHandler {
+                Auth(keycloak, "realm:view").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                XmlGet(location).handle(it)
+            }
         post("/")
-                .consumes("application/json")
-                .produces("application/json")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:view").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    JsonGet(location).handle(it)
-                }
+            .consumes("application/json")
+            .produces("application/json")
+            .coroutineHandler {
+                Auth(keycloak, "realm:view").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                JsonGet(location).handle(it)
+            }
 
         post("/:database/:resource")
-                .consumes("application/xml")
-                .produces("application/xml")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:view").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    XmlGet(location).handle(it)
-                }
+            .consumes("application/xml")
+            .produces("application/xml")
+            .coroutineHandler {
+                Auth(keycloak, "realm:view").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                XmlGet(location).handle(it)
+            }
         post("/:database/:resource")
-                .consumes("application/json")
-                .produces("application/json")
-                .coroutineHandler {
-                    Auth(keycloak, "realm:view").handle(it)
-                    it.next()
-                }.handler(BodyHandler.create()).coroutineHandler {
-                    JsonGet(location).handle(it)
-                }
+            .consumes("application/json")
+            .produces("application/json")
+            .coroutineHandler {
+                Auth(keycloak, "realm:view").handle(it)
+                it.next()
+            }.handler(BodyHandler.create()).coroutineHandler {
+                JsonGet(location).handle(it)
+            }
 
         // Delete.
         delete("/").consumes("application/xml").coroutineHandler {
@@ -265,8 +264,10 @@ class SirixVerticle : CoroutineVerticle() {
                 if (failure is HttpStatusException)
                     response(failureRoutingContext.response(), failure.statusCode, failure.message)
                 else
-                    response(failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
-                            failure.message)
+                    response(
+                        failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                        failure.message
+                    )
             } else {
                 response(failureRoutingContext.response(), statusCode, failure?.message)
             }
