@@ -22,14 +22,12 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseConfiguration;
@@ -62,13 +60,13 @@ public final class JsonTestHelper {
   /** Paths where the data is stored to. */
   public enum PATHS {
     // PATH1 (Sirix)
-    PATH1(Paths.get(TMPDIR, "sirix", "path1")),
+    PATH1(Paths.get(TMPDIR, "sirix", "json-path1")),
 
     // PATH2 (Sirix)
-    PATH2(Paths.get(TMPDIR, "sirix", "path2")),
+    PATH2(Paths.get(TMPDIR, "sirix", "json-path2")),
 
-    // PATH3 (XML)
-    PATH3(Paths.get(TMPDIR, "xml", "test.xml"));
+    // PATH3 (JSON)
+    PATH3(Paths.get(TMPDIR, "json", "test.json"));
 
     final Path file;
 

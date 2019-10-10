@@ -1,20 +1,17 @@
 package org.sirix.rest.crud
 
-import org.sirix.access.User as SirixDBUser
-
+import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.oauth2.KeycloakHelper
 import io.vertx.ext.web.RoutingContext
-import java.util.*
-import org.sirix.api.Database
+import io.vertx.ext.web.handler.impl.HttpStatusException
+import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.exception.SirixUsageException
-import io.vertx.ext.web.handler.impl.HttpStatusException
-import io.netty.handler.codec.http.HttpResponseStatus
 import java.nio.file.Path
-import org.sirix.api.json.JsonResourceManager
-import io.vertx.core.http.HttpHeaders
-import org.sirix.access.DatabaseType
+import java.util.*
+import org.sirix.access.User as SirixDBUser
 
 class SirixDBUtils {
     companion object {
@@ -22,23 +19,29 @@ class SirixDBUtils {
             val user = ctx.get("user") as User
             val accessToken = KeycloakHelper.accessToken(user.principal())
             val userId = accessToken.getString("sub")
-            val userName = accessToken.getString("userName")
+            val userName = accessToken.getString("preferred_username")
             val userUuid = UUID.fromString(userId)
             return SirixDBUser(userName, userUuid)
         }
 
-        fun getHistory(ctx: RoutingContext, location: Path, databaseName: String, resourceName: String, type: DatabaseType) {
+        fun getHistory(
+            ctx: RoutingContext,
+            location: Path,
+            databaseName: String,
+            resourceName: String,
+            type: DatabaseType
+        ) {
             val database =
-                    try {
-                        when (type) {
-                            DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
-                            DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
-                        }
-
-                    } catch (e: SirixUsageException) {
-                        ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                        return
+                try {
+                    when (type) {
+                        DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
+                        DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
                     }
+
+                } catch (e: SirixUsageException) {
+                    ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                    return
+                }
 
             database.use {
                 val manager = database.openResourceManager(resourceName)
@@ -119,10 +122,10 @@ class SirixDBUtils {
                     }
 
                     ctx.response().setStatusCode(200)
-                            .putHeader(HttpHeaders.CONTENT_TYPE, contentType)
-                            .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
-                            .write(content)
-                            .end()
+                        .putHeader(HttpHeaders.CONTENT_TYPE, contentType)
+                        .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                        .write(content)
+                        .end()
                 }
             }
         }

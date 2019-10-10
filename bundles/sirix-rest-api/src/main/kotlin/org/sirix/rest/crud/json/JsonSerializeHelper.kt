@@ -8,7 +8,13 @@ import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
 
 class JsonSerializeHelper {
-    fun serialize(serializer: JsonSerializer, out: StringWriter, ctx: RoutingContext, manager: JsonResourceManager, nodeId: Long?) {
+    fun serialize(
+        serializer: JsonSerializer,
+        out: StringWriter,
+        ctx: RoutingContext,
+        manager: JsonResourceManager,
+        nodeId: Long?
+    ) {
         serializer.call()
 
         val body = out.toString()
@@ -22,13 +28,18 @@ class JsonSerializeHelper {
 
     private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
         ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
-                .write(body)
-                .end()
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+            .write(body)
+            .end()
     }
 
-    private fun writeResponseWithHashValue(manager: JsonResourceManager, ctx: RoutingContext, body: String, nodeId: Long?) {
+    private fun writeResponseWithHashValue(
+        manager: JsonResourceManager,
+        ctx: RoutingContext,
+        body: String,
+        nodeId: Long?
+    ) {
         val rtx = manager.beginNodeReadOnlyTrx()
 
         rtx.use {
@@ -38,11 +49,11 @@ class JsonSerializeHelper {
                 rtx.moveTo(nodeId).trx().hash
 
             ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
-                    .putHeader(HttpHeaders.ETAG, hash.toString())
-                    .write(body)
-                    .end()
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+                .putHeader(HttpHeaders.ETAG, hash.toString())
+                .write(body)
+                .end()
         }
     }
 }
