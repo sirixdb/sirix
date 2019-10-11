@@ -405,7 +405,7 @@
 	</dependencies>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.release.version>11</maven.release.version>
+		<maven.release.version>13</maven.release.version>
 		<slf4j.version>1.6.1</slf4j.version>
 	</properties>
 	<distributionManagement>
