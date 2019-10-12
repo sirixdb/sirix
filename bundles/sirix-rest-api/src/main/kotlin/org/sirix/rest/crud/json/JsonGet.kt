@@ -12,7 +12,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
@@ -63,18 +62,19 @@ class JsonGet(private val location: Path) {
 
             databases.use {
                 val databasesList = it.collect(toList())
-                for ((index, database) in databasesList.withIndex()) {
-                    if (Files.isDirectory(database)) {
-                        val databaseName = database.fileName
-                        buffer.append("{\"")
-                        buffer.append(database.fileName)
-                        buffer.append("\":\"")
-                        buffer.append(Databases.getDatabaseType(databaseName).stringType)
-                        buffer.append("\"}")
+                val databaseDirectories =
+                    databasesList.filter { database -> Files.isDirectory(database) }.toList()
 
-                        if (index != databasesList.size - 1)
-                            buffer.append(",")
-                    }
+                for ((index, database) in databaseDirectories.withIndex()) {
+                    val databaseName = database.fileName
+                    buffer.append("{\"")
+                    buffer.append(databaseName)
+                    buffer.append("\":\"")
+                    buffer.append(Databases.getDatabaseType(database.toAbsolutePath()).stringType)
+                    buffer.append("\"}")
+
+                    if (index != databaseDirectories.size - 1)
+                        buffer.append(",")
                 }
             }
 
