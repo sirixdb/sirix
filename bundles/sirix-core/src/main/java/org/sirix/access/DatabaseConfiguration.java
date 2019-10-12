@@ -260,7 +260,7 @@ public final class DatabaseConfiguration {
    */
   public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
     try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
-        final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
+        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
       final String filePath = config.mFile.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
