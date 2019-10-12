@@ -1,7 +1,9 @@
 package org.sirix.rest.crud.json
 
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -28,6 +30,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
 
         if (createMultipleResources) {
             createMultipleResources(databaseName, ctx)
+            ctx.response().setStatusCode(201).end()
             return ctx.currentRoute()
         }
 
@@ -37,6 +40,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)
+            ctx.response().setStatusCode(201).end()
             return ctx.currentRoute()
         }
 

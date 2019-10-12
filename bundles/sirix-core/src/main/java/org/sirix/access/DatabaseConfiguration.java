@@ -281,7 +281,9 @@ public final class DatabaseConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static DatabaseConfiguration deserialize(final Path file) throws SirixIOException {
-    try (final FileReader fileReader = new FileReader(file.resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
+    try (
+        final FileReader fileReader =
+            new FileReader(file.toAbsolutePath().resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
         final JsonReader jsonReader = new JsonReader(fileReader);) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();

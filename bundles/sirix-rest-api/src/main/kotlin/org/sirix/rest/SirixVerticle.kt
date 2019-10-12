@@ -18,6 +18,7 @@ import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
 import org.sirix.rest.crud.CreateMultipleResources
+import org.sirix.rest.crud.Delete
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -122,12 +123,6 @@ class SirixVerticle : CoroutineVerticle() {
             }
 
         // Get.
-        get("/").produces("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
-            it.next()
-        }.coroutineHandler {
-            XmlGet(location).handle(it)
-        }
         get("/").produces("application/json").coroutineHandler {
             Auth(keycloak, "realm:view").handle(it)
             it.next()
@@ -174,21 +169,8 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/")
-            .consumes("application/xml")
-            .produces("application/xml")
-            .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
-                it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
-                XmlGet(location).handle(it)
-            }
-        post("/")
-            .consumes("application/json")
             .produces("application/json")
-            .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
-                it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
+            .handler(BodyHandler.create()).coroutineHandler {
                 JsonGet(location).handle(it)
             }
 
@@ -212,17 +194,11 @@ class SirixVerticle : CoroutineVerticle() {
             }
 
         // Delete.
-        delete("/").consumes("application/xml").coroutineHandler {
+        delete("/").coroutineHandler {
             Auth(keycloak, "realm:delete").handle(it)
             it.next()
         }.coroutineHandler {
-            XmlDelete(location).handle(it)
-        }
-        delete("/").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonDelete(location).handle(it)
+            Delete(location).handle(it)
         }
 
         delete("/:database/:resource").consumes("application/xml").coroutineHandler {

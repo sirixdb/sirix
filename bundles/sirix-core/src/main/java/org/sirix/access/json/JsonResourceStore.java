@@ -7,7 +7,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import javax.annotation.Nonnull;
 import org.sirix.access.AbstractResourceStore;
-import org.sirix.access.Databases;
+import org.sirix.access.DatabasesInternals;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.json.JsonResourceManagerImpl;
@@ -53,16 +53,16 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
       final UberPage uberPage = getUberPage(storage);
 
       // Get sempahores.
-      final Semaphore readSem = Databases.computeReadSempahoreIfAbsent(resourceConfig.getResource(),
+      final Semaphore readSem = DatabasesInternals.computeReadSempahoreIfAbsent(resourceConfig.getResource(),
           database.getDatabaseConfig().getMaxResourceReadTrx());
-      final Lock writeLock = Databases.computeWriteLockIfAbsent(resourceConfig.getResource());
+      final Lock writeLock = DatabasesInternals.computeWriteLockIfAbsent(resourceConfig.getResource());
 
       // Create the resource manager instance.
       final JsonResourceManager resourceManager = new JsonResourceManagerImpl(database, this, resourceConfig,
           bufferManager, StorageType.getStorage(resourceConfig), uberPage, readSem, writeLock, mUser);
 
       // Put it in the databases cache.
-      Databases.putResourceManager(resourceFile, resourceManager);
+      DatabasesInternals.putResourceManager(resourceFile, resourceManager);
 
       // And return it.
       return resourceManager;

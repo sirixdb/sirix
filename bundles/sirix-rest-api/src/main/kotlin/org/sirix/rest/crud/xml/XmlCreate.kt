@@ -28,6 +28,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
         if (createMultipleResources) {
             createMultipleResources(databaseName, ctx)
+            ctx.response().setStatusCode(201).end()
             return ctx.currentRoute()
         }
 
@@ -37,6 +38,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)
+            ctx.response().setStatusCode(201).end()
             return ctx.currentRoute()
         }
 

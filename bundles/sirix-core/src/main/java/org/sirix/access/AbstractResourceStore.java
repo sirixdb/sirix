@@ -63,7 +63,7 @@ public abstract class AbstractResourceStore<R extends ResourceManager<? extends 
   @Override
   public boolean closeResource(final Path resourceFile) {
     final R manager = mResourceManagers.remove(resourceFile);
-    Databases.removeResourceManager(resourceFile, manager);
+    DatabasesInternals.removeResourceManager(resourceFile, manager);
     return manager != null;
   }
 
