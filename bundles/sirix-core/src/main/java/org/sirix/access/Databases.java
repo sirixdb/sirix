@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import org.sirix.access.DatabaseConfiguration.DatabasePaths;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
@@ -51,6 +52,16 @@ public final class Databases {
 
   public static Lock computeWriteLockIfAbsent(Path resourcePath) {
     return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new ReentrantLock());
+  }
+
+  /**
+   * Get the database type
+   * 
+   * @param file the database file
+   * @return the type of the database
+   */
+  public static DatabaseType getDatabaseType(final Path file) {
+    return DatabaseConfiguration.deserialize(file.resolve(DatabasePaths.CONFIGBINARY.getFile())).getDatabaseType();
   }
 
   /**
