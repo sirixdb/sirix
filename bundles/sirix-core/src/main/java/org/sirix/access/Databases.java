@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import org.sirix.access.json.JsonResourceStore;
 import org.sirix.access.xml.XmlResourceStore;
 import org.sirix.api.Database;
@@ -34,24 +33,16 @@ import org.sirix.utils.SirixFiles;
 public final class Databases {
 
   /** Central repository of all running databases. */
-  private static final ConcurrentMap<Path, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Set<Database<?>>> DATABASE_SESSIONS = new ConcurrentHashMap<>();
 
   /** Central repository of all running resource managers. */
-  private static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Set<ResourceManager<?, ?>>> RESOURCE_MANAGERS = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} read semaphore mappings. */
-  private static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES = new ConcurrentHashMap<>();
+  static final ConcurrentMap<Path, Semaphore> RESOURCE_READ_SEMAPHORES = new ConcurrentHashMap<>();
 
   /** Central repository of all resource {@code <=>} write semaphore mappings. */
-  private static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
-
-  public static Semaphore computeReadSempahoreIfAbsent(Path resourcePath, int numberOfPermits) {
-    return RESOURCE_READ_SEMAPHORES.computeIfAbsent(resourcePath, res -> new Semaphore(numberOfPermits));
-  }
-
-  public static Lock computeWriteLockIfAbsent(Path resourcePath) {
-    return RESOURCE_WRITE_SEMAPHORES.computeIfAbsent(resourcePath, res -> new ReentrantLock());
-  }
+  static final ConcurrentMap<Path, Lock> RESOURCE_WRITE_SEMAPHORES = new ConcurrentHashMap<>();
 
   /**
    * Get the database type
@@ -272,34 +263,6 @@ public final class Databases {
 
     if (databases.isEmpty())
       DATABASE_SESSIONS.remove(file);
-  }
-
-  /**
-   * Put a resource manager into the internal map.
-   *
-   * @param file resource file to put into the map
-   * @param resourceManager resourceManager handle to put into the map
-   */
-  public static synchronized void putResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
-    RESOURCE_MANAGERS.computeIfAbsent(file, path -> new HashSet<>()).add(resourceManager);
-  }
-
-  /**
-   * Remove a resource manager.
-   *
-   * @param resource manager to remove
-   */
-  public static synchronized void removeResourceManager(final Path file, final ResourceManager<?, ?> resourceManager) {
-    final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
-
-    if (resourceManagers == null) {
-      return;
-    }
-
-    resourceManagers.remove(resourceManager);
-
-    if (resourceManagers.isEmpty())
-      RESOURCE_MANAGERS.remove(file);
   }
 
   /**

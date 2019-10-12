@@ -19,6 +19,7 @@ import io.vertx.kotlin.ext.web.client.sendJsonAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
@@ -45,6 +46,90 @@ class SirixVerticleJsonTest {
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
+    }
+
+    @AfterEach
+    @DisplayName("Remove databases")
+    fun tearTown() {
+        client.deleteAbs(server)
+    }
+
+    @Test
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the listing of databases")
+    fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    val accessToken = user.getString("access_token")
+
+                    var httpResponseJson =
+                        client.deleteAbs(server).putHeader(
+                            HttpHeaders.AUTHORIZATION.toString(),
+                            "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").sendAwait()
+
+                    var httpResponseXml =
+                        client.deleteAbs(server).putHeader(
+                            HttpHeaders.AUTHORIZATION.toString(),
+                            "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").sendAwait()
+
+                    if (200 == httpResponseJson.statusCode() && 200 == httpResponseXml.statusCode()) {
+                        httpResponseJson =
+                            client.putAbs("$server/database1").putHeader(
+                                HttpHeaders.AUTHORIZATION
+                                    .toString(), "Bearer $accessToken"
+                            ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").sendAwait()
+
+                        testContext.verify {
+                            assertEquals(201, httpResponseJson.statusCode())
+                        }
+
+                        httpResponseXml = client.putAbs("$server/database2").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                            .sendAwait()
+
+                        testContext.verify {
+                            assertEquals(201, httpResponseXml.statusCode())
+                        }
+
+                        val expectedResult = """
+                            {"databases":[{"database1":"json","database2":"xml"}]}
+                        """.trimIndent()
+
+                        httpResponseJson = client.getAbs(server).putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                        if (200 == httpResponseJson.statusCode()) {
+                            testContext.verify {
+                                val result =
+                                    httpResponseJson.bodyAsString().replace(
+                                        "\r\n",
+                                        System.getProperty("line.separator")
+                                    )
+                                assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                                testContext.completeNow()
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Test
