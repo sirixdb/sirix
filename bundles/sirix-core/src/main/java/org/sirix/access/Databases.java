@@ -61,7 +61,7 @@ public final class Databases {
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
    */
-  public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
+  public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XML));
   }
 
@@ -73,7 +73,7 @@ public final class Databases {
    * @return true if creation is valid, false otherwise
    * @throws SirixIOException if something odd happens within the creation process.
    */
-  public static synchronized boolean createJsonDatabase(final DatabaseConfiguration dbConfig) throws SirixIOException {
+  public static synchronized boolean createJsonDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.JSON));
   }
 

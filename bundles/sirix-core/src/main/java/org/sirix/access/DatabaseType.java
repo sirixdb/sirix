@@ -19,7 +19,7 @@ import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 
 public enum DatabaseType {
-  XML {
+  XML("xml") {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
@@ -38,7 +38,7 @@ public enum DatabaseType {
     }
   },
 
-  JSON {
+  JSON("json") {
     @SuppressWarnings("unchecked")
     @Override
     public <R extends ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx>, S extends ResourceStore<R>> Database<R> createDatabase(
@@ -56,6 +56,16 @@ public enum DatabaseType {
       return new JsonDocumentRootNode(nodeDel, structDel);
     }
   };
+
+  private String stringType;
+
+  DatabaseType(String stringType) {
+    this.stringType = stringType;
+  }
+
+  public String getStringType() {
+    return stringType;
+  }
 
   private static final Map<String, DatabaseType> stringToEnum =
       Stream.of(values()).collect(Collectors.toMap(Object::toString, e -> e));
