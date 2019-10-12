@@ -55,7 +55,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -107,7 +107,7 @@ class SirixVerticleJsonTest {
                         }
 
                         val expectedResult = """
-                            {"databases":[{"database1":"json","database2":"xml"}]}
+                            {"databases":[{"database1":"json"},{"database2":"xml"}]}
                         """.trimIndent()
 
                         httpResponseJson = client.getAbs(server).putHeader(
