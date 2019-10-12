@@ -1,5 +1,5 @@
 /**
-XmlInsertionMode * Copyright (c) 2018, Sirix
+ * Copyright (c) 2018, Sirix
  *
  * All rights reserved.
  *
