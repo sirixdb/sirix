@@ -1,7 +1,7 @@
 # Stage-1
 # Build jar
 
-FROM maven:3-jdk-11 as builder
+FROM maven:3-jdk-13 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
