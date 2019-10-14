@@ -5,6 +5,8 @@ services:
     depends_on:
       - keycloak
     command: keycloak:8080
+    networks:
+      - auth-network
   keycloak:
     image: jboss/keycloak
     ports:
@@ -20,6 +22,8 @@ services:
       - "-b 0.0.0.0"
       - "-bmanagement 0.0.0.0"
       - "-Dkeycloak.import=/opt/keycloak/realm-export.json"
+    networks:
+      - auth-network
   server:
     build: .
     image: sirixdb/sirix
@@ -33,4 +37,11 @@ services:
       - ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json:/opt/sirix/sirix-conf.json
     depends_on:
       - keycloak
+    networks:
+      - auth-network
+    links:
+      - keycloak
+networks:
+  auth-network:
+    driver: bridge
 
