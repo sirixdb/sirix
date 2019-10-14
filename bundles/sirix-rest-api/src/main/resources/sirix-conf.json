@@ -1,5 +1,5 @@
 {
   "https.port": 9443,
   "client.secret": "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c",
-  "keycloak.url": "http://localhost:8080/auth/realms/master"
+  "keycloak.url": "http://keycloak:8080/auth/realms/master"
 }
