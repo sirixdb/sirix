@@ -47,11 +47,13 @@ class SirixVerticleJsonTest {
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
+
+        delete(vertx, testContext)
     }
 
     @AfterEach
     @DisplayName("Remove databases")
-    fun tearTown(vertx: Vertx, testContext: VertxTestContext) {
+    fun delete(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 val httpResponse = client.deleteAbs(server).putHeader(
