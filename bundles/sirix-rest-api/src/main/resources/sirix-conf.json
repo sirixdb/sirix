@@ -3,6 +3,6 @@
   "keycloak.url": "http://localhost:8080/auth/realms/master",
   "auth-server-url": "http://localhost:8080/auth",
   "client.secret": "fdcdbc28-51c3-4ac2-a652-322f37ee5fed",
-  "oAuthFlowType" : "PASSWORD", //Possible values: PASSWORD, AUTH_CODE
+  "oAuthFlowType" : "PASSWORD",
   "redirect_uri" : "<redirect_uri>"
 }

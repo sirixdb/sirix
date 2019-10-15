@@ -10,8 +10,6 @@ import java.nio.file.Path
 
 class Delete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val user = ctx.get("user") as User
-
         ctx.vertx().executeBlockingAwait { future: Future<Unit> ->
             val databases = Files.list(location)
 
