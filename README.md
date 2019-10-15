@@ -29,13 +29,13 @@
 **Discuss it in the [Community Forum](https://sirix.discourse.group)**
 
 ## Why should you even bother? Advantages of a native, temporal database system
-We could write quite a bunch of stuff, why it's often times of great value to keep past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
+We could write quite a bunch of stuff, why it's oftentimes of great value to keep a past state of your data in a storage system, but recently we stumbled across an excellent [blog post](https://www.hadoop360.datasciencecentral.com/blog/temporal-databases-why-you-should-care-and-how-to-get-started-par), which explains the advantages of keeping historical data very well. In a nutshell, it's all about looking at the evolution of your data, finding trends, doing audits, implementing efficient undo-/redo-operations... the [Wikipedia page](https://en.wikipedia.org/wiki/Temporal_database) has a bunch of examples. We recently also added use cases over [here](https://sirix.io/documentation.html).
 
-Our strong belief is, that a temporal storage system must address the issues, which arise from keeping past state way better than traditional approaches. Usually, storing time varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdle. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
+Our strong belief is that a temporal storage system must address the issues, which arise from keeping past state way better than traditional approaches. Usually, storing time-varying, temporal data in database systems, which do not support the storage thereof natively results in a lot of unwanted hurdles. Storage space is wasted, query performance to retrieve past states of your data is not ideal and usually temporal operations are missing altogether.
 
 Data must be stored in a way, that storage space is used as effectively as possible while supporting the reconstruction of each revision, as it was seen by the database during the commits, in linear time, no matter if it's the very first revision or the most recent revision. Ideally query time of old/past revisions as well as the most recent revision should be in the same runtime complexity (logarithmic when querying for specific records).
 
-We not only support snapshot based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
+We not only support snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
 The following time-travel query to be executed on our binary JSON representation should give an initial impression of what's possible:
 
@@ -146,7 +146,7 @@ or use the following dependencies in your Maven (or Gradle?) project.
 We just changed to Java13 (OpenJDK 13).
 
 ### Maven artifacts
-At this stage of development you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.3 of Sirix :-)
+At this stage of development, you could use the latest SNAPSHOT artifacts from [the OSS snapshot repository](https://oss.sonatype.org/content/repositories/snapshots/io/sirix/) to get the most recent changes. However, we just released version 0.9.3 of Sirix :-)
 
 Just add the following repository section to your POM or build.gradle file:
 ```xml
