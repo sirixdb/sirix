@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 class SirixVerticleJsonTest {
     private val server = "https://localhost:9443"
     private val serverPath = "/database/json-resource"
+    private var accessToken = ""
 
     private lateinit var client: WebClient
 
@@ -50,12 +51,23 @@ class SirixVerticleJsonTest {
 
     @AfterEach
     @DisplayName("Remove databases")
-    fun tearTown() {
-        client.deleteAbs(server)
+    fun tearTown(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val httpResponse = client.deleteAbs(server).putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).sendAwait()
+
+                if (200 == httpResponse.statusCode()) {
+                    testContext.completeNow()
+                }
+            }
+        }
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -67,11 +79,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponseJson =
                         client.deleteAbs(server).putHeader(
@@ -158,11 +170,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
@@ -225,11 +237,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
@@ -299,11 +311,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
@@ -371,11 +383,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
@@ -455,11 +467,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
@@ -526,11 +538,11 @@ class SirixVerticleJsonTest {
                     )
                 }
 
-                val response = client.postAbs("$server/login").sendJsonAwait(credentials)
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
 
                 if (200 == response.statusCode()) {
                     val user = response.bodyAsJsonObject()
-                    val accessToken = user.getString("access_token")
+                    accessToken = user.getString("access_token")
 
                     var httpResponse = client.putAbs("$server$serverPath").putHeader(
                         HttpHeaders.AUTHORIZATION
