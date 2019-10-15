@@ -1,5 +1,8 @@
 {
   "https.port": 9443,
-  "client.secret": "c8b9b4ed-67bb-47d9-bd73-a3babc470b2c",
-  "keycloak.url": "http://localhost:8080/auth/realms/master"
+  "keycloak.url": "http://localhost:8080/auth/realms/master",
+  "auth-server-url": "http://localhost:8080/auth",
+  "client.secret": "fdcdbc28-51c3-4ac2-a652-322f37ee5fed",
+  "oAuthFlowType" : "PASSWORD", //Possible values: PASSWORD, AUTH_CODE
+  "redirect_uri" : "<redirect_uri>"
 }

@@ -2,6 +2,7 @@ package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpServerResponse
+import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.web.Route
@@ -17,6 +18,7 @@ import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import kotlinx.coroutines.launch
+import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.Delete
 import org.sirix.rest.crud.json.*
@@ -52,17 +54,34 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
-        val keycloak = KeycloakAuth.discoverAwait(
-            vertx,
-            oAuth2ClientOptionsOf()
-                .setFlow(OAuth2FlowType.PASSWORD)
+
+        val oauth2Config = oAuth2ClientOptionsOf()
+                .setFlow(OAuth2FlowType.valueOf(config.getString("oAuthFlowType")))
                 .setSite(config.getString("keycloak.url"))
                 .setClientID("sirix")
                 .setClientSecret(config.getString("client.secret"))
-        )
 
-        // To get the access token.
-        post("/login").handler(BodyHandler.create()).coroutineHandler { rc ->
+        if (oauth2Config.flow == OAuth2FlowType.AUTH_CODE) {
+            oauth2Config.setAuthorizationPath(config.getString("auth-server-url"))
+
+        }
+
+        val keycloak = KeycloakAuth.discoverAwait(
+                vertx, oauth2Config)
+
+        get("/user/authorize").coroutineHandler { rc ->
+            if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
+                rc.response().setStatusCode(HttpStatus.SC_BAD_REQUEST)
+            } else {
+                val authorization_uri = keycloak.authorizeURL(JsonObject()
+                        .put("redirect_uri", config.getString("redirect_uri")))
+                rc.response().putHeader("Location", authorization_uri)
+                        .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
+                        .end()
+            }
+        }
+
+        post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
             val userJson = rc.bodyAsJson
             val user = keycloak.authenticateAwait(userJson)
             rc.response().end(user.principal().toString())
