@@ -70,23 +70,22 @@ class SirixVerticle : CoroutineVerticle() {
             vertx, oauth2Config
         )
 
-        when (oauth2Config.flow) {
-            OAuth2FlowType.AUTH_CODE ->
-                get("/user/authorize").coroutineHandler { rc ->
-                    val authorizationUri = keycloak.authorizeURL(
-                        JsonObject()
-                            .put("redirect_uri", config.getString("redirect_uri"))
-                    )
-                    rc.response().putHeader(HttpHeaders.LOCATION, authorizationUri)
+        get("/user/authorize").coroutineHandler { rc ->
+            if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
+                rc.response().setStatusCode(HttpStatus.SC_BAD_REQUEST)
+            } else {
+                val authorization_uri = keycloak.authorizeURL(JsonObject()
+                        .put("redirect_uri", config.getString("redirect_uri")))
+                rc.response().putHeader("Location", authorization_uri)
                         .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
                         .end()
-                }
-            OAuth2FlowType.PASSWORD ->
-                post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
-                    val userJson = rc.bodyAsJson
-                    val user = keycloak.authenticateAwait(userJson)
-                    rc.response().end(user.principal().toString())
-                }
+            }
+        }
+
+        post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
+            val userJson = rc.bodyAsJson
+            val user = keycloak.authenticateAwait(userJson)
+            rc.response().end(user.principal().toString())
         }
 
         // Create.
