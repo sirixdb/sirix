@@ -1,8 +1,8 @@
 {
   "https.port": 9443,
-  "keycloak.url": "http://localhost:8080/auth/realms/master",
+  "keycloak.url": "http://localhost:8080/auth/realms/sirixdb",
   "auth-server-url": "http://localhost:8080/auth",
-  "client.secret": "fdcdbc28-51c3-4ac2-a652-322f37ee5fed",
+  "client.secret": "2fcc8dda-0362-4923-bdab-fd1b78eae2d1",
   "oAuthFlowType" : "PASSWORD",
   "redirect_uri" : "<redirect_uri>"
 }
