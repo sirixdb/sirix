@@ -1,7 +1,6 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
-import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
@@ -72,13 +71,15 @@ class SirixVerticle : CoroutineVerticle() {
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
-                rc.response().setStatusCode(HttpStatus.SC_BAD_REQUEST)
+                rc.response().statusCode = HttpStatus.SC_BAD_REQUEST
             } else {
-                val authorization_uri = keycloak.authorizeURL(JsonObject()
-                        .put("redirect_uri", config.getString("redirect_uri")))
-                rc.response().putHeader("Location", authorization_uri)
-                        .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
-                        .end()
+                val authorizationUri = keycloak.authorizeURL(
+                    JsonObject()
+                        .put("redirect_uri", config.getString("redirect_uri"))
+                )
+                rc.response().putHeader("Location", authorizationUri)
+                    .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
+                    .end()
             }
         }
 
