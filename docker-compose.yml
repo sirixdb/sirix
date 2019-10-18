@@ -15,13 +15,13 @@ services:
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=admin
       - KEYCLOAK_LOGLEVEL=DEBUG
+      - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
     restart: always
     volumes:
       - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
     command:
       - "-b 0.0.0.0"
       - "-bmanagement 0.0.0.0"
-      - "-Dkeycloak.import=/opt/keycloak/realm-export.json"
     networks:
       - auth-network
   server:
