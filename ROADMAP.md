@@ -10,8 +10,12 @@ From there on Or even before releasing 1.0.0 I'd love to put work into our front
 
 - **Rewrite rules for the query compiler** We have to figure out how to rewrite the AST in Brackit to automatically take indexes and various statistics into account. In the future: Cost based optimizer. However I'm no query compiler expert, so as always a community effort would be awesome
 
-- **Full text index** Would be awesome to provide full text indexing and querying capabilities
+## In the long run
 
-- **Support for other data (Graphs?!**
+- **Full text index** Would be awesome to provide full text indexing and querying capabilitie
+
+- **Support for storing and querying other data (Graphs?!)**
+
+- **Implement other index structures**
 
 
