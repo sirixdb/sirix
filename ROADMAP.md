@@ -2,7 +2,7 @@
 
 I'd love to put some work into the APIs and to fix issues / bugs users might run into. However, this would need actual users. Afterwards I'd love to release version 1.0.0.
 
-From there on or even before releasing 1.0.0 I'd love to put work into our [web front-end](https://github.com/sirixdb/sirix-web-frontend) in order to be able to visualize differences between revisions, to execute queries, to be able to update databases and resources and to open and display (an overview) about specific revisions.
+From there on or even before releasing 1.0.0 I'd love to put work into our [**web front-end**](https://github.com/sirixdb/sirix-web-frontend) in order to be able to visualize differences between revisions, to execute queries, to be able to update databases and resources and to open and display (an overview) about specific revisions.
 
 ## Near future
 
