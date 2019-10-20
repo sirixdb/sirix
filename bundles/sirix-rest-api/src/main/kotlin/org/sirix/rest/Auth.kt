@@ -26,9 +26,14 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
         val database = ctx.pathParam("database")
         val user = keycloak.authenticateAwait(tokenToAuthenticate)
 
-        val isAuthorized = user.isAuthorizedAwait(role.databaseRole(database))
+        val isAuthorized =
+            if (database == null) {
+                false
+            } else {
+                user.isAuthorizedAwait(role.databaseRole(database))
+            }
 
-        if (!isAuthorized) {
+        if (!isAuthorized && !user.isAuthorizedAwait(role.keycloakRole())) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             ctx.response().end()
         }

@@ -282,7 +282,6 @@ class SirixVerticleJsonTest {
                         }
                     }
                 }
-
             }
         }
     }
