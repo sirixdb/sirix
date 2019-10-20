@@ -2,12 +2,18 @@ package org.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.vertx.ext.auth.User
+import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.ext.auth.isAuthorizedAwait
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.sirix.rest.AuthRole
 import org.sirix.xquery.json.JsonDBCollection
 import org.sirix.xquery.json.JsonDBStore
+import java.lang.IllegalStateException
 import java.nio.file.Path
 
-class JsonSessionDBStore(private val dbStore: JsonDBStore, private val user: User) : JsonDBStore by dbStore {
+class JsonSessionDBStore(private val ctx: RoutingContext, private val dbStore: JsonDBStore, private val user: User) : JsonDBStore by dbStore {
     override fun lookup(name: String): JsonDBCollection {
         checkIfAuthorized(name, AuthRole.VIEW)
 
@@ -63,9 +69,11 @@ class JsonSessionDBStore(private val dbStore: JsonDBStore, private val user: Use
     }
 
     private fun checkIfAuthorized(name: String, role: AuthRole) {
-        user.isAuthorized(role.databaseRole(name)) {
-            if (!it.succeeded()) {
-                throw IllegalArgumentException("User is not allowed to $role the database $name")
+        GlobalScope.launch(ctx.vertx().dispatcher()) {
+            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name));
+
+            require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
+                IllegalStateException("User is not allowed to $role the database $name")
             }
         }
     }

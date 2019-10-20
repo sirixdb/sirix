@@ -216,7 +216,7 @@ class XmlGet(private val location: Path) {
     ) {
         context.executeBlockingAwait { future: Future<Unit> ->
             // Initialize queryResource context and store.
-            val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), user)
+            val dbStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithNodeStore(dbStore)

@@ -31,7 +31,7 @@ class JsonDelete(private val location: Path) {
 
         if (dbName == null) {
             // Initialize queryResource context and store.
-            val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
+            val dbStore = JsonSessionDBStore(ctx, BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
 
             ctx.vertx().executeBlockingAwait { future: Future<Unit> ->
                 val databases = Files.list(location)

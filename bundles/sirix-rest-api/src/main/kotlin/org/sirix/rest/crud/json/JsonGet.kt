@@ -235,7 +235,7 @@ class JsonGet(private val location: Path) {
     ) {
         vertxContext.executeBlockingAwait { future: Future<Nothing> ->
             // Initialize queryResource context and store.
-            val dbStore = JsonSessionDBStore(BasicJsonDBStore.newBuilder().build(), user)
+            val dbStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
 
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)

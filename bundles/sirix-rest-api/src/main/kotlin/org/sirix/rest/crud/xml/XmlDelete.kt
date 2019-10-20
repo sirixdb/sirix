@@ -31,7 +31,7 @@ class XmlDelete(private val location: Path) {
 
         if (dbName == null) {
             // Initialize queryResource context and store.
-            val dbStore = XmlSessionDBStore(BasicXmlDBStore.newBuilder().build(), ctx.get("user") as User)
+            val dbStore = XmlSessionDBStore(ctx, BasicXmlDBStore.newBuilder().build(), ctx.get("user") as User)
 
             ctx.vertx().executeBlockingAwait { future: Future<Nothing> ->
                 val databases = Files.list(location)
