@@ -13,7 +13,7 @@ import io.vertx.kotlin.ext.auth.isAuthorizedAwait
 /**
  * Authentication.
  */
-class Auth(private val keycloak: OAuth2Auth, private val role: String) {
+class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
     suspend fun handle(ctx: RoutingContext): Route {
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
 
@@ -23,10 +23,10 @@ class Auth(private val keycloak: OAuth2Auth, private val role: String) {
                 "token_type" to "Bearer"
             )
         }
-
+        val database = ctx.pathParam("database")
         val user = keycloak.authenticateAwait(tokenToAuthenticate)
 
-        val isAuthorized = user.isAuthorizedAwait(role)
+        val isAuthorized = user.isAuthorizedAwait(role.databaseRole(database))
 
         if (!isAuthorized) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())

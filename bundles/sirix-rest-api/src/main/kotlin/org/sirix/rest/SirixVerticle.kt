@@ -91,33 +91,33 @@ class SirixVerticle : CoroutineVerticle() {
 
         // Create.
         put("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
+            Auth(keycloak, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
+            Auth(keycloak, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             JsonCreate(location, false).handle(it)
         }
 
         put("/:database/:resource").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
+            Auth(keycloak, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database/:resource").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
+            Auth(keycloak, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             JsonCreate(location, false).handle(it)
         }
 
         post("/:database").consumes("multipart/form-data").coroutineHandler {
-            Auth(keycloak, "realm:create").handle(it)
+            Auth(keycloak, AuthRole.CREATE).handle(it)
             it.next()
         }.handler(BodyHandler.create()).coroutineHandler {
             CreateMultipleResources(location).handle(it)
@@ -128,7 +128,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/xml")
             .produces("application/xml")
             .coroutineHandler {
-                Auth(keycloak, "realm:modify").handle(it)
+                Auth(keycloak, AuthRole.MODIFY).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 XmlUpdate(location).handle(it)
@@ -137,7 +137,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/json")
             .produces("application/json")
             .coroutineHandler {
-                Auth(keycloak, "realm:modify").handle(it)
+                Auth(keycloak, AuthRole.MODIFY).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 JsonUpdate(location).handle(it)
@@ -145,51 +145,51 @@ class SirixVerticle : CoroutineVerticle() {
 
         // Get.
         get("/").produces("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlGet(location).handle(it)
         }
         get("/").produces("application/json").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonGet(location).handle(it)
         }
 
         head("/:database/:resource").produces("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlHead(location).handle(it)
         }
         get("/:database/:resource").produces("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlGet(location).handle(it)
         }
         head("/:database/:resource").produces("application/json").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonHead(location).handle(it)
         }
         get("/:database/:resource").produces("application/json").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonGet(location).handle(it)
         }
 
         get("/:database").produces("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlGet(location).handle(it)
         }
         get("/:database").produces("application/json").coroutineHandler {
-            Auth(keycloak, "realm:view").handle(it)
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonGet(location).handle(it)
@@ -199,7 +199,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/xml")
             .produces("application/xml")
             .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
+                Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 XmlGet(location).handle(it)
@@ -208,7 +208,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/json")
             .produces("application/json")
             .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
+                Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 JsonGet(location).handle(it)
@@ -217,7 +217,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/xml")
             .produces("application/xml")
             .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
+                Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 XmlGet(location).handle(it)
@@ -226,7 +226,7 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/json")
             .produces("application/json")
             .coroutineHandler {
-                Auth(keycloak, "realm:view").handle(it)
+                Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
                 JsonGet(location).handle(it)
@@ -234,32 +234,32 @@ class SirixVerticle : CoroutineVerticle() {
 
         // Delete.
         delete("/:database/:resource").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
+            Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             XmlDelete(location).handle(it)
         }
         delete("/:database/:resource").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
+            Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonDelete(location).handle(it)
         }
 
         delete("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
+            Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             XmlDelete(location).handle(it)
         }
         delete("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
+            Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonDelete(location).handle(it)
         }
         delete("/").coroutineHandler {
-            Auth(keycloak, "realm:delete").handle(it)
+            Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             Delete(location).handle(it)
