@@ -1,6 +1,7 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
@@ -9,6 +10,7 @@ import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
+import io.vertx.ext.web.handler.CorsHandler
 import io.vertx.ext.web.handler.impl.HttpStatusException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.core.http.listenAwait
@@ -24,6 +26,7 @@ import org.sirix.rest.crud.Delete
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
+import java.util.*
 
 
 class SirixVerticle : CoroutineVerticle() {
@@ -68,6 +71,27 @@ class SirixVerticle : CoroutineVerticle() {
         val keycloak = KeycloakAuth.discoverAwait(
             vertx, oauth2Config
         )
+
+        if (oauth2Config.flow == OAuth2FlowType.AUTH_CODE) {
+            val allowedHeaders = HashSet<String>()
+            allowedHeaders.add("x-requested-with")
+            allowedHeaders.add("Access-Control-Allow-Origin")
+            allowedHeaders.add("origin")
+            allowedHeaders.add("Content-Type")
+            allowedHeaders.add("accept")
+            allowedHeaders.add("X-PINGARUNER")
+
+            val allowedMethods = HashSet<HttpMethod>()
+            allowedMethods.add(HttpMethod.GET)
+            allowedMethods.add(HttpMethod.POST)
+            allowedMethods.add(HttpMethod.OPTIONS)
+
+            allowedMethods.add(HttpMethod.DELETE)
+            allowedMethods.add(HttpMethod.PATCH)
+            allowedMethods.add(HttpMethod.PUT)
+
+            this.route().handler(CorsHandler.create("*").allowedHeaders(allowedHeaders).allowedMethods(allowedMethods))
+        }
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
