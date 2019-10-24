@@ -3,6 +3,7 @@ package org.sirix.rest.crud.xml
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
@@ -55,7 +56,7 @@ class XmlGet(private val location: Path) {
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Future<Unit> ->
+        context.executeBlockingAwait { _: Promise<Unit> ->
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -87,7 +88,7 @@ class XmlGet(private val location: Path) {
         val history = ctx.pathParam("history")
 
         if (history != null && dbName != null && resName != null) {
-            vertxContext.executeBlockingAwait { _: Future<Unit> ->
+            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
                 SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
             }
 
@@ -214,7 +215,7 @@ class XmlGet(private val location: Path) {
         query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
         user: User
     ) {
-        context.executeBlockingAwait { future: Future<Unit> ->
+        context.executeBlockingAwait { promise: Promise<Unit> ->
             // Initialize queryResource context and store.
             val dbStore = XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().build(), user)
 
@@ -245,7 +246,7 @@ class XmlGet(private val location: Path) {
                 }
             }
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 

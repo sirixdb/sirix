@@ -2,6 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
@@ -33,7 +34,7 @@ class JsonDelete(private val location: Path) {
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(ctx, BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
 
-            ctx.vertx().executeBlockingAwait { future: Future<Unit> ->
+            ctx.vertx().executeBlockingAwait { promise: Promise<Unit> ->
                 val databases = Files.list(location)
 
                 databases.use {
@@ -44,7 +45,7 @@ class JsonDelete(private val location: Path) {
                 }
 
                 ctx.response().setStatusCode(200).end()
-                future.complete(null)
+                promise.complete(null)
             }
         } else {
             delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
@@ -109,7 +110,7 @@ class JsonDelete(private val location: Path) {
         context: Context,
         routingContext: RoutingContext
     ): JsonNodeTrx? {
-        return context.executeBlockingAwait { future: Future<JsonNodeTrx> ->
+        return context.executeBlockingAwait { promise: Promise<JsonNodeTrx> ->
             manager.use { resourceManager ->
                 val wtx = resourceManager.beginNodeTrx()
 
@@ -130,7 +131,7 @@ class JsonDelete(private val location: Path) {
                     wtx.commit()
                 }
 
-                future.complete(wtx)
+                promise.complete(wtx)
             }
         }
     }

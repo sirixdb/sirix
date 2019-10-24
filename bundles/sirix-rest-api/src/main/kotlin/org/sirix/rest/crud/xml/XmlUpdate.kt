@@ -1,6 +1,7 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -70,7 +71,7 @@ class XmlUpdate(private val location: Path) {
     ) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlockingAwait { future: Future<Nothing> ->
+        vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
 
             val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
             val dbFile = location.resolve(dbPathName)
@@ -114,7 +115,7 @@ class XmlUpdate(private val location: Path) {
                 XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
             }
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 }

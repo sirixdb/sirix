@@ -3,6 +3,7 @@ package org.sirix.rest.crud.json
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -118,14 +119,14 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun serializeJson(manager: JsonResourceManager, vertxContext: Context, routingCtx: RoutingContext) {
-        vertxContext.executeBlockingAwait { future: Future<Unit> ->
+        vertxContext.executeBlockingAwait { promise: Promise<Unit> ->
             val out = StringWriter()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out)
             val serializer = serializerBuilder.build()
 
             JsonSerializeHelper().serialize(serializer, out, routingCtx, manager, null)
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 
@@ -133,7 +134,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {
-        return context.executeBlockingAwait { future: Future<DatabaseConfiguration> ->
+        return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -146,7 +147,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
                 Databases.createJsonDatabase(dbConfig)
             }
 
-            future.complete(dbConfig)
+            promise.complete(dbConfig)
         }
     }
 
@@ -168,13 +169,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         resFileToStore: String,
         context: Context
     ) {
-        context.executeBlockingAwait { future: Future<Unit> ->
+        context.executeBlockingAwait { promise: Promise<Unit> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(resFileToStore))
             }
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 }
