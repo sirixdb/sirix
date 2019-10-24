@@ -2,6 +2,7 @@ package org.sirix.rest.crud.json
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -25,7 +26,7 @@ class JsonHead(private val location: Path) {
             ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
         }
 
-        ctx.vertx().orCreateContext.executeBlockingAwait { _: Future<Unit> ->
+        ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
             head(dbName!!, ctx, resName!!)
         }
 

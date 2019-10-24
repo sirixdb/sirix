@@ -3,6 +3,7 @@ package org.sirix.rest.crud.json
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
@@ -53,7 +54,7 @@ class JsonGet(private val location: Path) {
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Future<Unit> ->
+        context.executeBlockingAwait { _: Promise<Unit> ->
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -97,7 +98,7 @@ class JsonGet(private val location: Path) {
         val history = ctx.pathParam("history")
 
         if (history != null && dbName != null && resName != null) {
-            vertxContext.executeBlockingAwait { _: Future<Unit> ->
+            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
                 SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
             }
 
@@ -233,7 +234,7 @@ class JsonGet(private val location: Path) {
         query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
         user: User
     ) {
-        vertxContext.executeBlockingAwait { future: Future<Nothing> ->
+        vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(routingContext, BasicJsonDBStore.newBuilder().build(), user)
 
@@ -258,7 +259,7 @@ class JsonGet(private val location: Path) {
                     .end()
             }
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 

@@ -2,6 +2,7 @@ package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -119,14 +120,14 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         manager: XmlResourceManager, vertxContext: Context,
         routingCtx: RoutingContext
     ) {
-        vertxContext.executeBlockingAwait { future: Future<Unit> ->
+        vertxContext.executeBlockingAwait { promise: Promise<Unit> ->
             val out = ByteArrayOutputStream()
             val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
             XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 
@@ -134,7 +135,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         dbFile: Path,
         context: Context
     ): DatabaseConfiguration? {
-        return context.executeBlockingAwait { future: Future<DatabaseConfiguration> ->
+        return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
@@ -147,7 +148,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                 Databases.createXmlDatabase(dbConfig)
             }
 
-            future.complete(dbConfig)
+            promise.complete(dbConfig)
         }
     }
 
@@ -169,13 +170,13 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         resFileToStore: String,
         context: Context
     ) {
-        context.executeBlockingAwait { future: Future<Nothing> ->
+        context.executeBlockingAwait { promise: Promise<Nothing> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
                 wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
             }
 
-            future.complete(null)
+            promise.complete(null)
         }
     }
 }
