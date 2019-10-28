@@ -98,7 +98,7 @@ class SirixVerticle : CoroutineVerticle() {
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
                         .put("redirect_uri", config.getString("redirect.uri"))
-			.put("state", java.util.UUID.randomUUID().toString())
+                        .put("state", java.util.UUID.randomUUID().toString())
                 )
                 rc.response().putHeader("Location", authorizationUri)
                     .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
