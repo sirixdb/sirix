@@ -41,7 +41,7 @@ class SirixVerticleXmlTest {
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
         val options = DeploymentOptions().setConfig(
             JsonObject().put("https.port", 9443)
-                .put("client.secret", "2fcc8dda-0362-4923-bdab-fd1b78eae2d1")
+                .put("client.secret", "64aaf9b2-9ea1-43cd-bcb6-87d2f430aaa2")
                 .put("keycloak.url", "http://localhost:8080/auth/realms/sirixdb")
         )
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())

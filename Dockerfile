@@ -32,6 +32,9 @@ COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/key.pem ./sirix-data/
 COPY bundles/sirix-rest-api/src/main/resources/sirix-conf.json ./
 
+# Replace localhost url with keycloack url in docker compose file
+RUN sed -i 's/localhost/keycloak/g' sirix-conf.json
+
 VOLUME $VERTICLE_HOME
 EXPOSE 9443
 
