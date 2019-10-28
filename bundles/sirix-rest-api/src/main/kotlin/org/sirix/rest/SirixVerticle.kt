@@ -63,15 +63,14 @@ class SirixVerticle : CoroutineVerticle() {
             .setSite(config.getString("keycloak.url"))
             .setClientID("sirix")
             .setClientSecret(config.getString("client.secret"))
-            .setTokenPath("/token")
+            .setTokenPath(config.getString("token-path", "/token"))
+            .setAuthorizationPath(config.getString("auth-path", "/user/authorize"))
 
         val keycloak = KeycloakAuth.discoverAwait(
             vertx, oauth2Config
         )
 
         if (oauth2Config.flow == OAuth2FlowType.AUTH_CODE) {
-            oauth2Config.authorizationPath = config.getString("auth-server-url")
-
             val allowedHeaders = HashSet<String>()
             allowedHeaders.add("x-requested-with")
             allowedHeaders.add("Access-Control-Allow-Origin")
