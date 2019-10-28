@@ -1,9 +1,9 @@
 {
   "https.port": 9443,
-  "keycloak.url": "http://localhost:8080/auth/realms/sirixdb",
-  "auth-path": "/user/authorize",
-  "token-path": "/token",
+  "keycloak.url": "http://keycloak:8080/auth/realms/sirixdb",
+  "auth.path": "http://localhost:8080/auth/realms/sirixdb/protocol/openid-connect/auth",
+  "token.path": "/token",
   "client.secret": "f68f24e5-d54e-49bc-8452-481f73d76b45",
-  "oAuthFlowType" : "PASSWORD",
-  "redirect_uri" : "<redirect_uri>"
+  "oAuthFlowType" : "AUTH_CODE",
+  "redirect.uri" : "http://localhost:3005/callback"
 }

@@ -63,8 +63,8 @@ class SirixVerticle : CoroutineVerticle() {
             .setSite(config.getString("keycloak.url"))
             .setClientID("sirix")
             .setClientSecret(config.getString("client.secret"))
-            .setTokenPath(config.getString("token-path", "/token"))
-            .setAuthorizationPath(config.getString("auth-path", "/user/authorize"))
+            .setTokenPath(config.getString("token.path", "/token"))
+            .setAuthorizationPath(config.getString("auth.path", "/user/authorize"))
 
         val keycloak = KeycloakAuth.discoverAwait(
             vertx, oauth2Config
@@ -97,7 +97,8 @@ class SirixVerticle : CoroutineVerticle() {
             } else {
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
-                        .put("redirect_uri", config.getString("redirect_uri"))
+                        .put("redirect_uri", config.getString("redirect.uri"))
+			.put("state", java.util.UUID.randomUUID().toString())
                 )
                 rc.response().putHeader("Location", authorizationUri)
                     .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
