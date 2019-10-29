@@ -103,6 +103,15 @@
       "contributions": [
         "projectManagement"
       ]
+    },
+    {
+      "login": "FultonBrowne",
+      "name": "Fulton Browne",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/50185337?v=4",
+      "profile": "http://fultonbrowne.github.io",
+      "contributions": [
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
