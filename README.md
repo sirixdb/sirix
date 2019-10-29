@@ -843,15 +843,17 @@ and all the others who worked on the project.
 
 This work is released under the [BSD 3-clause license](LICENSE).
 
-## Involved People
+## Project Maintainer
 
-Sirix is maintained by:
+SirixDB is maintained by:
 
 * Johannes Lichtenberger
 
 ## Contributors ✨
 
-Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+As the project was forked from a university project called Treetank, my deepest gratitute to Marc Kramis, who came up with the idea of building a versioned, secure and energy efficient data store, which retains the history of resources for his PhD. Furthermore Sebastian Graf came up with a lot of ideas and greatly improved the implementation for his PhD. Besides, a lot of students worked and improved the project considerably.
+
+Thanks goes to these wonderful people, who greatly improved SirixDB lately. SirixDB couldn't exist without the help of the Open Source community:
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore -->
