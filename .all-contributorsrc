@@ -112,6 +112,15 @@
       "contributions": [
         "doc"
       ]
+    },
+    {
+      "login": "felixrabe",
+      "name": "Felix Rabe",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/400795?v=4",
+      "profile": "https://twitter.com/felixrabe",
+      "contributions": [
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
