@@ -139,6 +139,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "batista",
+      "name": "Sérgio Batista",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/976915?v=4",
+      "profile": "https://se.rg.io/",
+      "contributions": [
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
