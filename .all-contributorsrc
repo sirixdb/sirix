@@ -22,6 +22,15 @@
       "contributions": [
         "doc"
       ]
+    },
+    {
+      "login": "MrBuggySan",
+      "name": "Andrei Buiza",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/9119360?v=4",
+      "profile": "https://mrbuggysan.github.io/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
