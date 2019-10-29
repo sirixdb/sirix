@@ -67,6 +67,15 @@
       "contributions": [
         "projectManagement"
       ]
+    },
+    {
+      "login": "karmakaze",
+      "name": "Keith Kim",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/318225?v=4",
+      "profile": "http://keithkim.org",
+      "contributions": [
+        "design"
+      ]
     }
   ],
   "contributorsPerLine": 7,
