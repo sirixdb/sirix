@@ -94,6 +94,15 @@
       "contributions": [
         "design"
       ]
+    },
+    {
+      "login": "anmonteiro",
+      "name": "Antonio Nuno Monteiro",
+      "avatar_url": "https://avatars2.githubusercontent.com/u/661909?v=4",
+      "profile": "https://twitter.com/_anmonteiro",
+      "contributions": [
+        "projectManagement"
+      ]
     }
   ],
   "contributorsPerLine": 7,
