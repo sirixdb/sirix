@@ -113,9 +113,11 @@ Articles published on Medium:
 
 ## Project Maintainer
 
-SirixDB is maintained by:
+SirixDB is maintained by
 
 * Johannes Lichtenberger
+
+And the Open Source Community.
 
 ## Contributors ✨
 
