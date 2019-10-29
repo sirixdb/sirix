@@ -121,6 +121,15 @@
       "contributions": [
         "doc"
       ]
+    },
+    {
+      "login": "ethanwillis",
+      "name": "Ethan Willis",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/182492?v=4",
+      "profile": "https://twitter.com/ELWillis10",
+      "contributions": [
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
