@@ -1,0 +1,167 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "contributors": [
+    {
+      "login": "yiss",
+      "name": "Ilias YAHIA",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/12660796?v=4",
+      "profile": "https://github.com/yiss",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "BirokratskaZila",
+      "name": "BirokratskaZila",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/24469472?v=4",
+      "profile": "https://github.com/BirokratskaZila",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "MrBuggySan",
+      "name": "Andrei Buiza",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/9119360?v=4",
+      "profile": "https://mrbuggysan.github.io/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Loniks",
+      "name": "Bondar Dmytro",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/11942950?v=4",
+      "profile": "https://www.linkedin.com/in/dmytro-bondar-330804103/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "santoshkumarkannur",
+      "name": "santoshkumarkannur",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/56201023?v=4",
+      "profile": "https://github.com/santoshkumarkannur",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "LarsEckart",
+      "name": "Lars Eckart",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/4414802?v=4",
+      "profile": "https://github.com/LarsEckart",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "kmjayadeep",
+      "name": "Jayadeep K M",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/6793260?v=4",
+      "profile": "http://www.hackingpalace.net",
+      "contributions": [
+        "projectManagement"
+      ]
+    },
+    {
+      "login": "karmakaze",
+      "name": "Keith Kim",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/318225?v=4",
+      "profile": "http://keithkim.org",
+      "contributions": [
+        "design"
+      ]
+    },
+    {
+      "login": "theodesp",
+      "name": "Theofanis Despoudis",
+      "avatar_url": "https://avatars0.githubusercontent.com/u/328805?v=4",
+      "profile": "https://github.com/theodesp",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "Mrexsp",
+      "name": "Mario Iglesias Alarcón",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/23698645?v=4",
+      "profile": "https://github.com/Mrexsp",
+      "contributions": [
+        "design"
+      ]
+    },
+    {
+      "login": "anmonteiro",
+      "name": "Antonio Nuno Monteiro",
+      "avatar_url": "https://avatars2.githubusercontent.com/u/661909?v=4",
+      "profile": "https://twitter.com/_anmonteiro",
+      "contributions": [
+        "projectManagement"
+      ]
+    },
+    {
+      "login": "FultonBrowne",
+      "name": "Fulton Browne",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/50185337?v=4",
+      "profile": "http://fultonbrowne.github.io",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "felixrabe",
+      "name": "Felix Rabe",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/400795?v=4",
+      "profile": "https://twitter.com/felixrabe",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "ethanwillis",
+      "name": "Ethan Willis",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/182492?v=4",
+      "profile": "https://twitter.com/ELWillis10",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "bark",
+      "name": "Erik Axelsson",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/223964?v=4",
+      "profile": "https://github.com/bark",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "batista",
+      "name": "Sérgio Batista",
+      "avatar_url": "https://avatars1.githubusercontent.com/u/976915?v=4",
+      "profile": "https://se.rg.io/",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "chaensel",
+      "name": "chaensel",
+      "avatar_url": "https://avatars2.githubusercontent.com/u/2786041?v=4",
+      "profile": "https://github.com/chaensel",
+      "contributions": [
+        "doc"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "projectName": "sirix",
+  "projectOwner": "sirixdb",
+  "repoType": "github",
+  "repoHost": "https://github.com"
+}

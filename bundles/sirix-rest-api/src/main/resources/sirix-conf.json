@@ -1,6 +1,6 @@
 {
   "https.port": 9443,
-  "keycloak.url": "http://keycloak:8080/auth/realms/sirixdb",
+  "keycloak.url": "http://localhost:8080/auth/realms/sirixdb",
   "auth.path": "http://localhost:8080/auth/realms/sirixdb/protocol/openid-connect/auth",
   "token.path": "/token",
   "client.secret": "78a294c4-0492-4e44-a35f-7eb9cab0d831",
