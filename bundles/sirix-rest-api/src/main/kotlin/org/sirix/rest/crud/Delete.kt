@@ -11,7 +11,7 @@ import java.nio.file.Path
 
 class Delete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        ctx.vertx().executeBlockingAwait { promise: Promise<Unit> ->
+        ctx.vertx().executeBlockingAwait { _: Promise<Unit> ->
             val databases = Files.list(location)
 
             databases.use {
