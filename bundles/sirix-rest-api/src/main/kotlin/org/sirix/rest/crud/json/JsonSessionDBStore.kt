@@ -70,7 +70,7 @@ class JsonSessionDBStore(private val ctx: RoutingContext, private val dbStore: J
 
     private fun checkIfAuthorized(name: String, role: AuthRole) {
         GlobalScope.launch(ctx.vertx().dispatcher()) {
-            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name));
+            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
             require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
                 IllegalStateException("User is not allowed to $role the database $name")
