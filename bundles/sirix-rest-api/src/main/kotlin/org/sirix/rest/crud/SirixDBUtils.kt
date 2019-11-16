@@ -54,12 +54,15 @@ class SirixDBUtils {
                     val buffer = StringBuilder()
 
                     val historyList = if (numberOfRevisions == null) {
-                        if (startRevision == null && endRevision == null)
+                        if (startRevision == null && endRevision == null) {
                             manager.getHistory()
-                        else
-                            manager.getHistory(startRevision[0] as Int, endRevision[0] as Int)
+                        } else {
+                            val startRevisionAsInt = startRevision[0].toInt()
+                            val endRevisionAsInt = endRevision[0].toInt()
+                            manager.getHistory(startRevisionAsInt, endRevisionAsInt)
+                        }
                     } else {
-                        val revisions = numberOfRevisions[0] as Int
+                        val revisions = numberOfRevisions[0].toInt()
                         manager.getHistory(revisions)
                     }
 
