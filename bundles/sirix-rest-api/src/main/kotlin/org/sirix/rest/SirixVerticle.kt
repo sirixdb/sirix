@@ -3,6 +3,7 @@ package org.sirix.rest
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServerResponse
+import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
@@ -95,9 +96,9 @@ class SirixVerticle : CoroutineVerticle() {
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
                 rc.response().statusCode = HttpStatus.SC_BAD_REQUEST
             } else {
-                val redirectUri: String? =
+                val redirectUri =
                     rc.queryParam("redirect_uri").getOrElse(0) { config.getString("redirect.uri") }
-                val state: String? = rc.queryParam("state").getOrElse(0) { java.util.UUID.randomUUID().toString() }
+                val state = rc.queryParam("state").getOrElse(0) { java.util.UUID.randomUUID().toString() }
 
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
@@ -111,7 +112,21 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val userJson = rc.bodyAsJson
+            val userJson = try {
+                rc.bodyAsJson
+            } catch (e: DecodeException) {
+                val code =
+                    rc.queryParam("code")[0]
+                val redirectUri =
+                    rc.queryParam("redirect_uri")[0]
+                val responseType =
+                    rc.queryParam("response_type")[0]
+
+                JsonObject()
+                    .put("code", code)
+                    .put("redirect_uri", redirectUri)
+                    .put("response_type", responseType)
+            }
             val user = keycloak.authenticateAwait(userJson)
             rc.response().end(user.principal().toString())
         }
