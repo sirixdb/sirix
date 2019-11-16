@@ -95,10 +95,14 @@ class SirixVerticle : CoroutineVerticle() {
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
                 rc.response().statusCode = HttpStatus.SC_BAD_REQUEST
             } else {
+                val redirectUri: String? =
+                    rc.queryParam("redirect_uri").getOrElse(0) { config.getString("redirect.uri") }
+                val state: String? = rc.queryParam("state").getOrElse(0) { java.util.UUID.randomUUID().toString() }
+
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
-                        .put("redirect_uri", config.getString("redirect.uri"))
-                        .put("state", java.util.UUID.randomUUID().toString())
+                        .put("redirect_uri", redirectUri)
+                        .put("state", state)
                 )
                 rc.response().putHeader("Location", authorizationUri)
                     .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
