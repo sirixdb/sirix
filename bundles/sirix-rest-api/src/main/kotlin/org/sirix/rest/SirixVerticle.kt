@@ -112,22 +112,23 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val userJson = try {
+            val dataToAuthenticate = try {
                 rc.bodyAsJson
             } catch (e: DecodeException) {
+                val formAttributes = rc.request().formAttributes()
                 val code =
-                    rc.queryParam("code")[0]
+                    formAttributes.get("code")
                 val redirectUri =
-                    rc.queryParam("redirect_uri")[0]
+                    formAttributes.get("redirect_uri")
                 val responseType =
-                    rc.queryParam("response_type")[0]
+                    formAttributes.get("response_type")
 
                 JsonObject()
                     .put("code", code)
                     .put("redirect_uri", redirectUri)
                     .put("response_type", responseType)
             }
-            val user = keycloak.authenticateAwait(userJson)
+            val user = keycloak.authenticateAwait(dataToAuthenticate)
             rc.response().end(user.principal().toString())
         }
 
