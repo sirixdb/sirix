@@ -1,6 +1,7 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
@@ -79,6 +80,7 @@ class SirixVerticle : CoroutineVerticle() {
             allowedHeaders.add("Content-Type")
             allowedHeaders.add("accept")
             allowedHeaders.add("X-PINGARUNER")
+            allowedHeaders.add("Authorization")
 
             val allowedMethods = HashSet<HttpMethod>()
             allowedMethods.add(HttpMethod.GET)
@@ -112,24 +114,25 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val dataToAuthenticate = try {
-                rc.bodyAsJson
-            } catch (e: DecodeException) {
-                val formAttributes = rc.request().formAttributes()
-                val code =
-                    formAttributes.get("code")
-                val redirectUri =
-                    formAttributes.get("redirect_uri")
-                val responseType =
-                    formAttributes.get("response_type")
+            try {
+                val dataToAuthenticate: JsonObject =
+                    when (rc.request().getHeader(HttpHeaders.CONTENT_TYPE)) {
+                        "application/json" -> rc.bodyAsJson
+                        "application/x-www-form-urlencoded" -> formToJson(rc)
+                        else -> rc.bodyAsJson
+                    }
 
-                JsonObject()
-                    .put("code", code)
-                    .put("redirect_uri", redirectUri)
-                    .put("response_type", responseType)
+                val user = keycloak.authenticateAwait(dataToAuthenticate)
+                rc.response().end(user.principal().toString())
+            } catch (e: DecodeException) {
+                rc.fail(
+                    HttpStatusException(
+                        HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                        "\"application/json\" and \"application/x-www-form-urlencoded\" are supported Content-Types." +
+                                "If none is specified it's tried to parse as JSON"
+                    )
+                )
             }
-            val user = keycloak.authenticateAwait(dataToAuthenticate)
-            rc.response().end(user.principal().toString())
         }
 
         // Create.
@@ -329,6 +332,21 @@ class SirixVerticle : CoroutineVerticle() {
                 response(failureRoutingContext.response(), statusCode, failure?.message)
             }
         }
+    }
+
+    private fun formToJson(rc: RoutingContext): JsonObject {
+        val formAttributes = rc.request().formAttributes()
+        val code =
+            formAttributes.get("code")
+        val redirectUri =
+            formAttributes.get("redirect_uri")
+        val responseType =
+            formAttributes.get("response_type")
+
+        return JsonObject()
+            .put("code", code)
+            .put("redirect_uri", redirectUri)
+            .put("response_type", responseType)
     }
 
     private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
