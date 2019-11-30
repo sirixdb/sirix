@@ -91,7 +91,16 @@ class SirixVerticle : CoroutineVerticle() {
             allowedMethods.add(HttpMethod.PATCH)
             allowedMethods.add(HttpMethod.PUT)
 
-            this.route().handler(CorsHandler.create("*").allowedHeaders(allowedHeaders).allowedMethods(allowedMethods))
+            this.route().handler(
+                CorsHandler.create(
+                    config.getString(
+                        "cors.allowedOriginPattern",
+                        ".*."
+                    )
+                ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
+                    true
+                )
+            )
         }
 
         get("/user/authorize").coroutineHandler { rc ->
