@@ -346,20 +346,24 @@ class SirixVerticle : CoroutineVerticle() {
 
     private fun formToJson(rc: RoutingContext): JsonObject {
         val formAttributes = rc.request().formAttributes()
-        val code =
-            formAttributes.get("code")
-        val redirectUri =
-            formAttributes.get("redirect_uri")
-        val responseType =
-            formAttributes.get("response_type")
-        val grantType =
-            formAttributes.get("grant_type")
+        val refreshToken: String? =
+            formAttributes.get("refresh_token")
+        if (refreshToken == null) {
+            val code =
+                formAttributes.get("code")
+            val redirectUri =
+                formAttributes.get("redirect_uri")
+            val responseType =
+                formAttributes.get("response_type")
 
-        return JsonObject()
-            .put("code", code)
-            .put("redirect_uri", redirectUri)
-            .put("response_type", responseType)
-            .put("grant_type", grantType)
+            return JsonObject()
+                .put("code", code)
+                .put("redirect_uri", redirectUri)
+                .put("response_type", responseType)
+        } else {
+            return JsonObject()
+                .put("refresh_token", refreshToken)
+        }
     }
 
     private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
