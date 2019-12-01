@@ -96,7 +96,7 @@ class SirixVerticle : CoroutineVerticle() {
                 CorsHandler.create(
                     config.getString(
                         "cors.allowedOriginPattern",
-                        ".*."
+                        "*"
                     )
                 ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
                     config.getBoolean("cors.allowCredentials", false)
@@ -352,11 +352,14 @@ class SirixVerticle : CoroutineVerticle() {
             formAttributes.get("redirect_uri")
         val responseType =
             formAttributes.get("response_type")
+        val grantType =
+            formAttributes.get("grant_type")
 
         return JsonObject()
             .put("code", code)
             .put("redirect_uri", redirectUri)
             .put("response_type", responseType)
+            .put("grant_type", grantType)
     }
 
     private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
