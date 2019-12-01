@@ -110,7 +110,7 @@ class SirixVerticle : CoroutineVerticle() {
             } else {
                 val redirectUri =
                     rc.queryParam("redirect_uri").getOrElse(0) { config.getString("redirect.uri") }
-                val state = rc.queryParam("state").getOrElse(0) { java.util.UUID.randomUUID().toString() }
+                val state = rc.queryParam("state").getOrElse(0) { UUID.randomUUID().toString() }
 
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
@@ -363,6 +363,7 @@ class SirixVerticle : CoroutineVerticle() {
         } else {
             return JsonObject()
                 .put("refresh_token", refreshToken)
+                .put("grant_type", "refresh_token")
         }
     }
 
