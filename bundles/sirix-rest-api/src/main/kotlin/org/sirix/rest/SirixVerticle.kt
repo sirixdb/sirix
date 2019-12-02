@@ -7,6 +7,7 @@ import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
 import io.vertx.ext.auth.oauth2.impl.OAuth2TokenImpl
 import io.vertx.ext.web.Route
@@ -134,13 +135,14 @@ class SirixVerticle : CoroutineVerticle() {
                         else -> rc.bodyAsJson
                     }
 
-                if (dataToAuthenticate.containsKey("refresh_token")) {
-                    val token = OAuth2TokenImpl(keycloak, dataToAuthenticate)
-                    token.refreshAwait()
-                    rc.response().end(token.principal().toString())
-                } else {
-                    val user = keycloak.authenticateAwait(dataToAuthenticate)
-                    rc.response().end(user.principal().toString())
+                when {
+                    dataToAuthenticate.containsKey("refresh_token") -> refreshToken(keycloak, dataToAuthenticate, rc)
+                    rc.request().getParam("refresh_token") != null -> {
+                        val json = JsonObject()
+                            .put("refresh_token", rc.request().getParam("refresh_token"))
+                        refreshToken(keycloak, json, rc)
+                    }
+                    else -> getToken(keycloak, dataToAuthenticate, rc)
                 }
             } catch (e: DecodeException) {
                 rc.fail(
@@ -352,6 +354,25 @@ class SirixVerticle : CoroutineVerticle() {
         }
     }
 
+    private suspend fun getToken(
+        keycloak: OAuth2Auth,
+        dataToAuthenticate: JsonObject,
+        rc: RoutingContext
+    ) {
+        val user = keycloak.authenticateAwait(dataToAuthenticate)
+        rc.response().end(user.principal().toString())
+    }
+
+    private suspend fun refreshToken(
+        keycloak: OAuth2Auth,
+        dataToAuthenticate: JsonObject,
+        rc: RoutingContext
+    ) {
+        val token = OAuth2TokenImpl(keycloak, dataToAuthenticate)
+        token.refreshAwait()
+        rc.response().end(token.principal().toString())
+    }
+
     private fun formToJson(rc: RoutingContext): JsonObject {
         val formAttributes = rc.request().formAttributes()
         val refreshToken: String? =
@@ -371,7 +392,6 @@ class SirixVerticle : CoroutineVerticle() {
         } else {
             return JsonObject()
                 .put("refresh_token", refreshToken)
-                .put("grant_type", "refresh_token")
         }
     }
 
