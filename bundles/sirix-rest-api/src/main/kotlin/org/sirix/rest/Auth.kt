@@ -23,8 +23,9 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
                 "token_type" to "Bearer"
             )
         }
-        val database = ctx.pathParam("database")
+
         val user = keycloak.authenticateAwait(tokenToAuthenticate)
+        val database = ctx.pathParam("database")
 
         val isAuthorized =
             if (database == null) {

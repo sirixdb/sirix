@@ -8,6 +8,7 @@ import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
+import io.vertx.ext.auth.oauth2.impl.OAuth2TokenImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -21,6 +22,7 @@ import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.authenticateAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
+import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
@@ -132,8 +134,14 @@ class SirixVerticle : CoroutineVerticle() {
                         else -> rc.bodyAsJson
                     }
 
-                val user = keycloak.authenticateAwait(dataToAuthenticate)
-                rc.response().end(user.principal().toString())
+                if (dataToAuthenticate.containsKey("refresh_token")) {
+                    val token = OAuth2TokenImpl(keycloak, dataToAuthenticate)
+                    token.refreshAwait()
+                    rc.response().end(token.principal().toString())
+                } else {
+                    val user = keycloak.authenticateAwait(dataToAuthenticate)
+                    rc.response().end(user.principal().toString())
+                }
             } catch (e: DecodeException) {
                 rc.fail(
                     HttpStatusException(
