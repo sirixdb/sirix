@@ -121,7 +121,7 @@ class SirixVerticleJsonTest {
                         }
 
                         val expectedResult = """
-                            {"databases":[{"database1":"json"},{"database2":"xml"}]}
+                            {"databases":[{"name":"database1","type":"json"},{"name":"database2","type":"xml"}]}
                         """.trimIndent()
 
                         httpResponseJson = client.getAbs(server).putHeader(
