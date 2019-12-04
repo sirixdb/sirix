@@ -64,8 +64,10 @@ class XmlGet(private val location: Path) {
             buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
 
             databases.use {
-                databases.filter { Files.isDirectory(it) }.forEach {
-                    buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
+                databases.filter { Files.isDirectory(it) }.forEach { database ->
+                    val databaseName = database.fileName
+                    val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
+                    buffer.appendln("  <rest:item dbname=\"${databaseName}\" dbtype=\"${databaseType}\" />")
                 }
             }
 

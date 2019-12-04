@@ -68,8 +68,8 @@ class JsonGet(private val location: Path) {
 
                 for ((index, database) in databaseDirectories.withIndex()) {
                     val databaseName = database.fileName
-                    val type = Databases.getDatabaseType(database.toAbsolutePath()).stringType
-                    buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${type}\"}")
+                    val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
+                    buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${databaseType}\"}")
 
                     if (index != databaseDirectories.size - 1)
                         buffer.append(",")
