@@ -68,8 +68,8 @@ class SirixVerticle : CoroutineVerticle() {
             .setSite(config.getString("keycloak.url"))
             .setClientID("sirix")
             .setClientSecret(config.getString("client.secret"))
-            .setTokenPath(config.getString("token.path", "/token"))
-            .setAuthorizationPath(config.getString("auth.path", "/user/authorize"))
+            .setTokenPath(config.getString("token.path"))
+            .setAuthorizationPath(config.getString("auth.path"))
 
         val keycloak = KeycloakAuth.discoverAwait(
             vertx, oauth2Config
@@ -137,9 +137,9 @@ class SirixVerticle : CoroutineVerticle() {
 
                 when {
                     dataToAuthenticate.containsKey("refresh_token") -> refreshToken(keycloak, dataToAuthenticate, rc)
-                    rc.request().getParam("refresh_token") != null -> {
+                    rc.queryParam("refresh_token") != null && rc.queryParam("refresh_token").isNotEmpty() -> {
                         val json = JsonObject()
-                            .put("refresh_token", rc.request().getParam("refresh_token"))
+                            .put("refresh_token", rc.queryParam("refresh_token"))
                         refreshToken(keycloak, json, rc)
                     }
                     else -> getToken(keycloak, dataToAuthenticate, rc)
