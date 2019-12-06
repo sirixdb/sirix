@@ -147,6 +147,106 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the listing of databases with resources")
+    fun testListDatabasesWithResource(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    accessToken = user.getString("access_token")
+
+                    var httpResponseJson =
+                        client.deleteAbs(server).putHeader(
+                            HttpHeaders.AUTHORIZATION.toString(),
+                            "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json").sendAwait()
+
+                    var httpResponseXml =
+                        client.deleteAbs(server).putHeader(
+                            HttpHeaders.AUTHORIZATION.toString(),
+                            "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").sendAwait()
+
+                    if (200 == httpResponseJson.statusCode() && 200 == httpResponseXml.statusCode()) {
+                        httpResponseJson =
+                            client.putAbs("$server/database1/resource1").putHeader(
+                                HttpHeaders.AUTHORIZATION
+                                    .toString(), "Bearer $accessToken"
+                            ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                                .sendBufferAwait(Buffer.buffer("{}"))
+
+                        testContext.verify {
+                            assertEquals(200, httpResponseJson.statusCode())
+                        }
+
+                        httpResponseJson =
+                            client.putAbs("$server/database1/resource2").putHeader(
+                                HttpHeaders.AUTHORIZATION
+                                    .toString(), "Bearer $accessToken"
+                            ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                                .sendBufferAwait(Buffer.buffer("{}"))
+
+                        testContext.verify {
+                            assertEquals(200, httpResponseJson.statusCode())
+                        }
+
+                        httpResponseXml = client.putAbs("$server/database2/resource1").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                            .sendBufferAwait(Buffer.buffer("<root/>"))
+
+                        testContext.verify {
+                            assertEquals(200, httpResponseXml.statusCode())
+                        }
+
+                        httpResponseXml = client.putAbs("$server/database3").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                            .sendAwait()
+
+                        testContext.verify {
+                            assertEquals(201, httpResponseXml.statusCode())
+                        }
+
+                        val expectedResult = """
+                            {"databases":[{"name":"database1","type":"json","resources":["resource1","resource2"]},{"name":"database2","type":"xml","resources":["resource1"]},{"name":"database3","type":"xml","resources":[]}]}
+                        """.trimIndent()
+
+                        httpResponseJson = client.getAbs("$server/?withResources=true").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                        if (200 == httpResponseJson.statusCode()) {
+                            testContext.verify {
+                                val result =
+                                    httpResponseJson.bodyAsString().replace(
+                                        "\r\n",
+                                        System.getProperty("line.separator")
+                                    )
+                                assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                                testContext.completeNow()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
