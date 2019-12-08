@@ -84,7 +84,6 @@ class SirixVerticle : CoroutineVerticle() {
             allowedHeaders.add("accept")
             allowedHeaders.add("X-PINGARUNER")
             allowedHeaders.add("Authorization")
-            allowedHeaders.add("authorization")
 
             val allowedMethods = HashSet<HttpMethod>()
             allowedMethods.add(HttpMethod.GET)
