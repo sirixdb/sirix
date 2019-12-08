@@ -14,7 +14,7 @@ class CreateMultipleResources(private val location: Path) {
 
         fileUploads.forEach { fileUpload ->
             when (fileUpload.contentType()) {
-                "application/xml" -> {
+                "application/xml", "text/xml" -> {
                     if (isJsonFiles) {
                         ctx.fail(IllegalArgumentException("All uploaded files must be either of type XML or JSON."))
                         return ctx.currentRoute()
@@ -22,7 +22,7 @@ class CreateMultipleResources(private val location: Path) {
 
                     isXmlFiles = true
                 }
-                "application/json" -> {
+                "application/json", "text/json" -> {
                     if (isXmlFiles) {
                         ctx.fail(IllegalArgumentException("All uploaded files must be either of type XML or JSON."))
                         return ctx.currentRoute()
