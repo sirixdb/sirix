@@ -2,7 +2,6 @@ package org.sirix.rest.crud.json
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
@@ -69,7 +68,13 @@ class JsonGet(private val location: Path) {
                 for ((index, database) in databaseDirectories.withIndex()) {
                     val databaseName = database.fileName
                     val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
-                    buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${databaseType}\"}")
+                    buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${databaseType}\"")
+
+                    val withResources = ctx.queryParam("withResources")
+                    if (withResources.isNotEmpty() && withResources[0].toBoolean()) {
+                        emitResourcesOfDatabase(buffer, databaseName, ctx)
+                    }
+                    buffer.append("}")
 
                     if (index != databaseDirectories.size - 1)
                         buffer.append(",")
@@ -85,6 +90,26 @@ class JsonGet(private val location: Path) {
                 .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
                 .write(content)
                 .end()
+        }
+    }
+
+    private fun emitResourcesOfDatabase(
+        buffer: StringBuilder,
+        databaseName: Path?,
+        ctx: RoutingContext
+    ) {
+        buffer.append(",")
+
+        try {
+            val database = Databases.openJsonDatabase(location.resolve(databaseName))
+
+            database.use {
+                buffer.append("\"resources\":[")
+                emitCommaSeparatedResourceString(it, buffer)
+                buffer.append("]")
+            }
+        } catch (e: SirixUsageException) {
+            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
         }
     }
 
@@ -125,13 +150,7 @@ class JsonGet(private val location: Path) {
                     val buffer = StringBuilder()
                     buffer.append("{\"databases\":[")
 
-                    val resources = it.listResources()
-
-                    for ((index, resource) in resources.withIndex()) {
-                        buffer.append(resource)
-                        if (index != resources.size - 1)
-                            buffer.append(",")
-                    }
+                    emitCommaSeparatedResourceString(it, buffer)
 
                     buffer.append("]}")
                 } else {
@@ -158,6 +177,19 @@ class JsonGet(private val location: Path) {
                 return
             }
 
+        }
+    }
+
+    private fun emitCommaSeparatedResourceString(
+        it: Database<JsonResourceManager>,
+        buffer: StringBuilder
+    ) {
+        val resources = it.listResources()
+
+        for ((index, resource) in resources.withIndex()) {
+            buffer.append("\"${resource.fileName}\"")
+            if (index != resources.size - 1)
+                buffer.append(",")
         }
     }
 
