@@ -29,7 +29,7 @@ class XmlSerializeHelper {
     private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-            .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+            .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
             .write(body)
             .end()
     }
@@ -50,7 +50,7 @@ class XmlSerializeHelper {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+                .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .putHeader(HttpHeaders.ETAG, hash.toString())
                 .write(body)
                 .end()

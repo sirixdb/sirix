@@ -21,6 +21,7 @@ import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.authenticateAwait
+import io.vertx.kotlin.ext.auth.oauth2.logoutAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
 import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
@@ -152,6 +153,12 @@ class SirixVerticle : CoroutineVerticle() {
                     )
                 )
             }
+        }
+
+        post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
+            val token = OAuth2TokenImpl(keycloak, rc.bodyAsJson)
+            token.logoutAwait()
+            rc.response().end()
         }
 
         // Create.

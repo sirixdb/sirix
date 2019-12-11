@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout>
+                <pattern>%-5p %d{ISO8601} - %c[%t]%n %m%n</pattern>
+            </PatternLayout>
+        </Console>
+        <RollingFile name="DailyFile" fileName="log/supervisor.log" filePattern="log/supervisor.%d{yyyy-MM-dd}.log">
+            <PatternLayout>
+                <Pattern>%-5p %d{ISO8601} - %c[%t]%n %m%n</Pattern>
+            </PatternLayout>
+            <TimeBasedTriggeringPolicy interval="1"/>
+            <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
+        </RollingFile>
+    </Appenders>
+    <Loggers>
+        <Root level="WARN">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="DailyFile"/>
+        </Root>
+        <!-- Set United Planet logging level -->
+        <Logger name="de.uplanet" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="DailyFile"/>
+        </Logger>
+        <!-- logging for jdbc -->
+        <Logger name="de.uplanet.jdbc" level="INFO" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="DailyFile"/>
+        </Logger>
+    </Loggers>
+</Configuration>
