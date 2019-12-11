@@ -26,6 +26,8 @@ import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.json.*
 import java.io.StringWriter
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -87,7 +89,7 @@ class JsonGet(private val location: Path) {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .write(content)
                 .end()
         }
@@ -282,8 +284,8 @@ class JsonGet(private val location: Path) {
                 val body = out.toString()
 
                 routingContext.response().setStatusCode(200)
-                    .putHeader("Content-Type", "application/json")
-                    .putHeader("Content-Length", body.length.toString())
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                     .write(body)
                     .end()
             }

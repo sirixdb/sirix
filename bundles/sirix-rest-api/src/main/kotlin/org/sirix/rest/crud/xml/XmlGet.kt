@@ -77,7 +77,7 @@ class XmlGet(private val location: Path) {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .write(content)
                 .end()
         }
