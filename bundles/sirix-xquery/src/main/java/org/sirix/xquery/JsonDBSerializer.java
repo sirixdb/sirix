@@ -47,24 +47,25 @@ import org.sirix.service.json.serialize.JsonSerializer;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public final class JsonDBSerializer implements Serializer {
+public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
   private final Appendable mOut;
 
   private final boolean mPrettyPrint;
 
+  private boolean mFirst;
+
   public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
     mOut = checkNotNull(out);
     mPrettyPrint = prettyPrint;
+    mFirst = true;
   }
 
   @Override
   public void serialize(final Sequence sequence) {
     try {
       if (sequence != null) {
-        if (mPrettyPrint) {
-          mOut.append("{\"rest\":[");
-        } else {
+        if (mFirst) {
           mOut.append("{\"rest\":[");
         }
 
@@ -112,8 +113,16 @@ public final class JsonDBSerializer implements Serializer {
           it.close();
         }
 
-        mOut.append("]}");
       }
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  @Override
+  public void close() {
+    try {
+      mOut.append("]}");
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
