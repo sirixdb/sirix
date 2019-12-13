@@ -45,7 +45,7 @@ import org.sirix.xquery.node.XmlDBNode;
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  *
  */
-public final class XmlDBSerializer implements Serializer {
+public final class XmlDBSerializer implements Serializer, AutoCloseable {
 
   private final PrintStream mOut;
 
@@ -53,16 +53,20 @@ public final class XmlDBSerializer implements Serializer {
 
   private final boolean mPrettyPrint;
 
+  private boolean mFirst;
+
   public XmlDBSerializer(final PrintStream out, final boolean emitRESTful, final boolean prettyPrint) {
     mOut = checkNotNull(out);
     mEmitRESTful = emitRESTful;
     mPrettyPrint = prettyPrint;
+    mFirst = true;
   }
 
   @Override
   public void serialize(Sequence sequence) throws QueryException {
     if (sequence != null) {
-      if (mEmitRESTful) {
+      if (mEmitRESTful && mFirst) {
+        mFirst = false;
         if (mPrettyPrint) {
           mOut.println("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">");
         } else {
@@ -111,10 +115,13 @@ public final class XmlDBSerializer implements Serializer {
       } finally {
         it.close();
       }
+    }
+  }
 
-      if (mEmitRESTful) {
-        mOut.print("</rest:sequence>");
-      }
+  @Override
+  public void close() {
+    if (mEmitRESTful) {
+      mOut.print("</rest:sequence>");
     }
   }
 }
