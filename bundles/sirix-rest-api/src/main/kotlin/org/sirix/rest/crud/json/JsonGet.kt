@@ -12,6 +12,9 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.brackit.xquery.atomic.Int64
+import org.brackit.xquery.util.serialize.Serializer
+import org.brackit.xquery.xdm.Item
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
@@ -19,6 +22,7 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
+import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
@@ -26,7 +30,6 @@ import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.json.*
 import java.io.StringWriter
-import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -73,7 +76,7 @@ class JsonGet(private val location: Path) {
                     buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${databaseType}\"")
 
                     val withResources = ctx.queryParam("withResources")
-                    if (withResources.isNotEmpty() && withResources[0].toBoolean()) {
+                    if (withResources.isNotEmpty() && withResources[0]!!.toBoolean()) {
                         emitResourcesOfDatabase(buffer, databaseName, ctx)
                     }
                     buffer.append("}")
@@ -272,14 +275,13 @@ class JsonGet(private val location: Path) {
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)
 
+                val startResultSeqIndex = routingContext.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                val endResultSeqIndex = routingContext.queryParam("endResultSeqIndex").getOrElse(0) { null }
                 node.let { queryCtx.contextItem = node }
 
                 val out = StringBuilder()
 
-                SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
-                    val serializer = JsonDBSerializer(out, false)
-                    XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
-                }
+                executeQueryAndSerialize(dbStore, out, startResultSeqIndex, query, queryCtx, endResultSeqIndex)
 
                 val body = out.toString()
 
@@ -291,6 +293,61 @@ class JsonGet(private val location: Path) {
             }
 
             promise.complete(null)
+        }
+    }
+
+    private fun executeQueryAndSerialize(
+        dbStore: JsonSessionDBStore,
+        out: StringBuilder,
+        startResultSeqIndex: String?,
+        query: String,
+        queryCtx: SirixQueryContext?,
+        endResultSeqIndex: String?
+    ) {
+        SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
+            val serializer = JsonDBSerializer(out, false)
+
+            if (startResultSeqIndex == null) {
+                XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
+            } else {
+                QuerySerializer.serializePaginated(
+                    sirixCompileChain,
+                    query,
+                    queryCtx,
+                    startResultSeqIndex,
+                    endResultSeqIndex,
+                    JsonDBSerializer(out, true)
+                ) { serializer, startItem -> serializer.serialize(startItem) }
+            }
+        }
+    }
+
+    private fun serializePaginated(
+        sirixCompileChain: SirixCompileChain?,
+        query: String,
+        queryCtx: SirixQueryContext?,
+        startResultSeqIndex: String,
+        out: StringBuilder,
+        endResultSeqIndex: String?,
+        serialize: (StringBuilder, Item?) -> Unit
+    ) {
+        val sequence = XQuery(sirixCompileChain, query).execute(queryCtx)
+
+        val startItem = sequence.get(Int64(startResultSeqIndex.toLong()))
+
+        if (startItem != null) {
+            serialize(out, startItem)
+
+            val itemIterator = startItem.iterate()
+
+            if (endResultSeqIndex == null) {
+                while (true)
+                    serialize(out, itemIterator.next() ?: break)
+            } else {
+                for (x in 1..endResultSeqIndex.toLong()) {
+                    serialize(out, itemIterator.next() ?: break)
+                }
+            }
         }
     }
 
