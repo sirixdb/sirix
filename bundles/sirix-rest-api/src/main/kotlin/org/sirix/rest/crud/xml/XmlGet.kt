@@ -41,13 +41,28 @@ class XmlGet(private val location: Path) {
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
-        val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
+        val query: String? = ctx.queryParam("query").getOrElse(0) {
+            val json = ctx.bodyAsJson
+            json.getString("query")
+        }
 
         if (dbName == null && resName == null) {
-            if (query == null || query.isEmpty())
+            if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
-            else
-                xquery(query, null, ctx, context, ctx.get("user") as User)
+            } else {
+                val json = ctx.bodyAsJson
+                val startResultSeqIndex = json.getString("startResultSeqIndex")
+                val endResultSeqIndex = json.getString("endResultSeqIndex")
+                xquery(
+                    query,
+                    null,
+                    ctx,
+                    context,
+                    ctx.get("user") as User,
+                    startResultSeqIndex?.toLong(),
+                    endResultSeqIndex?.toLong()
+                )
+            }
         } else {
             get(dbName, ctx, resName, query, context, ctx.get("user") as User)
         }
@@ -190,7 +205,18 @@ class XmlGet(private val location: Path) {
 
                         val dbNode = XmlDBNode(trx, dbCollection)
 
-                        xquery(query, dbNode, ctx, vertxContext, user)
+                        val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                        val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
+
+                        xquery(
+                            query,
+                            dbNode,
+                            ctx,
+                            vertxContext,
+                            user,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
@@ -215,7 +241,7 @@ class XmlGet(private val location: Path) {
 
     private suspend fun xquery(
         query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
-        user: User
+        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         context.executeBlockingAwait { promise: Promise<Unit> ->
             // Initialize queryResource context and store.
@@ -223,14 +249,20 @@ class XmlGet(private val location: Path) {
 
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithNodeStore(dbStore)
-                val startResultSeqIndex = routingContext.queryParam("startResultSeqIndex").getOrElse(0) { null }
-                val endResultSeqIndex = routingContext.queryParam("endResultSeqIndex").getOrElse(0) { null }
+
                 node.let { queryCtx.contextItem = node }
 
                 val out = ByteArrayOutputStream()
 
                 out.use {
-                    executeQueryAndSerialize(out, dbStore, startResultSeqIndex, query, queryCtx, endResultSeqIndex)
+                    executeQueryAndSerialize(
+                        out,
+                        dbStore,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex
+                    )
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
@@ -249,10 +281,10 @@ class XmlGet(private val location: Path) {
     private fun executeQueryAndSerialize(
         out: ByteArrayOutputStream,
         dbStore: XmlSessionDBStore,
-        startResultSeqIndex: String?,
+        startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext?,
-        endResultSeqIndex: String?
+        endResultSeqIndex: Long?
     ) {
         PrintStream(out).use { printStream ->
             SirixCompileChain.createWithNodeStore(dbStore).use { sirixCompileChain ->

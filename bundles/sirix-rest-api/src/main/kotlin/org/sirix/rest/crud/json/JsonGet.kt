@@ -4,6 +4,7 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -43,13 +44,28 @@ class JsonGet(private val location: Path) {
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
 
-        val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
+        val query: String? = ctx.queryParam("query").getOrElse(0) {
+            val json = ctx.bodyAsJson
+            json.getString("query")
+        }
 
         if (dbName == null && resName == null) {
-            if (query == null || query.isEmpty())
+            if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
-            else
-                xquery(query, null, ctx, context, ctx.get("user") as User)
+            } else {
+                val json = ctx.bodyAsJson
+                val startResultSeqIndex = json.getString("startResultSeqIndex")
+                val endResultSeqIndex = json.getString("endResultSeqIndex")
+                xquery(
+                    query,
+                    null,
+                    ctx,
+                    context,
+                    ctx.get("user") as User,
+                    startResultSeqIndex?.toLong(),
+                    endResultSeqIndex?.toLong()
+                )
+            }
         } else {
             get(dbName, ctx, resName, query, context, ctx.get("user") as User)
         }
@@ -241,7 +257,18 @@ class JsonGet(private val location: Path) {
                             else -> throw IllegalStateException()
                         }
 
-                        xquery(query, jsonItem, ctx, vertxContext, user)
+                        val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                        val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
+
+                        xquery(
+                            query,
+                            jsonItem,
+                            ctx,
+                            vertxContext,
+                            user,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
@@ -266,7 +293,7 @@ class JsonGet(private val location: Path) {
 
     private suspend fun xquery(
         query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
-        user: User
+        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
             // Initialize queryResource context and store.
@@ -275,8 +302,6 @@ class JsonGet(private val location: Path) {
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithJsonStore(dbStore)
 
-                val startResultSeqIndex = routingContext.queryParam("startResultSeqIndex").getOrElse(0) { null }
-                val endResultSeqIndex = routingContext.queryParam("endResultSeqIndex").getOrElse(0) { null }
                 node.let { queryCtx.contextItem = node }
 
                 val out = StringBuilder()
@@ -299,15 +324,14 @@ class JsonGet(private val location: Path) {
     private fun executeQueryAndSerialize(
         dbStore: JsonSessionDBStore,
         out: StringBuilder,
-        startResultSeqIndex: String?,
+        startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext?,
-        endResultSeqIndex: String?
+        endResultSeqIndex: Long?
     ) {
         SirixCompileChain.createWithJsonStore(dbStore).use { sirixCompileChain ->
-            val serializer = JsonDBSerializer(out, false)
-
             if (startResultSeqIndex == null) {
+                val serializer = JsonDBSerializer(out, false)
                 XQuery(sirixCompileChain, query).prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
@@ -318,35 +342,6 @@ class JsonGet(private val location: Path) {
                     endResultSeqIndex,
                     JsonDBSerializer(out, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
-            }
-        }
-    }
-
-    private fun serializePaginated(
-        sirixCompileChain: SirixCompileChain?,
-        query: String,
-        queryCtx: SirixQueryContext?,
-        startResultSeqIndex: String,
-        out: StringBuilder,
-        endResultSeqIndex: String?,
-        serialize: (StringBuilder, Item?) -> Unit
-    ) {
-        val sequence = XQuery(sirixCompileChain, query).execute(queryCtx)
-
-        val startItem = sequence.get(Int64(startResultSeqIndex.toLong()))
-
-        if (startItem != null) {
-            serialize(out, startItem)
-
-            val itemIterator = startItem.iterate()
-
-            if (endResultSeqIndex == null) {
-                while (true)
-                    serialize(out, itemIterator.next() ?: break)
-            } else {
-                for (x in 1..endResultSeqIndex.toLong()) {
-                    serialize(out, itemIterator.next() ?: break)
-                }
             }
         }
     }
