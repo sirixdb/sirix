@@ -12,8 +12,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.brackit.xquery.util.serialize.Serializer
-import org.brackit.xquery.xdm.Item
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database

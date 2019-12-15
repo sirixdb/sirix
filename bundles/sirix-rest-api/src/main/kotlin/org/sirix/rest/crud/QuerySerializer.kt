@@ -8,15 +8,15 @@ import org.sirix.xquery.SirixQueryContext
 
 class QuerySerializer {
     companion object {
-        fun serializePaginated(
+        fun <T> serializePaginated(
             sirixCompileChain: SirixCompileChain?,
             query: String,
             queryCtx: SirixQueryContext?,
             startResultSeqIndex: String,
             endResultSeqIndex: String?,
-            serializer: Serializer,
+            serializer: T,
             serialize: (Serializer, Item?) -> Unit
-        ) {
+        ) where T : Serializer, T : AutoCloseable {
             serializer.use {
                 val sequence = XQuery(sirixCompileChain, query).execute(queryCtx)
 
