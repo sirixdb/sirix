@@ -2,7 +2,6 @@ package org.sirix.rest.crud.xml
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
@@ -13,12 +12,15 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
+import org.brackit.xquery.util.serialize.Serializer
+import org.brackit.xquery.xdm.Item
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.crud.QuerySerializer
 import org.sirix.rest.crud.SirixDBUtils
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -223,32 +225,55 @@ class XmlGet(private val location: Path) {
 
             dbStore.use {
                 val queryCtx = SirixQueryContext.createWithNodeStore(dbStore)
-
+                val startResultSeqIndex = routingContext.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                val endResultSeqIndex = routingContext.queryParam("endResultSeqIndex").getOrElse(0) { null }
                 node.let { queryCtx.contextItem = node }
 
                 val out = ByteArrayOutputStream()
 
                 out.use {
-                    PrintStream(out).use { printStream ->
-                        SirixCompileChain.createWithNodeStore(dbStore).use { compileChain ->
-                            XQuery(compileChain, query).prettyPrint().serialize(
-                                queryCtx,
-                                XmlDBSerializer(printStream, true, true)
-                            )
-                        }
-                    }
+                    executeQueryAndSerialize(out, dbStore, startResultSeqIndex, query, queryCtx, endResultSeqIndex)
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
                     routingContext.response().setStatusCode(200)
-                        .putHeader("Content-Type", "application/xml")
-                        .putHeader("Content-Length", body.length.toString())
+                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                        .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                         .write(body)
                         .end()
                 }
             }
 
             promise.complete(null)
+        }
+    }
+
+    private fun executeQueryAndSerialize(
+        out: ByteArrayOutputStream,
+        dbStore: XmlSessionDBStore,
+        startResultSeqIndex: String?,
+        query: String,
+        queryCtx: SirixQueryContext?,
+        endResultSeqIndex: String?
+    ) {
+        PrintStream(out).use { printStream ->
+            SirixCompileChain.createWithNodeStore(dbStore).use { sirixCompileChain ->
+                if (startResultSeqIndex == null) {
+                    XQuery(sirixCompileChain, query).prettyPrint().serialize(
+                        queryCtx,
+                        XmlDBSerializer(printStream, true, true)
+                    )
+                } else {
+                    QuerySerializer.serializePaginated(
+                        sirixCompileChain,
+                        query,
+                        queryCtx,
+                        startResultSeqIndex,
+                        endResultSeqIndex,
+                        XmlDBSerializer(printStream, true, true)
+                    ) { serializer, startItem -> serializer.serialize(startItem) }
+                }
+            }
         }
     }
 
