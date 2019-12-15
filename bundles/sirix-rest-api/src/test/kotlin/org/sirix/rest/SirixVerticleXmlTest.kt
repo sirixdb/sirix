@@ -69,7 +69,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -150,7 +150,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing diffing of a database/resource with two revisions.")
     fun testDiff(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -278,7 +278,7 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing viewing of a database/resource content")
     fun testGet(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -644,9 +644,101 @@ class SirixVerticleXmlTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing an XQuery-expression paged in a GET-request")
-    fun testXQueryPaged(vertx: Vertx, testContext: VertxTestContext) {
+    fun testXQueryPagedWithBeginAndEndSequenceIndex(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <xml rest:id="1">
+                          <foo rest:id="2"/>
+                          <bar rest:id="3"/>
+                          <baz rest:id="4"/>
+                          <foobar rest:id="5"/>
+                        </xml>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <xml>
+                      <foo/>
+                      <bar/>
+                      <baz/>
+                      <foobar/>
+                    </xml>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    accessToken = user.getString("access_token")
+
+                    var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            assertEquals(
+                                expectString.replace("\n", System.getProperty("line.separator")),
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                            )
+                        }
+                    }
+
+                    val expectedResult = """
+                        <rest:sequence xmlns:rest="https://sirix.io/rest">
+                          <rest:item rest:revision="1">
+                            <foo rest:id="2"/>
+                          </rest:item>
+                          <rest:item rest:revision="1">
+                            <bar rest:id="3"/>
+                          </rest:item>
+                          <rest:item rest:revision="1">
+                            <baz rest:id="4"/>
+                          </rest:item>
+                        </rest:sequence>
+                    """.trimIndent()
+
+                    httpResponse =
+                        client.getAbs("$server$serverPath?query=%2Fdescendant::*&startResultSeqIndex=1&endResultSeqIndex=3")
+                            .putHeader(
+                                HttpHeaders.AUTHORIZATION
+                                    .toString(), "Bearer $accessToken"
+                            ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                            .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                    if (200 == httpResponse.statusCode()) {
+                        testContext.verify {
+                            val result =
+                                httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                                    .replace(" rest:revisionTimestamp=\"(?!\").*\"".toRegex(), "")
+                            assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                            testContext.completeNow()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing an XQuery-expression paged in a GET-request")
+    fun testXQueryPagedWithBeginIndex(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 val expectString = """
