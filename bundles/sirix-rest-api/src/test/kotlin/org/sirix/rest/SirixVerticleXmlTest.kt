@@ -626,7 +626,7 @@ class SirixVerticleXmlTest {
                             .toString(), "Bearer $accessToken"
                     ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
                         .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(
-                            Buffer.buffer("sdb:doc('database','resource1')//bar")
+                            Buffer.buffer("{\"query\":\"sdb:doc('database','resource1')//bar\"}")
                         )
 
                     if (200 == httpResponse.statusCode()) {
