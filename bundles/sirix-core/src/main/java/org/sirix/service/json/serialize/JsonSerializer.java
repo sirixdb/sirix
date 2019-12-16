@@ -548,7 +548,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      *
      * @return this {@link Builder} instance
      */
-    public Builder withMetadata(boolean withMetaData) {
+    public Builder withMetaData(boolean withMetaData) {
       mWithMetaData = withMetaData;
       return this;
     }

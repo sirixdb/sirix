@@ -70,7 +70,7 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
-      final var serializer = new JsonSerializer.Builder(manager, writer).withMetadata(true).build();
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).build();
       serializer.call();
       System.out.println(writer.toString());
       assertEquals(mJsonWithMetaData, writer.toString());
