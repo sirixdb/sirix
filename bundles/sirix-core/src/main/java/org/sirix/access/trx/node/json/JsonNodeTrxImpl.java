@@ -536,7 +536,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
     final ObjectKeyNode objectKeyNode =
         (ObjectKeyNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
-    objectKeyNode.incrementChildCount();
     objectKeyNode.setFirstChildKey(getNodeKey());
   }
 
