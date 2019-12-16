@@ -82,6 +82,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private final boolean mSerializeTimestamp;
 
+  private final boolean mWithMetaData;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -101,6 +103,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
     mSerializeTimestamp = builder.mSerializeTimestamp;
+    mWithMetaData = builder.mWithMetaData;
   }
 
   /**
@@ -134,6 +137,23 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case OBJECT_KEY:
           mOut.append("\"" + rtx.getName().stringValue() + "\":");
+          if (mWithMetaData) {
+            mOut.append("{\"metadata\":{");
+
+            mOut.append("\"nodeKey\":");
+            mOut.append(String.valueOf(rtx.getNodeKey()));
+            mOut.append(",");
+
+            mOut.append("\"hash\":");
+            mOut.append(String.valueOf(rtx.getHash()));
+            mOut.append(",");
+
+            mOut.append("\"descendantCount\":");
+            mOut.append(String.valueOf(rtx.getDescendantCount()));
+
+            mOut.append("},");
+            mOut.append("\"children\":");
+          }
           break;
         case BOOLEAN_VALUE:
           mOut.append(Boolean.valueOf(rtx.getValue()).toString());
@@ -186,8 +206,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             mOut.append(",");
           break;
         case OBJECT_KEY:
-          if (rtx.hasRightSibling())
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
+          if (rtx.hasRightSibling()) {
             mOut.append(",");
+          }
           break;
         // $CASES-OMITTED$
         default:
@@ -425,6 +449,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /** Determines if a timestamp should be serialized or not. */
     private boolean mSerializeTimestamp;
 
+    private boolean mWithMetaData;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -514,6 +540,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     public Builder serializeTimestamp(boolean serializeTimestamp) {
       mSerializeTimestamp = serializeTimestamp;
+      return this;
+    }
+
+    /**
+     * Sets if metadata should be serialized or not.
+     *
+     * @return this {@link Builder} instance
+     */
+    public Builder withMetadata(boolean withMetaData) {
+      mWithMetaData = withMetaData;
       return this;
     }
 
