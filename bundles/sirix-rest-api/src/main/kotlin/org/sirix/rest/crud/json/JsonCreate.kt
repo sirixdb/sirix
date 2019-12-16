@@ -1,10 +1,7 @@
 package org.sirix.rest.crud.json
 
-import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.core.executeBlockingAwait
@@ -17,7 +14,7 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
@@ -62,7 +59,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.create(ctx)
 
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 

@@ -4,7 +4,6 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
-import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -13,9 +12,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.brackit.xquery.atomic.Int64
-import org.brackit.xquery.util.serialize.Serializer
-import org.brackit.xquery.xdm.Item
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
@@ -23,8 +19,9 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
+import org.sirix.rest.crud.HistorySerializer
 import org.sirix.rest.crud.QuerySerializer
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -142,7 +139,7 @@ class JsonGet(private val location: Path) {
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
+                HistorySerializer().getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
             }
 
             return
@@ -376,6 +373,13 @@ class JsonGet(private val location: Path) {
         val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions.toIntArray())
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+        val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
+
+        if (withMetaData != null && withMetaData.toBoolean())
+            serializerBuilder.withMetaData(true)
+        else
+            serializerBuilder.withMetaData(false)
 
         val serializer = serializerBuilder.build()
 

@@ -18,8 +18,9 @@ import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
+import org.sirix.rest.crud.HistorySerializer
 import org.sirix.rest.crud.QuerySerializer
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -106,7 +107,7 @@ class XmlGet(private val location: Path) {
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
+                HistorySerializer().getHistory(ctx, location, dbName, resName, DatabaseType.XML)
             }
 
             return

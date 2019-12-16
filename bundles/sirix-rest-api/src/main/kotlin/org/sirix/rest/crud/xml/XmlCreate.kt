@@ -1,7 +1,6 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
@@ -15,7 +14,7 @@ import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
@@ -60,7 +59,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.create(ctx)
 
         val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
