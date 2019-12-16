@@ -20,7 +20,6 @@ import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.HistorySerializer
 import org.sirix.rest.crud.QuerySerializer
-import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -41,19 +40,20 @@ class XmlGet(private val location: Path) {
         val context = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
-
+        val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
-            val json = ctx.bodyAsJson
-            json.getString("query")
+            jsonBody?.getString("query")
         }
 
         if (dbName == null && resName == null) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                val json = ctx.bodyAsJson
-                val startResultSeqIndex = json.getString("startResultSeqIndex")
-                val endResultSeqIndex = json.getString("endResultSeqIndex")
+                val startResultSeqIndex =
+                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
+                val endResultSeqIndex =
+                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
+
                 xquery(
                     query,
                     null,
