@@ -1,7 +1,6 @@
 package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
@@ -11,14 +10,13 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeTrx
 import org.sirix.api.xml.XmlResourceManager
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.xquery.node.BasicXmlDBStore
 import java.math.BigInteger
 import java.nio.file.Files
@@ -65,7 +63,7 @@ class XmlDelete(private val location: Path) {
             return
         }
 
-        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.createSirixDBUser(ctx)
 
         val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
