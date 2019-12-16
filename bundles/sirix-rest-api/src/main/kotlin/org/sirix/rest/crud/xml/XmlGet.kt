@@ -49,10 +49,8 @@ class XmlGet(private val location: Path) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                val startResultSeqIndex =
-                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
-                val endResultSeqIndex =
-                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
+                val startResultSeqIndex = jsonBody?.getString("startResultSeqIndex")
+                val endResultSeqIndex = jsonBody?.getString("endResultSeqIndex")
 
                 xquery(
                     query,
