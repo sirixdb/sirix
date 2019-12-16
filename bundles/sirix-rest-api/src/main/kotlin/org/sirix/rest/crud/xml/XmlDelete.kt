@@ -63,7 +63,7 @@ class XmlDelete(private val location: Path) {
             return
         }
 
-        val sirixDBUser = SirixDBUser.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.create(ctx)
 
         val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 

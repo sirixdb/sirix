@@ -63,7 +63,7 @@ class JsonDelete(private val location: Path) {
             return
         }
 
-        val sirixDBUser = SirixDBUser.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.create(ctx)
 
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 

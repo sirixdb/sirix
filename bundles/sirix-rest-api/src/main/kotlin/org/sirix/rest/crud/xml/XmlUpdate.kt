@@ -72,7 +72,7 @@ class XmlUpdate(private val location: Path) {
 
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
 
-            val sirixDBUser = SirixDBUser.createSirixDBUser(ctx)
+            val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(dbPathName)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
