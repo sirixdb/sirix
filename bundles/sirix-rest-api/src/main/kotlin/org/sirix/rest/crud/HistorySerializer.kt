@@ -15,12 +15,13 @@ class HistorySerializer {
             ctx: RoutingContext,
             location: Path,
             databaseName: String,
-            resourceName: String,
-            type: DatabaseType
+            resourceName: String
     ) {
+        val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
+
         val database =
                 try {
-                    when (type) {
+                    when (databaseType) {
                         DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
                         DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
                     }

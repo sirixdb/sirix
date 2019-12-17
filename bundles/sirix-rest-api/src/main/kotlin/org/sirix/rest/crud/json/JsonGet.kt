@@ -139,7 +139,7 @@ class JsonGet(private val location: Path) {
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                HistorySerializer().getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
+                HistorySerializer().getHistory(ctx, location, dbName, resName)
             }
 
             return
