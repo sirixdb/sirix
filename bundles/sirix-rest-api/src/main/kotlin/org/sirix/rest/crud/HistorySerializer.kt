@@ -39,8 +39,8 @@ class HistorySerializer {
 
                 val buffer = StringBuilder()
 
-                val historyList = if (numberOfRevisions == null) {
-                    if (startRevision == null && endRevision == null) {
+                val historyList = if (numberOfRevisions.isEmpty()) {
+                    if (startRevision.isEmpty() && endRevision.isEmpty()) {
                         manager.getHistory()
                     } else {
                         val startRevisionAsInt = startRevision[0].toInt()
@@ -65,11 +65,11 @@ class HistorySerializer {
                             buffer.append(revisionTuple.revisionTimestamp)
                             buffer.append("\",")
 
-                            buffer.append("\"user\":\"")
+                            buffer.append("\"author\":\"")
                             buffer.append(revisionTuple.user.name)
                             buffer.append("\",")
 
-                            buffer.append("\"commitMessage\":")
+                            buffer.append("\"commitMessage\":\"")
                             buffer.append(revisionTuple.commitMessage.orElse(""))
                             buffer.append("\"}")
 
@@ -91,7 +91,7 @@ class HistorySerializer {
                             buffer.append(revisionTuple.revisionTimestamp)
                             buffer.append("\" ")
 
-                            buffer.append("user=\"")
+                            buffer.append("author=\"")
                             buffer.append(revisionTuple.user.name)
                             buffer.append("\" ")
 
