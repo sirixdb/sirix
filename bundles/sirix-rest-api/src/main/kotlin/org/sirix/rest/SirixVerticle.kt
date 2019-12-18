@@ -253,6 +253,12 @@ class SirixVerticle : CoroutineVerticle() {
         }.coroutineHandler {
             JsonGet(location).handle(it)
         }
+        get("/:database/:resource/:history").produces("application/json").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
+            it.next()
+        }.coroutineHandler {
+            JsonGet(location).handle(it)
+        }
 
         get("/:database").produces("application/xml").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
