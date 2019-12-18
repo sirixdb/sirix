@@ -37,6 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamException;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.CommitCredentials;
@@ -776,6 +777,15 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   private XmlNodeTrx insertSubtree(final XMLEventReader reader, final InsertPosition insertionPosition) {
     checkNotNull(reader);
     assert insertionPosition != null;
+
+    try {
+      if (insertionPosition != InsertPosition.AS_FIRST_CHILD) {
+        if (!reader.peek().isStartElement() && reader.hasNext())
+          reader.next();
+      }
+    } catch (XMLStreamException e) {
+      throw new IllegalArgumentException(e);
+    }
     acquireLock();
     try {
       if (getCurrentNode() instanceof StructNode) {
@@ -789,6 +799,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
         switch (insertionPosition) {
           case AS_FIRST_CHILD:
             moveToFirstChild();
+            nonElementHashes();
             break;
           case AS_RIGHT_SIBLING:
             moveToRightSibling();
@@ -819,6 +830,17 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       unLock();
     }
     return this;
+  }
+
+  private void nonElementHashes() {
+    while (getCurrentNode().getKind() != NodeKind.ELEMENT) {
+      BigInteger hashToAdd = getCurrentNode().computeHash();
+      Node node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
+          PageKind.RECORDPAGE, -1);
+      node.setHash(hashToAdd);
+
+      moveToRightSibling();
+    }
   }
 
   @Override
