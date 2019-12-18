@@ -7,27 +7,29 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.exception.SirixUsageException
+import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
 class HistorySerializer {
     fun getHistory(
-        ctx: RoutingContext,
-        location: Path,
-        databaseName: String,
-        resourceName: String,
-        type: DatabaseType
+            ctx: RoutingContext,
+            location: Path,
+            databaseName: String,
+            resourceName: String
     ) {
-        val database =
-            try {
-                when (type) {
-                    DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
-                    DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
-                }
+        val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 
-            } catch (e: SirixUsageException) {
-                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                return
-            }
+        val database =
+                try {
+                    when (databaseType) {
+                        DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
+                        DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
+                    }
+
+                } catch (e: SirixUsageException) {
+                    ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                    return
+                }
 
         database.use {
             val manager = database.openResourceManager(resourceName)
@@ -39,8 +41,8 @@ class HistorySerializer {
 
                 val buffer = StringBuilder()
 
-                val historyList = if (numberOfRevisions == null) {
-                    if (startRevision == null && endRevision == null) {
+                val historyList = if (numberOfRevisions.isEmpty()) {
+                    if (startRevision.isEmpty() && endRevision.isEmpty()) {
                         manager.getHistory()
                     } else {
                         val startRevisionAsInt = startRevision[0].toInt()
@@ -52,69 +54,38 @@ class HistorySerializer {
                     manager.getHistory(revisions)
                 }
 
-                when (type) {
-                    DatabaseType.JSON -> {
-                        buffer.append("{\"history\":[")
+                buffer.append("{\"history\":[")
 
-                        historyList.forEachIndexed { index, revisionTuple ->
-                            buffer.append("{\"revision\":")
-                            buffer.append(revisionTuple.revision)
-                            buffer.append(",")
+                historyList.forEachIndexed { index, revisionTuple ->
+                    buffer.append("{\"revision\":")
+                    buffer.append(revisionTuple.revision)
+                    buffer.append(",")
 
-                            buffer.append("\"revisionTimestamp\":\"")
-                            buffer.append(revisionTuple.revisionTimestamp)
-                            buffer.append("\",")
+                    buffer.append("\"revisionTimestamp\":\"")
+                    buffer.append(revisionTuple.revisionTimestamp)
+                    buffer.append("\",")
 
-                            buffer.append("\"user\":\"")
-                            buffer.append(revisionTuple.user.name)
-                            buffer.append("\",")
+                    buffer.append("\"author\":\"")
+                    buffer.append(revisionTuple.user.name)
+                    buffer.append("\",")
 
-                            buffer.append("\"commitMessage\":")
-                            buffer.append(revisionTuple.commitMessage.orElse(""))
-                            buffer.append("\"}")
+                    buffer.append("\"commitMessage\":\"")
+                    buffer.append(revisionTuple.commitMessage.orElse(""))
+                    buffer.append("\"}")
 
-                            if (index != historyList.size - 1)
-                                buffer.append(",")
-                        }
-
-                        buffer.append("]}")
-                    }
-                    DatabaseType.XML -> {
-                        buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
-
-                        historyList.forEach { revisionTuple ->
-                            buffer.append("<revision revisionNumber=\"")
-                            buffer.append(revisionTuple.revision)
-                            buffer.append("\" ")
-
-                            buffer.append("revisionTimestamp=\"")
-                            buffer.append(revisionTuple.revisionTimestamp)
-                            buffer.append("\" ")
-
-                            buffer.append("user=\"")
-                            buffer.append(revisionTuple.user.name)
-                            buffer.append("\" ")
-
-                            buffer.append("commitMessage=\"")
-                            buffer.append(revisionTuple.commitMessage.orElse(""))
-                            buffer.append("\"/>")
-                        }
-
-                        buffer.append("</rest:sequence>")
-                    }
+                    if (index != historyList.size - 1)
+                        buffer.append(",")
                 }
+
+                buffer.append("]}")
 
                 val content = buffer.toString()
-                val contentType = when (type) {
-                    DatabaseType.JSON -> "application/json"
-                    DatabaseType.XML -> "application/xml"
-                }
 
                 ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, contentType)
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
-                    .write(content)
-                    .end()
+                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                        .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                        .write(content)
+                        .end()
             }
         }
     }

@@ -103,16 +103,6 @@ class XmlGet(private val location: Path) {
         dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
         vertxContext: Context, user: User
     ) {
-        val history = ctx.pathParam("history")
-
-        if (history != null && dbName != null && resName != null) {
-            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                HistorySerializer().getHistory(ctx, location, dbName, resName, DatabaseType.XML)
-            }
-
-            return
-        }
-
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
