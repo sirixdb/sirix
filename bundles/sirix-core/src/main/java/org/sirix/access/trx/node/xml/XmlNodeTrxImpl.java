@@ -779,8 +779,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     assert insertionPosition != null;
 
     try {
-      if (insertionPosition != InsertPosition.AS_FIRST_CHILD) {
-        if (!reader.peek().isStartElement() && reader.hasNext())
+      if (insertionPosition != InsertPosition.AS_FIRST_CHILD && !reader.peek().isStartElement() && reader.hasNext())
           reader.next();
       }
     } catch (XMLStreamException e) {
