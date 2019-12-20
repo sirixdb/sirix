@@ -12,24 +12,24 @@ import java.nio.file.Path
 
 class HistorySerializer {
     fun getHistory(
-            ctx: RoutingContext,
-            location: Path,
-            databaseName: String,
-            resourceName: String
+        ctx: RoutingContext,
+        location: Path,
+        databaseName: String,
+        resourceName: String
     ) {
         val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 
         val database =
-                try {
-                    when (databaseType) {
-                        DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
-                        DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
-                    }
-
-                } catch (e: SirixUsageException) {
-                    ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-                    return
+            try {
+                when (databaseType) {
+                    DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))
+                    DatabaseType.XML -> Databases.openXmlDatabase(location.resolve(databaseName))
                 }
+
+            } catch (e: SirixUsageException) {
+                ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
+                return
+            }
 
         database.use {
             val manager = database.openResourceManager(resourceName)
@@ -82,10 +82,10 @@ class HistorySerializer {
                 val content = buffer.toString()
 
                 ctx.response().setStatusCode(200)
-                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                        .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                        .write(content)
-                        .end()
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                    .write(content)
+                    .end()
             }
         }
     }

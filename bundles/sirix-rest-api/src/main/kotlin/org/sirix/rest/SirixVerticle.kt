@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.Delete
+import org.sirix.rest.crud.Get
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -216,17 +217,11 @@ class SirixVerticle : CoroutineVerticle() {
             }
 
         // Get.
-        get("/").produces("application/xml").coroutineHandler {
+        get("/").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlGet(location).handle(it)
-        }
-        get("/").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonGet(location).handle(it)
+            Get(location).handle(it)
         }
 
         head("/:database/:resource").produces("application/xml").coroutineHandler {
@@ -235,106 +230,62 @@ class SirixVerticle : CoroutineVerticle() {
         }.coroutineHandler {
             XmlHead(location).handle(it)
         }
-        get("/:database/:resource").produces("application/xml").coroutineHandler {
+        get("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlGet(location).handle(it)
+            Get(location).handle(it)
         }
+
         head("/:database/:resource").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonHead(location).handle(it)
         }
-        get("/:database/:resource").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonGet(location).handle(it)
-        }
+
         get("/:database/:resource/:history").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonGet(location).handle(it)
+            Get(location).handle(it)
         }
 
-        get("/:database").produces("application/xml").coroutineHandler {
+        get("/:database").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlGet(location).handle(it)
-        }
-        get("/:database").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonGet(location).handle(it)
+            Get(location).handle(it)
         }
 
         post("/")
-            .consumes("application/xml")
-            .produces("application/xml")
             .coroutineHandler {
                 Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                XmlGet(location).handle(it)
-            }
-        post("/")
-            .consumes("application/json")
-            .produces("application/json")
-            .coroutineHandler {
-                Auth(keycloak, AuthRole.VIEW).handle(it)
-                it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
-                JsonGet(location).handle(it)
+                Get(location).handle(it)
             }
         post("/:database/:resource")
-            .consumes("application/xml")
-            .produces("application/xml")
             .coroutineHandler {
                 Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                XmlGet(location).handle(it)
-            }
-        post("/:database/:resource")
-            .consumes("application/json")
-            .produces("application/json")
-            .coroutineHandler {
-                Auth(keycloak, AuthRole.VIEW).handle(it)
-                it.next()
-            }.handler(BodyHandler.create()).coroutineHandler {
-                JsonGet(location).handle(it)
+                Get(location).handle(it)
             }
 
         // Delete.
-        delete("/:database/:resource").consumes("application/xml").coroutineHandler {
+        delete("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlDelete(location).handle(it)
-        }
-        delete("/:database/:resource").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonDelete(location).handle(it)
+            Delete(location).handle(it)
         }
 
-        delete("/:database").consumes("application/xml").coroutineHandler {
+        delete("/:database").coroutineHandler {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlDelete(location).handle(it)
-        }
-        delete("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonDelete(location).handle(it)
+            Delete(location).handle(it)
         }
         delete("/").coroutineHandler {
             Auth(keycloak, AuthRole.DELETE).handle(it)

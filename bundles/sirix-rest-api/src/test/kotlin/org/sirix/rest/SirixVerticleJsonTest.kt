@@ -70,6 +70,98 @@ class SirixVerticleJsonTest {
 
     @Test
     @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a resource")
+    fun testDeleteResource(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    accessToken = user.getString("access_token")
+
+                    val httpPutResponseJson =
+                        client.putAbs("$server/database/resource").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                            .sendBufferAwait(Buffer.buffer("{}"))
+
+                    testContext.verify {
+                        assertEquals(200, httpPutResponseJson.statusCode())
+                    }
+
+                    val httpDeleteResponseJson = client.deleteAbs("$server/database/resource").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendAwait()
+
+                    testContext.verify {
+                        assertEquals(200, httpDeleteResponseJson.statusCode())
+                    }
+
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the deletion of a database")
+    fun testDeleteDatabase(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                if (200 == response.statusCode()) {
+                    val user = response.bodyAsJsonObject()
+                    accessToken = user.getString("access_token")
+
+                    val httpPutResponseJson =
+                        client.putAbs("$server/database/resource").putHeader(
+                            HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                        ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                            .sendBufferAwait(Buffer.buffer("{}"))
+
+                    testContext.verify {
+                        assertEquals(200, httpPutResponseJson.statusCode())
+                    }
+
+                    val httpDeleteResponseJson = client.deleteAbs("$server/database").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                            .toString(), "Bearer $accessToken"
+                    ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .sendAwait()
+
+                    testContext.verify {
+                        assertEquals(200, httpDeleteResponseJson.statusCode())
+                    }
+
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the listing of databases")
     fun testListDatabases(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
