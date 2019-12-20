@@ -12,7 +12,6 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeReadOnlyTrx
@@ -28,11 +27,9 @@ import org.sirix.xquery.SirixQueryContext
 import org.sirix.xquery.json.*
 import java.io.StringWriter
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.util.stream.Collectors.toList
 
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
@@ -44,91 +41,9 @@ class JsonGet(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        if (dbName == null && resName == null) {
-            if (query == null || query.isEmpty()) {
-                listDatabases(ctx, context)
-            } else {
-                val startResultSeqIndex =
-                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
-                val endResultSeqIndex =
-                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
-
-                xquery(
-                    query,
-                    null,
-                    ctx,
-                    context,
-                    ctx.get("user") as User,
-                    startResultSeqIndex?.toLong(),
-                    endResultSeqIndex?.toLong()
-                )
-            }
-        } else {
-            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
-        }
+        get(dbName, ctx, resName, query, context, ctx.get("user") as User)
 
         return ctx.currentRoute()
-    }
-
-    private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Promise<Unit> ->
-            val databases = Files.list(location)
-
-            val buffer = StringBuilder()
-
-            buffer.append("{\"databases\":[")
-
-            databases.use {
-                val databasesList = it.collect(toList())
-                val databaseDirectories =
-                    databasesList.filter { database -> Files.isDirectory(database) }.toList()
-
-                for ((index, database) in databaseDirectories.withIndex()) {
-                    val databaseName = database.fileName
-                    val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
-                    buffer.append("{\"name\":\"${databaseName}\",\"type\":\"${databaseType}\"")
-
-                    val withResources = ctx.queryParam("withResources")
-                    if (withResources.isNotEmpty() && withResources[0]!!.toBoolean()) {
-                        emitResourcesOfDatabase(buffer, databaseName, ctx)
-                    }
-                    buffer.append("}")
-
-                    if (index != databaseDirectories.size - 1)
-                        buffer.append(",")
-                }
-            }
-
-            buffer.append("]}")
-
-            val content = buffer.toString()
-
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(content)
-                .end()
-        }
-    }
-
-    private fun emitResourcesOfDatabase(
-        buffer: StringBuilder,
-        databaseName: Path?,
-        ctx: RoutingContext
-    ) {
-        buffer.append(",")
-
-        try {
-            val database = Databases.openJsonDatabase(location.resolve(databaseName))
-
-            database.use {
-                buffer.append("\"resources\":[")
-                emitCommaSeparatedResourceString(it, buffer)
-                buffer.append("]")
-            }
-        } catch (e: SirixUsageException) {
-            ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
-        }
     }
 
     private suspend fun get(
@@ -164,30 +79,21 @@ class JsonGet(private val location: Path) {
 
         database.use {
             try {
-                if (resName == null) {
-                    val buffer = StringBuilder()
-                    buffer.append("{\"databases\":[")
+                val manager = database.openResourceManager(resName)
 
-                    emitCommaSeparatedResourceString(it, buffer)
-
-                    buffer.append("]}")
-                } else {
-                    val manager = database.openResourceManager(resName)
-
-                    manager.use {
-                        if (query != null && query.isNotEmpty()) {
-                            queryResource(
-                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                                vertxContext, user
+                manager.use {
+                    if (query != null && query.isNotEmpty()) {
+                        queryResource(
+                            dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                            vertxContext, user
+                        )
+                    } else {
+                        val revisions: Array<Int> =
+                            getRevisionsToSerialize(
+                                startRevision, endRevision, startRevisionTimestamp,
+                                endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
-                        } else {
-                            val revisions: Array<Int> =
-                                getRevisionsToSerialize(
-                                    startRevision, endRevision, startRevisionTimestamp,
-                                    endRevisionTimestamp, manager, revision, revisionTimestamp
-                                )
-                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                        }
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -195,19 +101,6 @@ class JsonGet(private val location: Path) {
                 return
             }
 
-        }
-    }
-
-    private fun emitCommaSeparatedResourceString(
-        it: Database<JsonResourceManager>,
-        buffer: StringBuilder
-    ) {
-        val resources = it.listResources()
-
-        for ((index, resource) in resources.withIndex()) {
-            buffer.append("\"${resource.fileName}\"")
-            if (index != resources.size - 1)
-                buffer.append(",")
         }
     }
 
@@ -288,7 +181,7 @@ class JsonGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(
+    suspend fun xquery(
         query: String, node: JsonDBItem?, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {

@@ -12,13 +12,11 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.crud.HistorySerializer
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -30,7 +28,6 @@ import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -45,58 +42,9 @@ class XmlGet(private val location: Path) {
             jsonBody?.getString("query")
         }
 
-        if (dbName == null && resName == null) {
-            if (query == null || query.isEmpty()) {
-                listDatabases(ctx, context)
-            } else {
-                val startResultSeqIndex =
-                    ctx.queryParam("startResultSeqIndex").getOrElse(0) { jsonBody?.getString("startResultSeqIndex") }
-                val endResultSeqIndex =
-                    ctx.queryParam("endResultSeqIndex").getOrElse(0) { jsonBody?.getString("endResultSeqIndex") }
-
-                xquery(
-                    query,
-                    null,
-                    ctx,
-                    context,
-                    ctx.get("user") as User,
-                    startResultSeqIndex?.toLong(),
-                    endResultSeqIndex?.toLong()
-                )
-            }
-        } else {
-            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
-        }
+        get(dbName, ctx, resName, query, context, ctx.get("user") as User)
 
         return ctx.currentRoute()
-    }
-
-    private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Promise<Unit> ->
-            val databases = Files.list(location)
-
-            val buffer = StringBuilder()
-
-            buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
-
-            databases.use {
-                databases.filter { Files.isDirectory(it) }.forEach { database ->
-                    val databaseName = database.fileName
-                    val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
-                    buffer.appendln("  <rest:item dbname=\"${databaseName}\" dbtype=\"${databaseType}\" />")
-                }
-            }
-
-            buffer.append("</rest:sequence>")
-
-            val content = buffer.toString()
-
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                .write(content)
-                .end()
-        }
     }
 
     private suspend fun get(
@@ -230,7 +178,7 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(
+    suspend fun xquery(
         query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {

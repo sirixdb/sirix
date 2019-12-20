@@ -81,7 +81,6 @@ class JsonDelete(private val location: Path) {
             ctx.response().setStatusCode(200).end()
     }
 
-
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {
             Databases.removeDatabase(dbFile)
