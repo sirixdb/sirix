@@ -1,53 +1,38 @@
 package org.sirix.rest.crud
 
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
-import org.sirix.access.Databases
+import org.sirix.api.xml.XmlResourceManager
+import org.sirix.rest.crud.xml.XmlSerializeHelper
 import org.sirix.service.xml.serialize.XmlSerializer
 import java.io.ByteArrayOutputStream
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
 class XmlLevelBasedSerializer {
     fun serialize(
         ctx: RoutingContext,
-        location: Path,
-        databaseName: String,
-        resourceName: String
+        manager: XmlResourceManager
     ) {
-        val database = Databases.openXmlDatabase(location.resolve(databaseName))
+        val revisionList = ctx.queryParam("revision")
+        val levelList = ctx.queryParam("maxLevel")
+        val nodeIdList = ctx.queryParam("nodeId")
 
-        database.use {
-            val manager = database.openResourceManager(resourceName)
+        val out = ByteArrayOutputStream()
 
-            manager.use {
-                val buffer = StringBuilder()
+        val serializerBuilder = XmlSerializer.newBuilder(manager, out)
 
-                val revisionList = ctx.queryParam("revision")
-                val levelList = ctx.queryParam("level")
-                val nodeIdList = ctx.queryParam("nodeId")
+        if (nodeIdList.isNotEmpty())
+            serializerBuilder.startNodeKey(nodeIdList[0].toLong())
+        if (revisionList.isNotEmpty())
+            serializerBuilder.revisions(intArrayOf(revisionList[0].toInt()))
+        if (levelList.isNotEmpty())
+            serializerBuilder.maxLevel(levelList[0].toLong())
 
+        val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
-                val out = ByteArrayOutputStream()
-
-                val serializerBuilder = XmlSerializer.newBuilder(manager, out)
-
-                if (nodeIdList.isNotEmpty())
-                    serializerBuilder.startNodeKey(nodeIdList[0].toLong())
-                if (revisionList.isNotEmpty())
-                    serializerBuilder.revisions(intArrayOf(revisionList[0].toInt()))
-//                if (levelList.isNotEmpty())
-//                    serializerBuilder.maxLevel(levelList[0].toLong())
-
-
-                val content = buffer.toString()
-
-                ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                    .write(content)
-                    .end()
-            }
+        val nodeId = nodeIdList.getOrElse(0) {
+            null
         }
+
+        XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId?.toLong())
     }
 }
