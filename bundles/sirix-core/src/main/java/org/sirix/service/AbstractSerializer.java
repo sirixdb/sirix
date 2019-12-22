@@ -31,10 +31,11 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
+import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
+import org.sirix.service.xml.serialize.XmlMaxLevelVisitor;
 import org.sirix.settings.Constants;
 
 /**
@@ -58,6 +59,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /** Root node key of subtree to shredder. */
   protected final long mNodeKey;
 
+  /** Optional visitor. */
+  protected final NodeVisitor mVisitor;
+
   /**
    * Constructor.
    *
@@ -65,8 +69,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceManager<R, W> resMgr, final @Nonnegative int revision,
-      final int... revisions) {
+  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor,
+      final @Nonnegative int revision, final int... revisions) {
+    mVisitor = visitor;
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -84,8 +89,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceManager<R, W> resMgr, final @Nonnegative long key,
+  public AbstractSerializer(final ResourceManager<R, W> resMgr, final NodeVisitor visitor, final @Nonnegative long key,
       final @Nonnegative int revision, final int... revisions) {
+    mVisitor = visitor;
     mStack = new ArrayDeque<>();
     mRevisions = revisions == null
         ? new int[1]
@@ -93,6 +99,30 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     initialize(revision, revisions);
     mResMgr = checkNotNull(resMgr);
     mNodeKey = key;
+  }
+
+  protected long maxLevel() {
+    if (mVisitor == null)
+      throw new UnsupportedOperationException();
+
+    if (mVisitor instanceof XmlMaxLevelVisitor) {
+      final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
+      return visitor.getMaxLevel();
+    }
+
+    throw new UnsupportedOperationException();
+  }
+
+  protected long currentLevel() {
+    if (mVisitor == null)
+      throw new UnsupportedOperationException();
+
+    if (mVisitor instanceof XmlMaxLevelVisitor) {
+      final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
+      return visitor.getCurrentLevel();
+    }
+
+    throw new UnsupportedOperationException();
   }
 
   /**
@@ -133,7 +163,18 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
         rtx.moveTo(mNodeKey);
 
-        final Axis descAxis = new DescendantAxis(rtx, IncludeSelf.YES);
+        final VisitorDescendantAxis.Builder builder = VisitorDescendantAxis.newBuilder(rtx).includeSelf();
+
+        if (mVisitor != null) {
+          builder.visitor(mVisitor);
+
+          if (mVisitor instanceof XmlMaxLevelVisitor) {
+            final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
+            visitor.setTrx((XmlNodeReadOnlyTrx) rtx);
+          }
+        }
+
+        final Axis descAxis = builder.build();
 
         // Setup primitives.
         boolean closeElements = false;
@@ -165,13 +206,15 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
           // Push end element to stack if we are a start element with
           // children.
-          if (!rtx.isDocumentRoot() && rtx.hasFirstChild()) {
+          if (!rtx.isDocumentRoot()
+              && (rtx.hasFirstChild() && (mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel())))) {
             mStack.push(rtx.getNodeKey());
           }
 
           // Remember to emit all pending end elements from stack if
           // required.
-          if (!rtx.hasFirstChild() && !rtx.hasRightSibling()) {
+          if ((!rtx.hasFirstChild() && (mVisitor == null || mVisitor != null && currentLevel() + 1 >= maxLevel()))
+              && !rtx.hasRightSibling()) {
             closeElements = true;
           }
         }

@@ -28,8 +28,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.settings.Constants;
@@ -62,7 +62,23 @@ public class XmlSerializerTest {
 
       System.out.println(out.toString(Constants.DEFAULT_ENCODING.toString()));
 
-      // assertEquals(DocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      // assertEquals(XmlDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+    }
+  }
+
+  @Test
+  public void testXMLSerializerWithMaxLevel() throws Exception {
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final XmlResourceManager manager = database.openResourceManager(XmlTestHelper.RESOURCE);
+        final XmlNodeTrx wtx = manager.beginNodeTrx();
+        final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      XmlDocumentCreator.create(wtx);
+      wtx.commit();
+
+      // Generate from this session.
+      final XmlSerializer serializer = new XmlSerializerBuilder(manager, out).emitXMLDeclaration().maxLevel(2).build();
+      serializer.call();
+      assertEquals(XmlDocumentCreator.PRUNED, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
   }
 
