@@ -18,7 +18,8 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
-import org.sirix.rest.crud.HistorySerializer
+import org.sirix.rest.crud.History
+import org.sirix.rest.crud.JsonLevelBasedSerializer
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
@@ -54,7 +55,17 @@ class JsonGet(private val location: Path) {
 
         if (history != null && dbName != null && resName != null) {
             vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                HistorySerializer().getHistory(ctx, location, dbName, resName)
+                History().serialize(ctx, location, dbName, resName)
+            }
+
+            return
+        }
+
+        val level = ctx.queryParam("filterLevel")
+
+        if (level.isNotEmpty() && dbName != null && resName != null) {
+            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
+                JsonLevelBasedSerializer().serialize(ctx, location, dbName, resName)
             }
 
             return

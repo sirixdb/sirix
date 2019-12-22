@@ -122,7 +122,9 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   private XmlSerializer(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
       final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
-    super(resourceMgr, nodeKey, revision, revsions);
+    super(resourceMgr, builder.mMaxLevel == -1
+        ? null
+        : new XmlMaxLevelVisitor(builder.mMaxLevel), nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
     mSerializeXMLDeclaration = builder.mDeclaration;
@@ -208,7 +210,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
             mOut.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
-          if (rtx.hasFirstChild()) {
+          if (rtx.hasFirstChild() && (mVisitor == null || currentLevel() + 1 < maxLevel())) {
             mOut.write(CharsForSerializing.CLOSE.getBytes());
           } else {
             mOut.write(CharsForSerializing.SLASH_CLOSE.getBytes());
@@ -577,6 +579,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     private boolean mMetaData;
 
+    private long mMaxLevel;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -586,6 +590,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
+      mMaxLevel = -1;
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
@@ -611,7 +616,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
-      checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+      checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+      mMaxLevel = -1;
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
       mStream = checkNotNull(stream);
@@ -730,6 +736,17 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder emitMetaData() {
       mMetaData = true;
+      return this;
+    }
+
+    /**
+     * The maximum level.
+     *
+     * @param maxLevel the maximum level
+     * @return this {@link XmlSerializerBuilder} instance
+     */
+    public XmlSerializerBuilder maxLevel(final long maxLevel) {
+      mMaxLevel = maxLevel;
       return this;
     }
 

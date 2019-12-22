@@ -158,7 +158,9 @@ public final class VisitorDescendantAxis extends AbstractAxis {
         throw new AssertionError();
     }
 
-    // If visitor is present and the return value is EVisitResult.TERMINATE than
+    resetToLastKey();
+
+    // If visitor is present and the return value is VisitResult.TERMINATE than
     // return false.
     if (VisitResultType.TERMINATE == result) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -174,13 +176,13 @@ public final class VisitorDescendantAxis extends AbstractAxis {
           : cursor.getFirstChildKey();
     }
 
-    // If visitor is present and the the righ sibling stack must be adapted.
+    // If visitor is present and the the right sibling stack must be adapted.
     if (LocalVisitResult.SKIPSUBTREEPOPSTACK == result) {
       mRightSiblingKeyStack.pop();
     }
 
     // If visitor is present and result is not
-    // EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
+    // VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK or visitor is
     // not present.
     if ((result != null && result != VisitResultType.SKIPSUBTREE && result != LocalVisitResult.SKIPSUBTREEPOPSTACK)
         || result == null) {
@@ -196,7 +198,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       }
     }
 
-    // If visitor is present and result is not EVisitResult.SKIPSIBLINGS or
+    // If visitor is present and result is not VisitResult.SKIPSIBLINGS or
     // visitor is not present.
     if ((result != null && result != VisitResultType.SKIPSIBLINGS) || result == null) {
       // Then follow right sibling if there is one.

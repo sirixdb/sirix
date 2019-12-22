@@ -96,7 +96,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    */
   private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Builder builder,
       final boolean initialIndent, final @Nonnegative int revision, final int... revsions) {
-    super(resourceMgr, nodeKey, revision, revsions);
+    super(resourceMgr, null, nodeKey, revision, revsions);
     mOut = builder.mStream;
     mIndent = builder.mIndent;
     mIndentSpaces = builder.mIndentSpaces;
@@ -449,7 +449,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /** Determines if a timestamp should be serialized or not. */
     private boolean mSerializeTimestamp;
 
+    /** Determines if SirixDB meta data should be serialized for JSON object key nodes or not. */
     private boolean mWithMetaData;
+
+    /** Determines the maximum level to up to which to skip subtrees from serialization. */
+    private long mMaxLevel;
 
     /**
      * Constructor, setting the necessary stuff.
@@ -459,6 +463,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * @param revisions revisions to serialize
      */
     public Builder(final JsonResourceManager resourceMgr, final Appendable stream, final int... revisions) {
+      mMaxLevel = -1;
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
@@ -510,6 +515,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      */
     public Builder startNodeKey(final long nodeKey) {
       mNodeKey = nodeKey;
+      return this;
+    }
+
+    /**
+     * Specify the maximum level.
+     *
+     * @param maxLevel the maximum level until which to serialize
+     * @return this XMLSerializerBuilder reference
+     */
+    public Builder maxLevel(final long maxLevel) {
+      mMaxLevel = maxLevel;
       return this;
     }
 

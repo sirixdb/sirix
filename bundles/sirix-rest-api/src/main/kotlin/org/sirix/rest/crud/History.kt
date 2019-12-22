@@ -10,8 +10,8 @@ import org.sirix.exception.SirixUsageException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class HistorySerializer {
-    fun getHistory(
+class History {
+    fun serialize(
         ctx: RoutingContext,
         location: Path,
         databaseName: String,

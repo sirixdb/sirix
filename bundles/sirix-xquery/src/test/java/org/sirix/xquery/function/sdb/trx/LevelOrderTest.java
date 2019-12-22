@@ -45,10 +45,12 @@ public final class LevelOrderTest extends TestCase {
       final String loadQuery = "jn:load('mycol.jn','mydoc.jn','" + str + "')";
       new XQuery(chain, loadQuery).evaluate(ctx);
 
-      final String levelOrderQuery = "sdb:level-order(jn:doc('mycol.jn','mydoc.jn'))";
+      final String levelOrderQuery = "sdb:level-order(jn:doc('mycol.jn','mydoc.jn'),1)";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new XQuery(chain, levelOrderQuery).serialize(ctx, printWriter);
+
+        System.out.println(out.toString());
       }
     }
   }

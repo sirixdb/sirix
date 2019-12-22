@@ -24,11 +24,8 @@ package org.sirix.utils;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-
 import java.io.IOException;
-
 import javax.xml.stream.XMLStreamException;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.Database;
@@ -97,6 +94,10 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * </p>
  */
 public final class XmlDocumentCreator {
+
+  /** String representation of pruned xml file (only two levels). */
+  public static final String PRUNED =
+      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:a xmlns:p=\"ns\" i=\"j\">oops1<b/>oops2<b p:x=\"y\"/>oops3</p:a>";
 
   /** String representation of revisioned xml file. */
   public static final String REVXML =
