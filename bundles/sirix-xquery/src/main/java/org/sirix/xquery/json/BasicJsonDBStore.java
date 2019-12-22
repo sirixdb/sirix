@@ -383,16 +383,17 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        Databases.removeDatabase(dbPath);
         try (final var database = Databases.openJsonDatabase(dbConfig.getFile())) {
           mDatabases.remove(database);
           mCollections.remove(database);
         }
+        Databases.removeDatabase(dbPath);
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }
+    } else {
+      throw new DocumentException("No collection with the specified name found!");
     }
-    throw new DocumentException("No collection with the specified name found!");
   }
 
   @Override

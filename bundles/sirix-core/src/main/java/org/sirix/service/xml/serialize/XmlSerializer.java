@@ -107,6 +107,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   private final boolean mSerializeTimestamp;
 
+  private final boolean mMetaData;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -131,6 +133,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
     mSerializeTimestamp = builder.mSerializeTimestamp;
+    mMetaData = builder.mMetaData;
   }
 
   /**
@@ -168,7 +171,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           }
           // Emit attributes.
           // Add virtual rest:id attribute.
-          if (mSerializeId) {
+          if (mSerializeId || mMetaData) {
+            if (mSerializeRest) {
+              mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
+            } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
+              mOut.write(CharsForSerializing.SID_PREFIX.getBytes());
+            } else {
+              mOut.write(CharsForSerializing.SPACE.getBytes());
+            }
+            mOut.write(CharsForSerializing.ID.getBytes());
+            mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+            write(rtx.getNodeKey());
+            mOut.write(CharsForSerializing.QUOTE.getBytes());
+          }
+          if (mMetaData) {
             if (mSerializeRest) {
               mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
             } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
@@ -559,6 +575,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     private boolean mSerializeTimestamp;
 
+    private boolean mMetaData;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -696,12 +714,22 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
 
     /**
-     * Emit the unique nodeKeys / IDs of nodes.
+     * Emit the unique nodeKeys / IDs of element-nodes.
      *
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitIDs() {
       mID = true;
+      return this;
+    }
+
+    /**
+     * Emit metadata of element-nodes.
+     *
+     * @return this {@link XmlSerializerBuilder} instance
+     */
+    public XmlSerializerBuilder emitMetaData() {
+      mMetaData = true;
       return this;
     }
 

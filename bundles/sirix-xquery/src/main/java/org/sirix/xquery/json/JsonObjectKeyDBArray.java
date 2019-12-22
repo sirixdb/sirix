@@ -17,6 +17,7 @@ import org.brackit.xquery.xdm.type.ItemType;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
@@ -35,7 +36,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
 public final class JsonObjectKeyDBArray extends AbstractItem
-    implements TemporalJsonItem<JsonObjectKeyDBArray>, Array, StructuredDBItem<JsonNodeReadOnlyTrx> {
+    implements TemporalJsonItem<JsonObjectKeyDBArray>, Array, StructuredDBItem<JsonNodeReadOnlyTrx>, JsonDBItem {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonObjectKeyDBArray.class));
@@ -90,6 +91,7 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     mRtx.moveTo(mNodeKey);
   }
 
+  @Override
   public JsonDBCollection getCollection() {
     return mCollection;
   }
@@ -347,5 +349,10 @@ public final class JsonObjectKeyDBArray extends AbstractItem
     moveRtx();
 
     return new JsonDBArraySlice(mRtx, mCollection, from.intValue(), to.intValue());
+  }
+
+  @Override
+  public JsonResourceManager getResourceManager() {
+    return mRtx.getResourceManager();
   }
 }
