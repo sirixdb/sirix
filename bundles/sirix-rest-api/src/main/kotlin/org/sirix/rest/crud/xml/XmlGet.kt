@@ -18,6 +18,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.QuerySerializer
+import org.sirix.rest.crud.XmlLevelBasedSerializer
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -70,30 +71,24 @@ class XmlGet(private val location: Path) {
 
         database.use {
             try {
-                if (resName == null) {
-                    val buffer = StringBuilder()
-                    buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+                val manager = database.openResourceManager(resName)
 
-                    for (resource in it.listResources()) {
-                        buffer.appendln("  <rest:item resource-name=\"${resource.fileName}\"/>")
-                    }
-
-                    buffer.appendln("</rest:sequence>")
-                } else {
-                    val manager = database.openResourceManager(resName)
-
-                    manager.use {
-                        if (query != null && query.isNotEmpty()) {
-                            queryResource(
-                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                                vertxContext, user
+                manager.use {
+                    if (query != null && query.isNotEmpty()) {
+                        queryResource(
+                            dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                            vertxContext, user
+                        )
+                    } else {
+                        val revisions: Array<Int> =
+                            getRevisionsToSerialize(
+                                startRevision, endRevision, startRevisionTimestamp,
+                                endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
+
+                        if (ctx.queryParam("maxLevel").isNotEmpty()) {
+                            XmlLevelBasedSerializer().serialize(ctx, manager)
                         } else {
-                            val revisions: Array<Int> =
-                                getRevisionsToSerialize(
-                                    startRevision, endRevision, startRevisionTimestamp,
-                                    endRevisionTimestamp, manager, revision, revisionTimestamp
-                                )
                             serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                         }
                     }

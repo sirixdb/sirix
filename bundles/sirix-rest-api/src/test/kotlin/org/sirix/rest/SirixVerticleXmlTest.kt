@@ -913,6 +913,110 @@ class SirixVerticleXmlTest {
         }
     }
 
+    @Test
+    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing serialization up to a specific level")
+    fun testSerialize(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <p:a xmlns:p="ns" rest:id="1" i="j">
+                          oops1
+                          <b rest:id="5">
+                            foo
+                            <c rest:id="7"/>
+                          </b>
+                          oops2
+                          <b rest:id="9" p:x="y">
+                            <c rest:id="11"/>
+                            bar
+                          </b>
+                          oops3
+                        </p:a>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                val xml = """
+                    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                    <p:a xmlns:p="ns" i="j">
+                      oops1
+                      <b>
+                        foo
+                        <c/>
+                      </b>
+                      oops2
+                      <b p:x="y">
+                        <c/>
+                        bar
+                      </b>
+                      oops3
+                    </p:a>
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendBufferAwait(Buffer.buffer(xml))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                }
+
+                val expectQueryResult = """
+                    <rest:sequence xmlns:rest="https://sirix.io/rest">
+                      <rest:item>
+                        <p:a xmlns:p="ns" rest:id="1" i="j">
+                          oops1
+                          <b rest:id="5"/>
+                          oops2
+                          <b rest:id="9" p:x="y"/>
+                          oops3
+                        </p:a>
+                      </rest:item>
+                    </rest:sequence>
+                    """.trimIndent()
+
+                httpResponse = client.getAbs("$server$serverPath?maxLevel=2").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/xml").sendAwait()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectQueryResult.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
     private suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
         launch(coroutineContext) {
             try {
