@@ -20,6 +20,8 @@ public final class JsonUtil {
         return new JsonDBArray(rtx, collection);
       case OBJECT:
         return new JsonDBObject(rtx, collection);
+      case OBJECT_KEY:
+        return new AtomicJsonDBItem(rtx, collection, rtx.getName());
       case STRING_VALUE:
         return new AtomicJsonDBItem(rtx, collection, new Str(rtx.getValue()));
       case BOOLEAN_VALUE:

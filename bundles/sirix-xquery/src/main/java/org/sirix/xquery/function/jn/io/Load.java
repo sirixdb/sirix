@@ -146,7 +146,7 @@ public final class Load extends AbstractFunction {
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) resources).stringValue())))) {
         return store.create(collName, resName, reader);
       } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to inser subtree: " + e.getMessage()));
+        throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence) {
       final FunctionConversionSequence seq = (FunctionConversionSequence) resources;
