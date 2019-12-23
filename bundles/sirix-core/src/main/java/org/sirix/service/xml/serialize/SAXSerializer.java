@@ -238,6 +238,16 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
   }
 
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
+    return true;
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
+    return false;
+  }
+
   /**
    * Main method.
    *
