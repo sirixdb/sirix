@@ -31,10 +31,12 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
+import org.sirix.service.json.serialize.JsonMaxLevelVisitor;
 import org.sirix.service.xml.serialize.XmlMaxLevelVisitor;
 import org.sirix.settings.Constants;
 
@@ -108,6 +110,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     if (mVisitor instanceof XmlMaxLevelVisitor) {
       final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
       return visitor.getMaxLevel();
+    } else if (mVisitor instanceof JsonMaxLevelVisitor) {
+      final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
+      return visitor.getMaxLevel();
     }
 
     throw new UnsupportedOperationException();
@@ -119,6 +124,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
     if (mVisitor instanceof XmlMaxLevelVisitor) {
       final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
+      return visitor.getCurrentLevel();
+    } else if (mVisitor instanceof JsonMaxLevelVisitor) {
+      final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
       return visitor.getCurrentLevel();
     }
 
@@ -171,6 +179,9 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           if (mVisitor instanceof XmlMaxLevelVisitor) {
             final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
             visitor.setTrx((XmlNodeReadOnlyTrx) rtx);
+          } else if (mVisitor instanceof JsonMaxLevelVisitor) {
+            final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
+            visitor.setTrx((JsonNodeReadOnlyTrx) rtx);
           }
         }
 
@@ -206,15 +217,13 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
           // Push end element to stack if we are a start element with
           // children.
-          if (!rtx.isDocumentRoot()
-              && (rtx.hasFirstChild() && (mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel())))) {
+          if (!rtx.isDocumentRoot() && (rtx.hasFirstChild() && isSubtreeGoingToBeVisited(rtx))) {
             mStack.push(rtx.getNodeKey());
           }
 
           // Remember to emit all pending end elements from stack if
           // required.
-          if ((!rtx.hasFirstChild() && (mVisitor == null || mVisitor != null && currentLevel() + 1 >= maxLevel()))
-              && !rtx.hasRightSibling()) {
+          if ((!rtx.hasFirstChild() || isSubtreeGoingToBePruned(rtx)) && !rtx.hasRightSibling()) {
             closeElements = true;
           }
         }
@@ -233,6 +242,10 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
     return null;
   }
+
+  protected abstract boolean isSubtreeGoingToBePruned(R rtx);
+
+  protected abstract boolean isSubtreeGoingToBeVisited(R rtx);
 
   /**
    * Emit start document.

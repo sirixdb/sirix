@@ -421,6 +421,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
   }
 
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
+    return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
+    if (mVisitor == null) {
+      return false;
+    } else {
+      return currentLevel() + 1 >= maxLevel();
+    }
+  }
+
   /**
    * Indentation of output.
    *

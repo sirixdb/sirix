@@ -96,7 +96,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    */
   private JsonSerializer(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Builder builder,
       final boolean initialIndent, final @Nonnegative int revision, final int... revsions) {
-    super(resourceMgr, null, nodeKey, revision, revsions);
+    super(resourceMgr, builder.mMaxLevel == -1
+        ? null
+        : new JsonMaxLevelVisitor(builder.mMaxLevel), nodeKey, revision, revsions);
     mOut = builder.mStream;
     mIndent = builder.mIndent;
     mIndentSpaces = builder.mIndentSpaces;
@@ -121,7 +123,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           // Emit start element.
           indent();
           mOut.append("{");
-          if (!rtx.hasFirstChild()) {
+          if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("}");
             if (rtx.hasRightSibling())
               mOut.append(",");
@@ -129,7 +131,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case ARRAY:
           mOut.append("[");
-          if (!rtx.hasFirstChild()) {
+          if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("]");
             if (rtx.hasRightSibling())
               mOut.append(",");
@@ -177,6 +179,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
+    }
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final JsonNodeReadOnlyTrx rtx) {
+    if (rtx.isObjectKey())
+      return true;
+    return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBePruned(final JsonNodeReadOnlyTrx rtx) {
+    if (rtx.isObjectKey())
+      return false;
+    if (mVisitor == null) {
+      return false;
+    } else {
+      return currentLevel() + 1 >= maxLevel();
     }
   }
 
@@ -490,6 +510,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     public Builder(final JsonResourceManager resourceMgr, final @Nonnegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+      mMaxLevel = -1;
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
       mStream = checkNotNull(stream);

@@ -39,7 +39,6 @@ public final class JsonSerializerTest {
         final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
-      System.out.println(writer.toString());
       assertEquals(JsonDocumentCreator.JSON, writer.toString());
     }
   }
@@ -58,7 +57,6 @@ public final class JsonSerializerTest {
 
       final var serializer = new JsonSerializer.Builder(manager, writer, 1, 2).build();
       serializer.call();
-      System.out.println(writer.toString());
       assertEquals(mJson, writer.toString());
     }
   }
@@ -72,8 +70,49 @@ public final class JsonSerializerTest {
         final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).build();
       serializer.call();
-      System.out.println(writer.toString());
       assertEquals(mJsonWithMetaData, writer.toString());
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMaxLevel() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE)) {
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(1).build();
+        serializer.call();
+
+        final var expected = "{}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(2).build();
+        serializer.call();
+
+        final var expected = "{\"foo\":[],\"bar\":{},\"baz\":\"hello\",\"tada\":[]}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(3).build();
+        serializer.call();
+
+        final var expected =
+            "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{},{},\"boo\",{},[]]}";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(4).build();
+        serializer.call();
+
+        final var expected =
+            "{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
+        assertEquals(expected, writer.toString());
+      }
     }
   }
 }
