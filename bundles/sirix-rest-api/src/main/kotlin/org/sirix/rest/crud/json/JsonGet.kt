@@ -21,6 +21,7 @@ import org.sirix.node.NodeKind
 import org.sirix.rest.crud.History
 import org.sirix.rest.crud.JsonLevelBasedSerializer
 import org.sirix.rest.crud.QuerySerializer
+import org.sirix.rest.crud.XmlLevelBasedSerializer
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -61,16 +62,6 @@ class JsonGet(private val location: Path) {
             return
         }
 
-        val level = ctx.queryParam("filterLevel")
-
-        if (level.isNotEmpty() && dbName != null && resName != null) {
-            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                JsonLevelBasedSerializer().serialize(ctx, location, dbName, resName)
-            }
-
-            return
-        }
-
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
@@ -104,7 +95,11 @@ class JsonGet(private val location: Path) {
                                 startRevision, endRevision, startRevisionTimestamp,
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
-                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        if (ctx.queryParam("maxLevel").isNotEmpty()) {
+                            JsonLevelBasedSerializer().serialize(ctx, manager)
+                        } else {
+                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
+                        }
                     }
                 }
             } catch (e: SirixUsageException) {

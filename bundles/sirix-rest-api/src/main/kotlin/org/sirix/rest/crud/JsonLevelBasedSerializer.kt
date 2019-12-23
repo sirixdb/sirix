@@ -1,47 +1,37 @@
 package org.sirix.rest.crud
 
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
-import org.sirix.access.Databases
-import java.nio.charset.StandardCharsets
-import java.nio.file.Path
+import org.sirix.api.json.JsonResourceManager
+import org.sirix.rest.crud.json.JsonSerializeHelper
+import org.sirix.service.json.serialize.JsonSerializer
+import java.io.StringWriter
 
 class JsonLevelBasedSerializer {
     fun serialize(
         ctx: RoutingContext,
-        location: Path,
-        databaseName: String,
-        resourceName: String
+        manager: JsonResourceManager
     ) {
-        val database = Databases.openJsonDatabase(location.resolve(databaseName))
+        val revisionList = ctx.queryParam("revision")
+        val levelList = ctx.queryParam("maxLevel")
+        val nodeIdList = ctx.queryParam("nodeId")
 
-        database.use {
-            val manager = database.openResourceManager(resourceName)
+        val out = StringWriter()
 
-            manager.use {
-                val buffer = StringBuilder()
+        val serializerBuilder = JsonSerializer.newBuilder(manager, out)
 
-                val revisionList = ctx.queryParam("revision")
-                val levelList = ctx.queryParam("level")
+        if (nodeIdList.isNotEmpty())
+            serializerBuilder.startNodeKey(nodeIdList[0].toLong())
+        if (revisionList.isNotEmpty())
+            serializerBuilder.revisions(intArrayOf(revisionList[0].toInt()))
+        if (levelList.isNotEmpty())
+            serializerBuilder.maxLevel(levelList[0].toLong())
 
-                val rtx =
-                    if (revisionList.isNotEmpty()) {
-                        manager.beginNodeReadOnlyTrx(revisionList[0].toInt())
-                    } else {
-                        manager.beginNodeReadOnlyTrx()
-                    }
+        val serializer = serializerBuilder.build()
 
-                val level = if (levelList.isNotEmpty()) levelList[0].toInt() else Integer.MAX_VALUE
-
-
-                val content = buffer.toString()
-
-                ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                    .write(content)
-                    .end()
-            }
+        val nodeId = nodeIdList.getOrElse(0) {
+            null
         }
+
+        JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId?.toLong())
     }
 }
