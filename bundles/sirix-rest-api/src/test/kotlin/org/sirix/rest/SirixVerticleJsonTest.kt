@@ -821,6 +821,71 @@ class SirixVerticleJsonTest {
         }
     }
 
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing serialization up to a specific level")
+    fun testSerialize(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectString = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+
+                val json = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendBufferAwait(Buffer.buffer(json))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectString.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                }
+
+                val expectQueryResult = """
+                    {"foo":[],"bar":{},"baz":"hello","tada":[]}
+                    """.trimIndent()
+
+                httpResponse = client.getAbs("$server$serverPath?maxLevel=2").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    assertEquals(
+                        expectQueryResult.replace("\n", System.getProperty("line.separator")),
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
     private suspend fun VertxTestContext.verifyCoroutine(block: suspend () -> Unit) = coroutineScope {
         launch(coroutineContext) {
             try {
