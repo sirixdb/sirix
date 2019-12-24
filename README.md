@@ -68,7 +68,7 @@ Some of the most important core principles and design goals are:
   <dt>Asynchronous</dt>
   <dd>Operations can happen independently; each transaction is bound to a specific revision and only one read/write-transaction on a resource is permitted concurrently to N read-only-transactions</dd>
   <dt>Versioning/Revision history</dt>
-  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead</dd>
+  <dd>SirixDB stores a revision history of every resource in the database without imposing extra overhead. It uses a huge persistent, durable page-tree for indexing revisions and data</dd>
   <dt>Data integrity</dt>
   <dd>SirixDB, like ZFS, stores full checksums of the pages in the parent pages. That means that almost all data corruption can be detected upon reading in the future, we aim to partition and replicate databases in the future</dd>
   <dt>Copy-on-write semantics</dt>
