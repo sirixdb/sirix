@@ -1,7 +1,6 @@
 package org.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
@@ -10,7 +9,7 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonNodeTrx
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
@@ -62,7 +61,7 @@ class JsonUpdate(private val location: Path) {
         val vertxContext = ctx.vertx().orCreateContext
 
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
-            val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+            val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(dbPathName)
             val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 

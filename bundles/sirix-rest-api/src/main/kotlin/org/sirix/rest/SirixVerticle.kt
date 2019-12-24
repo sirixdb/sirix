@@ -1,11 +1,15 @@
 package org.sirix.rest
 
 import io.netty.handler.codec.http.HttpResponseStatus
+import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServerResponse
+import io.vertx.core.json.DecodeException
 import io.vertx.core.json.JsonObject
 import io.vertx.core.net.PemKeyCertOptions
+import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.auth.oauth2.OAuth2FlowType
+import io.vertx.ext.auth.oauth2.impl.OAuth2TokenImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -17,12 +21,15 @@ import io.vertx.kotlin.core.http.listenAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.dispatcher
 import io.vertx.kotlin.ext.auth.authenticateAwait
+import io.vertx.kotlin.ext.auth.oauth2.logoutAwait
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2ClientOptionsOf
 import io.vertx.kotlin.ext.auth.oauth2.providers.KeycloakAuth
+import io.vertx.kotlin.ext.auth.oauth2.refreshAwait
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import org.sirix.rest.crud.CreateMultipleResources
 import org.sirix.rest.crud.Delete
+import org.sirix.rest.crud.Get
 import org.sirix.rest.crud.json.*
 import org.sirix.rest.crud.xml.*
 import java.nio.file.Paths
@@ -62,8 +69,8 @@ class SirixVerticle : CoroutineVerticle() {
             .setSite(config.getString("keycloak.url"))
             .setClientID("sirix")
             .setClientSecret(config.getString("client.secret"))
-            .setTokenPath(config.getString("token.path", "/token"))
-            .setAuthorizationPath(config.getString("auth.path", "/user/authorize"))
+            .setTokenPath(config.getString("token.path"))
+            .setAuthorizationPath(config.getString("auth.path"))
 
         val keycloak = KeycloakAuth.discoverAwait(
             vertx, oauth2Config
@@ -77,6 +84,7 @@ class SirixVerticle : CoroutineVerticle() {
             allowedHeaders.add("Content-Type")
             allowedHeaders.add("accept")
             allowedHeaders.add("X-PINGARUNER")
+            allowedHeaders.add("Authorization")
 
             val allowedMethods = HashSet<HttpMethod>()
             allowedMethods.add(HttpMethod.GET)
@@ -87,17 +95,30 @@ class SirixVerticle : CoroutineVerticle() {
             allowedMethods.add(HttpMethod.PATCH)
             allowedMethods.add(HttpMethod.PUT)
 
-            this.route().handler(CorsHandler.create("*").allowedHeaders(allowedHeaders).allowedMethods(allowedMethods))
+            this.route().handler(
+                CorsHandler.create(
+                    config.getString(
+                        "cors.allowedOriginPattern",
+                        "*"
+                    )
+                ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
+                    config.getBoolean("cors.allowCredentials", false)
+                )
+            )
         }
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
                 rc.response().statusCode = HttpStatus.SC_BAD_REQUEST
             } else {
+                val redirectUri =
+                    rc.queryParam("redirect_uri").getOrElse(0) { config.getString("redirect.uri") }
+                val state = rc.queryParam("state").getOrElse(0) { UUID.randomUUID().toString() }
+
                 val authorizationUri = keycloak.authorizeURL(
                     JsonObject()
-                        .put("redirect_uri", config.getString("redirect.uri"))
-                        .put("state", java.util.UUID.randomUUID().toString())
+                        .put("redirect_uri", redirectUri)
+                        .put("state", state)
                 )
                 rc.response().putHeader("Location", authorizationUri)
                     .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
@@ -106,9 +127,38 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         post("/token").handler(BodyHandler.create()).coroutineHandler { rc ->
-            val userJson = rc.bodyAsJson
-            val user = keycloak.authenticateAwait(userJson)
-            rc.response().end(user.principal().toString())
+            try {
+                val dataToAuthenticate: JsonObject =
+                    when (rc.request().getHeader(HttpHeaders.CONTENT_TYPE)) {
+                        "application/json" -> rc.bodyAsJson
+                        "application/x-www-form-urlencoded" -> formToJson(rc)
+                        else -> rc.bodyAsJson
+                    }
+
+                when {
+                    dataToAuthenticate.containsKey("refresh_token") -> refreshToken(keycloak, dataToAuthenticate, rc)
+                    rc.queryParam("refresh_token") != null && rc.queryParam("refresh_token").isNotEmpty() -> {
+                        val json = JsonObject()
+                            .put("refresh_token", rc.queryParam("refresh_token"))
+                        refreshToken(keycloak, json, rc)
+                    }
+                    else -> getToken(keycloak, dataToAuthenticate, rc)
+                }
+            } catch (e: DecodeException) {
+                rc.fail(
+                    HttpStatusException(
+                        HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
+                        "\"application/json\" and \"application/x-www-form-urlencoded\" are supported Content-Types." +
+                                "If none is specified it's tried to parse as JSON"
+                    )
+                )
+            }
+        }
+
+        post("/logout").handler(BodyHandler.create()).coroutineHandler { rc ->
+            val token = OAuth2TokenImpl(keycloak, rc.bodyAsJson)
+            token.logoutAwait()
+            rc.response().end()
         }
 
         // Create Databases
@@ -131,18 +181,12 @@ class SirixVerticle : CoroutineVerticle() {
                 JsonGet(location).handle(it)
             }
 
-        // Read Databases
-        get("/").produces("application/xml").coroutineHandler {
+        // Get.
+        get("/").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlGet(location).handle(it)
-        }
-        get("/").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonGet(location).handle(it)
+            Get(location).handle(it)
         }
 
         // Delete Databases
@@ -152,117 +196,62 @@ class SirixVerticle : CoroutineVerticle() {
         }.coroutineHandler {
             Delete(location).handle(it)
         }
-
-        // Create Database
-        post("/:database").consumes("multipart/form-data").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
+        get("/:database/:resource").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            CreateMultipleResources(location).handle(it)
+        }.coroutineHandler {
+            Get(location).handle(it)
         }
 
-        // Read Database
-        get("/:database").produces("application/xml").coroutineHandler {
+        head("/:database/:resource").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlGet(location).handle(it)
         }
-        get("/:database").produces("application/json").coroutineHandler {
+
+        get("/:database/:resource/:history").produces("application/json").coroutineHandler {
             Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonGet(location).handle(it)
+            Get(location).handle(it)
         }
 
-        // Update Database
-        put("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, false).handle(it)
-        }
-        put("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            JsonCreate(location, false).handle(it)
-        }
-
-        // Delete Database
-        delete("/:database").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
+        get("/:database").coroutineHandler {
+            Auth(keycloak, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlDelete(location).handle(it)
-        }
-        delete("/:database").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.DELETE).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonDelete(location).handle(it)
+            Get(location).handle(it)
         }
 
-        // Create Resource
-        post("/:database/:resource")
-            .consumes("application/xml")
-            .produces("application/xml")
+        post("/")
             .coroutineHandler {
                 Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                XmlGet(location).handle(it)
+                Get(location).handle(it)
             }
         post("/:database/:resource")
-            .consumes("application/json")
-            .produces("application/json")
             .coroutineHandler {
                 Auth(keycloak, AuthRole.VIEW).handle(it)
                 it.next()
             }.handler(BodyHandler.create()).coroutineHandler {
-                JsonGet(location).handle(it)
+                Get(location).handle(it)
             }
 
-        // Read Resource
-        get("/:database/:resource").produces("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            XmlGet(location).handle(it)
-        }
-        get("/:database/:resource").produces("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.VIEW).handle(it)
-            it.next()
-        }.coroutineHandler {
-            JsonGet(location).handle(it)
-        }
-
-        // Update Resource
-        put("/:database/:resource").consumes("application/xml").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            XmlCreate(location, false).handle(it)
-        }
-        put("/:database/:resource").consumes("application/json").coroutineHandler {
-            Auth(keycloak, AuthRole.CREATE).handle(it)
-            it.next()
-        }.handler(BodyHandler.create()).coroutineHandler {
-            JsonCreate(location, false).handle(it)
-        }
-
-        // Delete Resource
-        delete("/:database/:resource").consumes("application/xml").coroutineHandler {
+        // Delete.
+        delete("/:database/:resource").coroutineHandler {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            XmlDelete(location).handle(it)
+            Delete(location).handle(it)
         }
-        delete("/:database/:resource").consumes("application/json").coroutineHandler {
+
+        delete("/:database").coroutineHandler {
             Auth(keycloak, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
-            JsonDelete(location).handle(it)
+            Delete(location).handle(it)
         }
 
         // Check Resource Status
@@ -299,6 +288,47 @@ class SirixVerticle : CoroutineVerticle() {
             } else {
                 response(failureRoutingContext.response(), statusCode, failure?.message)
             }
+        }
+    }
+
+    private suspend fun getToken(
+        keycloak: OAuth2Auth,
+        dataToAuthenticate: JsonObject,
+        rc: RoutingContext
+    ) {
+        val user = keycloak.authenticateAwait(dataToAuthenticate)
+        rc.response().end(user.principal().toString())
+    }
+
+    private suspend fun refreshToken(
+        keycloak: OAuth2Auth,
+        dataToAuthenticate: JsonObject,
+        rc: RoutingContext
+    ) {
+        val token = OAuth2TokenImpl(keycloak, dataToAuthenticate)
+        token.refreshAwait()
+        rc.response().end(token.principal().toString())
+    }
+
+    private fun formToJson(rc: RoutingContext): JsonObject {
+        val formAttributes = rc.request().formAttributes()
+        val refreshToken: String? =
+            formAttributes.get("refresh_token")
+        if (refreshToken == null) {
+            val code =
+                formAttributes.get("code")
+            val redirectUri =
+                formAttributes.get("redirect_uri")
+            val responseType =
+                formAttributes.get("response_type")
+
+            return JsonObject()
+                .put("code", code)
+                .put("redirect_uri", redirectUri)
+                .put("response_type", responseType)
+        } else {
+            return JsonObject()
+                .put("refresh_token", refreshToken)
         }
     }
 

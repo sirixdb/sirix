@@ -53,7 +53,7 @@ class XmlSessionDBStore(private val ctx: RoutingContext, private val dbStore: Xm
 
     private fun checkIfAuthorized(name: String, role: AuthRole) {
         GlobalScope.launch(ctx.vertx().dispatcher()) {
-            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name));
+            val isAuthorized = user.isAuthorizedAwait(role.databaseRole(name))
 
             require(isAuthorized || user.isAuthorizedAwait(role.keycloakRole())) {
                 IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name")

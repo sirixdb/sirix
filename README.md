@@ -40,7 +40,7 @@ Data must be stored in a way, that storage space is used as effectively as possi
 
 We not only support snapshot-based versioning on a record granular level through a novel versioning algorithm called sliding snapshot, but also time travel queries, efficient diffing between revisions and the storage of semi-structured data to name a few.
 
-The following time-travel query to be executed on our binary JSON representation should give an initial impression of what's possible:
+The following time-travel query to be executed on our binary JSON representation of [Twitter sample data](https://raw.githubusercontent.com/sirixdb/sirix/master/bundles/sirix-core/src/test/resources/json/twitter.json) gives an initial impression of what's possible:
 
 ```xquery
 let $statuses := jn:open('mycol.jn','mydoc.jn', xs:dateTime('2019-04-13T16:24:27Z'))=>statuses

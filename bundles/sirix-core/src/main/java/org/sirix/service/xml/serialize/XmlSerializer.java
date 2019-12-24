@@ -107,6 +107,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   private final boolean mSerializeTimestamp;
 
+  private final boolean mMetaData;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
@@ -120,7 +122,9 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   private XmlSerializer(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
       final XmlSerializerBuilder builder, final boolean initialIndent, final @Nonnegative int revision,
       final int... revsions) {
-    super(resourceMgr, nodeKey, revision, revsions);
+    super(resourceMgr, builder.mMaxLevel == -1
+        ? null
+        : new XmlMaxLevelVisitor(builder.mMaxLevel), nodeKey, revision, revsions);
     mOut = new BufferedOutputStream(builder.mStream, 4096);
     mIndent = builder.mIndent;
     mSerializeXMLDeclaration = builder.mDeclaration;
@@ -131,6 +135,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     mWithInitialIndent = builder.mInitialIndent;
     mEmitXQueryResultSequence = builder.mEmitXQueryResultSequence;
     mSerializeTimestamp = builder.mSerializeTimestamp;
+    mMetaData = builder.mMetaData;
   }
 
   /**
@@ -168,7 +173,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
           }
           // Emit attributes.
           // Add virtual rest:id attribute.
-          if (mSerializeId) {
+          if (mSerializeId || mMetaData) {
+            if (mSerializeRest) {
+              mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
+            } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
+              mOut.write(CharsForSerializing.SID_PREFIX.getBytes());
+            } else {
+              mOut.write(CharsForSerializing.SPACE.getBytes());
+            }
+            mOut.write(CharsForSerializing.ID.getBytes());
+            mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
+            write(rtx.getNodeKey());
+            mOut.write(CharsForSerializing.QUOTE.getBytes());
+          }
+          if (mMetaData) {
             if (mSerializeRest) {
               mOut.write(CharsForSerializing.REST_PREFIX.getBytes());
             } else if (mRevisions.length > 1 || (mRevisions.length == 1 && mRevisions[0] == -1)) {
@@ -192,7 +210,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
             mOut.write(CharsForSerializing.QUOTE.getBytes());
             rtx.moveTo(key);
           }
-          if (rtx.hasFirstChild()) {
+          if (rtx.hasFirstChild() && (mVisitor == null || currentLevel() + 1 < maxLevel())) {
             mOut.write(CharsForSerializing.CLOSE.getBytes());
           } else {
             mOut.write(CharsForSerializing.SLASH_CLOSE.getBytes());
@@ -403,6 +421,20 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
   }
 
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
+    return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
+    if (mVisitor == null) {
+      return false;
+    } else {
+      return currentLevel() + 1 >= maxLevel();
+    }
+  }
+
   /**
    * Indentation of output.
    *
@@ -559,6 +591,10 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
     private boolean mSerializeTimestamp;
 
+    private boolean mMetaData;
+
+    private long mMaxLevel;
+
     /**
      * Constructor, setting the necessary stuff.
      *
@@ -568,6 +604,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final OutputStream stream,
         final int... revisions) {
+      mMaxLevel = -1;
       mNodeKey = 0;
       mResourceMgr = checkNotNull(resourceMgr);
       mStream = checkNotNull(stream);
@@ -593,7 +630,8 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
      */
     public XmlSerializerBuilder(final XmlResourceManager resourceMgr, final @Nonnegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
-      checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+      checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+      mMaxLevel = -1;
       mResourceMgr = checkNotNull(resourceMgr);
       mNodeKey = nodeKey;
       mStream = checkNotNull(stream);
@@ -696,12 +734,33 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     }
 
     /**
-     * Emit the unique nodeKeys / IDs of nodes.
+     * Emit the unique nodeKeys / IDs of element-nodes.
      *
      * @return this {@link XmlSerializerBuilder} instance
      */
     public XmlSerializerBuilder emitIDs() {
       mID = true;
+      return this;
+    }
+
+    /**
+     * Emit metadata of element-nodes.
+     *
+     * @return this {@link XmlSerializerBuilder} instance
+     */
+    public XmlSerializerBuilder emitMetaData() {
+      mMetaData = true;
+      return this;
+    }
+
+    /**
+     * The maximum level.
+     *
+     * @param maxLevel the maximum level
+     * @return this {@link XmlSerializerBuilder} instance
+     */
+    public XmlSerializerBuilder maxLevel(final long maxLevel) {
+      mMaxLevel = maxLevel;
       return this;
     }
 

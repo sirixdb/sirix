@@ -6,6 +6,7 @@ import org.sirix.access.trx.node.HashType
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.service.json.serialize.JsonSerializer
 import java.io.StringWriter
+import java.nio.charset.StandardCharsets
 
 class JsonSerializeHelper {
     fun serialize(
@@ -29,7 +30,7 @@ class JsonSerializeHelper {
     private fun writeResponseWithoutHashValue(ctx: RoutingContext, body: String) {
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-            .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+            .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
             .write(body)
             .end()
     }
@@ -50,7 +51,7 @@ class JsonSerializeHelper {
 
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, body.length.toString())
+                .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                 .putHeader(HttpHeaders.ETAG, hash.toString())
                 .write(body)
                 .end()

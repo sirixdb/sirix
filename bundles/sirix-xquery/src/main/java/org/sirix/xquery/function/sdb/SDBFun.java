@@ -23,6 +23,7 @@ import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECEN
 import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
 import static org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp.TIMESTAMP;
+import static org.sirix.xquery.function.sdb.trx.LevelOrder.LEVEL_ORDER;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
@@ -60,6 +61,7 @@ import org.sirix.xquery.function.sdb.trx.GetNodeKey;
 import org.sirix.xquery.function.sdb.trx.GetPath;
 import org.sirix.xquery.function.sdb.trx.GetRevision;
 import org.sirix.xquery.function.sdb.trx.GetRevisionTimestamp;
+import org.sirix.xquery.function.sdb.trx.LevelOrder;
 import org.sirix.xquery.function.sdb.trx.Rollback;
 import org.sirix.xquery.function.sdb.trx.SelectNode;
 
@@ -163,6 +165,11 @@ public final class SDBFun {
     Functions.predefine(new OpenRevisions(OPEN_REVISIONS,
         new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.STRING, SequenceType.STRING,
             new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One))));
+
+    // level-order
+    Functions.predefine(new LevelOrder(LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.NODE,
+        new SequenceType(AtomicType.INT, Cardinality.One))));
+    Functions.predefine(new LevelOrder(LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.NODE)));
 
     // commit
     Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER, SequenceType.NODE)));

@@ -1,7 +1,6 @@
 package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
@@ -11,14 +10,13 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.access.trx.node.HashType
 import org.sirix.api.Database
 import org.sirix.api.json.JsonNodeTrx
 import org.sirix.api.json.JsonResourceManager
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.SirixDBUser
 import org.sirix.xquery.json.BasicJsonDBStore
 import java.math.BigInteger
 import java.nio.file.Files
@@ -65,7 +63,7 @@ class JsonDelete(private val location: Path) {
             return
         }
 
-        val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
+        val sirixDBUser = SirixDBUser.create(ctx)
 
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
@@ -82,7 +80,6 @@ class JsonDelete(private val location: Path) {
         if (!ctx.failed())
             ctx.response().setStatusCode(200).end()
     }
-
 
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {
         withContext(dispatcher) {

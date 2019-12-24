@@ -33,9 +33,9 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.Utils;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -81,7 +81,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
    */
   public SAXSerializer(final XmlResourceManager resMgr, final ContentHandler handler, final @Nonnegative int revision,
       final int... revisions) {
-    super(resMgr, revision, revisions);
+    super(resMgr, null, revision, revisions);
     mContHandler = handler;
   }
 
@@ -236,6 +236,16 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
     } catch (final SAXException e) {
       LOGGER.error(e.getMessage(), e);
     }
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
+    return true;
+  }
+
+  @Override
+  protected boolean isSubtreeGoingToBePruned(final XmlNodeReadOnlyTrx rtx) {
+    return false;
   }
 
   /**

@@ -2,7 +2,6 @@ package org.sirix.rest.crud.xml
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
-import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
@@ -13,13 +12,13 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import org.brackit.xquery.XQuery
-import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.api.Database
 import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
-import org.sirix.rest.crud.SirixDBUtils
+import org.sirix.rest.crud.QuerySerializer
+import org.sirix.rest.crud.XmlLevelBasedSerializer
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -30,7 +29,6 @@ import org.sirix.xquery.node.XmlDBNode
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -40,61 +38,20 @@ class XmlGet(private val location: Path) {
         val context = ctx.vertx().orCreateContext
         val dbName: String? = ctx.pathParam("database")
         val resName: String? = ctx.pathParam("resource")
-
-        val query: String? = ctx.queryParam("query").getOrElse(0) { ctx.bodyAsString }
-
-        if (dbName == null && resName == null) {
-            if (query == null || query.isEmpty())
-                listDatabases(ctx, context)
-            else
-                xquery(query, null, ctx, context, ctx.get("user") as User)
-        } else {
-            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
+        val jsonBody = ctx.bodyAsJson
+        val query: String? = ctx.queryParam("query").getOrElse(0) {
+            jsonBody?.getString("query")
         }
+
+        get(dbName, ctx, resName, query, context, ctx.get("user") as User)
 
         return ctx.currentRoute()
-    }
-
-    private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlockingAwait { _: Promise<Unit> ->
-            val databases = Files.list(location)
-
-            val buffer = StringBuilder()
-
-            buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
-
-            databases.use {
-                databases.filter { Files.isDirectory(it) }.forEach {
-                    buffer.appendln("  <rest:item database-name=\"${it.fileName}\"/>")
-                }
-            }
-
-            buffer.append("</rest:sequence>")
-
-            val content = buffer.toString()
-
-            ctx.response().setStatusCode(200)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
-                .putHeader(HttpHeaders.CONTENT_LENGTH, content.length.toString())
-                .write(content)
-                .end()
-        }
     }
 
     private suspend fun get(
         dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
         vertxContext: Context, user: User
     ) {
-        val history = ctx.pathParam("history")
-
-        if (history != null && dbName != null && resName != null) {
-            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.XML)
-            }
-
-            return
-        }
-
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)
@@ -114,30 +71,24 @@ class XmlGet(private val location: Path) {
 
         database.use {
             try {
-                if (resName == null) {
-                    val buffer = StringBuilder()
-                    buffer.appendln("<rest:sequence xmlns:rest=\"https://sirix.io/rest\">")
+                val manager = database.openResourceManager(resName)
 
-                    for (resource in it.listResources()) {
-                        buffer.appendln("  <rest:item resource-name=\"${resource.fileName}\"/>")
-                    }
-
-                    buffer.appendln("</rest:sequence>")
-                } else {
-                    val manager = database.openResourceManager(resName)
-
-                    manager.use {
-                        if (query != null && query.isNotEmpty()) {
-                            queryResource(
-                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                                vertxContext, user
+                manager.use {
+                    if (query != null && query.isNotEmpty()) {
+                        queryResource(
+                            dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                            vertxContext, user
+                        )
+                    } else {
+                        val revisions: Array<Int> =
+                            getRevisionsToSerialize(
+                                startRevision, endRevision, startRevisionTimestamp,
+                                endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
+
+                        if (ctx.queryParam("maxLevel").isNotEmpty()) {
+                            XmlLevelBasedSerializer().serialize(ctx, manager)
                         } else {
-                            val revisions: Array<Int> =
-                                getRevisionsToSerialize(
-                                    startRevision, endRevision, startRevisionTimestamp,
-                                    endRevisionTimestamp, manager, revision, revisionTimestamp
-                                )
                             serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                         }
                     }
@@ -188,7 +139,18 @@ class XmlGet(private val location: Path) {
 
                         val dbNode = XmlDBNode(trx, dbCollection)
 
-                        xquery(query, dbNode, ctx, vertxContext, user)
+                        val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
+                        val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
+
+                        xquery(
+                            query,
+                            dbNode,
+                            ctx,
+                            vertxContext,
+                            user,
+                            startResultSeqIndex?.toLong(),
+                            endResultSeqIndex?.toLong()
+                        )
                     }
                 } catch (e: SirixUsageException) {
                     ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
@@ -211,9 +173,9 @@ class XmlGet(private val location: Path) {
         }
     }
 
-    private suspend fun xquery(
+    suspend fun xquery(
         query: String, node: XmlDBNode?, routingContext: RoutingContext, context: Context,
-        user: User
+        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         context.executeBlockingAwait { promise: Promise<Unit> ->
             // Initialize queryResource context and store.
@@ -227,26 +189,55 @@ class XmlGet(private val location: Path) {
                 val out = ByteArrayOutputStream()
 
                 out.use {
-                    PrintStream(out).use { printStream ->
-                        SirixCompileChain.createWithNodeStore(dbStore).use { compileChain ->
-                            XQuery(compileChain, query).prettyPrint().serialize(
-                                queryCtx,
-                                XmlDBSerializer(printStream, true, true)
-                            )
-                        }
-                    }
+                    executeQueryAndSerialize(
+                        out,
+                        dbStore,
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex
+                    )
 
                     val body = String(out.toByteArray(), StandardCharsets.UTF_8)
 
                     routingContext.response().setStatusCode(200)
-                        .putHeader("Content-Type", "application/xml")
-                        .putHeader("Content-Length", body.length.toString())
+                        .putHeader(HttpHeaders.CONTENT_TYPE, "application/xml")
+                        .putHeader(HttpHeaders.CONTENT_LENGTH, body.toByteArray(StandardCharsets.UTF_8).size.toString())
                         .write(body)
                         .end()
                 }
             }
 
             promise.complete(null)
+        }
+    }
+
+    private fun executeQueryAndSerialize(
+        out: ByteArrayOutputStream,
+        dbStore: XmlSessionDBStore,
+        startResultSeqIndex: Long?,
+        query: String,
+        queryCtx: SirixQueryContext?,
+        endResultSeqIndex: Long?
+    ) {
+        PrintStream(out).use { printStream ->
+            SirixCompileChain.createWithNodeStore(dbStore).use { sirixCompileChain ->
+                if (startResultSeqIndex == null) {
+                    XQuery(sirixCompileChain, query).prettyPrint().serialize(
+                        queryCtx,
+                        XmlDBSerializer(printStream, true, true)
+                    )
+                } else {
+                    QuerySerializer.serializePaginated(
+                        sirixCompileChain,
+                        query,
+                        queryCtx,
+                        startResultSeqIndex,
+                        endResultSeqIndex,
+                        XmlDBSerializer(printStream, true, true)
+                    ) { serializer, startItem -> serializer.serialize(startItem) }
+                }
+            }
         }
     }
 

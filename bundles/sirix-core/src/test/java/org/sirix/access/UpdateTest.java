@@ -25,6 +25,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Optional;
 import java.util.UUID;
@@ -1388,6 +1393,15 @@ public class UpdateTest {
     rtx.moveTo(14);
     testSubtreeInsertAsFirstChildFirst(rtx);
     rtx.close();
+  }
+
+  @Test
+  public void testSubtreeInsertWithFirstNodeBeingAComment() throws FileNotFoundException, IOException {
+    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final Path pomFile = Paths.get("src", "test", "resources", "pom.xml");
+    try (final var fis = new FileInputStream(pomFile.toFile())) {
+      wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
+    }
   }
 
   /**
