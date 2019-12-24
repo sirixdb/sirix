@@ -128,7 +128,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           mOut.append("{");
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("}");
-            if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey)
+            if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
               mOut.append(",");
           }
           break;
@@ -141,7 +141,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
-          if (mNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mNodeKey) {
+          if (mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey) {
             mOut.append("{");
             mHadToAddBracket = true;
           }
@@ -191,8 +191,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   @Override
   protected void setTrxForVisitor(JsonNodeReadOnlyTrx rtx) {
+    castVisitor().setTrx(rtx);
+  }
+
+  private long maxLevel() {
+    return castVisitor().getMaxLevel();
+  }
+
+  private JsonMaxLevelVisitor castVisitor() {
     final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
-    visitor.setTrx(rtx);
+    return visitor;
+  }
+
+  private long currentLevel() {
+    return castVisitor().getCurrentLevel();
   }
 
   @Override
@@ -216,7 +228,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private void printCommaIfNeeded(final JsonNodeReadOnlyTrx rtx) throws IOException {
     final boolean hasRightSibling = rtx.hasRightSibling();
 
-    if (hasRightSibling)
+    if (hasRightSibling && rtx.getNodeKey() != mStartNodeKey)
       mOut.append(",");
   }
 
@@ -235,17 +247,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case OBJECT:
           mOut.append("}");
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey)
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
             mOut.append(",");
           break;
         case OBJECT_KEY:
           if (mWithMetaData) {
             mOut.append("}");
           }
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey) {
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
             mOut.append(",");
           }
-          if (mHadToAddBracket && rtx.getNodeKey() == mNodeKey) {
+          if (mHadToAddBracket && rtx.getNodeKey() == mStartNodeKey) {
             mOut.append("}");
           }
           break;

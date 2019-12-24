@@ -35,8 +35,6 @@ import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.service.json.serialize.JsonMaxLevelVisitor;
-import org.sirix.service.xml.serialize.XmlMaxLevelVisitor;
 import org.sirix.settings.Constants;
 
 /**
@@ -58,7 +56,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   protected final int[] mRevisions;
 
   /** Root node key of subtree to shredder. */
-  protected final long mNodeKey;
+  protected final long mStartNodeKey;
 
   /** Optional visitor. */
   protected final NodeVisitor mVisitor;
@@ -79,7 +77,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         : new int[revisions.length + 1];
     initialize(revision, revisions);
     mResMgr = checkNotNull(resMgr);
-    mNodeKey = 0;
+    mStartNodeKey = 0;
   }
 
   /**
@@ -99,37 +97,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
         : new int[revisions.length + 1];
     initialize(revision, revisions);
     mResMgr = checkNotNull(resMgr);
-    mNodeKey = key;
-  }
-
-  protected long maxLevel() {
-    if (mVisitor == null)
-      throw new UnsupportedOperationException();
-
-    if (mVisitor instanceof XmlMaxLevelVisitor) {
-      final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
-      return visitor.getMaxLevel();
-    } else if (mVisitor instanceof JsonMaxLevelVisitor) {
-      final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
-      return visitor.getMaxLevel();
-    }
-
-    throw new UnsupportedOperationException();
-  }
-
-  protected long currentLevel() {
-    if (mVisitor == null)
-      throw new UnsupportedOperationException();
-
-    if (mVisitor instanceof XmlMaxLevelVisitor) {
-      final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
-      return visitor.getCurrentLevel();
-    } else if (mVisitor instanceof JsonMaxLevelVisitor) {
-      final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
-      return visitor.getCurrentLevel();
-    }
-
-    throw new UnsupportedOperationException();
+    mStartNodeKey = key;
   }
 
   /**
@@ -168,7 +136,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
           : mRevisions[i - 1])) {
         emitRevisionStartNode(rtx);
 
-        rtx.moveTo(mNodeKey);
+        rtx.moveTo(mStartNodeKey);
 
         final VisitorDescendantAxis.Builder builder = VisitorDescendantAxis.newBuilder(rtx).includeSelf();
 
