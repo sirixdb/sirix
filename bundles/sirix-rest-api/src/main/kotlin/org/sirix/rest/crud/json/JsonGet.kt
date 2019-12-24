@@ -21,7 +21,6 @@ import org.sirix.node.NodeKind
 import org.sirix.rest.crud.History
 import org.sirix.rest.crud.JsonLevelBasedSerializer
 import org.sirix.rest.crud.QuerySerializer
-import org.sirix.rest.crud.XmlLevelBasedSerializer
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
 import org.sirix.xquery.SirixCompileChain
@@ -95,11 +94,8 @@ class JsonGet(private val location: Path) {
                                 startRevision, endRevision, startRevisionTimestamp,
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
-                        if (ctx.queryParam("maxLevel").isNotEmpty()) {
-                            JsonLevelBasedSerializer().serialize(ctx, manager)
-                        } else {
-                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                        }
+
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -274,11 +270,13 @@ class JsonGet(private val location: Path) {
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
         val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
+        val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
 
-        if (withMetaData != null && withMetaData.toBoolean())
-            serializerBuilder.withMetaData(true)
-        else
-            serializerBuilder.withMetaData(false)
+        if (withMetaData != null)
+            serializerBuilder.withMetaData(withMetaData.toBoolean())
+
+        if (maxLevel != null)
+            serializerBuilder.maxLevel(maxLevel.toLong())
 
         val serializer = serializerBuilder.build()
 
