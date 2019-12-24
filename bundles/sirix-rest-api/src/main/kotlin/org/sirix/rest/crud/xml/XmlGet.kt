@@ -18,7 +18,6 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.rest.crud.QuerySerializer
-import org.sirix.rest.crud.XmlLevelBasedSerializer
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.xquery.SirixCompileChain
 import org.sirix.xquery.SirixQueryContext
@@ -86,11 +85,7 @@ class XmlGet(private val location: Path) {
                                 endRevisionTimestamp, manager, revision, revisionTimestamp
                             )
 
-                        if (ctx.queryParam("maxLevel").isNotEmpty()) {
-                            XmlLevelBasedSerializer().serialize(ctx, manager)
-                        } else {
-                            serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
-                        }
+                        serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx)
                     }
                 }
             } catch (e: SirixUsageException) {
@@ -271,6 +266,9 @@ class XmlGet(private val location: Path) {
         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out).revisions(revisions.toIntArray())
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+        if (ctx.queryParam("maxLevel").isNotEmpty())
+            serializerBuilder.maxLevel(ctx.queryParam("maxLevel")[0].toLong())
 
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 

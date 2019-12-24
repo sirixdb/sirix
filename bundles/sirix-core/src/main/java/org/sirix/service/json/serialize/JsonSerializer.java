@@ -48,6 +48,7 @@ import org.sirix.api.json.JsonResourceManager;
 import org.sirix.service.AbstractSerializer;
 import org.sirix.service.xml.serialize.XmlSerializerProperties;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
@@ -83,6 +84,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private final boolean mSerializeTimestamp;
 
   private final boolean mWithMetaData;
+
+  private boolean mHadToAddBracket;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -125,7 +128,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           mOut.append("{");
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("}");
-            if (rtx.hasRightSibling())
+            if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey)
               mOut.append(",");
           }
           break;
@@ -138,6 +141,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
+          if (mNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mNodeKey) {
+            mOut.append("{");
+            mHadToAddBracket = true;
+          }
           mOut.append("\"" + rtx.getName().stringValue() + "\":");
           if (mWithMetaData) {
             mOut.append("{\"metadata\":{");
@@ -183,6 +190,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   @Override
+  protected void setTrxForVisitor(JsonNodeReadOnlyTrx rtx) {
+    final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
+    visitor.setTrx(rtx);
+  }
+
+  @Override
   protected boolean isSubtreeGoingToBeVisited(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isObjectKey())
       return true;
@@ -222,15 +235,18 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case OBJECT:
           mOut.append("}");
-          if (rtx.hasRightSibling())
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey)
             mOut.append(",");
           break;
         case OBJECT_KEY:
           if (mWithMetaData) {
             mOut.append("}");
           }
-          if (rtx.hasRightSibling()) {
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != mNodeKey) {
             mOut.append(",");
+          }
+          if (mHadToAddBracket && rtx.getNodeKey() == mNodeKey) {
+            mOut.append("}");
           }
           break;
         // $CASES-OMITTED$

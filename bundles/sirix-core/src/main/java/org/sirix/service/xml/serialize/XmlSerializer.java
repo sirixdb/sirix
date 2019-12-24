@@ -422,6 +422,12 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   @Override
+  protected void setTrxForVisitor(XmlNodeReadOnlyTrx rtx) {
+    final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
+    visitor.setTrx(rtx);
+  }
+
+  @Override
   protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
     return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
   }

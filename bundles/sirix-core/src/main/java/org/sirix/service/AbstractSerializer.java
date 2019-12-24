@@ -31,7 +31,6 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.NodeTrx;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.visitor.NodeVisitor;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
@@ -175,14 +174,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
         if (mVisitor != null) {
           builder.visitor(mVisitor);
-
-          if (mVisitor instanceof XmlMaxLevelVisitor) {
-            final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
-            visitor.setTrx((XmlNodeReadOnlyTrx) rtx);
-          } else if (mVisitor instanceof JsonMaxLevelVisitor) {
-            final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
-            visitor.setTrx((JsonNodeReadOnlyTrx) rtx);
-          }
+          setTrxForVisitor(rtx);
         }
 
         final Axis descAxis = builder.build();
@@ -242,6 +234,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
     return null;
   }
+
+  protected abstract void setTrxForVisitor(R rtx);
 
   protected abstract boolean isSubtreeGoingToBePruned(R rtx);
 

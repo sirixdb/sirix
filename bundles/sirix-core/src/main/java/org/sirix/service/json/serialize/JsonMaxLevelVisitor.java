@@ -24,6 +24,8 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
 
   private VisitResultType lastVisitResultType;
 
+  private boolean mFirst = true;
+
   public JsonMaxLevelVisitor(final long maxLevel) {
     this.maxLevel = maxLevel;
   }
@@ -46,7 +48,7 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
   }
 
   private void adaptLevel(ImmutableStructNode node) {
-    if (node.hasFirstChild())
+    if (node.hasFirstChild() && !mFirst)
       currentLevel++;
     else if (!node.hasRightSibling()) {
       do {
@@ -59,7 +61,6 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
 
   private VisitResult getVisitResultType() {
     if (currentLevel >= maxLevel) {
-      // currentLevel--;
       lastVisitResultType = VisitResultType.SKIPSUBTREE;
       return lastVisitResultType;
     }
@@ -70,6 +71,7 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
   @Override
   public VisitResult visit(ImmutableArrayNode node) {
     adaptLevel(node);
+    mFirst = false;
     final var visitResult = getVisitResultType();
     return visitResult;
   }
@@ -77,41 +79,48 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
   @Override
   public VisitResult visit(ImmutableObjectNode node) {
     adaptLevel(node);
+    mFirst = false;
     final var visitResult = getVisitResultType();
     return visitResult;
   }
 
   @Override
   public VisitResult visit(ImmutableObjectKeyNode node) {
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResult visit(ImmutableBooleanNode node) {
     adaptLevel(node);
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResult visit(ImmutableStringNode node) {
     adaptLevel(node);
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResult visit(ImmutableNumberNode node) {
     adaptLevel(node);
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResult visit(ImmutableNullNode node) {
     adaptLevel(node);
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 
   @Override
   public VisitResult visit(org.sirix.node.immutable.json.ImmutableDocumentNode node) {
+    mFirst = false;
     return VisitResultType.CONTINUE;
   }
 }
