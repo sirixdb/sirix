@@ -169,6 +169,38 @@ public final class JsonSerializerTest {
         final var expected = "[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]";
         assertEquals(expected, writer.toString());
       }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(1).startNodeKey(3).build();
+        serializer.call();
+
+        final var expected = "[]";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(1).startNodeKey(4).build();
+        serializer.call();
+
+        final var expected = "\"bar\"";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(1).startNodeKey(5).build();
+        serializer.call();
+
+        final var expected = "null";
+        assertEquals(expected, writer.toString());
+      }
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).maxLevel(1).startNodeKey(6).build();
+        serializer.call();
+
+        final var expected = "2.33";
+        assertEquals(expected, writer.toString());
+      }
     }
   }
 }
