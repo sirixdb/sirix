@@ -62,7 +62,7 @@ Some of the most important core principles and design goals are:
 
 <dl>
   <dt>Minimize Storage Overhead</dt>
-  <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resours. SirixDB aims to balance read and writer performance in its default configuration</dd>
+  <dd>SirixDB shares unchanged data pages as well as records between revisions, depending on a chosen versioning algorithm during the initial bootstrapping of a resource. SirixDB aims to balance read and writer performance in its default configuration</dd>
   <dt>Concurrent</dt>
   <dd>SirixDB contains very few locks and aims to be as suitable for multithreaded systems as possible</dd>
   <dt>Asynchronous</dt>
