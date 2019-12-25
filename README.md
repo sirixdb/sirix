@@ -76,7 +76,7 @@ Some of the most important core principles and design goals are:
   <dt>Per revision and per page versioning</dt>
   <dd>SirixDB does not only version on a per revision, but also on a per page-base. Thus, whenever we change a potentially small fraction
 of records in a data-page, it does not have to copy the whole page and write it to a new location on a disk or flash drive. Instead, we can specify one of several versioning strategies known from backup systems or a novel sliding snapshot algorithm during the creation of a database resource. The versioning-type we specify is used by SirixDB to version data-pages</dd>
-  <dt>Guaranteed consistency (without a WAL)</dt>
+  <dt>Guaranteed atomicity and consistency (without a WAL)</dt>
   <dd>The system will never enter an inconsistent state (unless there is hardware failure), meaning that unexpected power-off won't ever damage the system. This is accomplished without the overhead of a write-ahead-log (<a
 href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>)</dd>
   <dt>Log-structured and SSD friendly</dt>
@@ -215,15 +215,12 @@ Just add the following repository section to your POM or build.gradle file:
 ```
 ```groovy
 repository{
-    ...
-
     maven {
         url "https://oss.sonatype.org/content/repositories/snapshots/"
         mavenContent {
             snapshotsOnly()
         }
     }
-    ...
 }
 ```
 
@@ -240,7 +237,7 @@ Core project:
 </dependency>
 ```
 ```groovy
-compile group: 'io.sirix', name: 'sirix-core', version: '0.9.4-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-core', version:'0.9.4-SNAPSHOT'
 ```
 
 Brackit binding:
@@ -252,7 +249,7 @@ Brackit binding:
 </dependency>
 ```
 ```groovy
-compile group: 'io.sirix', name: 'sirix-xquery', version: '0.9.4-SNAPSHOT'
+compile group:'io.sirix', name:'sirix-xquery', version:'0.9.4-SNAPSHOT'
 ```
 
 Asynchronous, RESTful API with Vert.x, Kotlin and Keycloak (the latter for authentication via OAuth2/OpenID-Connect):
