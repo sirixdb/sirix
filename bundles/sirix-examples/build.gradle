@@ -1,0 +1,6 @@
+dependencies {
+    implementation project(':sirix-core')
+    implementation project(':sirix-xquery')
+}
+
+description = 'sirix-example'
