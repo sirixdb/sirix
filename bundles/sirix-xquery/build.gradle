@@ -1,9 +1,8 @@
 dependencies {
     implementation project(':sirix-core')
-    implementation 'com.google.crypto.tink:tink:1.2.1'
-    api('com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT')
-    testImplementation(group:'com.github.sirixdb.brackit', name: 'brackit', version: '0.1.6-SNAPSHOT', classifier: 'tests')
+
     testImplementation project(path: ':sirix-core', configuration: 'archives')
+    testImplementation testLibraries.brackit
 }
 
 description = 'sirix-xquery'

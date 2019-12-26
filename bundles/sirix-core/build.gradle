@@ -1,32 +1,32 @@
 dependencies {
-    api 'com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT'
-    api 'com.beust:jcommander:1.69'
-    api 'org.aspectj:aspectjrt:1.8.10'
-    api 'org.slf4j:slf4j-api:1.7.25'
-    api 'org.perfidix:perfidix:3.6.9'
-    api 'xmlunit:xmlunit:1.6'
-    api 'ch.qos.logback:logback-classic:1.2.3'
-    api 'ch.qos.logback:logback-core:1.2.3'
-    api 'com.google.inject:guice:4.2.2'
-    api 'com.google.code.gson:gson:2.8.1'
-    api 'com.google.guava:guava:27.0-jre'
-    api 'com.google.guava:guava-testlib:27.0-jre'
-    api 'com.google.code.findbugs:jsr305:3.0.2'
-    api 'com.github.ben-manes.caffeine:caffeine:2.7.0'
-    api 'org.testng:testng:6.11'
+    api implLibraries.brackit
+    api implLibraries.jcommander
+    api implLibraries.aspectjrt
+    api implLibraries.slf4jApi
+    api implLibraries.perfidix
+    api implLibraries.xmlunit
+    api implLibraries.logbackClassic
+    api implLibraries.logbackCore
+    api implLibraries.guice
+    api implLibraries.gson
+    api implLibraries.guava
+    api implLibraries.guavaTestlib
+    api implLibraries.jsr305
+    api implLibraries.caffeine
+    api implLibraries.tink
 
-    compileOnly 'com.google.auto.value:auto-value:1.6.2'
+    compileOnly compileOnlyLibraries.autoValue
 
-    implementation 'org.xerial.snappy:snappy-java:1.1.7.2'
-    implementation 'org.magicwerk:brownies-collections:0.9.13'
-    implementation 'com.google.crypto.tink:tink:1.2.1'
+    implementation implLibraries.snappyJava
+    implementation implLibraries.browniesCollections
 
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.1.0'
-    testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.1.0'
-    testImplementation 'org.junit.vintage:junit-vintage-engine:5.1.0'
-    testImplementation 'org.junit.platform:junit-platform-launcher:1.1.0'
-    testImplementation 'org.junit.platform:junit-platform-runner:1.1.0'
-    testImplementation 'org.mockito:mockito-core:2.23.4'
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.junitVintageEngine
+    testImplementation testLibraries.junitPlatformLauncher
+    testImplementation testLibraries.junitPlatformRunner
+    testImplementation testLibraries.mockitoCore
+    testImplementation testLibraries.testng
 }
 
 description = 'sirix-core'
