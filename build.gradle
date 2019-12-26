@@ -1,5 +1,18 @@
 apply from: "${rootDir}/libraries.gradle"
 
+buildscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.9.0"
+        classpath 'net.researchgate:gradle-release:2.6.0'
+        classpath "com.github.ben-manes:gradle-versions-plugin:0.27.0"
+    }
+}
+
 allprojects {
     group = 'io.sirix'
     version = '0.9.4-SNAPSHOT'
@@ -9,11 +22,25 @@ subprojects {
     apply plugin: 'java'
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
+    apply plugin: 'jacoco'
+    apply plugin: 'com.github.kt3k.coveralls'
+    apply plugin: 'net.researchgate.release'
+    apply plugin: 'com.github.ben-manes.versions'
 
     java {
-        withSourcesJar()
         sourceCompatibility = JavaVersion.VERSION_13
         targetCompatibility = JavaVersion.VERSION_13
+    }
+
+    release {
+        failOnSnapshotDependencies = false
+    }
+
+    jacocoTestReport {
+        reports {
+            xml.enabled = true
+            html.enabled = true
+        }
     }
 
     repositories {

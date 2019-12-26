@@ -29,4 +29,17 @@ dependencies {
     testImplementation testLibraries.testng
 }
 
-description = 'sirix-core'
+description = 'Sirix is a versioned, treebased storage system. It provides ' +
+        'an ID-less diff-algorithm to import differences between two versions. Furthermore ' +
+        'an ID-based diff-algorithm facilitates the comparison of versions stored within ' +
+        'Sirix. A GUI with several visualizations for comparing these versions visually is ' +
+        'available to aid an analyst. Versions are stored using well known versioning strategies (full, incremental, differential). ' +
+        'The architecture is especially well suited for flash-disks because of a COW-principle. In the future we aim to provide throughout security as ' +
+        'well as a replaced page-structure to speedup our architecture. A brackit(.org) binding will ' +
+        'enable XQuery and the XQuery Update Facility. Temporal XPath axis and possibly diff-functions will help analysts to gain quick knowledge from the stored data.'
+
+jar {
+    manifest {
+        attributes('Main-Class': 'org.sirix.utils.CommandoLineExplorer')
+    }
+}
