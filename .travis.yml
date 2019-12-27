@@ -18,4 +18,4 @@ notifications:
     recipients:
       - kuttibalaji.v6@gmail.com
 after-success:
-  ./gradlew jacocoTestReport coveralls
+  ./gradlew jacocoRootReport coveralls
