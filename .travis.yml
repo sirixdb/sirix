@@ -6,16 +6,32 @@ jdk:
 branches:
   only:
     - master
+cache:
+  directories:
+    - "$HOME/apache-maven-3.6.2"
+install:
+  - export M2_HOME=$HOME/apache-maven-3.6.2
+  - if [ ! -d $M2_HOME/bin ]; then curl https://archive.apache.org/dist/maven/maven-3/3.6.2/binaries/apache-maven-3.6.2-bin.tar.gz | tar zxf - -C $HOME; fi
+  - export PATH=$M2_HOME/bin:$PATH
 jobs:
   include:
     - stage: test
       name: "OpenJDK 13"
       jdk: openjdk13
-      script: ./gradlew clean build --info
+      script: mvn -q clean verify -B -U
+    - stage: deploy
+      name: "Deploy to Sonatype's snapshots repository"
+      if: type != pull_request AND env(SONATYPE_NEXUS_USERNAME) IS present
+      script: bash .travis.deploy.artifacts.sh
 notifications:
   email:
     on_failure: always
     recipients:
-      - kuttibalaji.v6@gmail.com
+      - lichtenberger.johannes@gmail.com
 after-success:
-  ./gradlew jacocoRootReport coveralls
+  mvn jacoco:report coveralls:jacoco
+deploy:
+  provider: script
+  script: bash docker_push.sh
+  on:
+    branch: master
