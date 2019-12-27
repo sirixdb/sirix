@@ -40,6 +40,22 @@ java {
     withJavadocJar()
 }
 
+shadowJar {
+    classifier = 'fat'
+    manifest {
+        inheritFrom project.tasks.jar.manifest
+    }
+    mergeServiceFiles()
+}
+
+jar {
+	manifest {
+		attributes('Main-Verticle': 'org.sirix.rest.SirixVerticle',
+				   'Main-Class': 'io.vertx.core.Launcher')
+	}
+    finalizedBy shadowJar
+}
+
 compileKotlin {
     kotlinOptions {
         jvmTarget = "1.8"

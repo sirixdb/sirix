@@ -10,6 +10,8 @@ buildscript {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.9.0"
         classpath 'net.researchgate:gradle-release:2.6.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.27.0"
+        classpath "com.github.jengelman.gradle.plugins:shadow:5.2.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:3.26.1"
     }
 }
 
@@ -22,10 +24,10 @@ allprojects {
 
     repositories {
         mavenCentral()
-        mavenLocal()
         maven {
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
+        mavenLocal()
     }
 }
 
@@ -35,10 +37,19 @@ subprojects {
     apply plugin: 'maven-publish'
     apply plugin: 'net.researchgate.release'
     apply plugin: 'com.github.ben-manes.versions'
+    apply plugin: "com.github.johnrengelman.shadow"
+    apply plugin: "com.diffplug.gradle.spotless"
 
     java {
         sourceCompatibility = JavaVersion.VERSION_13
         targetCompatibility = JavaVersion.VERSION_13
+    }
+
+    spotless {
+        enforceCheck false
+        java {
+            licenseHeaderFile "${rootDir}/LICENSE"
+        }
     }
 
     release {
