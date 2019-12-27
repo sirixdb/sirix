@@ -11,7 +11,7 @@ jobs:
     - stage: test
       name: "OpenJDK 13"
       jdk: openjdk13
-      script: ./gradlew clean build
+      script: ./gradlew clean build --info
 notifications:
   email:
     on_failure: always
