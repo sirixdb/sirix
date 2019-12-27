@@ -5,10 +5,12 @@ buildscript {
 
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.3.61"
+        //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
 }
 
 apply plugin: 'kotlin'
+//apply plugin: 'org.jetbrains.dokka'
 
 dependencies {
     implementation project(':sirix-core')
@@ -49,4 +51,14 @@ compileTestKotlin {
         jvmTarget = "1.8"
     }
 }
+/*
+task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
+    outputFormat = 'javadoc'
+    outputDirectory = "$buildDir/javadoc"
+    configuration {
+        platform = "JVM"
+        jdkVersion = 8
+    }
+}
 
+javadocJar.dependsOn dokkaJavadoc*/
