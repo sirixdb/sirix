@@ -63,10 +63,6 @@ subprojects {
     configurations.all {
     }
 
-    configurations {
-        testJar
-    }
-
     task testsJar(type: Jar) {
         archiveClassifier = 'tests'
         from(sourceSets.test.output)

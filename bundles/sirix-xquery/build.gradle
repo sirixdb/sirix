@@ -7,8 +7,23 @@ dependencies {
 
 description = 'Sirix/Brackit binding.'
 
+task fatJar(type: Jar) {
+    archiveClassifier = 'jar-with-dependencies'
+
+    manifest {
+        attributes('Main-Class': 'org.sirix.xquery.Main')
+    }
+
+    from(sourceSets.main.output)
+
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
 jar {
     manifest {
         attributes('Main-Class': 'org.sirix.xquery.Main')
     }
+    finalizedBy fatJar
 }
