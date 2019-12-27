@@ -16,14 +16,23 @@ buildscript {
 allprojects {
     group = 'io.sirix'
     version = '0.9.4-SNAPSHOT'
+
+    apply plugin: 'jacoco'
+    apply plugin: 'com.github.kt3k.coveralls'
+
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        maven {
+            url = "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+    }
 }
 
 subprojects {
     apply plugin: 'java'
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
-    apply plugin: 'jacoco'
-    apply plugin: 'com.github.kt3k.coveralls'
     apply plugin: 'net.researchgate.release'
     apply plugin: 'com.github.ben-manes.versions'
 
@@ -40,14 +49,6 @@ subprojects {
         reports {
             xml.enabled = true
             html.enabled = true
-        }
-    }
-
-    repositories {
-        mavenLocal()
-        mavenCentral()
-        maven {
-            url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
     }
 
@@ -92,4 +93,23 @@ subprojects {
         useTestNG()
         useJUnit()
     }
+}
+
+task jacocoRootReport(type: JacocoReport) {
+    description = 'Generates an aggregate report from all subprojects'
+    dependsOn = subprojects.test
+    sourceDirectories.setFrom files(subprojects.sourceSets.main.allSource.srcDirs)
+    classDirectories.setFrom files(subprojects.sourceSets.main.output)
+    executionData.setFrom files(subprojects.jacocoTestReport.executionData).filter {
+        file -> file.exists()
+    }.asList()
+    reports {
+        html.enabled = true
+        xml.enabled = true
+    }
+}
+
+coveralls {
+    sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
+    jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
 }
