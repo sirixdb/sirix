@@ -51,6 +51,7 @@ compileTestKotlin {
         jvmTarget = "1.8"
     }
 }
+
 /*
 task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
     outputFormat = 'javadoc'
