@@ -1,0 +1,81 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.3.61"
+        //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
+    }
+}
+
+apply plugin: 'kotlin'
+//apply plugin: 'org.jetbrains.dokka'
+
+dependencies {
+    implementation project(':sirix-core')
+    implementation project(':sirix-xquery')
+
+    implementation implLibraries.kotlinStdlib
+    implementation implLibraries.kotlinxCoroutinesCore
+    implementation implLibraries.vertxCore
+    implementation implLibraries.vertxWeb
+    implementation implLibraries.vertxLangKotlin
+    implementation implLibraries.vertxLangKotlinCoroutines
+    implementation implLibraries.vertxAuthOauth2
+    implementation implLibraries.vertxWebClient
+    implementation implLibraries.vertxConfig
+    implementation implLibraries.kotlinStdlibJdk8
+    implementation implLibraries.jsoup
+
+    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit:1.3.60'
+    testImplementation 'junit:junit:4.12'
+    testImplementation 'io.vertx:vertx-junit5:3.8.4'
+}
+
+description = 'Non-blocking REST-API for SirixDB.'
+
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+shadowJar {
+    classifier = 'fat'
+    manifest {
+        inheritFrom project.tasks.jar.manifest
+    }
+    mergeServiceFiles()
+}
+
+jar {
+	manifest {
+		attributes('Main-Verticle': 'org.sirix.rest.SirixVerticle',
+				   'Main-Class': 'io.vertx.core.Launcher')
+	}
+    finalizedBy shadowJar
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+/*
+task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
+    outputFormat = 'javadoc'
+    outputDirectory = "$buildDir/javadoc"
+    configuration {
+        platform = "JVM"
+        jdkVersion = 8
+    }
+}
+
+javadocJar.dependsOn dokkaJavadoc*/

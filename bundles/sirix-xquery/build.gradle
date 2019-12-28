@@ -1,0 +1,23 @@
+dependencies {
+    implementation project(':sirix-core')
+
+    testImplementation project(path: ':sirix-core', configuration: 'archives')
+    testImplementation testLibraries.brackit
+}
+
+description = 'Sirix/Brackit binding.'
+
+shadowJar {
+    classifier = 'jar-with-dependencies'
+    manifest {
+        inheritFrom project.tasks.jar.manifest
+    }
+    mergeServiceFiles()
+}
+
+jar {
+    manifest {
+        attributes('Main-Class': 'org.sirix.xquery.Main')
+    }
+    finalizedBy shadowJar
+}

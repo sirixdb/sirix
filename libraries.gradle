@@ -1,0 +1,49 @@
+ext {
+    implLibraries = [:]
+    testLibraries = [:]
+    compileOnlyLibraries = [:]
+}
+compileOnlyLibraries = [
+        autoValue: 'com.google.auto.value:auto-value:1.6.2'
+]
+implLibraries = [
+        jcommander               : 'com.beust:jcommander:1.69',
+        aspectjrt                : 'org.aspectj:aspectjrt:1.8.10',
+        slf4jApi                 : 'org.slf4j:slf4j-api:1.7.25',
+        perfidix                 : 'org.perfidix:perfidix:3.6.9',
+        xmlunit                  : 'xmlunit:xmlunit:1.6',
+        logbackClassic           : 'ch.qos.logback:logback-classic:1.2.3',
+        logbackCore              : 'ch.qos.logback:logback-core:1.2.3',
+        guice                    : 'com.google.inject:guice:4.2.2',
+        gson                     : 'com.google.code.gson:gson:2.8.1',
+        guava                    : 'com.google.guava:guava:27.0-jre',
+        guavaTestlib             : 'com.google.guava:guava-testlib:27.0-jre',
+        jsr305                   : 'com.google.code.findbugs:jsr305:3.0.2',
+        brackit                  : 'com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT',
+        caffeine                 : 'com.github.ben-manes.caffeine:caffeine:2.7.0',
+        snappyJava               : 'org.xerial.snappy:snappy-java:1.1.7.2',
+        browniesCollections      : 'org.magicwerk:brownies-collections:0.9.13',
+        tink                     : 'com.google.crypto.tink:tink:1.2.1',
+        kotlinStdlib             : 'org.jetbrains.kotlin:kotlin-stdlib:1.3.60',
+        kotlinxCoroutinesCore    : 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.2',
+        vertxCore                : 'io.vertx:vertx-core:3.8.4',
+        vertxWeb                 : 'io.vertx:vertx-web:3.8.4',
+        vertxLangKotlin          : 'io.vertx:vertx-lang-kotlin:3.8.4',
+        vertxLangKotlinCoroutines: 'io.vertx:vertx-lang-kotlin-coroutines:3.8.4',
+        vertxAuthOauth2          : 'io.vertx:vertx-auth-oauth2:3.8.4',
+        vertxWebClient           : 'io.vertx:vertx-web-client:3.8.4',
+        vertxConfig              : 'io.vertx:vertx-config:3.8.4',
+        kotlinStdlibJdk8         : 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.3.60',
+        jsoup                    : 'org.jsoup:jsoup:1.11.3'
+]
+
+testLibraries = [
+        testng               : 'org.testng:testng:6.11',
+        junitJupiterApi      : 'org.junit.jupiter:junit-jupiter-api:5.1.0',
+        junitJupiterEngine   : 'org.junit.jupiter:junit-jupiter-engine:5.1.0',
+        junitVintageEngine   : 'org.junit.vintage:junit-vintage-engine:5.1.0',
+        junitPlatformLauncher: 'org.junit.platform:junit-platform-launcher:1.1.0',
+        junitPlatformRunner  : 'org.junit.platform:junit-platform-runner:1.1.0',
+        mockitoCore          : 'org.mockito:mockito-core:2.23.4',
+        brackit              : 'com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT:tests'
+]
