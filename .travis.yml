@@ -8,7 +8,7 @@ branches:
     - master
 cache:
   directories:
-  - "$HOME/apache-maven-3.6.2"
+    - "$HOME/apache-maven-3.6.2"
 install:
   - export M2_HOME=$HOME/apache-maven-3.6.2
   - if [ ! -d $M2_HOME/bin ]; then curl https://archive.apache.org/dist/maven/maven-3/3.6.2/binaries/apache-maven-3.6.2-bin.tar.gz | tar zxf - -C $HOME; fi
