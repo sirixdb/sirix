@@ -1,9 +1,0 @@
-<log tstamp="Sun May 04 23:29:47 CEST 2014" severity="high" foo="bar">
-  10
-  <src>192.168.0.1</src>
-  111
-  <content>
-    <a.txt/>
-  </content>
-  5
-</log>
