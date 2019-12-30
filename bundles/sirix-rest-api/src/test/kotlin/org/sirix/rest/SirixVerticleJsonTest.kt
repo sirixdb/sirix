@@ -19,13 +19,16 @@ import io.vertx.kotlin.ext.web.client.sendJsonAwait
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.DisplayName
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import org.testcontainers.containers.BindMode
+import org.testcontainers.containers.Container.ExecResult
+import org.testcontainers.containers.GenericContainer
+import org.testcontainers.containers.wait.strategy.Wait
+import org.testcontainers.utility.MountableFile
 import java.util.concurrent.TimeUnit
+
 
 @ExtendWith(VertxExtension::class)
 @DisplayName("Integration test")
@@ -39,6 +42,20 @@ class SirixVerticleJsonTest {
     @BeforeEach
     @DisplayName("Deploy a verticle")
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
+        val keycloak = KGenericContainer("jboss/keycloak:7.0.1")
+            .withExposedPorts(8080)
+            .withEnv("KEYCLOAK_USER", "admin")
+            .withEnv("KEYCLOAK_PASSWORD", "admin")
+            .withEnv("KEYCLOAK_IMPORT", "/tmp/realm.json")
+            .withClasspathResourceMapping("realm-export.json", "/tmp/realm.json", BindMode.READ_ONLY)
+            .withCopyFileToContainer(
+                MountableFile.forClasspathResource("create-keycloak-user.sh", 700),
+                "/opt/jboss/create-keycloak-user.sh")
+            .waitingFor(Wait.forHttp("/auth"));
+
+        val commandResult: ExecResult = keycloak.execInContainer("sh", "/opt/jboss/create-keycloak-user.sh")
+        assert(commandResult.exitCode == 0)
+
         val options = DeploymentOptions().setConfig(
             JsonObject().put("https.port", 9443)
                 .put("client.secret", "78a294c4-0492-4e44-a35f-7eb9cab0d831")
@@ -897,3 +914,5 @@ class SirixVerticleJsonTest {
         this
     }
 }
+
+class KGenericContainer(imageName: String) : GenericContainer<KGenericContainer>(imageName)
