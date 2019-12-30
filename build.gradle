@@ -54,6 +54,7 @@ subprojects {
 
     release {
         failOnSnapshotDependencies = false
+	tagTemplate = '$name-$version'
     }
 
     jacocoTestReport {
