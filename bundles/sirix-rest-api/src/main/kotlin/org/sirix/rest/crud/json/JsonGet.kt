@@ -41,15 +41,15 @@ import java.util.stream.Collectors.toList
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val dbName: String? = ctx.pathParam("database")
-        val resName: String? = ctx.pathParam("resource")
+        val databaseName: String? = ctx.pathParam("database")
+        val resource: String? = ctx.pathParam("resource")
 
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             val json = ctx.bodyAsJson
             json.getString("query")
         }
 
-        if (dbName == null && resName == null) {
+        if (databaseName == null && resource == null) {
             if (query == null || query.isEmpty()) {
                 listDatabases(ctx, context)
             } else {
@@ -67,7 +67,7 @@ class JsonGet(private val location: Path) {
                 )
             }
         } else {
-            get(dbName, ctx, resName, query, context, ctx.get("user") as User)
+            get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
         }
 
         return ctx.currentRoute()
@@ -135,14 +135,14 @@ class JsonGet(private val location: Path) {
     }
 
     private suspend fun get(
-        dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+        databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
         vertxContext: Context, user: User
     ) {
         val history = ctx.pathParam("history")
 
-        if (history != null && dbName != null && resName != null) {
+        if (history != null && databaseName != null && resource != null) {
             vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                SirixDBUtils.getHistory(ctx, location, dbName, resName, DatabaseType.JSON)
+                SirixDBUtils.getHistory(ctx, location, databaseName, resource, DatabaseType.JSON)
             }
 
             return
@@ -159,7 +159,7 @@ class JsonGet(private val location: Path) {
 
         val database: Database<JsonResourceManager>
         try {
-            database = Databases.openJsonDatabase(location.resolve(dbName))
+            database = Databases.openJsonDatabase(location.resolve(databaseName))
         } catch (e: SirixUsageException) {
             ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
@@ -167,7 +167,7 @@ class JsonGet(private val location: Path) {
 
         database.use {
             try {
-                if (resName == null) {
+                if (resource == null) {
                     val buffer = StringBuilder()
                     buffer.append("{\"databases\":[")
 
@@ -175,12 +175,12 @@ class JsonGet(private val location: Path) {
 
                     buffer.append("]}")
                 } else {
-                    val manager = database.openResourceManager(resName)
+                    val manager = database.openResourceManager(resource)
 
                     manager.use {
                         if (query != null && query.isNotEmpty()) {
                             queryResource(
-                                dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                                databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                                 vertxContext, user
                             )
                         } else {
@@ -230,13 +230,13 @@ class JsonGet(private val location: Path) {
     }
 
     private suspend fun queryResource(
-        dbName: String?, database: Database<JsonResourceManager>, revision: String?,
+        databaseName: String?, database: Database<JsonResourceManager>, revision: String?,
         revisionTimestamp: String?, manager: JsonResourceManager, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User
     ) {
 
         withContext(vertxContext.dispatcher()) {
-            val dbCollection = JsonDBCollection(dbName, database)
+            val dbCollection = JsonDBCollection(databaseName, database)
 
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)

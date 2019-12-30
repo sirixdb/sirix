@@ -48,25 +48,25 @@ enum class XmlInsertionMode {
 
 class XmlUpdate(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val dbName = ctx.pathParam("database")
+        val databaseName = ctx.pathParam("database")
 
-        val resName = ctx.pathParam("resource")
+        val resource = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
 
-        if (dbName == null || resName == null) {
+        if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name not given."))
         }
 
         val body = ctx.bodyAsString
 
-        update(dbName, resName, nodeId?.toLongOrNull(), insertionMode, body, ctx)
+        update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)
 
         return ctx.currentRoute()
     }
 
     private suspend fun update(
-        dbPathName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
+        databaseName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
         resFileToStore: String, ctx: RoutingContext
     ) {
         val vertxContext = ctx.vertx().orCreateContext
@@ -74,7 +74,7 @@ class XmlUpdate(private val location: Path) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
 
             val sirixDBUser = SirixDBUtils.createSirixDBUser(ctx)
-            val dbFile = location.resolve(dbPathName)
+            val dbFile = location.resolve(databaseName)
             val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
             database.use {

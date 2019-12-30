@@ -43,13 +43,13 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             return ctx.currentRoute()
         }
 
-        val resToStore = ctx.bodyAsString
+        val resourceToStore = ctx.bodyAsString
 
-        if (databaseName == null || resToStore == null || resToStore.isBlank()) {
+        if (databaseName == null || resourceToStore == null || resourceToStore.isBlank()) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
         }
 
-        shredder(databaseName, resource, resToStore, ctx)
+        shredder(databaseName, resource, resourceToStore, ctx)
 
         return ctx.currentRoute()
     }
@@ -82,35 +82,35 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     }
 
     private suspend fun shredder(
-        dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
+        databaseName: String, resourceName: String = databaseName, resourceToStore: String,
         ctx: RoutingContext
     ) {
-        val dbFile = location.resolve(dbPathName)
+        val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        insertResource(dbFile, resPathName, dispatcher, resFileToStore, context, ctx)
+        insertResource(dbFile, resourceName, dispatcher, resourceToStore, context, ctx)
     }
 
     private suspend fun insertResource(
-        dbFile: Path?, resPathName: String,
+        dbFile: Path?, resourceName: String,
         dispatcher: CoroutineDispatcher,
-        resFileToStore: String,
+        resourceToStore: String,
         context: Context,
         ctx: RoutingContext
     ) {
         val database = Databases.openXmlDatabase(dbFile)
 
         database.use {
-            val resConfig = ResourceConfiguration.Builder(resPathName).build()
+            val resConfig = ResourceConfiguration.Builder(resourceName).build()
 
-            createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+            createOrRemoveAndCreateResource(database, resConfig, resourceName, dispatcher)
 
-            val manager = database.openResourceManager(resPathName)
+            val manager = database.openResourceManager(resourceName)
 
             manager.use {
-                insertXdmSubtreeAsFirstChild(manager, resFileToStore, context)
+                insertXdmSubtreeAsFirstChild(manager, resourceToStore, context)
                 serializeXml(manager, context, ctx)
             }
         }
@@ -155,11 +155,11 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
     private suspend fun createOrRemoveAndCreateResource(
         database: Database<XmlResourceManager>,
         resConfig: ResourceConfiguration?,
-        resPathName: String, dispatcher: CoroutineDispatcher
+        resourceName: String, dispatcher: CoroutineDispatcher
     ) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
-                database.removeResource(resPathName)
+                database.removeResource(resourceName)
                 database.createResource(resConfig)
             }
         }
@@ -167,13 +167,13 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
     private suspend fun insertXdmSubtreeAsFirstChild(
         manager: XmlResourceManager,
-        resFileToStore: String,
+        resourceToStore: String,
         context: Context
     ) {
         context.executeBlockingAwait { promise: Promise<Nothing> ->
             val wtx = manager.beginNodeTrx()
             wtx.use {
-                wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
+                wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resourceToStore))
             }
 
             promise.complete(null)
