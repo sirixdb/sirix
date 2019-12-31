@@ -19,21 +19,21 @@ import java.time.ZoneId
 
 class JsonHead(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val dbName = ctx.pathParam("database")
-        val resName = ctx.pathParam("resource")
+        val databaseName = ctx.pathParam("database")
+        val resource = ctx.pathParam("resource")
 
-        if (dbName == null || resName == null) {
+        if (databaseName == null || resource == null) {
             ctx.fail(IllegalArgumentException("Database name and resource name must be given."))
         }
 
         ctx.vertx().orCreateContext.executeBlockingAwait { _: Promise<Unit> ->
-            head(dbName!!, ctx, resName!!)
+            head(databaseName!!, ctx, resource!!)
         }
 
         return ctx.currentRoute()
     }
 
-    private fun head(dbName: String, ctx: RoutingContext, resName: String) {
+    private fun head(databaseName: String, ctx: RoutingContext, resource: String) {
         val revision = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp = ctx.queryParam("revision-timestamp").getOrNull(0)
 
@@ -41,7 +41,7 @@ class JsonHead(private val location: Path) {
 
         val database: Database<JsonResourceManager>
         try {
-            database = Databases.openJsonDatabase(location.resolve(dbName))
+            database = Databases.openJsonDatabase(location.resolve(databaseName))
         } catch (e: SirixUsageException) {
             ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
@@ -49,7 +49,7 @@ class JsonHead(private val location: Path) {
 
         database.use {
             try {
-                val manager = database.openResourceManager(resName)
+                val manager = database.openResourceManager(resource)
 
                 manager.use {
                     if (manager.resourceConfig.hashType == HashType.NONE)

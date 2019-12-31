@@ -35,20 +35,20 @@ import java.time.ZoneId
 class XmlGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val dbName: String? = ctx.pathParam("database")
-        val resName: String? = ctx.pathParam("resource")
+        val databaseName: String? = ctx.pathParam("database")
+        val resource: String? = ctx.pathParam("resource")
         val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }
 
-        get(dbName, ctx, resName, query, context, ctx.get("user") as User)
+        get(databaseName, ctx, resource, query, context, ctx.get("user") as User)
 
         return ctx.currentRoute()
     }
 
     private suspend fun get(
-        dbName: String?, ctx: RoutingContext, resName: String?, query: String?,
+        databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
         vertxContext: Context, user: User
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
@@ -62,7 +62,7 @@ class XmlGet(private val location: Path) {
 
         val database: Database<XmlResourceManager>
         try {
-            database = Databases.openXmlDatabase(location.resolve(dbName))
+            database = Databases.openXmlDatabase(location.resolve(databaseName))
         } catch (e: SirixUsageException) {
             ctx.fail(HttpStatusException(HttpResponseStatus.NOT_FOUND.code(), e))
             return
@@ -70,12 +70,12 @@ class XmlGet(private val location: Path) {
 
         database.use {
             try {
-                val manager = database.openResourceManager(resName)
+                val manager = database.openResourceManager(resource)
 
                 manager.use {
                     if (query != null && query.isNotEmpty()) {
                         queryResource(
-                            dbName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                            databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user
                         )
                     } else {
@@ -112,12 +112,12 @@ class XmlGet(private val location: Path) {
     }
 
     private suspend fun queryResource(
-        dbName: String?, database: Database<XmlResourceManager>, revision: String?,
+        databaseName: String?, database: Database<XmlResourceManager>, revision: String?,
         revisionTimestamp: String?, manager: XmlResourceManager, ctx: RoutingContext,
         nodeId: String?, query: String, vertxContext: Context, user: User
     ) {
         withContext(vertxContext.dispatcher()) {
-            val dbCollection = XmlDBCollection(dbName, database)
+            val dbCollection = XmlDBCollection(databaseName, database)
 
             dbCollection.use {
                 val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)

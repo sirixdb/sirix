@@ -24,11 +24,11 @@ import java.nio.file.Path
 
 class JsonDelete(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val dbName: String? = ctx.pathParam("database")
-        val resName: String? = ctx.pathParam("resource")
+        val databaseName: String? = ctx.pathParam("database")
+        val resource: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
-        if (dbName == null) {
+        if (databaseName == null) {
             // Initialize queryResource context and store.
             val dbStore = JsonSessionDBStore(ctx, BasicJsonDBStore.newBuilder().build(), ctx.get("user") as User)
 
@@ -46,14 +46,14 @@ class JsonDelete(private val location: Path) {
                 promise.complete(null)
             }
         } else {
-            delete(dbName, resName, nodeId?.toLongOrNull(), ctx)
+            delete(databaseName, resource, nodeId?.toLongOrNull(), ctx)
         }
 
         return ctx.currentRoute()
     }
 
-    private suspend fun delete(dbPathName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
-        val dbFile = location.resolve(dbPathName)
+    private suspend fun delete(databaseName: String, resPathName: String?, nodeId: Long?, ctx: RoutingContext) {
+        val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
 
