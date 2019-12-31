@@ -81,10 +81,10 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun shredder(
-        dbPathName: String, resPathName: String = dbPathName, resFileToStore: String,
+        databaseName: String, resPathName: String = databaseName, resFileToStore: String,
         ctx: RoutingContext
     ) {
-        val dbFile = location.resolve(dbPathName)
+        val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
