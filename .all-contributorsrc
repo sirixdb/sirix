@@ -175,6 +175,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "JoelLau",
+      "name": "Joel Lau",
+      "avatar_url": "https://avatars3.githubusercontent.com/u/29514264?v=4",
+      "profile": "https://joellau.github.io/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
