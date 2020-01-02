@@ -19,7 +19,7 @@ apply plugin: 'net.researchgate.release'
 
 release {
     failOnSnapshotDependencies = false
-    tagTemplate = '$name-$version'
+    tagTemplate = 'sirix-$version'
     buildTasks = ['releaseBuild']
 }
 
