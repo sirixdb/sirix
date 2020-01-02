@@ -3,11 +3,12 @@ package org.sirix.xquery.function.sdb.trx;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
+import org.sirix.JsonTestHelper;
+import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -19,18 +20,16 @@ public final class LevelOrderTest extends TestCase {
 
   final Path twitter = testResources.resolve("json").resolve("twitter.json");
 
-  private Path sirixPath;
+  private Path sirixPath = PATHS.PATH1.getFile();
 
   @Override
   protected void setUp() throws Exception {
-    sirixPath = Files.createTempDirectory("sirix");
+    JsonTestHelper.deleteEverything();
   }
 
   @Override
   protected void tearDown() {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.drop("mycol.jn");
-    }
+    JsonTestHelper.closeEverything();
   }
 
   @Test

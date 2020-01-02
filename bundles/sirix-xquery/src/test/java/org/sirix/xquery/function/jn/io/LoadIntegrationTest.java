@@ -1,10 +1,11 @@
 package org.sirix.xquery.function.jn.io;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
+import org.sirix.JsonTestHelper;
+import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -18,25 +19,21 @@ public final class LoadIntegrationTest extends TestCase {
 
   final Path jsonObject = testResources.resolve("json").resolve("object.json");
 
-  private Path sirixPath;
-
   @Override
   protected void setUp() throws Exception {
-    sirixPath = Files.createTempDirectory("sirix");
+    JsonTestHelper.deleteEverything();
   }
 
   @Override
   protected void tearDown() {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.drop("mycol.jn");
-    }
+    JsonTestHelper.closeEverything();
   }
 
   @Test
   public void test() {
 
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -50,7 +47,7 @@ public final class LoadIntegrationTest extends TestCase {
   @Test
   public void testMultipleStrings() {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 

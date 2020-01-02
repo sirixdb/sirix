@@ -2,13 +2,14 @@ package org.sirix.xquery.function.jn.io;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import org.brackit.xquery.XQuery;
 import org.brackit.xquery.util.io.IOUtils;
 import org.brackit.xquery.util.serialize.StringSerializer;
 import org.brackit.xquery.xdm.Sequence;
 import org.junit.Test;
+import org.sirix.JsonTestHelper;
+import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.utils.JsonDocumentCreator;
 import org.sirix.xquery.SirixCompileChain;
@@ -45,18 +46,16 @@ public final class SimpleQueryIntegrationTest extends TestCase {
   private static final String mExpectedPastOrSelfTimeTravelQueryResult =
       "{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\"},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[{\"foo\":\"bar\"},\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}{\"foo\":[\"bar\",null,2.33],\"bar\":{\"hello\":\"world\",\"helloo\":true},\"baz\":\"hello\",\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
 
-  private Path sirixPath;
+  private Path sirixPath = PATHS.PATH1.getFile();
 
   @Override
   protected void setUp() throws Exception {
-    sirixPath = Files.createTempDirectory("sirix");
+    JsonTestHelper.deleteEverything();
   }
 
   @Override
   protected void tearDown() {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.drop("mycol.jn");
-    }
+    JsonTestHelper.closeEverything();
   }
 
   @Test

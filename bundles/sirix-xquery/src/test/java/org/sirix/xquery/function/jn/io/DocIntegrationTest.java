@@ -3,10 +3,10 @@ package org.sirix.xquery.function.jn.io;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
+import org.sirix.JsonTestHelper;
+import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
 import org.sirix.xquery.json.BasicJsonDBStore;
@@ -14,24 +14,20 @@ import junit.framework.TestCase;
 
 public final class DocIntegrationTest extends TestCase {
 
-  private Path sirixPath;
-
   @Override
   protected void setUp() throws Exception {
-    sirixPath = Files.createTempDirectory("sirix");
+    JsonTestHelper.deleteEverything();
   }
 
   @Override
   protected void tearDown() {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build()) {
-      store.drop("mycol.jn");
-    }
+    JsonTestHelper.closeEverything();
   }
 
   @Test
   public void test() throws IOException {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath).build();
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
