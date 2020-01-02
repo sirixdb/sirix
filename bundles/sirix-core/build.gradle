@@ -38,10 +38,6 @@ description = 'Sirix is a versioned, treebased storage system. It provides ' +
         'well as a replaced page-structure to speedup our architecture. A brackit(.org) binding will ' +
         'enable XQuery and the XQuery Update Facility. Temporal XPath axis and possibly diff-functions will help analysts to gain quick knowledge from the stored data.'
 
-java {
-    withSourcesJar()
-}
-
 jar {
     manifest {
         attributes('Main-Class': 'org.sirix.utils.CommandoLineExplorer')

@@ -28,18 +28,13 @@ dependencies {
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.jsoup
 
-    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit:1.3.60'
-    testImplementation 'junit:junit:4.12'
-    testImplementation 'io.vertx:vertx-junit5:3.8.4'
-    testImplementation 'org.testcontainers:testcontainers:1.12.4'
+    testImplementation testLibraries.kotlinTestJunit
+    testImplementation testLibraries.junit
+    testImplementation testLibraries.vertxJunit5
+    testImplementation testLibraries.testcontainers
 }
 
 description = 'Non-blocking REST-API for SirixDB.'
-
-java {
-    withSourcesJar()
-    withJavadocJar()
-}
 
 shadowJar {
     classifier = 'fat'
