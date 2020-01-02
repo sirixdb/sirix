@@ -15,6 +15,8 @@ shadowJar {
     mergeServiceFiles()
 }
 
+publishing.publications.maven.artifact(shadowJar)
+
 jar {
     manifest {
         attributes('Main-Class': 'org.sirix.xquery.Main')
