@@ -45,5 +45,9 @@ testLibraries = [
         junitPlatformLauncher: 'org.junit.platform:junit-platform-launcher:1.1.0',
         junitPlatformRunner  : 'org.junit.platform:junit-platform-runner:1.1.0',
         mockitoCore          : 'org.mockito:mockito-core:2.23.4',
-        brackit              : 'com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT:tests'
+        brackit              : 'com.github.sirixdb.brackit:brackit:0.1.6-SNAPSHOT:tests',
+        kotlinTestJunit      : 'org.jetbrains.kotlin:kotlin-test-junit:1.3.60',
+        junit                : 'junit:junit:4.12',
+        vertxJunit5          : 'io.vertx:vertx-junit5:3.8.4',
+        testcontainers       : 'org.testcontainers:testcontainers:1.12.4'
 ]
