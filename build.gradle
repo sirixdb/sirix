@@ -114,6 +114,13 @@ subprojects {
                             system = "Travis CI"
                             url = "http://travis-ci.org/#!/sirixdb/sirix"
                         }
+						developers {
+							developer {
+								id = "johanneslichtenberger"
+								name = "Johannes Lichtenberger"
+								email = "johannes.lichtenberger@sirix.io"
+							}
+						}
                     }
                     from components.java
                 }
