@@ -56,6 +56,7 @@ subprojects {
     apply plugin: 'java'
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
+    apply plugin: 'signing'
     apply plugin: 'com.github.ben-manes.versions'
     apply plugin: "com.github.johnrengelman.shadow"
     apply plugin: "com.diffplug.gradle.spotless"
@@ -88,7 +89,34 @@ subprojects {
     publishing {
         publications {
             maven(MavenPublication) {
-                from(components.java)
+                afterEvaluate {
+                    pom {
+                        name = "${project.name}"
+                        description = "${project.description}"
+                        url = "https://sirix.io"
+                        licenses {
+                            license {
+                                name = "New BSD"
+                                url = "http://www.opensource.org/licenses/bsd-license.php"
+                                comments = "3-clause BSD License"
+                            }
+                        }
+                        scm {
+                            connection = "scm:git:git@github.com:sirixdb/sirix.git"
+                            developerConnection = "scm:git:git@github.com:sirixdb/sirix.git"
+                            url = "https://github.com/sirixdb/sirix"
+                        }
+                        issueManagement {
+                            url = "https://github.com/sirixdb/sirix/issues"
+                            system = "GitHub Issues"
+                        }
+                        ciManagement {
+                            system = "Travis CI"
+                            url = "http://travis-ci.org/#!/sirixdb/sirix"
+                        }
+                    }
+                    from components.java
+                }
             }
         }
         repositories {
@@ -102,6 +130,10 @@ subprojects {
                 url = rootProject.getProperties().version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
             }
         }
+    }
+
+    signing {
+        sign publishing.publications.maven
     }
 
     configurations.all {
