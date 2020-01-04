@@ -141,6 +141,10 @@ subprojects {
 	
 	ext.isReleaseVersion = !rootProject.getProperties().version.endsWith('SNAPSHOT')
 
+	tasks.withType(Sign) {
+		onlyIf { isReleaseVersion }
+	}
+	
     signing {
 		required { isReleaseVersion }
         sign publishing.publications.maven
