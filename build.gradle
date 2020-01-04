@@ -133,7 +133,6 @@ subprojects {
     }
 
     signing {
-		useGpgCmd()
         sign publishing.publications.maven
     }
 
