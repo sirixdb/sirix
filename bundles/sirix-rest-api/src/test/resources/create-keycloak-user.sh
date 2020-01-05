@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-cd keycloak/bin
+cd bin
 ./kcadm.sh config credentials --server http://localhost:8080/auth --realm sirixdb --user admin --password admin
 
 USERID=$(./kcadm.sh create users -r sirixdb -s username=admin -s enabled=true -o --fields id | jq '.id' | tr -d '"')

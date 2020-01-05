@@ -11,6 +11,7 @@ services:
     image: jboss/keycloak
     ports:
       - 8080:8080
+      - 8433:8433
     environment:
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=admin
@@ -19,9 +20,11 @@ services:
     restart: always
     volumes:
       - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
+      - ./bundles/sirix-rest-api/src/test/resources/create-keycloak-user.sh:/opt/keycloak/create-keycloak-user.sh
     command:
       - "-b 0.0.0.0"
       - "-bmanagement 0.0.0.0"
+      - /bin/bash -c "chmod +x /opt/keycloak/create-keycloak-user.sh && sh /opt/keycloak/create-keycloak-user.sh"
     networks:
       - auth-network
   server:

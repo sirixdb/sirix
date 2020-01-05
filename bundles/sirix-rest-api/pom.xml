@@ -109,12 +109,6 @@
 			<artifactId>jsoup</artifactId>
 			<version>1.11.3</version>
 		</dependency>
-		<dependency>
-			<groupId>org.testcontainers</groupId>
-			<artifactId>testcontainers</artifactId>
-			<version>1.12.4</version>
-			<scope>test</scope>
-		</dependency>
 	</dependencies>
 
 	<build>
