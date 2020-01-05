@@ -24,7 +24,6 @@ services:
     command:
       - "-b 0.0.0.0"
       - "-bmanagement 0.0.0.0"
-      - /bin/bash -c "chmod +x /opt/keycloak/create-keycloak-user.sh && sh /opt/keycloak/create-keycloak-user.sh"
     networks:
       - auth-network
   server:
