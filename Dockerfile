@@ -1,18 +1,13 @@
 # Stage-1
 # Build jar
 
-FROM maven:3-jdk-13 as builder
+FROM gradle:6.0.1-jdk13 as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
-# Resolve dependencies
-COPY pom.xml .
-COPY bundles/sirix-rest-api/pom.xml .
-RUN ["/usr/local/bin/mvn-entrypoint.sh", "mvn", "verify", "clean", "--fail-never", "-X"]
-
 # Package jar
 COPY . .
-RUN mvn package -DskipTests
+RUN gradle build -x test
 
 # Stage-2
 # Copy jar and run the server 
@@ -25,7 +20,7 @@ ENV VERTICLE_HOME /opt/sirix
 WORKDIR /opt/sirix
 
 # Copy fat jar to the container
-COPY --from=builder /usr/app/bundles/sirix-rest-api/target/$VERTICLE_FILE ./
+COPY --from=builder /usr/app/bundles/sirix-rest-api/build/libs/$VERTICLE_FILE ./
 
 # Copy additional configuration files
 COPY bundles/sirix-rest-api/src/main/resources/cert.pem ./sirix-data/
