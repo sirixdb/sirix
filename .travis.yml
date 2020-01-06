@@ -6,32 +6,32 @@ jdk:
 branches:
   only:
     - master
+before_cache:
+  - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
+  - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
 cache:
   directories:
-    - "$HOME/apache-maven-3.6.2"
-install:
-  - export M2_HOME=$HOME/apache-maven-3.6.2
-  - if [ ! -d $M2_HOME/bin ]; then curl https://archive.apache.org/dist/maven/maven-3/3.6.2/binaries/apache-maven-3.6.2-bin.tar.gz | tar zxf - -C $HOME; fi
-  - export PATH=$M2_HOME/bin:$PATH
+    - $HOME/.gradle/caches/
+    - $HOME/.gradle/wrapper/
 jobs:
   include:
     - stage: test
-      name: "OpenJDK 13"
+      name: "Source Build"
       jdk: openjdk13
-      script: mvn -q clean verify -B -U
+      install: skip
+      script: ./gradlew clean build --info
+      after_success:
+        - ./gradlew jacocoRootReport coveralls
     - stage: deploy
       name: "Deploy to Sonatype's snapshots repository"
       if: type != pull_request AND env(SONATYPE_NEXUS_USERNAME) IS present
-      script: bash .travis.deploy.artifacts.sh
+      script: ./gradlew travisReleaseSnapshot --info
+    - stage: deploy
+      name: "Deploy to DockerHub"
+      install: skip
+      script: bash docker_push.sh
 notifications:
   email:
     on_failure: always
     recipients:
       - lichtenberger.johannes@gmail.com
-after-success:
-  mvn jacoco:report coveralls:jacoco
-deploy:
-  provider: script
-  script: bash docker_push.sh
-  on:
-    branch: master
