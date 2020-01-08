@@ -195,7 +195,7 @@
 					<dependency>
 						<groupId>org.ow2.asm</groupId>
 						<artifactId>asm</artifactId>
-						<version>6.1</version> <!-- Use newer version of ASM -->
+						<version>7.2</version> <!-- Use newer version of ASM -->
 					</dependency>
 				</dependencies>
 			</plugin>
