@@ -186,8 +186,7 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
-        //To run Kotlin Juint once it is fixed
-        //useJUnitPlatform()
+        useJUnitPlatform()
     }
 }
 

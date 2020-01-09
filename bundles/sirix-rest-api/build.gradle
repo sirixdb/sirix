@@ -1,16 +1,19 @@
 buildscript {
     repositories {
         mavenCentral()
+        jcenter()
     }
 
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.3.61"
+        classpath "com.avast.gradle:gradle-docker-compose-plugin:0.10.7"
         //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
 }
 
 apply plugin: 'kotlin'
 //apply plugin: 'org.jetbrains.dokka'
+apply plugin: 'docker-compose'
 
 dependencies {
     implementation project(':sirix-core')
@@ -63,6 +66,16 @@ compileTestKotlin {
     }
 }
 
+test {
+    jvmArgs "-Duser.home=${buildDir}"
+}
+
+task copyCertificates(type: Copy) {
+    from file("$buildDir/resources/main")
+    include '*.pem'
+    into file("$buildDir/sirix-data")
+}
+
 /*
 task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
     outputFormat = 'javadoc'
@@ -74,3 +87,15 @@ task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
 }
 
 javadocJar.dependsOn dokkaJavadoc*/
+
+test.dependsOn copyCertificates
+test.dependsOn composeUp
+test.finalizedBy composeDownForced
+
+dockerCompose {
+    useComposeFiles = ["${projectDir}/src/test/resources/docker-compose.yml"]
+
+    removeImages = "None" // Other accepted values are: "All" and "Local"
+
+    projectName = 'sirix-test'
+}
