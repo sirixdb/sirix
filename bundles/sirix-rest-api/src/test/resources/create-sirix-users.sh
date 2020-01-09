@@ -1,0 +1,1 @@
+/opt/jboss/keycloak/bin/add-user-keycloak.sh -r sirixdb -u admin -p admin --roles create,modify,delete,view

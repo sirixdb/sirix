@@ -1,0 +1,31 @@
+version: '3'
+services:
+  waitforkeycloak:
+    image: dadarek/wait-for-dependencies
+    depends_on:
+      - keycloak
+    command: keycloak:8080
+    networks:
+      - auth-network
+  keycloak:
+    image: jboss/keycloak
+    ports:
+      - 8080:8080
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_LOGLEVEL=DEBUG
+      - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
+    restart: always
+    volumes:
+      - ./realm-export.json:/opt/keycloak/realm-export.json
+      - ./create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
+    command:
+      - "-b 0.0.0.0"
+      - "-bmanagement 0.0.0.0"
+    networks:
+      - auth-network
+networks:
+  auth-network:
+    driver: bridge
+
