@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import org.skyscreamer.jsonassert.JSONAssert
 import java.util.concurrent.TimeUnit
 
 
@@ -240,7 +241,7 @@ class SirixVerticleJsonTest {
                             "\r\n",
                             System.getProperty("line.separator")
                         )
-                    assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
                     testContext.completeNow()
                 }
             }
@@ -344,7 +345,7 @@ class SirixVerticleJsonTest {
                             "\r\n",
                             System.getProperty("line.separator")
                         )
-                    assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
                     testContext.completeNow()
                 }
             }
@@ -395,9 +396,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -408,9 +410,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                     testContext.completeNow()
                 }
@@ -462,9 +465,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -481,9 +485,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedQueryResponse.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                     testContext.completeNow()
                 }
@@ -535,9 +540,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -552,9 +558,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                     testContext.completeNow()
                 }
@@ -607,9 +614,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -637,9 +645,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                     testContext.completeNow()
                 }
@@ -691,9 +700,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -763,9 +773,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectedJson.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -792,9 +803,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectUpdatedString.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -815,7 +827,7 @@ class SirixVerticleJsonTest {
                         httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
                             .replace("\"revisionTimestamp\":\"(?!\").+?\",\"revision".toRegex(), "\"revision")
                     println(result)
-                    assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result)
+                    JSONAssert.assertEquals(expectedResult.replace("\n", System.getProperty("line.separator")), result, false)
                     testContext.completeNow()
                 }
             }
@@ -860,9 +872,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectString.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                 }
 
@@ -877,9 +890,10 @@ class SirixVerticleJsonTest {
 
                 testContext.verify {
                     assertEquals(200, response.statusCode())
-                    assertEquals(
+                    JSONAssert.assertEquals(
                         expectQueryResult.replace("\n", System.getProperty("line.separator")),
-                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator"))
+                        httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
                     )
                     testContext.completeNow()
                 }

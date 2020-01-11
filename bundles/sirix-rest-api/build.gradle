@@ -34,6 +34,7 @@ dependencies {
     testImplementation testLibraries.kotlinTestJunit
     testImplementation testLibraries.junit
     testImplementation testLibraries.vertxJunit5
+    testImplementation testLibraries.jsonassert
 }
 
 description = 'Non-blocking REST-API for SirixDB.'
