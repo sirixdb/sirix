@@ -186,7 +186,6 @@ subprojects {
     test {
         useTestNG()
         useJUnit()
-        useJUnitPlatform()
     }
 }
 
