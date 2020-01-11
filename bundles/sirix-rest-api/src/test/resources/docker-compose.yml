@@ -1,12 +1,5 @@
 version: '3'
 services:
-  waitforkeycloak:
-    image: dadarek/wait-for-dependencies
-    depends_on:
-      - keycloak
-    command: keycloak:8080
-    networks:
-      - auth-network
   keycloak:
     image: jboss/keycloak
     ports:
@@ -25,6 +18,9 @@ services:
       - "-bmanagement 0.0.0.0"
     networks:
       - auth-network
+    healthcheck:
+      test: "curl -f http://localhost:8080/ || false"
+      timeout: 3s
 networks:
   auth-network:
     driver: bridge
