@@ -19,8 +19,9 @@ services:
     networks:
       - auth-network
     healthcheck:
-      test: "curl -f http://localhost:8080/ || false"
+      test: "curl -f http://localhost:8080/ || exit 1"
       timeout: 3s
+      start_period: 5s
 networks:
   auth-network:
     driver: bridge
