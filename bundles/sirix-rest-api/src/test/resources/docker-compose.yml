@@ -21,8 +21,8 @@ services:
     healthcheck:
       test: "curl -f http://localhost:8080/ || exit 1"
       timeout: 3s
-      start_period: 5s
-      retries: 15
+      start_period: 10s
+      retries: 20
 networks:
   auth-network:
     driver: bridge
