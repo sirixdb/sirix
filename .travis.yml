@@ -19,7 +19,7 @@ jobs:
       name: "Source Build"
       jdk: openjdk13
       install: skip
-      script: ./gradlew clean build --info --stacktrace
+      script: ./gradlew clean build --info --stacktrace --debug
       after_success:
         - ./gradlew jacocoRootReport coveralls
     - stage: deploy
@@ -28,6 +28,7 @@ jobs:
       script: ./gradlew travisReleaseSnapshot --info
     - stage: deploy
       name: "Deploy to DockerHub"
+      if: type != pull_request
       install: skip
       script: bash docker_push.sh
 notifications:
