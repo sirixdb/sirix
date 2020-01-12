@@ -20,7 +20,7 @@ services:
       - auth-network
     healthcheck:
       test: "curl -f http://localhost:8080/ || false"
-      timeout: 10s
+      timeout: 3s
 networks:
   auth-network:
     driver: bridge
