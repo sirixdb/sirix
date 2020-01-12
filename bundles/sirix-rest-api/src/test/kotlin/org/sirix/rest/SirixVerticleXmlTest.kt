@@ -48,6 +48,22 @@ class SirixVerticleXmlTest {
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
 
+        val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+        
         delete(vertx, testContext)
     }
 
