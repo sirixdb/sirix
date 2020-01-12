@@ -48,7 +48,7 @@ class SirixVerticleXmlTest {
 
         client = WebClient.create(vertx, WebClientOptions().setTrustAll(true).setFollowRedirects(false))
 
-        //delete(vertx, testContext)
+        delete(vertx, testContext)
     }
 
     @AfterEach
