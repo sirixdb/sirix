@@ -1,5 +1,0 @@
-dependencies {
-    implementation project(':sirix-core')
-}
-
-description = 'sirix-distributed'
