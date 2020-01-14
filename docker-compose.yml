@@ -1,12 +1,5 @@
 version: '3'
 services:
-  waitforkeycloak:
-    image: dadarek/wait-for-dependencies
-    depends_on:
-      - keycloak
-    command: keycloak:8080
-    networks:
-      - auth-network
   keycloak:
     image: jboss/keycloak
     ports:
@@ -20,7 +13,7 @@ services:
     restart: always
     volumes:
       - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
-      - ./bundles/sirix-rest-api/src/test/resources/create-keycloak-user.sh:/opt/keycloak/create-keycloak-user.sh
+      - ./bundles/sirix-rest-api/src/test/resources/create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
     command:
       - "-b 0.0.0.0"
       - "-bmanagement 0.0.0.0"
