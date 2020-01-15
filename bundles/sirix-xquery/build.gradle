@@ -1,7 +1,7 @@
 dependencies {
     implementation project(':sirix-core')
 
-    testImplementation project(path: ':sirix-core', configuration: 'archives')
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.brackit
 }
 
