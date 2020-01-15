@@ -26,6 +26,7 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
+import org.sirix.node.NodeKind;
 
 /**
  * Json diff.
@@ -42,6 +43,10 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
    */
   public JsonDiff(final Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> builder) {
     super(builder);
+  }
+
+  @Override NodeKind documentNode() {
+    return NodeKind.JSON_DOCUMENT;
   }
 
   @Override

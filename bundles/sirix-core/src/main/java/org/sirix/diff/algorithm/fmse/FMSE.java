@@ -220,7 +220,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * First step of the edit script algorithm. Combines the update, insert, align and move phases.
    *
    * @param wtx {@link XmlNodeTrx} implementation reference on old revisionso
-   * @param pRtxn {@link XmlNodeReadOnlyTrx} implementation reference o new revision
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference o new revision
    */
   private void firstFMESStep(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
     assert wtx != null;
@@ -574,7 +574,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    *
    * @param fromNode the node to update
    * @param toNode the new node
-   * @param pWtxnull {@link XmlNodeTrx} implementation reference on old revision
+   * @param wtx {@link XmlNodeTrx} implementation reference on old revision
    * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    * @return updated {@link Node}
    */

@@ -50,7 +50,7 @@ public class JSONObjectKeyNodeTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageTrxImpl} instance. */
+  /** Sirix {@link PageTrx} instance. */
   private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   private int mNameKey;

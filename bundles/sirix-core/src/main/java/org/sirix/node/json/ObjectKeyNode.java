@@ -23,6 +23,8 @@ package org.sirix.node.json;
 
 import java.math.BigInteger;
 import javax.annotation.Nonnegative;
+
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
@@ -31,6 +33,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.xml.AbstractStructForwardingNode;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -46,7 +49,7 @@ import com.google.common.hash.HashCode;
  *
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
+public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode, ImmutableNameNode {
 
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
@@ -123,7 +126,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return mNameKey;
   }
 
-  public void setLocalNameKey(final int nameKey) {
+  public void setNameKey(final int nameKey) {
     mNameKey = nameKey;
   }
 
@@ -171,11 +174,23 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return this;
   }
 
+  @Override public int getLocalNameKey() {
+    return mNameKey;
+  }
+
+  @Override public int getPrefixKey() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override public int getURIKey() {
+    throw new UnsupportedOperationException();
+  }
+
   public long getPathNodeKey() {
     return mPathNodeKey;
   }
 
-  public String getName() {
-    return mName;
+  public QNm getName() {
+    return new QNm(mName);
   }
 }

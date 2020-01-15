@@ -25,6 +25,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
+import org.sirix.node.NodeKind;
 
 /**
  * Structural diff, thus no attributes and namespace nodes are taken into account.
@@ -41,6 +42,10 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
    */
   public XmlStructuralDiff(final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder) {
     super(builder);
+  }
+
+  @Override NodeKind documentNode() {
+    return NodeKind.XDM_DOCUMENT;
   }
 
   @Override

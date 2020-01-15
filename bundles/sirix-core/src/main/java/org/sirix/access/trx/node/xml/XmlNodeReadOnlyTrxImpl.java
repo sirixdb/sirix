@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.AbstractNodeReadTrx;
@@ -136,8 +137,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
           newNode = Optional.empty();
         }
       } else {
-        final Optional<? extends Record> node = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
-        newNode = node;
+        newNode = getPageTransaction().getRecord(nodeKey, PageKind.RECORDPAGE, -1);
       }
     } catch (final SirixIOException e) {
       newNode = Optional.empty();
@@ -154,6 +154,8 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
 
   @Override
   public ImmutableXmlNode getNode() {
+    assertNotClosed();
+
     switch (mCurrentNode.getKind()) {
       case ELEMENT:
         return ImmutableElement.of((ElementNode) mCurrentNode);
@@ -193,8 +195,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getAttributeCount() > index) {
-        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(element.getAttributeKey(index));
-        return moved;
+        return moveTo(element.getAttributeKey(index));
       } else {
         return Move.notMoved();
       }
@@ -209,8 +210,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (mCurrentNode.getKind() == NodeKind.ELEMENT) {
       final ElementNode element = ((ElementNode) mCurrentNode);
       if (element.getNamespaceCount() > index) {
-        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(element.getNamespaceKey(index));
-        return moved;
+        return moveTo(element.getNamespaceKey(index));
       } else {
         return Move.notMoved();
       }
@@ -284,8 +284,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       final ElementNode element = ((ElementNode) mCurrentNode);
       final Optional<Long> attrKey = element.getAttributeKeyByName(name);
       if (attrKey.isPresent()) {
-        final Move<? extends XmlNodeReadOnlyTrx> moved = moveTo(attrKey.get());
-        return moved;
+        return moveTo(attrKey.get());
       }
     }
     return Move.notMoved();
@@ -389,7 +388,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       return ((NameNode) mCurrentNode).getURIKey();
     }
     return -1;
-  };
+  }
 
   @Override
   public List<Long> getAttributeKeys() {
@@ -413,8 +412,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   public String getNamespaceURI() {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
-      final String URI = mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
-      return URI;
+      return mPageReadTrx.getName(((NameNode) mCurrentNode).getURIKey(), NodeKind.NAMESPACE);
     }
     return null;
   }
@@ -485,7 +483,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
+      Optional<SirixDeweyID> deweyID = Optional.empty();
       if (node.hasLeftSibling()) {
         // Left sibling node.
         deweyID = moveTo(node.getLeftSiblingKey()).trx().getDeweyID();
@@ -493,7 +491,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
@@ -501,7 +499,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
     if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final StructNode node = getStructuralNode();
       final long nodeKey = node.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
+      Optional<SirixDeweyID> deweyID = Optional.empty();
       if (node.hasRightSibling()) {
         // Right sibling node.
         deweyID = moveTo(node.getRightSiblingKey()).trx().getDeweyID();
@@ -509,14 +507,14 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
   public Optional<SirixDeweyID> getParentDeweyID() {
     if (mResourceManager.getResourceConfig().areDeweyIDsStored) {
       final long nodeKey = mCurrentNode.getNodeKey();
-      Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID>empty();
+      Optional<SirixDeweyID> deweyID = Optional.empty();
       if (mCurrentNode.hasParent()) {
         // Parent node.
         deweyID = moveTo(mCurrentNode.getParentKey()).trx().getDeweyID();
@@ -524,7 +522,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       moveTo(nodeKey);
       return deweyID;
     }
-    return Optional.<SirixDeweyID>empty();
+    return Optional.empty();
   }
 
   @Override
@@ -585,7 +583,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   }
 
   @Override
-  public int getNameCount(String name, NodeKind kind) {
+  public int getNameCount(String name, @Nonnull NodeKind kind) {
     assertNotClosed();
     if (mCurrentNode instanceof NameNode) {
       return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
