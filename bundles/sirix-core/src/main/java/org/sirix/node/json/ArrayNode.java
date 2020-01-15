@@ -48,35 +48,29 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
-  /** The path node key. */
-  private final long mPathNodeKey;
-
   private BigInteger mHash;
 
   /**
    * Constructor
    *
    * @param structDel {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
    */
-  public ArrayNode(final StructNodeDelegate structDel, final long pathNodeKey) {
+  public ArrayNode(final StructNodeDelegate structDel) {
     assert structDel != null;
     mStructNodeDel = structDel;
-    mPathNodeKey = pathNodeKey;
   }
 
   /**
    * Constructor
    *
+   * @param hashCode hashCode of the node
    * @param structDel {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
    */
-  public ArrayNode(final BigInteger hashCode, final StructNodeDelegate structDel, final long pathNodeKey) {
+  public ArrayNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
     assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;
-    mPathNodeKey = pathNodeKey;
   }
 
   @Override
@@ -136,9 +130,5 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableArrayNode.of(this));
-  }
-
-  public long getPathNodeKey() {
-    return mPathNodeKey;
   }
 }

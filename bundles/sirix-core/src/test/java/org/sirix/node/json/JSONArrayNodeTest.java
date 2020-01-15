@@ -51,7 +51,7 @@ public class JSONArrayNodeTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageTrxImpl} instance. */
+  /** Sirix {@link PageTrx} instance. */
   private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   @Before
@@ -73,7 +73,7 @@ public class JSONArrayNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final ArrayNode node = new ArrayNode(strucDel, 18);
+    final ArrayNode node = new ArrayNode(strucDel);
     node.setHash(node.computeHash());
     check(node);
 
@@ -92,7 +92,6 @@ public class JSONArrayNodeTest {
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(18L, node.getPathNodeKey());
 
     assertEquals(NodeKind.ARRAY, node.getKind());
     assertEquals(false, node.hasFirstChild());

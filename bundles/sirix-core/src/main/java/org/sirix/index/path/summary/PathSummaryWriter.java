@@ -1,8 +1,5 @@
 package org.sirix.index.path.summary;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnegative;
-import javax.xml.namespace.QName;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.access.trx.node.NodeFactory;
@@ -26,6 +23,9 @@ import org.sirix.axis.filter.PathNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
+import org.sirix.node.immutable.json.ImmutableArrayNode;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import org.sirix.node.immutable.json.ImmutableObjectNode;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
@@ -33,12 +33,15 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
-import org.sirix.node.json.ArrayNode;
-import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
+
+import javax.annotation.Nonnegative;
+import javax.xml.namespace.QName;
+
+import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
  * Path summary writer organizing the path classes of a resource.
@@ -158,12 +161,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Move path summary cursor to the path node which is references by the current node.
    */
   private void movePathSummary() {
+    if (mNodeRtx.getKind() == NodeKind.OBJECT || mNodeRtx.getKind() == NodeKind.ARRAY)
+      mNodeRtx.moveToParent();
+
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
-      mPathSummaryReader.moveTo(((ObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == NodeKind.ARRAY) {
-      mPathSummaryReader.moveTo(((ArrayNode) mNodeRtx.getNode()).getPathNodeKey());
+      mPathSummaryReader.moveTo(((ImmutableObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
     }
@@ -175,7 +179,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param name {@link QNm} of the path node (not stored) twice
    * @param pathKind kind of node to index
    * @param level level in the path summary
-   * @return this {@link WriteTransaction} instance
+   * @return this path writer instance
    * @throws SirixException if an I/O error occurs
    */
   public PathSummaryWriter<R> insertPathAsFirstChild(final QNm name, final NodeKind pathKind, final int level) {
@@ -233,7 +237,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    *
    * @param node the node for which the path node needs to be adapted
    * @param name the new {@link QName} in case of a new one is set, the old {@link QName} otherwise
-   * @param nameKey nameKey of the new node
    * @param uriKey uriKey of the new node
    * @throws SirixException if a Sirix operation fails
    * @throws NullPointerException if {@code pNode} or {@code pQName} is null
@@ -566,8 +569,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     assert node != null;
     // Get parent path node and level.
     mNodeRtx.moveToParent();
+    if (mNodeRtx.getKind() == NodeKind.OBJECT || mNodeRtx.getKind() == NodeKind.ARRAY)
+      mNodeRtx.moveToParent();
+
     int level = 0;
-    if (mNodeRtx.getKind() == NodeKind.XDM_DOCUMENT) {
+    if (mNodeRtx.getKind() == NodeKind.XDM_DOCUMENT || mNodeRtx.getKind() == NodeKind.JSON_DOCUMENT) {
       mPathSummaryReader.moveToDocumentRoot();
     } else {
       movePathSummary();

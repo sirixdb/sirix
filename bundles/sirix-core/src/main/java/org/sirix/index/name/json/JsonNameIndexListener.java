@@ -20,7 +20,7 @@ final class JsonNameIndexListener implements ChangeListener {
   public void listen(ChangeType type, @Nonnull ImmutableNode node, long pathNodeKey) {
     if (node instanceof ObjectKeyNode) {
       final ObjectKeyNode objectKeyNode = (ObjectKeyNode) node;
-      final QNm name = new QNm(objectKeyNode.getName());
+      final QNm name = objectKeyNode.getName();
 
       mIndexListener.listen(type, objectKeyNode, name);
     }

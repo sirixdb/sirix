@@ -61,7 +61,7 @@ public final class JsonDocumentCreator {
   /**
    * Create simple test document containing all supported node kinds.
    *
-   * @param wtx {@link JsonNodeWriteTrx} to write to
+   * @param wtx {@link JsonNodeTrx} to write to
    * @throws SirixException if anything weird happens
    */
   public static void create(final JsonNodeTrx wtx) {

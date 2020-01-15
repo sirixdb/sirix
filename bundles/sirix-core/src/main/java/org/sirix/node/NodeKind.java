@@ -874,8 +874,6 @@ public enum NodeKind implements NodePersistenter {
         final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
 
-      final long pathNodeKey = source.readLong();
-
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
 
@@ -883,7 +881,7 @@ public enum NodeKind implements NodePersistenter {
       final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
 
       // Returning an instance.
-      return new ArrayNode(hashCode, structDel, pathNodeKey);
+      return new ArrayNode(hashCode, structDel);
     }
 
     @Override
@@ -892,7 +890,6 @@ public enum NodeKind implements NodePersistenter {
       final ArrayNode node = (ArrayNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
         writeHash(sink, node.getHash());
-      sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }

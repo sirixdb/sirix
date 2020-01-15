@@ -11,6 +11,8 @@ import static org.sirix.xquery.function.jn.io.DocByPointInTime.OPEN;
 import static org.sirix.xquery.function.jn.io.Load.LOAD;
 import static org.sirix.xquery.function.jn.io.OpenRevisions.OPEN_REVISIONS;
 import static org.sirix.xquery.function.jn.io.Store.STORE;
+import static org.sirix.xquery.function.jn.diff.Diff.DIFF;
+
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
@@ -42,6 +44,8 @@ import org.sirix.xquery.function.jn.temporal.Next;
 import org.sirix.xquery.function.jn.temporal.Past;
 import org.sirix.xquery.function.jn.temporal.Previous;
 import org.sirix.xquery.function.jn.trx.SelectJsonItem;
+import org.sirix.xquery.function.jn.diff.Diff;
+
 
 /**
  * Function definitions.
@@ -171,5 +175,9 @@ public final class JNFun {
     Functions.predefine(new ScanCASIndex());
     Functions.predefine(new ScanCASIndexRange());
     Functions.predefine(new ScanNameIndex());
+
+    // diff
+    Functions.predefine(new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
+                                                     SequenceType.INTEGER, SequenceType.INTEGER)));
   }
 }

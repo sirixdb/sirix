@@ -29,6 +29,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
+import org.sirix.node.NodeKind;
 
 /**
  * Full diff including attributes and namespaces. Note that this class is thread safe.
@@ -46,6 +47,10 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
    */
   XmlFullDiff(final Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder) throws SirixException {
     super(builder);
+  }
+
+  @Override NodeKind documentNode() {
+    return NodeKind.XDM_DOCUMENT;
   }
 
   @Override

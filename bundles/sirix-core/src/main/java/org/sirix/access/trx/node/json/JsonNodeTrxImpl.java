@@ -62,6 +62,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
+import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -176,12 +177,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * Constructor.
    *
    * @param transactionID ID of transaction
-   * @param resourceManager the {@link session} instance this transaction is bound to
-   * @param pageWriteTrx {@link PageTrx} to interact with the page layer
+   * @param resourceManager the resource manager instance this transaction is bound to
    * @param maxNodeCount maximum number of node modifications before auto commit
    * @param timeUnit unit of the number of the next param {@code pMaxTime}
    * @param maxTime maximum number of seconds before auto commit
-   * @param trx the transaction to use
    * @throws SirixIOException if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
@@ -211,7 +210,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     mModificationCount = 0L;
 
     if (maxTime > 0) {
-      mPool.scheduleAtFixedRate(() -> commit(), maxTime, maxTime, timeUnit);
+      mPool.scheduleAtFixedRate(this::commit, maxTime, maxTime, timeUnit);
     }
 
     // Synchronize commit and other public methods if needed.
@@ -288,10 +287,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
           switch (peekedJsonToken) {
             case BEGIN_OBJECT:
-              if (nodeKind != NodeKind.OBJECT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-                throw new IllegalStateException("Current node in storage must be an object node.");
-              }
-
               if (nodeKind == NodeKind.OBJECT)
                 skipRootJsonToken = true;
               break;
@@ -373,9 +368,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @throws SirixIOException if an I/O error occurs
    */
   private void postOrderTraversalHashes() {
-    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> {
-      addHashAndDescendantCount();
-    });
+    new PostOrderAxis(this, IncludeSelf.YES).forEach((unused) -> addHashAndDescendantCount());
   }
 
   /**
@@ -754,7 +747,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx insertBooleanValueAsFirstChild(boolean value) {
-    checkNotNull(value);
     acquireLock();
     try {
       final NodeKind kind = getKind();
@@ -821,7 +813,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     // Get the path node key.
     moveToParentObjectKeyArrayOrDocumentRoot();
     final long pathNodeKey = isObjectKey()
-        ? ((ObjectKeyNode) getNode()).getPathNodeKey()
+        ? ((ImmutableObjectKeyNode) getNode()).getPathNodeKey()
         : -1;
     moveTo(node.getNodeKey());
 
@@ -1020,7 +1012,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
       final long pathNodeKey = moveToParent().hasMoved()
-          ? ((ObjectKeyNode) getNode()).getPathNodeKey()
+          ? ((ImmutableObjectKeyNode) getNode()).getPathNodeKey()
           : -1;
       moveTo(nodeKey);
       mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
@@ -1057,27 +1049,25 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
       checkAccessAndCommit();
 
-      NameNode node = (NameNode) mNodeReadOnlyTrx.getCurrentNode();
+      ObjectKeyNode node = (ObjectKeyNode) mNodeReadOnlyTrx.getCurrentNode();
       final BigInteger oldHash = node.computeHash();
 
       // Remove old keys from mapping.
       final NodeKind nodeKind = node.getKind();
-      final int oldLocalNameKey = node.getLocalNameKey();
+      final int oldNameKey = node.getNameKey();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-      page.removeName(oldLocalNameKey, nodeKind, mPageWriteTrx);
+      page.removeName(oldNameKey, nodeKind, mPageWriteTrx);
 
       // Create new key for mapping.
-      final int localNameKey = name == null
-          ? -1
-          : mPageWriteTrx.createNameKey(name, node.getKind());
+      final int newNameKey = mPageWriteTrx.createNameKey(name, node.getKind());
 
       // Set new keys for current node.
-      node = (NameNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
-      node.setLocalNameKey(localNameKey);
+      node = (ObjectKeyNode) mPageWriteTrx.prepareEntryForModification(node.getNodeKey(), PageKind.RECORDPAGE, -1);
+      node.setNameKey(newNameKey);
 
       // Adapt path summary.
       if (mBuildPathSummary) {
-        mPathSummaryWriter.adaptPathForChangedNode(node, new QNm(name), -1, -1, localNameKey, OPType.SETNAME);
+        mPathSummaryWriter.adaptPathForChangedNode(node, new QNm(name), -1, -1, newNameKey, OPType.SETNAME);
       }
 
       // Set path node key.
@@ -1133,7 +1123,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   @Override
   public JsonNodeTrx setBooleanValue(final boolean value) {
-    checkNotNull(value);
     acquireLock();
     try {
       if (getKind() != NodeKind.BOOLEAN_VALUE)
@@ -1350,12 +1339,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     reInstantiateIndexes();
   }
 
-  /**
-   * Create new instances for indexes.
-   *
-   * @param trxID transaction ID
-   * @param revNumber revision number
-   */
   private void reInstantiateIndexes() {
     // Get a new path summary instance.
     if (mBuildPathSummary) {
@@ -1507,46 +1490,17 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptForRemove(final StructNode oldNode, final PageKind page) {
     assert oldNode != null;
 
-    // Concatenate neighbor text nodes if they exist (the right sibling is
-    // deleted afterwards).
-    boolean concatenated = false;
-    if (oldNode.hasLeftSibling() && oldNode.hasRightSibling() && moveTo(oldNode.getRightSiblingKey()).hasMoved()
-        && getCurrentNode().getKind() == NodeKind.TEXT && moveTo(oldNode.getLeftSiblingKey()).hasMoved()
-        && getCurrentNode().getKind() == NodeKind.TEXT) {
-      final StringBuilder builder = new StringBuilder(getValue());
-      moveTo(oldNode.getRightSiblingKey());
-      builder.append(getValue());
-      moveTo(oldNode.getLeftSiblingKey());
-      // setValue(builder.toString());
-      concatenated = true;
-    }
-
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
           (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getLeftSiblingKey(), page, -1);
-      if (concatenated) {
-        moveTo(oldNode.getRightSiblingKey());
-        leftSibling.setRightSiblingKey(((StructNode) getCurrentNode()).getRightSiblingKey());
-      } else {
-        leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
-      }
+      leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
     }
 
     // Adapt right sibling node if there is one.
     if (oldNode.hasRightSibling()) {
-      StructNode rightSibling;
-      if (concatenated) {
-        moveTo(oldNode.getRightSiblingKey());
-        moveTo(mNodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
-        rightSibling =
-            (StructNode) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(), page,
-                -1);
-        rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
-      } else {
-        rightSibling = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getRightSiblingKey(), page, -1);
-        rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
-      }
+      final StructNode rightSibling = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getRightSiblingKey(), page, -1);
+      rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
     }
 
     // Adapt parent, if node has now left sibling it is a first child.
@@ -1555,29 +1509,6 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
     parent.decrementChildCount();
-    if (concatenated) {
-      parent.decrementDescendantCount();
-      parent.decrementChildCount();
-    }
-    if (concatenated) {
-      // Adjust descendant count.
-      moveTo(parent.getNodeKey());
-      while (parent.hasParent()) {
-        moveToParent();
-        final StructNode ancestor =
-            (StructNode) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(), page,
-                -1);
-        ancestor.decrementDescendantCount();
-        parent = ancestor;
-      }
-    }
-
-    // Remove right sibling text node if text nodes have been
-    // concatenated/merged.
-    if (concatenated) {
-      moveTo(oldNode.getRightSiblingKey());
-      mPageWriteTrx.removeEntry(mNodeReadOnlyTrx.getNodeKey(), page, -1);
-    }
 
     // Remove non structural nodes of old node.
     if (oldNode.getKind() == NodeKind.ELEMENT) {
@@ -1862,13 +1793,13 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @param nodeToModify node to modify
    * @param descendantCount the descendantCount to add
    */
-  private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModifiy,
+  private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModify,
       final @Nonnegative long descendantCount) {
     assert startNode != null;
     assert descendantCount >= 0;
-    assert nodeToModifiy != null;
+    assert nodeToModify != null;
     if (startNode instanceof StructNode) {
-      final StructNode node = (StructNode) nodeToModifiy;
+      final StructNode node = (StructNode) nodeToModify;
       final long oldDescendantCount = node.getDescendantCount();
       node.setDescendantCount(oldDescendantCount + descendantCount);
     }
