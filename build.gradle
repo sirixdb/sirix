@@ -50,6 +50,7 @@ allprojects {
 
     apply plugin: 'jacoco'
     apply plugin: 'com.github.kt3k.coveralls'
+    apply plugin: 'idea'
 
     repositories {
         mavenCentral()
@@ -122,13 +123,13 @@ subprojects {
                             system = "Travis CI"
                             url = "http://travis-ci.org/#!/sirixdb/sirix"
                         }
-						developers {
-							developer {
-								id = "johanneslichtenberger"
-								name = "Johannes Lichtenberger"
-								email = "johannes.lichtenberger@sirix.io"
-							}
-						}
+                        developers {
+                            developer {
+                                id = "johanneslichtenberger"
+                                name = "Johannes Lichtenberger"
+                                email = "johannes.lichtenberger@sirix.io"
+                            }
+                        }
                     }
                     from components.java
                 }
@@ -146,19 +147,20 @@ subprojects {
             }
         }
     }
-	
-	ext.isReleaseVersion = !rootProject.getProperties().version.endsWith('SNAPSHOT')
 
-	tasks.withType(Sign) {
-		onlyIf { isReleaseVersion }
-	}
-	
+    ext.isReleaseVersion = !rootProject.getProperties().version.endsWith('SNAPSHOT')
+
+    tasks.withType(Sign) {
+        onlyIf { isReleaseVersion }
+    }
+
     signing {
-		required { isReleaseVersion }
+        required { isReleaseVersion }
         sign publishing.publications.maven
     }
 
-    configurations.all {
+    configurations {
+        testArtifacts.extendsFrom testImplementation
     }
 
     task testsJar(type: Jar) {
@@ -167,7 +169,7 @@ subprojects {
     }
 
     artifacts {
-        archives testsJar
+        testArtifacts testsJar
     }
 
     jar {
