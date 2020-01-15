@@ -29,6 +29,15 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
     mNode = checkNotNull(node);
   }
 
+  /**
+   * Get a path node key.
+   *
+   * @return path node key
+   */
+  public long getPathNodeKey() {
+    return mNode.getPathNodeKey();
+  }
+
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(this);

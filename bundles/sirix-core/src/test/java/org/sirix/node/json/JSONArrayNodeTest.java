@@ -22,6 +22,9 @@
 package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -51,7 +54,7 @@ public class JSONArrayNodeTest {
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageTrx} instance. */
+  /** Sirix {@link PageTrx}. */
   private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
   @Before
@@ -73,7 +76,7 @@ public class JSONArrayNodeTest {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final ArrayNode node = new ArrayNode(strucDel);
+    final ArrayNode node = new ArrayNode(strucDel, 18);
     node.setHash(node.computeHash());
     check(node);
 
@@ -86,17 +89,18 @@ public class JSONArrayNodeTest {
     check(node2);
   }
 
-  private final void check(final ArrayNode node) {
+  private void check(final ArrayNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(16L, node.getRightSiblingKey());
+    assertEquals(18L, node.getPathNodeKey());
 
     assertEquals(NodeKind.ARRAY, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasRightSibling());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasRightSibling());
   }
 
 }
