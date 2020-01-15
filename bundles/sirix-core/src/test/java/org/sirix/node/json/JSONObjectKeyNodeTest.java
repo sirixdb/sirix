@@ -22,6 +22,7 @@
 package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -91,7 +92,7 @@ public class JSONObjectKeyNodeTest {
     check(node2);
   }
 
-  private final void check(final ObjectKeyNode node) {
+  private void check(final ObjectKeyNode node) {
     // Now compare.
     assertEquals(14L, node.getNodeKey());
     assertEquals(13L, node.getParentKey());
@@ -99,11 +100,11 @@ public class JSONObjectKeyNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
 
     assertEquals(mNameKey, node.getNameKey());
-    assertEquals("foobar", node.getName());
+    assertEquals("foobar", node.getName().getLocalName());
     assertEquals(NodeKind.OBJECT_KEY, node.getKind());
-    assertEquals(true, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasRightSibling());
+    assertTrue(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasRightSibling());
   }
 
 }

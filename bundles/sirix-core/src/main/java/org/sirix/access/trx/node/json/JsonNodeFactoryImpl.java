@@ -87,7 +87,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         parentKey, mHashFunction, null, revision, null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel),
+    return (ArrayNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new ArrayNode(structDel, pathNodeKey),
         PageKind.RECORDPAGE, -1);
   }
 

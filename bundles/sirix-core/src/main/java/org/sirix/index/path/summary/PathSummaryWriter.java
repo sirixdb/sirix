@@ -161,13 +161,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Move path summary cursor to the path node which is references by the current node.
    */
   private void movePathSummary() {
-    if (mNodeRtx.getKind() == NodeKind.OBJECT || mNodeRtx.getKind() == NodeKind.ARRAY)
+    if (mNodeRtx.getKind() == NodeKind.OBJECT)
       mNodeRtx.moveToParent();
 
     if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
       mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
       mPathSummaryReader.moveTo(((ImmutableObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getKind() == NodeKind.ARRAY) {
+      mPathSummaryReader.moveTo(((ImmutableArrayNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
     }
@@ -569,7 +571,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     assert node != null;
     // Get parent path node and level.
     mNodeRtx.moveToParent();
-    if (mNodeRtx.getKind() == NodeKind.OBJECT || mNodeRtx.getKind() == NodeKind.ARRAY)
+    if (mNodeRtx.getKind() == NodeKind.OBJECT)
       mNodeRtx.moveToParent();
 
     int level = 0;
