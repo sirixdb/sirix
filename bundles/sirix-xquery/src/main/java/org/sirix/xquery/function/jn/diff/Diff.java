@@ -49,6 +49,8 @@ import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.DiffTuple;
+import org.sirix.node.NodeKind;
+import org.sirix.service.json.JsonNumber;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
@@ -165,10 +167,28 @@ import java.util.List;
 
                             final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
 
-                            jsonInsertDiff.addProperty("nodeKey", newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
+                            jsonInsertDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
+                            jsonInsertDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
+                            jsonInsertDiff.addProperty("insertPositionNodeKey",
+                                newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
                             jsonInsertDiff.addProperty("insertPosition", insertPosition);
 
-                            serialize(newRevision, resourceManager, newRtx, jsonInsertDiff);
+                            if (newRtx.getChildCount() > 0) {
+                                jsonInsertDiff.addProperty("type", "jsonFragment");
+                                serialize(newRevision, resourceManager, newRtx, jsonInsertDiff);
+                            } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
+                                jsonInsertDiff.addProperty("type", "boolean");
+                                jsonInsertDiff.addProperty("data", newRtx.getBooleanValue());
+                            } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
+                                jsonInsertDiff.addProperty("type", "string");
+                                jsonInsertDiff.addProperty("data", newRtx.getValue());
+                            } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
+                                jsonInsertDiff.addProperty("type", "null");
+                                jsonInsertDiff.add("data", null);
+                            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
+                                jsonInsertDiff.addProperty("type", "number");
+                                jsonInsertDiff.addProperty("data", newRtx.getNumberValue());
+                            }
 
                             insertedJson.add("insert", jsonInsertDiff);
                             jsonDiffs.add(insertedJson);
@@ -188,8 +208,24 @@ import java.util.List;
                             replaceJson.add("replace", jsonReplaceDiff);
 
                             jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
+                            jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
 
-                            serialize(newRevision, resourceManager, newRtx, jsonReplaceDiff);
+                            if (newRtx.getChildCount() > 0) {
+                                jsonReplaceDiff.addProperty("type", "jsonFragment");
+                                serialize(newRevision, resourceManager, newRtx, jsonReplaceDiff);
+                            } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
+                                jsonReplaceDiff.addProperty("type", "boolean");
+                                jsonReplaceDiff.addProperty("data", newRtx.getBooleanValue());
+                            } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
+                                jsonReplaceDiff.addProperty("type", "string");
+                                jsonReplaceDiff.addProperty("data", newRtx.getValue());
+                            } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
+                                jsonReplaceDiff.addProperty("type", "null");
+                                jsonReplaceDiff.add("data", null);
+                            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
+                                jsonReplaceDiff.addProperty("type", "number");
+                                jsonReplaceDiff.addProperty("data", newRtx.getNumberValue());
+                            }
 
                             jsonDiffs.add(replaceJson);
                             break;
@@ -202,7 +238,19 @@ import java.util.List;
                             if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
                                 jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
                             } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
-                                jsonUpdateDiff.addProperty("value", newRtx.getValue());
+                                if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
+                                    jsonUpdateDiff.addProperty("type", "boolean");
+                                    jsonUpdateDiff.addProperty("value", Boolean.valueOf(newRtx.getValue()));
+                                } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
+                                    jsonUpdateDiff.addProperty("type", "string");
+                                    jsonUpdateDiff.addProperty("value", newRtx.getValue());
+                                } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
+                                    jsonUpdateDiff.addProperty("type", "null");
+                                    jsonUpdateDiff.add("value", null);
+                                } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
+                                    jsonUpdateDiff.addProperty("type", "number");
+                                    jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
+                                }
                             }
 
                             updateJson.add("update", jsonUpdateDiff);
@@ -222,7 +270,8 @@ import java.util.List;
     private void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
         JsonObject jsonReplaceDiff) {
         try (final var writer = new StringWriter()) {
-            final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(newRtx.getNodeKey()).build();
+            final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(
+                newRtx.getNodeKey()).build();
             serializer.call();
             jsonReplaceDiff.addProperty("data", writer.toString());
         } catch (final IOException e) {

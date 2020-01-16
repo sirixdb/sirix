@@ -51,6 +51,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.service.ShredderCommit;
+import org.sirix.service.json.JsonNumber;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
@@ -300,44 +301,9 @@ public final class JsonShredder implements Callable<Long> {
   }
 
   private Number readNumber() throws IOException {
-    final var stringVal = mReader.nextString();
+    final var stringValue = mReader.nextString();
 
-    Number number;
-
-    if (stringVal.contains(".")) {
-      if (stringVal.contains("E") || stringVal.contains("e")) {
-        try {
-          number = Float.valueOf(stringVal);
-        } catch (final NumberFormatException eeee) {
-          try {
-            number = Double.valueOf(stringVal);
-          } catch (final NumberFormatException eeeee) {
-            throw new IllegalStateException(eeeee);
-          }
-        }
-      } else {
-        try {
-          number = new BigDecimal(stringVal);
-        } catch (final NumberFormatException eeeeee) {
-          throw new IllegalStateException(eeeeee);
-        }
-      }
-    } else {
-      try {
-        number = Integer.valueOf(stringVal);
-      } catch (final NumberFormatException e) {
-        try {
-          number = Long.valueOf(stringVal);
-        } catch (final NumberFormatException ee) {
-          try {
-            number = new BigInteger(stringVal);
-          } catch (final NumberFormatException eee) {
-            throw new IllegalStateException(eee);
-          }
-        }
-      }
-    }
-    return number;
+    return JsonNumber.stringToNumber(stringValue);
   }
 
   private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {

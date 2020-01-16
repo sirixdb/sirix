@@ -1,11 +1,13 @@
 package org.sirix.xquery.function.jn.diff;
 
 import junit.framework.TestCase;
+import net.bytebuddy.implementation.bind.MethodDelegationBinder;
 import org.brackit.xquery.XQuery;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
+import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.json.shredder.JsonShredder;
 import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.SirixQueryContext;
@@ -17,10 +19,11 @@ import java.io.PrintStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 
+import static org.junit.Assert.assertEquals;
+
 public final class DiffTest extends TestCase {
 
-    private static final String FIRST_DIFF = "{\"database\":\"json-path1\",\"resource\":\"shredded\",\"old-revision\":1,\"new-revision\":3,\"diffs\":[{\"insert\":{\"nodeKey\":1,\"insertPosition\":\"asFirstChild\",\"data\":\"{\\\"tadaaa\\\":\\\"todooo\\\"}\"}},{\"insert\":{\"nodeKey\":5,\"insertPosition\":\"asRightSibling\",\"data\":\"{\\\"test\\\":1}\"}},{\"delete\":9},{\"delete\":13},{\"update\":{\"nodeKey\":15,\"name\":\"tadaa\"}},{\"update\":{\"nodeKey\":22,\"value\":\"true\"}}]}";
-
+    private static final String FIRST_DIFF = "{\"database\":\"json-path1\",\"resource\":\"shredded\",\"old-revision\":1,\"new-revision\":3,\"diffs\":[{\"insert\":{\"oldNodeKey\":2,\"newNodeKey\":26,\"insertPositionNodeKey\":1,\"insertPosition\":\"asFirstChild\",\"type\":\"jsonFragment\",\"data\":\"{\\\"tadaaa\\\":\\\"todooo\\\"}\"}},{\"insert\":{\"oldNodeKey\":5,\"newNodeKey\":31,\"insertPositionNodeKey\":4,\"insertPosition\":\"asRightSibling\",\"type\":\"boolean\",\"data\":false}},{\"replace\":{\"oldNodeKey\":5,\"newNodeKey\":28,\"type\":\"jsonFragment\",\"data\":\"{\\\"test\\\":1}\"}},{\"update\":{\"nodeKey\":6,\"type\":\"number\",\"value\":1.2}},{\"delete\":9},{\"delete\":13},{\"update\":{\"nodeKey\":15,\"name\":\"tadaa\"}},{\"update\":{\"nodeKey\":22,\"type\":\"boolean\",\"value\":true}}]}";
     @Override
     protected void setUp() throws Exception {
         JsonTestHelper.deleteEverything();
@@ -43,6 +46,13 @@ public final class DiffTest extends TestCase {
             wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
             wtx.moveTo(5);
             wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"));
+            wtx.moveTo(5);
+            wtx.remove();
+            wtx.moveTo(4);
+            wtx.insertBooleanValueAsRightSibling(true);
+            wtx.setBooleanValue(false);
+            wtx.moveTo(6);
+            wtx.setNumberValue(1.2);
             wtx.moveTo(9);
             wtx.remove();
             wtx.moveTo(13);
@@ -73,6 +83,7 @@ public final class DiffTest extends TestCase {
             try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
                 new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
                 final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+                System.out.println(content);
                 assertEquals(FIRST_DIFF, content);
             }
         }

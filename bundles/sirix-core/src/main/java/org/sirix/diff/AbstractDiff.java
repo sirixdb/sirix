@@ -460,21 +460,21 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     DiffType diff = DiffType.SAMEHASH;
 
     // Check for modifications.
-        if (newRtx.getNodeKey() != oldRtx.getNodeKey() || !newRtx.getHash().equals(oldRtx.getHash())) {
-          // Check if nodes are the same (even if subtrees may vary).
-          if (checkNodes(newRtx, oldRtx)) {
-            diff = DiffType.SAME;
-            final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
-            fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
-            emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
-          } else {
-            diff = diffAlgorithm(newRtx, oldRtx, depth);
-          }
-        } else {
-          final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
-          fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
-          emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
-        }
+    if (newRtx.getNodeKey() != oldRtx.getNodeKey() || !newRtx.getHash().equals(oldRtx.getHash())) {
+      // Check if nodes are the same (even if subtrees may vary).
+      if (checkNodes(newRtx, oldRtx)) {
+        diff = DiffType.SAME;
+        final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
+        fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+        emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
+      } else {
+        diff = diffAlgorithm(newRtx, oldRtx, depth);
+      }
+    } else {
+      final DiffDepth diffDepth = new DiffDepth(depth.getNewDepth(), depth.getOldDepth());
+      fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), diffDepth);
+      emitNonStructuralDiff(newRtx, oldRtx, diffDepth, diff);
+    }
 
     return diff;
   }

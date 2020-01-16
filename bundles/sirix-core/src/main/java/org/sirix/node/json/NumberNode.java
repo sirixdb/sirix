@@ -53,7 +53,8 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
   /**
    * Constructor.
    *
-   * @param boolValue the boolean value
+   * @param hashCode the hash code
+   * @param number the number value
    * @param structDel delegate for {@link StructNode} implementation
    */
   public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structDel) {
@@ -67,7 +68,7 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
   /**
    * Constructor.
    *
-   * @param boolValue the boolean value
+   * @param number the number value
    * @param structDel delegate for {@link StructNode} implementation
    */
   public NumberNode(final Number number, final StructNodeDelegate structDel) {
