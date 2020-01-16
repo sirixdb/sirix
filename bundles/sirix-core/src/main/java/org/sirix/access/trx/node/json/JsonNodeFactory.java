@@ -55,7 +55,6 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
-   * @param pathNodeKey path node key of node
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
@@ -78,7 +77,7 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    * @param leftSibKey left sibling key
    * @param rightSibKey right sibling key
-   * @param dblValue the number value
+   * @param value the number value
    */
   NumberNode createJsonNumberNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey, Number value);
 
