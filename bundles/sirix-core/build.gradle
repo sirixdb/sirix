@@ -27,6 +27,7 @@ dependencies {
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.testng
+    testImplementation testLibraries.jsonassert
 }
 
 description = 'Sirix is a versioned, treebased storage system. It provides ' +

@@ -37,6 +37,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonPrimitive;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -145,7 +148,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             mOut.append("{");
             mHadToAddBracket = true;
           }
-          mOut.append("\"" + rtx.getName().stringValue() + "\":");
+          mOut.append("\"");
+          mOut.append(rtx.getName().stringValue());
+          mOut.append("\":");
           if (mWithMetaData) {
             mOut.append("{\"metadata\":{");
 
@@ -177,7 +182,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           printCommaIfNeeded(rtx);
           break;
         case STRING_VALUE:
-          mOut.append("\"" + rtx.getValue() + "\"");
+          mOut.append("\"");
+          mOut.append(StringEscaper.escape(rtx.getValue()));
+          mOut.append("\"");
           printCommaIfNeeded(rtx);
           break;
         // $CASES-OMITTED$
@@ -199,8 +206,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private JsonMaxLevelVisitor castVisitor() {
-    final JsonMaxLevelVisitor visitor = (JsonMaxLevelVisitor) mVisitor;
-    return visitor;
+    return (JsonMaxLevelVisitor) mVisitor;
   }
 
   private long currentLevel() {
@@ -211,7 +217,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected boolean isSubtreeGoingToBeVisited(final JsonNodeReadOnlyTrx rtx) {
     if (rtx.isObjectKey())
       return true;
-    return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
+    return mVisitor == null || currentLevel() + 1 < maxLevel();
   }
 
   @Override
@@ -273,7 +279,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitStartDocument() {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (length > 1) {
@@ -296,7 +302,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitEndDocument() {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (length > 1) {
@@ -320,27 +326,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitRevisionStartNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mEmitXQueryResultSequence || length > 1) {
         indent();
 
-        if (length > 1 || mEmitXQueryResultSequence) {
-          mOut.append("{");
-          mOut.append("\"revisionNumber\":");
-          mOut.append(Integer.toString(rtx.getRevisionNumber()));
-          mOut.append(",");
+        mOut.append("{");
+        mOut.append("\"revisionNumber\":");
+        mOut.append(Integer.toString(rtx.getRevisionNumber()));
+        mOut.append(",");
 
-          if (mSerializeTimestamp) {
-            mOut.append("\"revisionTimestamp\":");
-            mOut.append("\"" + DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp())
-                + "\"");
-            mOut.append(",");
-          }
-
-          mOut.append("\"revision\":");
+        if (mSerializeTimestamp) {
+          mOut.append("\"revisionTimestamp\":\"");
+          mOut.append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
+          mOut.append("\",");
         }
+
+        mOut.append("\"revision\":");
 
         if (rtx.hasFirstChild())
           mStack.push(Constants.NULL_ID_LONG);
@@ -358,7 +361,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitRevisionEndNode(final @Nonnull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mEmitXQueryResultSequence || length > 1) {
@@ -520,9 +523,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
-        for (int i = 0; i < revisions.length - 1; i++) {
-          mVersions[i] = revisions[i + 1];
-        }
+        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
       }
     }
 
@@ -547,9 +548,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
-        for (int i = 0; i < revisions.length - 1; i++) {
-          mVersions[i] = revisions[i + 1];
-        }
+        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
       }
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
       mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
@@ -640,9 +639,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       mVersion = revisions[0];
 
       mVersions = new int[revisions.length - 1];
-      for (int i = 0; i < revisions.length - 1; i++) {
-        mVersions[i] = revisions[i + 1];
-      }
+      System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
 
       return this;
     }

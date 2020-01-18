@@ -49,7 +49,7 @@ import com.google.gson.stream.JsonWriter;
 public final class DatabaseConfiguration {
 
   /**
-   * Paths for a {@link org.Database.Database}. Each {@link org.Database.Database} has the same folder
+   * Paths for a {@link org.sirix.api.Database}. Each {@link org.sirix.api.Database} has the same folder
    * layout.
    */
   public enum DatabasePaths {
@@ -75,7 +75,7 @@ public final class DatabaseConfiguration {
      * @param file to be set
      * @param isFolder determines if the file is a folder instead
      */
-    private DatabasePaths(final Path file, final boolean isFolder) {
+    DatabasePaths(final Path file, final boolean isFolder) {
       mFile = checkNotNull(file);
       mIsFolder = isFolder;
     }
@@ -121,9 +121,6 @@ public final class DatabaseConfiguration {
   // STATIC STANDARD FIELDS
   /** Identification for string. */
   public static final String BINARY = "0.1.0";
-
-  /** Maximum of open resource write transactions. */
-  public static final int MAX_RESOURCE_WTX = 1;
 
   /** Binary version of storage. */
   private final String mBinaryVersion;
@@ -253,6 +250,14 @@ public final class DatabaseConfiguration {
   }
 
   /**
+   * Get the database name.
+   * @return the database name
+   */
+  public String getDatabaseName() {
+    return mFile.getFileName().toString();
+  }
+
+  /**
    * Serializing a {@link DatabaseConfiguration} to a json file.
    *
    * @param config to be serialized
@@ -280,11 +285,11 @@ public final class DatabaseConfiguration {
    * @return a new {@link DatabaseConfiguration} class
    * @throws SirixIOException if an I/O error occurs
    */
-  public static DatabaseConfiguration deserialize(final Path file) throws SirixIOException {
+  public static DatabaseConfiguration deserialize(final Path file) {
     try (
         final FileReader fileReader =
             new FileReader(file.toAbsolutePath().resolve(DatabasePaths.CONFIGBINARY.getFile()).toFile());
-        final JsonReader jsonReader = new JsonReader(fileReader);) {
+        final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");

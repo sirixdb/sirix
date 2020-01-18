@@ -66,6 +66,11 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
   }
 
   @Override
+  public String getName() {
+    return mDBConfig.getDatabaseName();
+  }
+
+  @Override
   public synchronized boolean createResource(final ResourceConfiguration resConfig) {
     assertNotClosed();
 
@@ -196,9 +201,7 @@ public abstract class AbstractLocalDatabase<T extends ResourceManager<? extends 
     assertNotClosed();
     final Path resourceFile =
         mDBConfig.getFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
-    return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0
-        ? true
-        : false;
+    return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 
   @Override
