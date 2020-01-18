@@ -96,7 +96,7 @@ public final class ResourceConfiguration {
      * @param path the path
      * @param isFolder determines if the path denotes a filer or not
      */
-    private ResourcePaths(final Path path, final boolean isFolder) {
+    ResourcePaths(final Path path, final boolean isFolder) {
       mPath = path;
       mIsFolder = isFolder;
     }
@@ -286,12 +286,30 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Get resource.
+   * Get the resource.
    *
-   * @return resource
+   * @return the resource
    */
   public Path getResource() {
     return resourcePath;
+  }
+
+  /**
+   * Get the resource name.
+   *
+   * @return the resource name
+   */
+  public String getName() {
+    return resourceName;
+  }
+
+  /**
+   * Get the resource name.
+   *
+   * @return the resource name
+   */
+  public String getResourceName() {
+    return resourceName;
   }
 
   /**
@@ -613,7 +631,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if text-compression should be used or not.
      *
-     * @param compression use text compression or not (default: yes)
+     * @param useTextCompression use text compression or not (default: yes)
      * @return reference to the builder object
      */
     public Builder useTextCompression(final boolean useTextCompression) {

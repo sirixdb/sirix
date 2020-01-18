@@ -132,4 +132,9 @@ public final class LocalJsonDatabase extends AbstractLocalDatabase<JsonResourceM
 
     return returnVal;
   }
+
+  @Override
+  public String getName() {
+    return mDBConfig.getDatabaseName();
+  }
 }

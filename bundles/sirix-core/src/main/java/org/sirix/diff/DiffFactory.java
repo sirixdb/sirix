@@ -249,7 +249,7 @@ public final class DiffFactory {
     /**
      * Set start node key in new revision.
      *
-     * @param pNewKey start node key in new revision
+     * @param newKey start node key in new revision
      * @return this builder
      */
     public Builder<R, W> newStartKey(final @Nonnegative long newKey) {

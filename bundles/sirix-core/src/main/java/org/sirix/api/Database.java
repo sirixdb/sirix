@@ -37,9 +37,8 @@ import org.sirix.exception.SirixIOException;
  * </p>
  *
  * <p>
- * Furthermore, databases are created by
- * {@link org.sirix.access.access.conf.DatabaseConfiguration}s. After creation, the settings of a
- * database cannot be changed.
+ * Furthermore, databases are created by {@link org.sirix.access.DatabaseConfiguration}s. After creation, the settings
+ * of a database cannot be changed.
  * </p>
  *
  *
@@ -129,4 +128,10 @@ public interface Database<T extends ResourceManager<? extends NodeReadOnlyTrx, ?
    * @throws NullPointerException if {@code pName} is {@code null}
    */
   long getResourceID(String name);
+
+  /**
+   * Get the database name.
+   * @return the database name
+   */
+  String getName();
 }

@@ -1,19 +1,26 @@
 package org.sirix.service.json.shredder;
 
+import static java.util.stream.Collectors.*;
 import static org.junit.Assert.assertEquals;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.stream.Collectors;
+
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.serialize.JsonSerializer;
+import org.sirix.service.json.serialize.StringEscaper;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
+import org.skyscreamer.jsonassert.JSONAssert;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -79,6 +86,49 @@ public final class JsonShredderTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
       assertEquals(COMPLEX_JSON_2, writer.toString());
+    }
+  }
+
+  @Test
+  public void testBlockChain() throws IOException {
+    test("blockchain.json");
+  }
+
+  @Test
+  public void testBusinessServiceProviders() throws IOException {
+    test("business-service-providers.json");
+  }
+
+  @Test
+  public void testABCLocationStations() throws IOException {
+    test("abc-location-stations.json");
+  }
+
+  @Ignore
+  @Test
+  public void testHistoricalEventsEnglish() throws IOException {
+    test("historical-events-english.json");
+  }
+
+  @Test
+  public void testTradeAPIs() throws IOException {
+    test("trade-apis.json");
+  }
+
+  private void test(String jsonFile) throws IOException {
+    final var jsonPath = JSON.resolve(jsonFile);
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+      final var expected = Files.readAllLines(jsonPath).stream().map(StringEscaper::escape).collect(joining());
+      final var actual = writer.toString();
+      JSONAssert.assertEquals(expected, actual, true);
     }
   }
 

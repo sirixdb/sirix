@@ -27,10 +27,6 @@
  */
 package org.sirix.xquery.function.jn.diff;
 
-import com.google.api.client.util.Objects;
-import com.google.common.collect.ImmutableSet;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -40,30 +36,11 @@ import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.annotation.FunctionAnnotation;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.trx.node.HashType;
-import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonResourceManager;
-import org.sirix.diff.DiffDepth;
-import org.sirix.diff.DiffFactory;
-import org.sirix.diff.DiffFactory.DiffOptimized;
-import org.sirix.diff.DiffFactory.DiffType;
-import org.sirix.diff.DiffObserver;
-import org.sirix.diff.DiffTuple;
-import org.sirix.node.NodeKind;
-import org.sirix.service.json.JsonNumber;
-import org.sirix.service.json.serialize.JsonSerializer;
+import org.sirix.service.json.BasicJsonDiff;
+import org.sirix.api.JsonDiff;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBCollection;
-import org.sirix.xquery.json.JsonDBItem;
-
-import javax.annotation.Nonnull;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
 
 /**
  * <p>
@@ -78,223 +55,43 @@ import java.util.List;
  * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(description = "Diffing of two versions of a resource.", parameters = {
-    "$coll, $res, $rev1, $rev2" }) public final class Diff extends AbstractFunction implements DiffObserver {
+    "$coll, $res, $rev1, $rev2" })
+public final class Diff extends AbstractFunction {
 
-    /**
-     * Sort by document order name.
-     */
-    public final static QNm DIFF = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "diff");
+  /**
+   * Sort by document order name.
+   */
+  public final static QNm DIFF = new QNm(JNFun.JN_NSURI, JNFun.JN_PREFIX, "diff");
 
-    private final List<DiffTuple> mDiffs;
+  /**
+   * Constructor.
+   *
+   * @param name      the name of the function
+   * @param signature the signature of the function
+   */
+  public Diff(final QNm name, final Signature signature) {
+    super(name, signature, true);
+  }
 
-    /**
-     * Constructor.
-     *
-     * @param name      the name of the function
-     * @param signature the signature of the function
-     */
-    public Diff(final QNm name, final Signature signature) {
-        super(name, signature, true);
-
-        mDiffs = new ArrayList<>();
+  @Override
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+    if (args.length != 4) {
+      throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    @Override public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-        if (args.length != 4) {
-            throw new QueryException(new QNm("No valid arguments specified!"));
-        }
+    final var col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-        final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
-
-        if (col == null) {
-            throw new QueryException(new QNm("No valid arguments specified!"));
-        }
-
-        final String expResName = ((Str) args[1]).stringValue();
-        final int oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, false);
-        final int newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, false);
-        final JsonDBItem doc = col.getDocument(expResName);
-
-        mDiffs.clear();
-
-        try (final JsonResourceManager resourceManager = doc.getTrx().getResourceManager()) {
-            DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(resourceManager, newRevision, oldRevision,
-                resourceManager.getResourceConfig().hashType == HashType.NONE ? DiffOptimized.NO : DiffOptimized.HASHED,
-                ImmutableSet.of(this)).skipSubtrees(true));
-
-            final var json = createMetaInfo(args, oldRevision, newRevision);
-
-            if (mDiffs.size() == 1 && (mDiffs.get(0).getDiff() == DiffType.SAMEHASH || mDiffs.get(0).getDiff()
-                == DiffType.SAME)) {
-                return new Str(json.toString());
-            }
-
-            final var jsonDiffs = json.getAsJsonArray("diffs");
-
-            try (final JsonNodeReadOnlyTrx oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevision);
-                final JsonNodeReadOnlyTrx newRtx = resourceManager.beginNodeReadOnlyTrx(newRevision)) {
-
-                final Iterator<DiffTuple> iter = mDiffs.iterator();
-                while (iter.hasNext()) {
-                    final DiffTuple tuple = iter.next();
-
-                    final DiffType diffType = tuple.getDiff();
-
-                    if (diffType == DiffType.SAME || diffType == DiffType.SAMEHASH
-                        || diffType == DiffType.REPLACEDOLD) {
-                        iter.remove();
-                    } else if (diffType == DiffType.INSERTED || diffType == DiffType.REPLACEDNEW) {
-                        newRtx.moveTo(tuple.getNewNodeKey());
-                    }
-
-                    if (diffType == DiffType.DELETED) {
-                        oldRtx.moveTo(tuple.getOldNodeKey());
-                    }
-                }
-
-                if (mDiffs.isEmpty())
-                    return new Str(json.toString());
-
-                for (final DiffTuple diffTuple : mDiffs) {
-                    final DiffType diffType = diffTuple.getDiff();
-                    newRtx.moveTo(diffTuple.getNewNodeKey());
-                    oldRtx.moveTo(diffTuple.getOldNodeKey());
-
-                    switch (diffType) {
-                        case INSERTED:
-                            final var insertedJson = new JsonObject();
-                            final var jsonInsertDiff = new JsonObject();
-
-                            final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
-
-                            jsonInsertDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
-                            jsonInsertDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
-                            jsonInsertDiff.addProperty("insertPositionNodeKey",
-                                newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
-                            jsonInsertDiff.addProperty("insertPosition", insertPosition);
-
-                            if (newRtx.getChildCount() > 0) {
-                                jsonInsertDiff.addProperty("type", "jsonFragment");
-                                serialize(newRevision, resourceManager, newRtx, jsonInsertDiff);
-                            } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
-                                jsonInsertDiff.addProperty("type", "boolean");
-                                jsonInsertDiff.addProperty("data", newRtx.getBooleanValue());
-                            } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
-                                jsonInsertDiff.addProperty("type", "string");
-                                jsonInsertDiff.addProperty("data", newRtx.getValue());
-                            } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
-                                jsonInsertDiff.addProperty("type", "null");
-                                jsonInsertDiff.add("data", null);
-                            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
-                                jsonInsertDiff.addProperty("type", "number");
-                                jsonInsertDiff.addProperty("data", newRtx.getNumberValue());
-                            }
-
-                            insertedJson.add("insert", jsonInsertDiff);
-                            jsonDiffs.add(insertedJson);
-
-                            break;
-                        case DELETED:
-                            final var deletedJson = new JsonObject();
-
-                            deletedJson.addProperty("delete", diffTuple.getOldNodeKey());
-
-                            jsonDiffs.add(deletedJson);
-                            break;
-                        case REPLACEDNEW:
-                            final var replaceJson = new JsonObject();
-                            final var jsonReplaceDiff = new JsonObject();
-
-                            replaceJson.add("replace", jsonReplaceDiff);
-
-                            jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
-                            jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
-
-                            if (newRtx.getChildCount() > 0) {
-                                jsonReplaceDiff.addProperty("type", "jsonFragment");
-                                serialize(newRevision, resourceManager, newRtx, jsonReplaceDiff);
-                            } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
-                                jsonReplaceDiff.addProperty("type", "boolean");
-                                jsonReplaceDiff.addProperty("data", newRtx.getBooleanValue());
-                            } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
-                                jsonReplaceDiff.addProperty("type", "string");
-                                jsonReplaceDiff.addProperty("data", newRtx.getValue());
-                            } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
-                                jsonReplaceDiff.addProperty("type", "null");
-                                jsonReplaceDiff.add("data", null);
-                            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
-                                jsonReplaceDiff.addProperty("type", "number");
-                                jsonReplaceDiff.addProperty("data", newRtx.getNumberValue());
-                            }
-
-                            jsonDiffs.add(replaceJson);
-                            break;
-                        case UPDATED:
-                            final var updateJson = new JsonObject();
-                            final var jsonUpdateDiff = new JsonObject();
-
-                            jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
-
-                            if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
-                                jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
-                            } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
-                                if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
-                                    jsonUpdateDiff.addProperty("type", "boolean");
-                                    jsonUpdateDiff.addProperty("value", Boolean.valueOf(newRtx.getValue()));
-                                } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
-                                    jsonUpdateDiff.addProperty("type", "string");
-                                    jsonUpdateDiff.addProperty("value", newRtx.getValue());
-                                } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
-                                    jsonUpdateDiff.addProperty("type", "null");
-                                    jsonUpdateDiff.add("value", null);
-                                } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
-                                    jsonUpdateDiff.addProperty("type", "number");
-                                    jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
-                                }
-                            }
-
-                            updateJson.add("update", jsonUpdateDiff);
-                            jsonDiffs.add(updateJson);
-
-                            // $CASES-OMITTED$
-                        default:
-                            // Do nothing.
-                    }
-                }
-            }
-
-            return new Str(json.toString());
-        }
+    if (col == null) {
+      throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    private void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
-        JsonObject jsonReplaceDiff) {
-        try (final var writer = new StringWriter()) {
-            final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(
-                newRtx.getNodeKey()).build();
-            serializer.call();
-            jsonReplaceDiff.addProperty("data", writer.toString());
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
+    final var expResName = ((Str) args[1]).stringValue();
+    final var oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, false);
+    final var newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, false);
+    final var doc = col.getDocument(expResName);
 
-    private JsonObject createMetaInfo(final Sequence[] args, final int oldRevision, final int newRevision) {
-        final var json = new JsonObject();
-        json.addProperty("database", ((Str) args[0]).stringValue());
-        json.addProperty("resource", ((Str) args[1]).stringValue());
-        json.addProperty("old-revision", oldRevision);
-        json.addProperty("new-revision", newRevision);
-        final var diffsArray = new JsonArray();
-        json.add("diffs", diffsArray);
-        return json;
-    }
+    final JsonDiff jsonDiff = new BasicJsonDiff();
 
-    @Override public void diffListener(@Nonnull final DiffType diffType, final long newNodeKey, final long oldNodeKey,
-        @Nonnull final DiffDepth depth) {
-        mDiffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
-    }
-
-    @Override public void diffDone() {
-    }
+    return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision));
+  }
 }

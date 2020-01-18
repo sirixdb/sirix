@@ -19,13 +19,12 @@ import java.io.PrintStream;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.Assert.assertEquals;
-
 public final class DiffTest extends TestCase {
 
     private static final String FIRST_DIFF = "{\"database\":\"json-path1\",\"resource\":\"shredded\",\"old-revision\":1,\"new-revision\":3,\"diffs\":[{\"insert\":{\"oldNodeKey\":2,\"newNodeKey\":26,\"insertPositionNodeKey\":1,\"insertPosition\":\"asFirstChild\",\"type\":\"jsonFragment\",\"data\":\"{\\\"tadaaa\\\":\\\"todooo\\\"}\"}},{\"insert\":{\"oldNodeKey\":5,\"newNodeKey\":31,\"insertPositionNodeKey\":4,\"insertPosition\":\"asRightSibling\",\"type\":\"boolean\",\"data\":false}},{\"replace\":{\"oldNodeKey\":5,\"newNodeKey\":28,\"type\":\"jsonFragment\",\"data\":\"{\\\"test\\\":1}\"}},{\"update\":{\"nodeKey\":6,\"type\":\"number\",\"value\":1.2}},{\"delete\":9},{\"delete\":13},{\"update\":{\"nodeKey\":15,\"name\":\"tadaa\"}},{\"update\":{\"nodeKey\":22,\"type\":\"boolean\",\"value\":true}}]}";
+
     @Override
-    protected void setUp() throws Exception {
+    protected void setUp() {
         JsonTestHelper.deleteEverything();
     }
 
@@ -40,7 +39,6 @@ public final class DiffTest extends TestCase {
 
         final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-            final var writer = new StringWriter();
             final var wtx = manager.beginNodeTrx()) {
             wtx.moveToDocumentRoot().trx().moveToFirstChild();
             wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));

@@ -297,7 +297,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
       }
 
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mSerializeRestSequence || length > 1) {
@@ -321,7 +321,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   protected void emitEndDocument() {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mSerializeRestSequence || length > 1) {
@@ -347,7 +347,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   protected void emitRevisionStartNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mSerializeRest || length > 1) {
@@ -399,7 +399,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   protected void emitRevisionEndNode(final @Nonnull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (mRevisions.length == 1 && mRevisions[0] < 0)
-          ? (int) mResMgr.getMostRecentRevisionNumber()
+          ? mResMgr.getMostRecentRevisionNumber()
           : mRevisions.length;
 
       if (mSerializeRest || length > 1) {
@@ -431,8 +431,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   }
 
   private XmlMaxLevelVisitor castVisitor() {
-    final XmlMaxLevelVisitor visitor = (XmlMaxLevelVisitor) mVisitor;
-    return visitor;
+    return (XmlMaxLevelVisitor) mVisitor;
   }
 
   private long currentLevel() {
@@ -441,7 +440,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
 
   @Override
   protected boolean isSubtreeGoingToBeVisited(final XmlNodeReadOnlyTrx rtx) {
-    return mVisitor == null || (mVisitor != null && currentLevel() + 1 < maxLevel());
+    return mVisitor == null || currentLevel() + 1 < maxLevel();
   }
 
   @Override
@@ -488,7 +487,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
    */
   private void write(final long value) throws IOException {
     final int length = (int) Math.log10(value);
-    int digit = 0;
+    int digit;
     long remainder = value;
     for (int i = length; i >= 0; i--) {
       digit = (byte) (remainder / LONG_POWERS[i]);
@@ -519,7 +518,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
     final DatabaseConfiguration config = new DatabaseConfiguration(databaseFile);
     Databases.createXmlDatabase(config);
     try (final var db = Databases.openXmlDatabase(databaseFile)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded").build());
+      db.createResource(ResourceConfiguration.newBuilder("shredded").build());
 
       try (final XmlResourceManager resMgr = db.openResourceManager("shredded");
           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
@@ -631,9 +630,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
-        for (int i = 0; i < revisions.length - 1; i++) {
-          mVersions[i] = revisions[i + 1];
-        }
+        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
       }
     }
 
@@ -658,9 +655,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
       } else {
         mVersion = revisions[0];
         mVersions = new int[revisions.length - 1];
-        for (int i = 0; i < revisions.length - 1; i++) {
-          mVersions[i] = revisions[i + 1];
-        }
+        System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
       }
       final ConcurrentMap<?, ?> map = checkNotNull(properties.getProps());
       mIndent = checkNotNull((Boolean) map.get(S_INDENT[0]));
@@ -794,9 +789,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
       mVersion = revisions[0];
 
       mVersions = new int[revisions.length - 1];
-      for (int i = 0; i < revisions.length - 1; i++) {
-        mVersions[i] = revisions[i + 1];
-      }
+      System.arraycopy(revisions, 1, mVersions, 0, revisions.length - 1);
 
       return this;
     }

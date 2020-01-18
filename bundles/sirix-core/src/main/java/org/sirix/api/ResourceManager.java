@@ -125,7 +125,6 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Begin a new {@link PageTrx}.
    *
-   * @param pRevision revision number
    * @return new {@link PageTrx} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
@@ -174,7 +173,6 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Begin exclusive read/write transaction without auto commit.
    *
-   * @param trx the transaction to use
    * @throws SirixThreadedException if the thread is interrupted
    * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
@@ -263,18 +261,18 @@ public interface ResourceManager<R extends NodeReadOnlyTrx & NodeCursor, W exten
   boolean isClosed();
 
   /**
-   * Returns {@link ResourceConfiguration} that is bound to the session.
-   *
-   * @return {@link ResourceConfiguration} instance bound to session
-   */
-  ResourceConfiguration getResourceConfig();
-
-  /**
    * Get the most recently commited revision number.
    *
    * @return most recently commited revision number
    */
   int getMostRecentRevisionNumber();
+
+  /**
+   * Returns {@link ResourceConfiguration} that is bound to the session.
+   *
+   * @return {@link ResourceConfiguration} instance bound to session
+   */
+  ResourceConfiguration getResourceConfig();
 
   /**
    * Get available number of {@link XmlNodeReadOnlyTrx}s.
