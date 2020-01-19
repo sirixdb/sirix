@@ -134,11 +134,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get a new path summary reader instance.
    *
-   * @param pageReadTrx Sirix {@link PageReaderTrx}
-   * @param resourceManager Sirix {@link ResourceManager}
+   * @param pageReadTrx the {@link PageReadOnlyTrx} instance
+   * @param resourceManager the {@link ResourceManager} instance
    * @return new path summary reader instance
    */
-  public static final PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
+  public static PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
       final ResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager) {
     return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(resourceManager));
   }
@@ -156,7 +156,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   // package private, only used in writer to keep the mapping always up-to-date
   void putQNameMapping(final PathNode node, final QNm name) {
     final Set<PathNode> pathNodes = mQNmMapping.get(name) == null
-        ? new HashSet<PathNode>()
+        ? new HashSet<>()
         : mQNmMapping.get(name);
     pathNodes.add(node);
     mQNmMapping.put(name, pathNodes);
@@ -265,7 +265,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get path class records (PCRs) for the specified path.
    *
    * @param path the path for which to get a set of PCRs
-   * @param usePathCache determines if the path cache can be used or not
+   * @param useCache determines if the path cache can be used or not
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
@@ -533,7 +533,6 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get the path up to the root path node.
    *
-   * @param reader {@link PathSummaryReader} instance
    * @return path up to the root
    */
   public Path<QNm> getPath() {
@@ -678,7 +677,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return NodeKind.PATH;
+    return mCurrentNode.getKind();
   }
 
   @Override

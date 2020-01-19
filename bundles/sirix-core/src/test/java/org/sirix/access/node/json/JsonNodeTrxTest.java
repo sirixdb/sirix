@@ -6,7 +6,6 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
-import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.service.json.shredder.JsonShredder;
 
 import static org.junit.Assert.assertEquals;
@@ -73,6 +72,7 @@ public final class JsonNodeTrxTest {
         final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(17);
+
       wtx.remove();
 
       assertsForRemoveNodeKeySixteen(wtx);
@@ -85,7 +85,91 @@ public final class JsonNodeTrxTest {
         assertsForRemoveNodeKeySixteen(rtx);
       }
     }
+  }
+
+  @Test
+  public void removeObjectAsRightSibling() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      wtx.moveTo(20);
+
+      wtx.remove();
+
+      assertsForRemoveNodeKeyTwenty(wtx);
+
+      wtx.commit();
+
+      assertsForRemoveNodeKeyTwenty(wtx);
+
+      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+        assertsForRemoveNodeKeyTwenty(rtx);
+      }
     }
+  }
+
+  @Test
+  public void removeEmptyObject() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
+      wtx.moveTo(24);
+
+      wtx.remove();
+
+      assertsForRemoveNodeKeyTwentyFour(wtx);
+
+      wtx.commit();
+
+      assertsForRemoveNodeKeyTwentyFour(wtx);
+
+      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+        assertsForRemoveNodeKeyTwentyFour(rtx);
+      }
+    }
+  }
+
+  private void assertsForRemoveNodeKeyTwentyFour(JsonNodeReadOnlyTrx rtx) {
+    assertFalse(rtx.hasNode(24));
+
+    rtx.moveTo(16);
+
+    assertEquals(4, rtx.getChildCount());
+    assertEquals(8, rtx.getDescendantCount());
+    assertEquals(17, rtx.getFirstChildKey());
+
+    rtx.moveTo(23);
+
+    assertEquals(25, rtx.getRightSiblingKey());
+
+    rtx.moveTo(25);
+
+    assertEquals(23, rtx.getLeftSiblingKey());
+  }
+
+  private void assertsForRemoveNodeKeyTwenty(JsonNodeReadOnlyTrx rtx) {
+    assertFalse(rtx.hasNode(20));
+    assertFalse(rtx.hasNode(21));
+    assertFalse(rtx.hasNode(22));
+
+    rtx.moveTo(16);
+
+    assertEquals(4, rtx.getChildCount());
+    assertEquals(6, rtx.getDescendantCount());
+    assertEquals(17, rtx.getFirstChildKey());
+
+    rtx.moveTo(17);
+
+    assertEquals(23, rtx.getRightSiblingKey());
+
+    rtx.moveTo(23);
+
+    assertEquals(17, rtx.getLeftSiblingKey());
+  }
 
   private void assertsForRemoveNodeKeySixteen(JsonNodeReadOnlyTrx rtx) {
     assertFalse(rtx.hasNode(17));
