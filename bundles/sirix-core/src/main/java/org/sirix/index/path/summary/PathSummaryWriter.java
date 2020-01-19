@@ -164,12 +164,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (mNodeRtx.getKind() == NodeKind.OBJECT)
       mNodeRtx.moveToParent();
 
-    if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
-      mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
-    } else if (mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
+    if (mNodeRtx.getKind() == NodeKind.OBJECT_KEY) {
       mPathSummaryReader.moveTo(((ImmutableObjectKeyNode) mNodeRtx.getNode()).getPathNodeKey());
     } else if (mNodeRtx.getKind() == NodeKind.ARRAY) {
       mPathSummaryReader.moveTo(((ImmutableArrayNode) mNodeRtx.getNode()).getPathNodeKey());
+    } else if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
+      mPathSummaryReader.moveTo(((ImmutableNameNode) mNodeRtx.getNode()).getPathNodeKey());
     } else {
       throw new IllegalStateException();
     }
@@ -270,12 +270,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         processFoundPathNode(oldPathNodeKey, mPathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
             localNameKey, RemoveSubtreePath.YES, type);
       } else {
-        if (mPathSummaryReader.getKind() != NodeKind.XDM_DOCUMENT) {
+        if (mPathSummaryReader.getKind() == NodeKind.XDM_DOCUMENT || mPathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
+          insertPathAsFirstChild(name, node.getKind(), 1);
+        } else {
           /* The path summary just needs to be updated for the new renamed node. */
           mPathSummaryReader.moveTo(oldPathNodeKey);
           final PathNode pathNode =
               (PathNode) mPageWriteTrx.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-                  PageKind.PATHSUMMARYPAGE, 0);
+                                                                   PageKind.PATHSUMMARYPAGE, 0);
           pathNode.setPrefixKey(prefixKey);
           pathNode.setLocalNameKey(localNameKey);
           pathNode.setURIKey(uriKey);
