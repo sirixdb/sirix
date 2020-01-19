@@ -664,7 +664,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param page the name page
    * @throws SirixException if anything went wrong
    */
-  public void remove(final NameNode node, final NodeKind nodeKind, final NamePage page) {
+  public void remove(final ImmutableNameNode node, final NodeKind nodeKind, final NamePage page) {
     if (mPathSummaryReader.moveTo(node.getPathNodeKey()).hasMoved()) {
       if (mPathSummaryReader.getReferences() == 1) {
         removePathSummaryNode(RemoveSubtreePath.YES);

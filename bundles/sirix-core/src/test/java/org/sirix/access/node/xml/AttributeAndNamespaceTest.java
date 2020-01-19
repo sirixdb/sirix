@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.node.xml;
 
 import static org.junit.Assert.assertEquals;
 import org.junit.After;

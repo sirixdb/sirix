@@ -62,6 +62,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.summary.PathSummaryWriter;
 import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
+import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
@@ -69,6 +70,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
@@ -1011,9 +1013,19 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void removeValue() {
     if (getCurrentNode() instanceof ValueNode) {
       final long nodeKey = getNodeKey();
-      final long pathNodeKey = moveToParent().hasMoved()
-          ? ((ImmutableObjectKeyNode) getNode()).getPathNodeKey()
-          : -1;
+
+      final long pathNodeKey;
+
+      assert moveToParent().hasMoved();
+
+      if (getNode().getKind() == NodeKind.ARRAY) {
+        pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
+      } else if (getNode().getKind() == NodeKind.OBJECT_KEY) {
+        pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
+      } else {
+        pathNodeKey = -1;
+      }
+
       moveTo(nodeKey);
       mIndexController.notifyChange(ChangeType.DELETE, getNode(), pathNodeKey);
     }
@@ -1025,13 +1037,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @throws SirixException if Sirix fails
    */
   private void removeName() {
-    if (getCurrentNode() instanceof NameNode) {
-      final NameNode node = ((NameNode) getCurrentNode());
+    if (getCurrentNode() instanceof ImmutableNameNode) {
+      final ImmutableNameNode node = ((ImmutableNameNode) getCurrentNode());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = ((NamePage) mPageWriteTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-      page.removeName(node.getPrefixKey(), nodeKind, mPageWriteTrx);
       page.removeName(node.getLocalNameKey(), nodeKind, mPageWriteTrx);
-      page.removeName(node.getURIKey(), NodeKind.NAMESPACE, mPageWriteTrx);
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (mBuildPathSummary) {

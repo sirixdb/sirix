@@ -116,7 +116,7 @@ public final class JsonTestHelper {
           Databases.createJsonDatabase(config);
         }
         final var database = Databases.openJsonDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
         INSTANCES.put(file, database);
         return database;
       } catch (final SirixRuntimeException e) {

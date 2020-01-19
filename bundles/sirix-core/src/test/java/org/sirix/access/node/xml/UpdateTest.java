@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.node.xml;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -39,6 +39,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
+import org.sirix.access.Databases;
+import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlNodeReadOnlyTrxImpl;
 import org.sirix.api.Axis;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -73,13 +75,6 @@ public class UpdateTest {
   public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
-  }
-
-  @Test
-  public void testInsertSubtree() {
-    // try (final XdmNodeWriteTrx wtx = holder.getResourceManager().beginNodeWriteTrx()) {
-    // wtx.insertSubtreeAsFirstChild();
-    // }
   }
 
   @Test
@@ -280,7 +275,7 @@ public class UpdateTest {
     }
   }
 
-  private final static void testDelete(final XmlNodeReadOnlyTrx rtx) {
+  private static void testDelete(final XmlNodeReadOnlyTrx rtx) {
     assertFalse(rtx.moveTo(5).hasMoved());
     assertTrue(rtx.moveTo(1).hasMoved());
     assertEquals(5, rtx.getChildCount());
@@ -302,7 +297,7 @@ public class UpdateTest {
     rtx.close();
   }
 
-  private final static void testInsert(final XmlNodeReadOnlyTrx rtx) {
+  private static void testInsert(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(10, rtx.getDescendantCount());
     assertTrue(rtx.moveTo(1).hasMoved());
@@ -353,7 +348,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testNodeTransactionIsolation(final XmlNodeReadOnlyTrx rtx) {
+  private static void testNodeTransactionIsolation(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(0, rtx.getNodeKey());
     assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -579,7 +574,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testPageBoundary(final XmlNodeReadOnlyTrx rtx) {
+  private static void testPageBoundary(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(2L).hasMoved());
     assertEquals(2L, rtx.getNodeKey());
   }
@@ -623,7 +618,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testRemoveDescendant(final XmlNodeReadOnlyTrx rtx) {
+  private static void testRemoveDescendant(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(0, rtx.getNodeKey());
     assertEquals(6, rtx.getDescendantCount());
@@ -666,7 +661,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testRemoveDescendantTextConcat2(final XmlNodeReadOnlyTrx rtx) {
+  private static void testRemoveDescendantTextConcat2(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(0, rtx.getNodeKey());
     assertEquals(2, rtx.getDescendantCount());
@@ -792,7 +787,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testReplaceElement(final XmlNodeReadOnlyTrx rtx) {
+  private static void testReplaceElement(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(14).hasMoved());
     assertEquals("d", rtx.getName().getLocalName());
     assertTrue(rtx.moveTo(4).hasMoved());
@@ -834,7 +829,7 @@ public class UpdateTest {
   // * @param rtx to test with
   // * @throws SirixException
   // */
-  // private final static void testReplaceElementMergeTextNodes(final XdmNodeReadTrx rtx) {
+  // private static void testReplaceElementMergeTextNodes(final XdmNodeReadTrx rtx) {
   // assertTrue(rtx.moveTo(4).hasMoved());
   // assertEquals("oops1foooops2", rtx.getValue());
   // assertEquals(9, rtx.getRightSiblingKey());
@@ -892,7 +887,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testFirstMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
+  private static void testFirstMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(10L, rtx.getDescendantCount());
     assertTrue(rtx.moveTo(4).hasMoved());
@@ -950,7 +945,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testSecondMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSecondMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(1).hasMoved());
     assertEquals(4L, rtx.getChildCount());
     assertEquals(8L, rtx.getDescendantCount());
@@ -1009,7 +1004,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testThirdMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
+  private static void testThirdMoveToFirstChild(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(0).hasMoved());
     assertEquals(10L, rtx.getDescendantCount());
     assertTrue(rtx.moveTo(1).hasMoved());
@@ -1097,7 +1092,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testFirstMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testFirstMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(7).hasMoved());
     assertFalse(rtx.hasLeftSibling());
     assertTrue(rtx.hasRightSibling());
@@ -1159,7 +1154,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testSecondMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSecondMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertEquals(9L, rtx.getDescendantCount());
     assertTrue(rtx.moveToFirstChild().hasMoved());
@@ -1197,7 +1192,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testThirdMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testThirdMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveToDocumentRoot().hasMoved());
     assertTrue(rtx.moveToFirstChild().hasMoved());
     assertEquals(4, rtx.getChildCount());
@@ -1233,7 +1228,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testFourthMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testFourthMoveSubtreeToRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(4).hasMoved());
     // Assert that oops2 and oops1 text nodes merged.
     assertEquals("oops2oops1", rtx.getValue());
@@ -1273,7 +1268,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testFirstCopySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
+  private static void testFirstCopySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(9).hasMoved());
     assertEquals(14, rtx.getFirstChildKey());
     assertTrue(rtx.moveTo(14).hasMoved());
@@ -1312,7 +1307,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testSecondCopySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSecondCopySubtreeAsFirstChild(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(9).hasMoved());
     assertEquals(14, rtx.getFirstChildKey());
     assertTrue(rtx.moveTo(14).hasMoved());
@@ -1360,7 +1355,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testFirstCopySubtreeAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testFirstCopySubtreeAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertTrue(rtx.moveTo(9).hasMoved());
     assertEquals(14, rtx.getRightSiblingKey());
     assertTrue(rtx.moveTo(14).hasMoved());
@@ -1405,12 +1400,12 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testSubtreeInsertFirst()} for having different rtx.
+   * Testmethod for {@link UpdateTest#testSubtreeInsertAsFirstChildFirst()} for having different rtx.
    *
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testSubtreeInsertAsFirstChildFirst(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSubtreeInsertAsFirstChildFirst(final XmlNodeReadOnlyTrx rtx) {
     assertEquals(9L, rtx.getDescendantCount());
     assertTrue(rtx.moveToParent().hasMoved());
     assertEquals(12L, rtx.getDescendantCount());
@@ -1443,7 +1438,7 @@ public class UpdateTest {
    * @param rtx to test with
    * @throws SirixException
    */
-  private final static void testSubtreeInsertAsFirstChildSecond(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSubtreeInsertAsFirstChildSecond(final XmlNodeReadOnlyTrx rtx) {
     assertEquals(9L, rtx.getDescendantCount());
     assertTrue(rtx.moveToParent().hasMoved());
     assertEquals(10L, rtx.getDescendantCount());
@@ -1473,12 +1468,11 @@ public class UpdateTest {
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testSubtreeInsert()} for having different rtx.
+   * Testmethod for {@link UpdateTest#testSubtreeInsertAsRightSibling()} for having different rtx.
    *
    * @param rtx to test with
-   * @throws SirixException
    */
-  private final static void testSubtreeInsertAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
+  private static void testSubtreeInsertAsRightSibling(final XmlNodeReadOnlyTrx rtx) {
     assertEquals(9L, rtx.getDescendantCount());
     assertTrue(rtx.moveToParent().hasMoved());
     assertEquals(19L, rtx.getDescendantCount());

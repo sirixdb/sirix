@@ -1,4 +1,4 @@
-package org.sirix.access;
+package org.sirix.access.node.xml;
 
 import java.io.ByteArrayOutputStream;
 import org.junit.After;
@@ -11,12 +11,14 @@ import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.utils.XmlDocumentCreator;
 
+import static org.junit.Assert.assertEquals;
+
 /**
  * Processing instruction/comment test.
  *
  * @author Johannes Lichtenberger
  */
-public class PICommentTest {
+public final class PICommentTest {
 
   /** {@link Holder} reference. */
   private Holder mHolder;
@@ -41,6 +43,6 @@ public class PICommentTest {
         new XmlSerializer.XmlSerializerBuilder(mHolder.getResourceManager(),
             out).emitXMLDeclaration().build();
     serializer.call();
-    Assert.assertEquals(XmlDocumentCreator.COMMENTPIXML, out.toString());
+    assertEquals(XmlDocumentCreator.COMMENTPIXML, out.toString());
   }
 }

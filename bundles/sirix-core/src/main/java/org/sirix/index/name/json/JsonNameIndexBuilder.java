@@ -15,7 +15,7 @@ final class JsonNameIndexBuilder extends AbstractJsonNodeVisitor {
 
   @Override
   public VisitResult visit(final ImmutableObjectKeyNode node) {
-    final QNm name = new QNm(node.getName());
+    final QNm name = node.getName();
 
     return mBuilder.build(name, node);
   }
