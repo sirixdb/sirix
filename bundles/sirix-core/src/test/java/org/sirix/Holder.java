@@ -20,19 +20,18 @@
  */
 package org.sirix;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.sirix.XmlTestHelper.PATHS;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.ResourceManager;
-import org.sirix.api.Transaction;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
-import org.sirix.exception.SirixException;
+import org.sirix.api.xml.XmlResourceManager;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Generating a standard resource within the {@link PATHS#PATH1} path. It also generates a standard
@@ -56,15 +55,12 @@ public class Holder {
   /** {@link XmlNodeTrx} implementation. */
   private XmlNodeTrx mWtx;
 
-  private Transaction mTrx;
-
   /**
    * Generate a resource with deweyIDs for resources and open a resource.
    *
    * @return this holder instance
-   * @throws SirixException if an error occurs
    */
-  public static Holder generateDeweyIDResourceMgr() throws SirixException {
+  public static Holder generateDeweyIDResourceMgr() {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
@@ -83,9 +79,8 @@ public class Holder {
    * Generate a resource with a path summary.
    *
    * @return this holder instance
-   * @throws SirixException if an error occurs
    */
-  public static Holder generatePathSummary() throws SirixException {
+  public static Holder generatePathSummary() {
     final Path file = PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
@@ -104,9 +99,8 @@ public class Holder {
    * Open a resource manager.
    *
    * @return this holder instance
-   * @throws SirixException if an error occurs
    */
-  public static Holder openResourceManager() throws SirixException {
+  public static Holder openResourceManager() {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     final XmlResourceManager resMgr = database.openResourceManager(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
@@ -116,12 +110,11 @@ public class Holder {
   }
 
   /**
-   * Generate a {@link XdmNodeReaderWriter}.
+   * Generate a {@link XmlNodeTrx}.
    *
    * @return this holder instance
-   * @throws SirixException if an error occurs
    */
-  public static Holder generateWtx() throws SirixException {
+  public static Holder generateWtx() {
     final Holder holder = openResourceManager();
     final XmlNodeTrx writer = holder.mResMgr.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
@@ -132,9 +125,8 @@ public class Holder {
    * Generate a {@link XmlNodeReadOnlyTrx}.
    *
    * @return this holder instance
-   * @throws SirixException if an error occurs
    */
-  public static Holder generateRtx() throws SirixException {
+  public static Holder generateRtx() {
     final Holder holder = openResourceManager();
     final XmlNodeReadOnlyTrx reader = holder.mResMgr.beginNodeReadOnlyTrx();
     holder.setXdmNodeReadTrx(reader);
@@ -143,10 +135,8 @@ public class Holder {
 
   /**
    * Close the database, session, read transaction and/or write transaction.
-   *
-   * @throws SirixException if an error occurs
    */
-  public void close() throws SirixException {
+  public void close() {
     if (mRtx != null && !mRtx.isClosed()) {
       mRtx.close();
     }
@@ -156,9 +146,6 @@ public class Holder {
     }
     if (mResMgr != null && !mResMgr.isClosed()) {
       mResMgr.close();
-    }
-    if (mTrx != null) {
-      mTrx.close();
     }
     if (mDatabase != null) {
       mDatabase.close();
@@ -192,10 +179,6 @@ public class Holder {
     return mRtx;
   }
 
-  public Transaction getTrx() {
-    return mTrx;
-  }
-
   /**
    * Get the {@link XmlNodeTrx} handle.
    *
@@ -206,9 +189,9 @@ public class Holder {
   }
 
   /**
-   * Set the working {@link XdmNodeReaderWriter}.
+   * Set the working {@link XmlNodeTrx}.
    *
-   * @param wtx {@link XdmNodeReaderWriter} instance
+   * @param wtx {@link XmlNodeTrx} instance
    */
   private void setXdmNodeWriteTrx(final XmlNodeTrx wtx) {
     mWtx = wtx;
@@ -226,7 +209,7 @@ public class Holder {
   /**
    * Set the working {@link ResourceManager}.
    *
-   * @param pRtx {@link XmlNodeReadOnlyTrx} instance
+   * @param resourceManager {@link XmlResourceManager} instance
    */
   private void setResourceManager(final XmlResourceManager resourceManager) {
     mResMgr = resourceManager;
@@ -235,7 +218,7 @@ public class Holder {
   /**
    * Set the working {@link Database}.
    *
-   * @param pRtx {@link Database} instance
+   * @param database {@link Database} instance
    */
   private void setDatabase(final Database<XmlResourceManager> database) {
     mDatabase = database;

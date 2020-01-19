@@ -518,6 +518,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
       adaptNodesAndHashesForInsertAsFirstChild(node);
 
+      mNodeReadOnlyTrx.setCurrentNode(node);
+
       insertValue(value);
 
       setFirstChildOfObjectKeyNode(node);
@@ -599,7 +601,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
+      moveToParent();
       final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), key, NodeKind.OBJECT_KEY);
+      moveTo(currentNode.getNodeKey());
 
       final ObjectKeyNode node =
           mNodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1);
@@ -651,6 +655,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final NodeKind kind = getKind();
 
+      // FIXME
       if (kind == NodeKind.JSON_DOCUMENT || kind == NodeKind.OBJECT_KEY)
         throw new SirixUsageException(
             "Insert is not allowed if current node is either the document node or an object key node!");
@@ -663,7 +668,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
+      moveToParent();
       final long pathNodeKey = getPathNodeKey(currentNode.getNodeKey(), "array", NodeKind.ARRAY);
+      moveTo(currentNode.getNodeKey());
 
       final ArrayNode node = mNodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey);
 

@@ -58,7 +58,7 @@ public class PathSummaryTest {
   private XmlNodeTrx wtx;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
     wtx = holder.getResourceManager().beginNodeTrx();
@@ -66,7 +66,7 @@ public class PathSummaryTest {
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
@@ -75,7 +75,7 @@ public class PathSummaryTest {
    * Test insert on test document.
    */
   @Test
-  public void testInsert() throws SirixException {
+  public void testInsert() {
     PathSummaryReader pathSummary = wtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     testInsertHelper(pathSummary);
