@@ -106,7 +106,7 @@ public final class JsonTestHelper {
    * @return a database-obj
    */
   @Ignore
-  public static final Database<JsonResourceManager> getDatabase(final Path file) {
+  public static Database<JsonResourceManager> getDatabase(final Path file) {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
@@ -132,7 +132,7 @@ public final class JsonTestHelper {
    * @throws SirixException if anything went wrong
    */
   @Ignore
-  public static final void deleteEverything() {
+  public static void deleteEverything() {
     closeEverything();
     Databases.removeDatabase(PATHS.PATH1.getFile());
     Databases.removeDatabase(PATHS.PATH2.getFile());
@@ -144,7 +144,7 @@ public final class JsonTestHelper {
    * @throws SirixException if anything went wrong
    */
   @Ignore
-  public static final void closeEverything() {
+  public static void closeEverything() {
     if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
       final var database = INSTANCES.remove(PATHS.PATH1.getFile());
       database.close();
@@ -162,7 +162,7 @@ public final class JsonTestHelper {
    */
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
     try (final JsonResourceManager manager = database.openResourceManager(RESOURCE);
         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);

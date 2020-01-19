@@ -64,7 +64,6 @@ import org.sirix.index.path.summary.PathSummaryWriter.OPType;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
@@ -173,6 +172,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   /** Collection holding post-commit hooks. */
   private final List<PostCommitHook> mPostCommitHooks = new ArrayList<>();
 
+  /** The hash function to use to hash node contents. */
   private final HashFunction mHashFunction;
 
   /**
@@ -713,7 +713,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void adaptNodesAndHashesForInsertAsFirstChild(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     mNodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASFIRSTCHILD, PageKind.RECORDPAGE);
+    adaptForInsert((StructNode) node, InsertPos.ASFIRSTCHILD);
     mNodeReadOnlyTrx.setCurrentNode(node);
     adaptHashesWithAdd();
   }
@@ -808,7 +808,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void insertAsRightSibling(final ImmutableJsonNode node) {
     // Adapt local nodes and hashes.
     mNodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node, InsertPos.ASRIGHTSIBLING, PageKind.RECORDPAGE);
+    adaptForInsert((StructNode) node, InsertPos.ASRIGHTSIBLING);
     mNodeReadOnlyTrx.setCurrentNode(node);
     adaptHashesWithAdd();
 
@@ -960,15 +960,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         throw new SirixUsageException("Document root can not be removed.");
       }
 
-      final NodeKind kind = node.getKind();
+      final var parentNodeKind = getParentKind();
 
-      if (getParentKind() == NodeKind.OBJECT_KEY && (kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
-          || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.NULL_VALUE))
+      if (parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT && parentNodeKind != NodeKind.ARRAY)
         throw new SirixUsageException(
             "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
 
       // Remove subtree.
-      for (final Axis axis = new PostOrderAxis(this); axis.hasNext();) {
+      for (final var axis = new PostOrderAxis(this); axis.hasNext();) {
         axis.next();
 
         // Remove name.
@@ -986,7 +985,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
       mNodeReadOnlyTrx.setCurrentNode(jsonNode);
       adaptHashesWithRemove();
-      adaptForRemove(node, PageKind.RECORDPAGE);
+      adaptForRemove(node);
       mNodeReadOnlyTrx.setCurrentNode(jsonNode);
 
       // Remove the name of subtree-root.
@@ -994,10 +993,8 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
         removeName();
       }
 
-      // Set current node (don't remove the moveTo(long) inside the if-clause which is needed
-      // because of text merges.
-      if (mNodeReadOnlyTrx.hasRightSibling() && moveTo(node.getRightSiblingKey()).hasMoved()) {
-        // Do nothing.
+      if (node.hasRightSibling()) {
+        moveTo(node.getRightSiblingKey());
       } else if (node.hasLeftSibling()) {
         moveTo(node.getLeftSiblingKey());
       } else {
@@ -1085,7 +1082,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           ? mPathSummaryWriter.getNodeKey()
           : 0);
 
-      mNodeReadOnlyTrx.setCurrentNode((ImmutableJsonNode) node);
+      mNodeReadOnlyTrx.setCurrentNode(node);
       adaptHashedWithUpdate(oldHash);
 
       return this;
@@ -1456,16 +1453,14 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    *
    * @param structNode pointer of the new node to be inserted
    * @param insertPos determines the position where to insert
-   * @param pageKind kind of subtree root page
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final StructNode structNode, final InsertPos insertPos, final PageKind pageKind) {
+  private void adaptForInsert(final StructNode structNode, final InsertPos insertPos) {
     assert structNode != null;
     assert insertPos != null;
-    assert pageKind != null;
 
     final StructNode parent =
-        (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getParentKey(), pageKind, -1);
+        (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getParentKey(), PageKind.RECORDPAGE, -1);
     parent.incrementChildCount();
     if (!structNode.hasLeftSibling()) {
       parent.setFirstChildKey(structNode.getNodeKey());
@@ -1473,12 +1468,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     if (structNode.hasRightSibling()) {
       final StructNode rightSiblingNode =
-          (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getRightSiblingKey(), pageKind, -1);
+          (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getRightSiblingKey(), PageKind.RECORDPAGE, -1);
       rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
     }
     if (structNode.hasLeftSibling()) {
       final StructNode leftSiblingNode =
-          (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getLeftSiblingKey(), pageKind, -1);
+          (StructNode) mPageWriteTrx.prepareEntryForModification(structNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
       leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
     }
   }
@@ -1497,24 +1492,26 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
    * @param oldNode pointer of the old node to be replaced
    * @throws SirixException if anything weird happens
    */
-  private void adaptForRemove(final StructNode oldNode, final PageKind page) {
+  private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
 
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
-          (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getLeftSiblingKey(), page, -1);
+          (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getLeftSiblingKey(), PageKind.RECORDPAGE, -1);
       leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
     }
 
     // Adapt right sibling node if there is one.
     if (oldNode.hasRightSibling()) {
-      final StructNode rightSibling = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getRightSiblingKey(), page, -1);
+      final StructNode rightSibling = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getRightSiblingKey(),
+                                                                                             PageKind.RECORDPAGE, -1);
       rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
     }
 
     // Adapt parent, if node has now left sibling it is a first child.
-    StructNode parent = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getParentKey(), page, -1);
+    StructNode parent = (StructNode) mPageWriteTrx.prepareEntryForModification(oldNode.getParentKey(),
+                                                                               PageKind.RECORDPAGE, -1);
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
@@ -1528,7 +1525,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
     // Remove old node.
     moveTo(oldNode.getNodeKey());
-    mPageWriteTrx.removeEntry(oldNode.getNodeKey(), page, -1);
+    mPageWriteTrx.removeEntry(oldNode.getNodeKey(), PageKind.RECORDPAGE, -1);
   }
 
   // ////////////////////////////////////////////////////////////
@@ -1684,8 +1681,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   private void rollingUpdate(final BigInteger oldHash) {
     final ImmutableJsonNode newNode = getCurrentNode();
     final BigInteger hash = newNode.computeHash();
-    final BigInteger newNodeHash = hash;
-    BigInteger resultNew = hash;
+    BigInteger resultNew;
 
     // go the path to the root
     do {
@@ -1693,10 +1689,10 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           PageKind.RECORDPAGE, -1);
       if (node.getNodeKey() == newNode.getNodeKey()) {
         resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash));
-        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(newNodeHash));
+        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash));
       } else {
         resultNew = Node.to128BitsAtMaximumBigInteger(node.getHash().subtract(oldHash.multiply(PRIME)));
-        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(newNodeHash.multiply(PRIME)));
+        resultNew = Node.to128BitsAtMaximumBigInteger(resultNew.add(hash.multiply(PRIME)));
       }
       node.setHash(resultNew);
     } while (moveTo(mNodeReadOnlyTrx.getCurrentNode().getParentKey()).hasMoved());
@@ -1711,7 +1707,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     final ImmutableJsonNode startNode = getCurrentNode();
     BigInteger hashToRemove = startNode.getHash();
     BigInteger hashToAdd = BigInteger.ZERO;
-    BigInteger newHash = BigInteger.ZERO;
+    BigInteger newHash;
     // go the path to the root
     do {
       final Node node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
@@ -1766,7 +1762,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     BigInteger hashToAdd = startNode.getHash() == null || BigInteger.ZERO.equals(startNode.getHash())
         ? startNode.computeHash()
         : startNode.getHash();
-    BigInteger newHash = BigInteger.ZERO;
+    BigInteger newHash;
     BigInteger possibleOldHash = BigInteger.ZERO;
     // go the path to the root
     do {
