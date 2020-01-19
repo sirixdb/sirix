@@ -1235,7 +1235,7 @@ public class PathSummaryTest {
     assertEquals(2, summary.getLevel());
     assertEquals(0, summary.getChildCount());
     assertEquals(1, summary.getReferences());
-    assertEquals("/p:a/@p:", summary.getPath().toString());
+    assertEquals("/p:a/p:", summary.getPath().toString());
 
     summary = next(axis);
     assertNull(summary);
