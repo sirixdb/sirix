@@ -19,75 +19,82 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.access;
+package org.sirix.access.node.xml;
 
 import static org.junit.Assert.assertEquals;
-import org.brackit.xquery.atomic.QNm;
+import static org.junit.Assert.assertTrue;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
+import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.XmlDocumentCreator;
 
-public final class RevertTest {
+public final class MinimumCommitTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
+    holder = Holder.generateWtx();
   }
 
   @After
-  public void tearDown() throws SirixException {
+  public void tearDown() {
     holder.close();
     XmlTestHelper.closeEverything();
   }
 
   @Test
-  public void test() throws SirixException {
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
-    assertEquals(1L, wtx.getRevisionNumber());
-    XmlDocumentCreator.create(wtx);
-    assertEquals(1L, wtx.getRevisionNumber());
-    wtx.commit();
-    assertEquals(2L, wtx.getRevisionNumber());
-    wtx.close();
+  public void test() {
+    assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
-    assertEquals(2L, wtx.getRevisionNumber());
-    wtx.moveToFirstChild();
-    wtx.insertElementAsFirstChild(new QNm("bla"));
-    wtx.commit();
-    assertEquals(3L, wtx.getRevisionNumber());
-    wtx.close();
+    holder = Holder.generateWtx();
+    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
-    assertEquals(3L, wtx.getRevisionNumber());
-    wtx.revertTo(1);
-    wtx.commit();
-    assertEquals(4L, wtx.getRevisionNumber());
-    wtx.close();
+    holder = Holder.generateWtx();
+    assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    holder.getXdmNodeWriteTrx().commit();
+    holder.getXdmNodeWriteTrx().close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
-    assertEquals(4L, wtx.getRevisionNumber());
-    final long rev3MaxNodeKey = wtx.getMaxNodeKey();
-    wtx.close();
+    holder = Holder.generateRtx();
+    assertEquals(3L, holder.getXdmNodeReadTrx().getRevisionNumber());
+  }
 
-    wtx = holder.getResourceManager().beginNodeTrx();
-    assertEquals(4L, wtx.getRevisionNumber());
-    wtx.revertTo(1);
-    wtx.moveToFirstChild();
-    final long maxNodeKey = wtx.getMaxNodeKey();
-    assertEquals(rev3MaxNodeKey, maxNodeKey);
-    wtx.insertElementAsFirstChild(new QNm(""));
-    assertEquals(maxNodeKey + 1, wtx.getNodeKey());
-    assertEquals(maxNodeKey + 1, wtx.getMaxNodeKey());
-    wtx.commit();
-    wtx.close();
+  @Test
+  public void testTimestamp() throws SirixException {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.getRevisionTimestamp().toEpochMilli() < (System.currentTimeMillis() + 1));
+    }
+  }
+
+  @Test
+  public void testCommitMessage() {
+    try (final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx()) {
+      wtx.commit("foo");
+      wtx.commit("bar");
+      wtx.commit("baz");
+    }
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+      assertEquals("foo", rtx.getCommitCredentials().getMessage());
+    }
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(2)) {
+      assertEquals("bar", rtx.getCommitCredentials().getMessage());
+    }
+
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(3)) {
+      assertEquals("baz", rtx.getCommitCredentials().getMessage());
+    }
   }
 }

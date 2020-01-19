@@ -2,10 +2,13 @@ package org.sirix.node.immutable.json;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
+
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
 
@@ -15,7 +18,7 @@ import org.sirix.node.json.ObjectNode;
  * @author Johannes Lichtenberger
  *
  */
-public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructuralNode {
+public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructuralNode implements ImmutableNameNode {
 
   /** Mutable {@link ObjectNode}. */
   private final ObjectKeyNode mNode;
@@ -39,6 +42,21 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
     return new ImmutableObjectKeyNode(node);
   }
 
+  @Override
+  public int getLocalNameKey() {
+    return mNode.getLocalNameKey();
+  }
+
+  @Override
+  public int getPrefixKey() {
+    return mNode.getPrefixKey();
+  }
+
+  @Override
+  public int getURIKey() {
+    return mNode.getURIKey();
+  }
+
   /**
    * Get a path node key.
    *
@@ -60,15 +78,16 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.ARRAY;
+    return NodeKind.OBJECT_KEY;
   }
 
   public int getNameKey() {
     return mNode.getNameKey();
   }
 
-  public String getName() {
-    return mNode.getName().toString();
+  @Override
+  public QNm getName() {
+    return mNode.getName();
   }
 
   @Override
