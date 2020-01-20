@@ -62,7 +62,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     OLD,
 
     /** New revision. */
-    NEW;
+    NEW
   }
 
   /**
@@ -596,6 +596,13 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     return newRtx.getNodeKey() == oldRtx.getNodeKey() && checkNodeNamesOrValues(newRtx, oldRtx);
   }
 
+  /**
+   * Emit non structural diffs, that is for XML attribute- and namespace- nodes.
+   * @param newRtx transactional cursor on new revision
+   * @param oldRtx transactional cursor on old revision
+   * @param depth the current depth
+   * @param diff the diff type
+   */
   abstract void emitNonStructuralDiff(final R newRtx, final R oldRtx, final DiffDepth depth, final DiffType diff);
 
   /**
@@ -735,5 +742,9 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   abstract boolean checkNodeNamesOrValues(R newRtx, R oldRtx);
 
+  /**
+   * Get the document node kind.
+   * @return the document node kind
+   */
   abstract NodeKind documentNode();
 }

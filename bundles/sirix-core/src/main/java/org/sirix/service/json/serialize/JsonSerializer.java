@@ -38,8 +38,6 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonPrimitive;
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
@@ -183,7 +181,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case STRING_VALUE:
           mOut.append("\"");
-          mOut.append(StringEscaper.escape(rtx.getValue()));
+          mOut.append(StringValue.escape(rtx.getValue()));
           mOut.append("\"");
           printCommaIfNeeded(rtx);
           break;

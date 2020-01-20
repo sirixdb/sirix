@@ -472,10 +472,11 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertObjectAsRightSibling() {
     acquireLock();
     try {
-      if (getParentKind() != NodeKind.ARRAY)
-        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
-
       checkAccessAndCommit();
+
+      if (getParentKind() != NodeKind.ARRAY) {
+        throw new SirixUsageException("Insert is not allowed if parent node is not an array node!");
+      }
 
       final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
 
@@ -653,14 +654,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertArrayAsRightSibling() {
     acquireLock();
     try {
-      final NodeKind kind = getKind();
-
-      // FIXME
-      if (kind == NodeKind.JSON_DOCUMENT || kind == NodeKind.OBJECT_KEY)
-        throw new SirixUsageException(
-            "Insert is not allowed if current node is either the document node or an object key node!");
-
       checkAccessAndCommit();
+      final NodeKind kind = getKind();
+      checkPrecondition(kind);
 
       final StructNode currentNode = (StructNode) getCurrentNode();
 
@@ -689,7 +685,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or an arry node!");
 
       checkAccessAndCommit();
@@ -730,11 +726,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     checkNotNull(value);
     acquireLock();
     try {
-      final NodeKind kind = getKind();
-      if (kind == NodeKind.OBJECT_KEY || kind == NodeKind.JSON_DOCUMENT)
-        throw new SirixUsageException("Insert is not allowed if current node is the document node or an object node!");
-
       checkAccessAndCommit();
+      final NodeKind kind = getKind();
+      checkPrecondition(kind);
 
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long parentKey = currentNode.getParentKey();
@@ -760,7 +754,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key or array node!");
 
       checkAccessAndCommit();
@@ -789,13 +783,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertBooleanValueAsRightSibling(boolean value) {
     acquireLock();
     try {
-      final NodeKind kind = getKind();
-
-      if (kind == NodeKind.OBJECT || kind == NodeKind.JSON_DOCUMENT || kind == NodeKind.ARRAY)
-        throw new SirixUsageException(
-            "Insert is not allowed if current node is the document-, an object- or an array-node!");
-
       checkAccessAndCommit();
+      final NodeKind kind = getKind();
+      checkPrecondition(kind);
 
       final StructNode currentNode = (StructNode) getCurrentNode();
       final long parentKey = currentNode.getParentKey();
@@ -810,6 +800,12 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     } finally {
       unLock();
     }
+  }
+
+  private void checkPrecondition(NodeKind kind) {
+    if (kind == NodeKind.JSON_DOCUMENT || getParentKind() == NodeKind.OBJECT_KEY)
+      throw new SirixUsageException(
+          "Insert is not allowed if current node is the document-, an object- or parent is an object key node!");
   }
 
   private void insertAsRightSibling(final ImmutableJsonNode node) {
@@ -839,7 +835,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       checkAccessAndCommit();
@@ -868,13 +864,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
     acquireLock();
     try {
-      final NodeKind kind = getKind();
-
-      if (kind == NodeKind.OBJECT || kind == NodeKind.JSON_DOCUMENT || kind == NodeKind.ARRAY)
-        throw new SirixUsageException(
-            "Insert is not allowed if current node is the document-, an object- or an array-node!");
-
       checkAccessAndCommit();
+      final NodeKind kind = getKind();
+      checkPrecondition(kind);
 
       final StructNode structNode = mNodeReadOnlyTrx.getStructuralNode();
 
@@ -898,7 +890,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY)
+      if (kind != NodeKind.OBJECT_KEY && kind != NodeKind.ARRAY && kind != NodeKind.JSON_DOCUMENT)
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       checkAccessAndCommit();
@@ -923,13 +915,9 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public JsonNodeTrx insertNullValueAsRightSibling() {
     acquireLock();
     try {
-      final NodeKind kind = getKind();
-
-      if (kind == NodeKind.OBJECT || kind == NodeKind.JSON_DOCUMENT || kind == NodeKind.ARRAY)
-        throw new SirixUsageException(
-            "Insert is not allowed if current node is the document-, an object- or an array-node!");
-
       checkAccessAndCommit();
+      final NodeKind kind = getKind();
+      checkPrecondition(kind);
 
       final StructNode currentNode = mNodeReadOnlyTrx.getStructuralNode();
 

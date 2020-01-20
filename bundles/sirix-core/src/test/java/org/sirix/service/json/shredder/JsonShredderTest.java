@@ -1,14 +1,13 @@
 package org.sirix.service.json.shredder;
 
-import static java.util.stream.Collectors.*;
 import static org.junit.Assert.assertEquals;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.stream.Collectors;
 
 import org.junit.After;
 import org.junit.Before;
@@ -17,22 +16,11 @@ import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.service.json.serialize.JsonSerializer;
-import org.sirix.service.json.serialize.StringEscaper;
 import org.sirix.service.xml.shredder.InsertPosition;
-import org.sirix.utils.JsonDocumentCreator;
 import org.skyscreamer.jsonassert.JSONAssert;
 
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
-
-  private static final String COMPLEX_JSON_1 =
-      "{\"problems\":[{\"Diabetes\":[{\"medications\":[{\"medicationsClasses\":[{\"className\":[{\"associatedDrug\":[{\"name\":\"asprin\",\"dose\":\"\",\"strength\":\"500 mg\"}],\"associatedDrug#2\":[{\"name\":\"somethingElse\",\"dose\":\"\",\"strength\":\"500 mg\"}]}],\"className2\":[{\"associatedDrug\":[{\"name\":\"asprin\",\"dose\":\"\",\"strength\":\"500 mg\"}],\"associatedDrug#2\":[{\"name\":\"somethingElse\",\"dose\":\"\",\"strength\":\"500 mg\"}]}]}]}],\"labs\":[{\"missing_field\":\"missing_value\"}]}],\"Asthma\":[{}]}]}";
-
-  private static final String COMPLEX_JSON_2 =
-      "{\"medications\":[{\"aceInhibitors\":[{\"name\":\"lisinopril\",\"strength\":\"10 mg Tab\",\"dose\":\"1 tab\",\"route\":\"PO\",\"sig\":\"daily\",\"pillCount\":\"#90\",\"refills\":\"Refill 3\"}],\"antianginal\":[{\"name\":\"nitroglycerin\",\"strength\":\"0.4 mg Sublingual Tab\",\"dose\":\"1 tab\",\"route\":\"SL\",\"sig\":\"q15min PRN\",\"pillCount\":\"#30\",\"refills\":\"Refill 1\"}],\"anticoagulants\":[{\"name\":\"warfarin sodium\",\"strength\":\"3 mg Tab\",\"dose\":\"1 tab\",\"route\":\"PO\",\"sig\":\"daily\",\"pillCount\":\"#90\",\"refills\":\"Refill 3\"}],\"betaBlocker\":[{\"name\":\"metoprolol tartrate\",\"strength\":\"25 mg Tab\",\"dose\":\"1 tab\",\"route\":\"PO\",\"sig\":\"daily\",\"pillCount\":\"#90\",\"refills\":\"Refill 3\"}],\"diuretic\":[{\"name\":\"furosemide\",\"strength\":\"40 mg Tab\",\"dose\":\"1 tab\",\"route\":\"PO\",\"sig\":\"daily\",\"pillCount\":\"#90\",\"refills\":\"Refill 3\"}],\"mineral\":[{\"name\":\"potassium chloride ER\",\"strength\":\"10 mEq Tab\",\"dose\":\"1 tab\",\"route\":\"PO\",\"sig\":\"daily\",\"pillCount\":\"#90\",\"refills\":\"Refill 3\"}]}],\"labs\":[{\"name\":\"Arterial Blood Gas\",\"time\":\"Today\",\"location\":\"Main Hospital Lab\"},{\"name\":\"BMP\",\"time\":\"Today\",\"location\":\"Primary Care Clinic\"},{\"name\":\"BNP\",\"time\":\"3 Weeks\",\"location\":\"Primary Care Clinic\"},{\"name\":\"BUN\",\"time\":\"1 Year\",\"location\":\"Primary Care Clinic\"},{\"name\":\"Cardiac Enzymes\",\"time\":\"Today\",\"location\":\"Primary Care Clinic\"},{\"name\":\"CBC\",\"time\":\"1 Year\",\"location\":\"Primary Care Clinic\"},{\"name\":\"Creatinine\",\"time\":\"1 Year\",\"location\":\"Main Hospital Lab\"},{\"name\":\"Electrolyte Panel\",\"time\":\"1 Year\",\"location\":\"Primary Care Clinic\"},{\"name\":\"Glucose\",\"time\":\"1 Year\",\"location\":\"Main Hospital Lab\"},{\"name\":\"PT/INR\",\"time\":\"3 Weeks\",\"location\":\"Primary Care Clinic\"},{\"name\":\"PTT\",\"time\":\"3 Weeks\",\"location\":\"Coumadin Clinic\"},{\"name\":\"TSH\",\"time\":\"1 Year\",\"location\":\"Primary Care Clinic\"}],\"imaging\":[{\"name\":\"Chest X-Ray\",\"time\":\"Today\",\"location\":\"Main Hospital Radiology\"},{\"name\":\"Chest X-Ray\",\"time\":\"Today\",\"location\":\"Main Hospital Radiology\"},{\"name\":\"Chest X-Ray\",\"time\":\"Today\",\"location\":\"Main Hospital Radiology\"}]}";
-
-  private static final String EXPECTED_TWITTER =
-      "{\"statuses\":[{\"created_at\":\"Sun Feb 25 18:11:01 +0000 2018\",\"id\":967824267948773377,\"id_str\":\"967824267948773377\",\"text\":\"From pilot to astronaut, Robert H. Lawrence was the first African-American to be selected as an astronaut by any na… https://t.co/FjPEWnh804\",\"truncated\":true,\"entities\":{\"hashtags\":[],\"symbols\":[],\"user_mentions\":[],\"urls\":[{\"url\":\"https://t.co/FjPEWnh804\",\"expanded_url\":\"https://twitter.com/i/web/status/967824267948773377\",\"display_url\":\"twitter.com/i/web/status/9…\",\"indices\":[117,140]}]},\"metadata\":{\"result_type\":\"popular\",\"iso_language_code\":\"en\"},\"source\":\"<a href='https://www.sprinklr.com' rel='nofollow'>Sprinklr</a>\",\"in_reply_to_status_id\":null,\"in_reply_to_status_id_str\":null,\"in_reply_to_user_id\":null,\"in_reply_to_user_id_str\":null,\"in_reply_to_screen_name\":null,\"user\":{\"id\":11348282,\"id_str\":\"11348282\",\"name\":\"NASA\",\"screen_name\":\"NASA\",\"location\":\"\",\"description\":\"Explore the universe and discover our home planet with @NASA. We usually post in EST (UTC-5)\",\"url\":\"https://t.co/TcEE6NS8nD\",\"entities\":{\"url\":{\"urls\":[{\"url\":\"https://t.co/TcEE6NS8nD\",\"expanded_url\":\"http://www.nasa.gov\",\"display_url\":\"nasa.gov\",\"indices\":[0,23]}]},\"description\":{\"urls\":[]}},\"protected\":false,\"followers_count\":28605561,\"friends_count\":270,\"listed_count\":90405,\"created_at\":\"Wed Dec 19 20:20:32 +0000 2007\",\"favourites_count\":2960,\"utc_offset\":-18000,\"time_zone\":\"Eastern Time (US & Canada)\",\"geo_enabled\":false,\"verified\":true,\"statuses_count\":50713,\"lang\":\"en\",\"contributors_enabled\":false,\"is_translator\":false,\"is_translation_enabled\":false,\"profile_background_color\":\"000000\",\"profile_background_image_url\":\"http://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_image_url_https\":\"https://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_tile\":false,\"profile_image_url\":\"http://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_image_url_https\":\"https://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_banner_url\":\"https://pbs.twimg.com/profile_banners/11348282/1518798395\",\"profile_link_color\":\"205BA7\",\"profile_sidebar_border_color\":\"000000\",\"profile_sidebar_fill_color\":\"F3F2F2\",\"profile_text_color\":\"000000\",\"profile_use_background_image\":true,\"has_extended_profile\":true,\"default_profile\":false,\"default_profile_image\":false,\"following\":null,\"follow_request_sent\":null,\"notifications\":null,\"translator_type\":\"regular\"},\"geo\":null,\"coordinates\":null,\"place\":null,\"contributors\":null,\"is_quote_status\":false,\"retweet_count\":988,\"favorite_count\":3875,\"favorited\":false,\"retweeted\":false,\"possibly_sensitive\":false,\"lang\":\"en\"},{\"created_at\":\"Sun Feb 25 19:31:07 +0000 2018\",\"id\":967844427480911872,\"id_str\":\"967844427480911872\",\"text\":\"A magnetic power struggle of galactic proportions - new research highlights the role of the Sun's magnetic landscap… https://t.co/29dZgga54m\",\"truncated\":true,\"entities\":{\"hashtags\":[],\"symbols\":[],\"user_mentions\":[],\"urls\":[{\"url\":\"https://t.co/29dZgga54m\",\"expanded_url\":\"https://twitter.com/i/web/status/967844427480911872\",\"display_url\":\"twitter.com/i/web/status/9…\",\"indices\":[117,140]}]},\"metadata\":{\"result_type\":\"popular\",\"iso_language_code\":\"en\"},\"source\":\"<a href='https://www.sprinklr.com' rel='nofollow'>Sprinklr</a>\",\"in_reply_to_status_id\":null,\"in_reply_to_status_id_str\":null,\"in_reply_to_user_id\":null,\"in_reply_to_user_id_str\":null,\"in_reply_to_screen_name\":null,\"user\":{\"id\":11348282,\"id_str\":\"11348282\",\"name\":\"NASA\",\"screen_name\":\"NASA\",\"location\":\"\",\"description\":\"Explore the universe and discover our home planet with @NASA. We usually post in EST (UTC-5)\",\"url\":\"https://t.co/TcEE6NS8nD\",\"entities\":{\"url\":{\"urls\":[{\"url\":\"https://t.co/TcEE6NS8nD\",\"expanded_url\":\"http://www.nasa.gov\",\"display_url\":\"nasa.gov\",\"indices\":[0,23]}]},\"description\":{\"urls\":[]}},\"protected\":false,\"followers_count\":28605561,\"friends_count\":270,\"listed_count\":90405,\"created_at\":\"Wed Dec 19 20:20:32 +0000 2007\",\"favourites_count\":2960,\"utc_offset\":-18000,\"time_zone\":\"Eastern Time (US & Canada)\",\"geo_enabled\":false,\"verified\":true,\"statuses_count\":50713,\"lang\":\"en\",\"contributors_enabled\":false,\"is_translator\":false,\"is_translation_enabled\":false,\"profile_background_color\":\"000000\",\"profile_background_image_url\":\"http://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_image_url_https\":\"https://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_tile\":false,\"profile_image_url\":\"http://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_image_url_https\":\"https://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_banner_url\":\"https://pbs.twimg.com/profile_banners/11348282/1518798395\",\"profile_link_color\":\"205BA7\",\"profile_sidebar_border_color\":\"000000\",\"profile_sidebar_fill_color\":\"F3F2F2\",\"profile_text_color\":\"000000\",\"profile_use_background_image\":true,\"has_extended_profile\":true,\"default_profile\":false,\"default_profile_image\":false,\"following\":null,\"follow_request_sent\":null,\"notifications\":null,\"translator_type\":\"regular\"},\"geo\":null,\"coordinates\":null,\"place\":null,\"contributors\":null,\"is_quote_status\":false,\"retweet_count\":2654,\"favorite_count\":7962,\"favorited\":false,\"retweeted\":false,\"possibly_sensitive\":false,\"lang\":\"en\"},{\"created_at\":\"Mon Feb 26 19:21:43 +0000 2018\",\"id\":968204446625869827,\"id_str\":\"968204446625869827\",\"text\":\"Someone's got to be first. In space, the first explorers beyond Mars were Pioneers 10 and 11, twin robots who chart… https://t.co/SUX30Y45mr\",\"truncated\":true,\"entities\":{\"hashtags\":[],\"symbols\":[],\"user_mentions\":[],\"urls\":[{\"url\":\"https://t.co/SUX30Y45mr\",\"expanded_url\":\"https://twitter.com/i/web/status/968204446625869827\",\"display_url\":\"twitter.com/i/web/status/9…\",\"indices\":[117,140]}]},\"metadata\":{\"result_type\":\"popular\",\"iso_language_code\":\"en\"},\"source\":\"<a href='https://www.sprinklr.com' rel='nofollow'>Sprinklr</a>\",\"in_reply_to_status_id\":null,\"in_reply_to_status_id_str\":null,\"in_reply_to_user_id\":null,\"in_reply_to_user_id_str\":null,\"in_reply_to_screen_name\":null,\"user\":{\"id\":11348282,\"id_str\":\"11348282\",\"name\":\"NASA\",\"screen_name\":\"NASA\",\"location\":\"\",\"description\":\"Explore the universe and discover our home planet with @NASA. We usually post in EST (UTC-5)\",\"url\":\"https://t.co/TcEE6NS8nD\",\"entities\":{\"url\":{\"urls\":[{\"url\":\"https://t.co/TcEE6NS8nD\",\"expanded_url\":\"http://www.nasa.gov\",\"display_url\":\"nasa.gov\",\"indices\":[0,23]}]},\"description\":{\"urls\":[]}},\"protected\":false,\"followers_count\":28605561,\"friends_count\":270,\"listed_count\":90405,\"created_at\":\"Wed Dec 19 20:20:32 +0000 2007\",\"favourites_count\":2960,\"utc_offset\":-18000,\"time_zone\":\"Eastern Time (US & Canada)\",\"geo_enabled\":false,\"verified\":true,\"statuses_count\":50713,\"lang\":\"en\",\"contributors_enabled\":false,\"is_translator\":false,\"is_translation_enabled\":false,\"profile_background_color\":\"000000\",\"profile_background_image_url\":\"http://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_image_url_https\":\"https://pbs.twimg.com/profile_background_images/590922434682880000/3byPYvqe.jpg\",\"profile_background_tile\":false,\"profile_image_url\":\"http://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_image_url_https\":\"https://pbs.twimg.com/profile_images/188302352/nasalogo_twitter_normal.jpg\",\"profile_banner_url\":\"https://pbs.twimg.com/profile_banners/11348282/1518798395\",\"profile_link_color\":\"205BA7\",\"profile_sidebar_border_color\":\"000000\",\"profile_sidebar_fill_color\":\"F3F2F2\",\"profile_text_color\":\"000000\",\"profile_use_background_image\":true,\"has_extended_profile\":true,\"default_profile\":false,\"default_profile_image\":false,\"following\":null,\"follow_request_sent\":null,\"notifications\":null,\"translator_type\":\"regular\"},\"geo\":null,\"coordinates\":null,\"place\":null,\"contributors\":null,\"is_quote_status\":false,\"retweet_count\":729,\"favorite_count\":2777,\"favorited\":false,\"retweeted\":false,\"possibly_sensitive\":false,\"lang\":\"en\"},{\"created_at\":\"Mon Feb 26 06:42:50 +0000 2018\",\"id\":968013469743288321,\"id_str\":\"968013469743288321\",\"text\":\"宇宙ステーションでも、日本と9時間の時差で月曜日が始まりました。n今週は6人から3人にクルーのサイズダウンがありますが、しっかりと任されているタスクをこなしたいと思います。nn写真は、NASAの実験施設「ディスティニー」のグローブ… https://t.co/2CYoPV6Aqx\",\"truncated\":true,\"entities\":{\"hashtags\":[],\"symbols\":[],\"user_mentions\":[],\"urls\":[{\"url\":\"https://t.co/2CYoPV6Aqx\",\"expanded_url\":\"https://twitter.com/i/web/status/968013469743288321\",\"display_url\":\"twitter.com/i/web/status/9…\",\"indices\":[117,140]}]},\"metadata\":{\"result_type\":\"popular\",\"iso_language_code\":\"ja\"},\"source\":\"<a href='http://twitter.com' rel='nofollow'>Twitter Web Client</a>\",\"in_reply_to_status_id\":null,\"in_reply_to_status_id_str\":null,\"in_reply_to_user_id\":null,\"in_reply_to_user_id_str\":null,\"in_reply_to_screen_name\":null,\"user\":{\"id\":842625693733203968,\"id_str\":\"842625693733203968\",\"name\":\"金井 宣茂\",\"screen_name\":\"Astro_Kanai\",\"location\":\"\",\"description\":\"宇宙飛行士。2017年12月19日から国際宇宙ステーションに長期滞在中。 応援いただいているフォロワーのみなさまと一緒に、宇宙滞在を楽しみたいと思います！\",\"url\":\"https://t.co/rWU6cxY9iL\",\"entities\":{\"url\":{\"urls\":[{\"url\":\"https://t.co/rWU6cxY9iL\",\"expanded_url\":\"https://ameblo.jp/astro-kanai/\",\"display_url\":\"ameblo.jp/astro-kanai/\",\"indices\":[0,23]}]},\"description\":{\"urls\":[]}},\"protected\":false,\"followers_count\":51512,\"friends_count\":59,\"listed_count\":655,\"created_at\":\"Fri Mar 17 06:36:35 +0000 2017\",\"favourites_count\":7075,\"utc_offset\":32400,\"time_zone\":\"Tokyo\",\"geo_enabled\":false,\"verified\":true,\"statuses_count\":1035,\"lang\":\"ja\",\"contributors_enabled\":false,\"is_translator\":false,\"is_translation_enabled\":false,\"profile_background_color\":\"000000\",\"profile_background_image_url\":\"http://abs.twimg.com/images/themes/theme1/bg.png\",\"profile_background_image_url_https\":\"https://abs.twimg.com/images/themes/theme1/bg.png\",\"profile_background_tile\":false,\"profile_image_url\":\"http://pbs.twimg.com/profile_images/879071738625232901/u0nlrr4Y_normal.jpg\",\"profile_image_url_https\":\"https://pbs.twimg.com/profile_images/879071738625232901/u0nlrr4Y_normal.jpg\",\"profile_banner_url\":\"https://pbs.twimg.com/profile_banners/842625693733203968/1492509582\",\"profile_link_color\":\"E81C4F\",\"profile_sidebar_border_color\":\"000000\",\"profile_sidebar_fill_color\":\"000000\",\"profile_text_color\":\"000000\",\"profile_use_background_image\":false,\"has_extended_profile\":true,\"default_profile\":false,\"default_profile_image\":false,\"following\":null,\"follow_request_sent\":null,\"notifications\":null,\"translator_type\":\"none\"},\"geo\":null,\"coordinates\":null,\"place\":null,\"contributors\":null,\"is_quote_status\":false,\"retweet_count\":226,\"favorite_count\":1356,\"favorited\":false,\"retweeted\":false,\"possibly_sensitive\":false,\"lang\":\"ja\"},{\"created_at\":\"Mon Feb 26 01:07:05 +0000 2018\",\"id\":967928974960545793,\"id_str\":\"967928974960545793\",\"text\":\"Congratulations to #Olympics athletes who won gold! Neutron stars like the one at the heart of the Crab Nebula may… https://t.co/vz4SnPupe2\",\"truncated\":true,\"entities\":{\"hashtags\":[{\"text\":\"Olympics\",\"indices\":[19,28]}],\"symbols\":[],\"user_mentions\":[],\"urls\":[{\"url\":\"https://t.co/vz4SnPupe2\",\"expanded_url\":\"https://twitter.com/i/web/status/967928974960545793\",\"display_url\":\"twitter.com/i/web/status/9…\",\"indices\":[116,139]}]},\"metadata\":{\"result_type\":\"popular\",\"iso_language_code\":\"en\"},\"source\":\"<a href='https://studio.twitter.com' rel='nofollow'>Media Studio</a>\",\"in_reply_to_status_id\":null,\"in_reply_to_status_id_str\":null,\"in_reply_to_user_id\":null,\"in_reply_to_user_id_str\":null,\"in_reply_to_screen_name\":null,\"user\":{\"id\":19802879,\"id_str\":\"19802879\",\"name\":\"NASA JPL\",\"screen_name\":\"NASAJPL\",\"location\":\"Pasadena, Calif.\",\"description\":\"NASA Jet Propulsion Laboratory manages many of NASA's robotic missions exploring Earth, the solar system and our universe. Tweets from JPL's News Office.\",\"url\":\"http://t.co/gcM9d1YLUB\",\"entities\":{\"url\":{\"urls\":[{\"url\":\"http://t.co/gcM9d1YLUB\",\"expanded_url\":\"http://www.jpl.nasa.gov\",\"display_url\":\"jpl.nasa.gov\",\"indices\":[0,22]}]},\"description\":{\"urls\":[]}},\"protected\":false,\"followers_count\":2566921,\"friends_count\":379,\"listed_count\":15065,\"created_at\":\"Sat Jan 31 03:19:43 +0000 2009\",\"favourites_count\":1281,\"utc_offset\":-32400,\"time_zone\":\"Alaska\",\"geo_enabled\":false,\"verified\":true,\"statuses_count\":6328,\"lang\":\"en\",\"contributors_enabled\":false,\"is_translator\":false,\"is_translation_enabled\":false,\"profile_background_color\":\"0B090B\",\"profile_background_image_url\":\"http://pbs.twimg.com/profile_background_images/8479565/twitter_jpl_bkg.009.jpg\",\"profile_background_image_url_https\":\"https://pbs.twimg.com/profile_background_images/8479565/twitter_jpl_bkg.009.jpg\",\"profile_background_tile\":false,\"profile_image_url\":\"http://pbs.twimg.com/profile_images/2305452633/lg0hov3l8g4msxbdwv48_normal.jpeg\",\"profile_image_url_https\":\"https://pbs.twimg.com/profile_images/2305452633/lg0hov3l8g4msxbdwv48_normal.jpeg\",\"profile_banner_url\":\"https://pbs.twimg.com/profile_banners/19802879/1398298134\",\"profile_link_color\":\"0D1787\",\"profile_sidebar_border_color\":\"100F0E\",\"profile_sidebar_fill_color\":\"74A6CD\",\"profile_text_color\":\"0C0C0D\",\"profile_use_background_image\":true,\"has_extended_profile\":false,\"default_profile\":false,\"default_profile_image\":false,\"following\":null,\"follow_request_sent\":null,\"notifications\":null,\"translator_type\":\"none\"},\"geo\":null,\"coordinates\":null,\"place\":null,\"contributors\":null,\"is_quote_status\":false,\"retweet_count\":325,\"favorite_count\":1280,\"favorited\":false,\"retweeted\":false,\"possibly_sensitive\":false,\"lang\":\"en\"}],\"search_metadata\":{\"completed_in\":0.057,\"max_id\":0,\"max_id_str\":\"0\",\"next_results\":\"?max_id=967574182522482687&q=nasa&include_entities=1&result_type=popular\",\"query\":\"nasa\",\"count\":3,\"since_id\":0,\"since_id_str\":\"0\"}}";
 
   @Before
   public void setUp() {
@@ -45,48 +33,105 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void test() throws IOException {
+  public void testRedditAll() throws IOException {
+    test("reddit-all.json");
+  }
+
+  @Test
+  public void testArray() throws IOException {
+    test("array.json");
+  }
+
+  @Test
+  public void testArrayAsRightSibling() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx();
-        final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("test.json")),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
-      final var serializer = new JsonSerializer.Builder(manager, writer).build();
-      serializer.call();
-      assertEquals(JsonDocumentCreator.JSON, writer.toString());
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(4);
+      trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[]"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",null,[],[],true,1.22]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
     }
+  }
+
+  @Test
+  public void testObjectAsRightSibling() throws IOException {
+    final var jsonPath = JSON.resolve("array.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+
+      trx.moveTo(4);
+      trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\":null}"));
+
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        final var expected = "[\"foo\",null,[],{\"foo\":null},true,1.22]";
+        final var actual = writer.toString();
+        JSONAssert.assertEquals(expected, actual, true);
+      }
+    }
+  }
+
+  @Test
+  public void testBoolean() throws IOException {
+    testStringComparison("boolean.json");
+  }
+
+  @Test
+  public void testString() throws IOException {
+    testStringComparison("string.json");
+  }
+
+  @Test
+  public void testNumber() throws IOException {
+    testStringComparison("number.json");
+  }
+
+  @Test
+  public void testNull() throws IOException {
+    testStringComparison("null.json");
   }
 
   @Test
   public void testComplex1() throws IOException {
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx();
-        final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex1.json")),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
-      final var serializer = new JsonSerializer.Builder(manager, writer).build();
-      serializer.call();
-      assertEquals(COMPLEX_JSON_1, writer.toString());
-    }
+    test("complex1.json");
   }
 
   @Test
   public void testComplex2() throws IOException {
-    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx();
-        final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(JSON.resolve("complex2.json")),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
-      final var serializer = new JsonSerializer.Builder(manager, writer).build();
-      serializer.call();
-      assertEquals(COMPLEX_JSON_2, writer.toString());
-    }
+    test("complex2.json");
   }
 
   @Test
@@ -115,6 +160,28 @@ public final class JsonShredderTest {
     test("trade-apis.json");
   }
 
+  @Test
+  public void testTestDocument() throws IOException {
+    test("test.json");
+  }
+
+  private void testStringComparison(String jsonFile) throws IOException {
+    final var jsonPath = JSON.resolve(jsonFile);
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+      final var serializer = new JsonSerializer.Builder(manager, writer).build();
+      serializer.call();
+      final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+      assertEquals(expected, actual);
+    }
+  }
+
   private void test(String jsonFile) throws IOException {
     final var jsonPath = JSON.resolve(jsonFile);
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -126,25 +193,9 @@ public final class JsonShredderTest {
       shredder.call();
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
-      final var expected = Files.readAllLines(jsonPath).stream().map(StringEscaper::escape).collect(joining());
+      final var expected = Files.readString(jsonPath, StandardCharsets.UTF_8);
       final var actual = writer.toString();
       JSONAssert.assertEquals(expected, actual, true);
     }
   }
-
-  // @Test
-  // public void testTwitter() throws IOException {
-  // final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-  // try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-  // final var trx = manager.beginNodeTrx()) {
-  // final var writer = new StringBuilder();
-  // final var shredder = new JsonShredder.Builder(trx,
-  // JsonShredder.createFileReader(JSON.resolve("twitter.json")),
-  // InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-  // shredder.call();
-  // final var serializer = new JsonSerializer.Builder(manager, writer).build();
-  // serializer.call();
-  // assertEquals(EXPECTED_TWITTER, writer.toString());
-  // }
-  // }
 }

@@ -7,6 +7,7 @@ import io.vertx.ext.web.handler.impl.HttpStatusException
 import org.sirix.access.DatabaseType
 import org.sirix.access.Databases
 import org.sirix.exception.SirixUsageException
+import org.sirix.service.json.serialize.StringValue
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
@@ -66,11 +67,11 @@ class History {
                     buffer.append("\",")
 
                     buffer.append("\"author\":\"")
-                    buffer.append(revisionTuple.user.name)
+                    buffer.append(StringValue.escape(revisionTuple.user.name))
                     buffer.append("\",")
 
                     buffer.append("\"commitMessage\":\"")
-                    buffer.append(revisionTuple.commitMessage.orElse(""))
+                    buffer.append(StringValue.escape(revisionTuple.commitMessage.orElse("")))
                     buffer.append("\"}")
 
                     if (index != historyList.size - 1)
