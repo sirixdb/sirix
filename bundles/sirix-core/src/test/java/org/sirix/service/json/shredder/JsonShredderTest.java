@@ -33,6 +33,16 @@ public final class JsonShredderTest {
   }
 
   @Test
+  public void testLinux() throws IOException {
+    test("linux.json");
+  }
+
+  @Test
+  public void testLaureate() throws IOException {
+    test("laureate.json");
+  }
+
+  @Test
   public void testRedditAll() throws IOException {
     test("reddit-all.json");
   }
