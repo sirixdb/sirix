@@ -61,7 +61,7 @@ public final class DiffTuple implements Serializable {
    *
    * @param diff {@link DiffType} which specifies the kind of diff between two nodes
    * @param newNodeKey node key of node in new revision
-   * @param pOldNode node key of node in old revision
+   * @param oldNodeKey node key of node in old revision
    * @param depth current {@link DiffDepth} instance
    */
   public DiffTuple(final DiffType diff, final long newNodeKey, final long oldNodeKey,

@@ -339,21 +339,17 @@ public final class JsonShredder implements Callable<Long> {
   private long insertNumberValue(final Number numberValue, final boolean nextTokenIsParent) {
     final Number value = checkNotNull(numberValue);
 
-    if (value != null) {
-      final long key;
+    final long key;
 
-      if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        key = mWtx.insertNumberValueAsFirstChild(value).getNodeKey();
-      } else {
-        key = mWtx.insertNumberValueAsRightSibling(value).getNodeKey();
-      }
-
-      adaptTrxPosAndStack(nextTokenIsParent, key);
-
-      return key;
+    if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      key = mWtx.insertNumberValueAsFirstChild(value).getNodeKey();
+    } else {
+      key = mWtx.insertNumberValueAsRightSibling(value).getNodeKey();
     }
 
-    return -1;
+    adaptTrxPosAndStack(nextTokenIsParent, key);
+
+    return key;
   }
 
   private void adaptTrxPosAndStack(final boolean nextTokenIsParent, final long key) {
@@ -535,7 +531,7 @@ public final class JsonShredder implements Callable<Long> {
     Databases.createJsonDatabase(databaseConfig);
 
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded").build());
+      db.createResource(ResourceConfiguration.newBuilder("shredded").build());
       try (final var resMgr = db.openResourceManager("shredded"); final var wtx = resMgr.beginNodeTrx()) {
         final var path = Paths.get(args[0]);
         final var jsonReader = createFileReader(path);

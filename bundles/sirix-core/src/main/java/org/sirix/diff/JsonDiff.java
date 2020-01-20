@@ -76,7 +76,7 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
           found = true;
         break;
       case NUMBER_VALUE:
-        if (newRtx.getNumberValue().equals(oldRtx.getNumberValue()))
+        if (Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
           found = true;
         break;
       case STRING_VALUE:
