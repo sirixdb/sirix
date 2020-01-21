@@ -200,7 +200,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
     mResourceManager = Preconditions.checkNotNull(resourceManager);
     mNodeReadOnlyTrx = Preconditions.checkNotNull(nodeReadTrx);
     mBuildPathSummary = resourceManager.getResourceConfig().withPathSummary;
-    mPathSummaryWriter = Preconditions.checkNotNull(pathSummaryWriter);
+    mPathSummaryWriter = pathSummaryWriter;
 
     mIndexController = resourceManager.getWtxIndexController(mNodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     mPageWriteTrx = (PageTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();

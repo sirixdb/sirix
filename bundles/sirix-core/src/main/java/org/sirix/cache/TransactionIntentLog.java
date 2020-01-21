@@ -23,7 +23,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Capacity of the cache. Number of stored pages.
    */
-  private static final int CACHE_CAPACITY = 16 << 1;
+  private static final int CACHE_CAPACITY = 500_000;
 
   /**
    * The collection to hold the maps.

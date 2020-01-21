@@ -1,0 +1,29 @@
+version: '3.4'
+services:
+  keycloak:
+    image: jboss/keycloak
+    ports:
+      - 8080:8080
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_LOGLEVEL=DEBUG
+      - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
+    restart: always
+    volumes:
+      - ./realm-export.json:/opt/keycloak/realm-export.json
+      - ./create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
+    command:
+      - "-b 0.0.0.0"
+      - "-bmanagement 0.0.0.0"
+    networks:
+      - auth-network
+    healthcheck:
+      test: "curl -f http://localhost:8080/ || exit 1"
+      timeout: 3s
+      start_period: 10s
+      retries: 20
+networks:
+  auth-network:
+    driver: bridge
+
