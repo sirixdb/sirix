@@ -6,8 +6,15 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
+
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.page.CASPage;
+import org.sirix.page.NamePage;
 import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
+import org.sirix.page.PathSummaryPage;
+import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UberPage;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
@@ -17,14 +24,8 @@ import com.google.common.collect.HashBiMap;
  * The transaction intent log, used for logging everything a write transaction changes.
  *
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
- *
  */
 public final class TransactionIntentLog implements AutoCloseable {
-  /**
-   * Capacity of the cache. Number of stored pages.
-   */
-  private static final int CACHE_CAPACITY = 500_000;
-
   /**
    * The collection to hold the maps.
    */
@@ -48,22 +49,23 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Creates a new LRU cache.
    *
-   * @param secondCache the reference to the second {@link Cache} where the data is stored when it
-   *        gets removed from the first one.
+   * @param secondCache         the reference to the second {@link Cache} where the data is stored when it
+   *                            gets removed from the first one.
+   * @param maxInMemoryCapacity the maximum size of the in-memory map
    */
-  public TransactionIntentLog(final PersistentFileCache secondCache) {
+  public TransactionIntentLog(final PersistentFileCache secondCache, final int maxInMemoryCapacity) {
     // Assertion instead of checkNotNull(...).
     assert secondCache != null;
     mLogKey = 0;
     mSecondCache = secondCache;
-    mMapToPersistentLogKey = HashBiMap.create();
-    mMap = new LinkedHashMap<>(CACHE_CAPACITY) {
+    mMapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity);
+    mMap = new LinkedHashMap<>(maxInMemoryCapacity) {
       private static final long serialVersionUID = 1;
 
       @Override
       protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
         boolean returnVal = false;
-        if (size() > CACHE_CAPACITY) {
+        if (size() > maxInMemoryCapacity) {
           if (eldest != null) {
             final PageReference key = eldest.getKey();
             assert key.getLogKey() != Constants.NULL_ID_INT;
@@ -78,6 +80,76 @@ public final class TransactionIntentLog implements AutoCloseable {
         return returnVal;
       }
     };
+//    // Assertion instead of checkNotNull(...).
+//    assert secondCache != null;
+//    mLogKey = 0;
+//    mSecondCache = secondCache;
+//    mMapToPersistentLogKey = HashBiMap.create();
+//    mMap = new LinkedHashMap<>(maxInMemoryCapacity, 0.75f, true) {
+//      private static final long serialVersionUID = 1;
+//
+//      @Override
+//      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+//        boolean returnVal = false;
+//        if (size() > maxInMemoryCapacity) {
+//          if (isImportant(eldest)) {
+//            this.remove(eldest.getKey());
+//            this.put(eldest.getKey(), eldest.getValue());
+//          } else {
+//            final PageReference key = eldest.getKey();
+//            assert key.getLogKey() != Constants.NULL_ID_INT;
+//            final PageContainer value = eldest.getValue();
+//            if (key != null && value != null) {
+//              mSecondCache.put(key, value);
+//              mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
+//            }
+//          }
+//          returnVal = true;
+//        }
+//        return returnVal;
+//      }
+//
+//      private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
+//        final var page = eldest.getValue().getComplete();
+//        if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
+//            || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
+//          return true;
+//        }
+//        return false;
+//      }
+//    };
+//        // Assertion instead of checkNotNull(...).
+//        assert secondCache != null;
+//        mLogKey = 0;
+//        mSecondCache = secondCache;
+//        mMapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity);
+//        mMap = new LinkedHashMap<>(maxInMemoryCapacity, 0.75f, true) {
+//          private static final long serialVersionUID = 1;
+//
+//          @Override
+//          protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+//            boolean returnVal = false;
+//            if (size() > maxInMemoryCapacity) {
+//              if (eldest != null) {
+//                final var iter = mMap.entrySet().iterator();
+//                while (iter.hasNext()) {
+//                  final Map.Entry<PageReference, PageContainer> entry = iter.next();
+//                  final PageReference key = entry.getKey();
+//                  assert key.getLogKey() != Constants.NULL_ID_INT;
+//                  PageContainer value = entry.getValue();
+//                  if (!isImportant(entry) && key != null && value != null) {
+//                    iter.remove();
+//                    mSecondCache.put(key, value);
+//                    value = null;
+//                    mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
+//                  }
+//                }
+//              }
+//              returnVal = true;
+//            }
+//            return returnVal;
+//          }
+//        };
   }
 
   /**
@@ -86,7 +158,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    *
    * @param key the key whose associated value is to be returned.
    * @return the value associated to this key, or {@code null} if no value with this key exists in the
-   *         cache
+   * cache
    */
   public PageContainer get(final PageReference key, final PageReadOnlyTrx pageRtx) {
     PageContainer value = mMap.get(key);
@@ -98,6 +170,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
       value = mSecondCache.get(key, pageRtx);
       if (value != null && !PageContainer.emptyInstance().equals(value)) {
+        mMapToPersistentLogKey.remove(key.getPersistentLogKey());
         key.setPersistentLogKey(Constants.NULL_ID_LONG);
         put(key, value);
       }
@@ -106,11 +179,10 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   *
    * Adds an entry to this cache. If the cache is full, the LRU (least recently used) entry is
    * dropped.
    *
-   * @param key the key with which the specified value is to be associated
+   * @param key   the key with which the specified value is to be associated
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
@@ -120,7 +192,18 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     key.setKey(Constants.NULL_ID_LONG);
     key.setLogKey(mLogKey++);
+    key.setPersistentLogKey(Constants.NULL_ID_LONG);
     mMap.put(key, value);
+  }
+
+  /**
+   * Removes an entry from this cache.
+   *
+   * @param key the key with which the specified value is to be associated
+   */
+  public void remove(final PageReference key) {
+    mMap.remove(key);
+    mMapToPersistentLogKey.remove(key);
   }
 
   /**
@@ -149,10 +232,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     return new ArrayList<Map.Entry<? super PageReference, ? super PageContainer>>(mMap.entrySet());
   }
 
-//  @Override
-//  public String toString() {
-//    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
-//  }
+  //  @Override
+  //  public String toString() {
+  //    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
+  //  }
 
   /**
    * Get a view of the underlying map.

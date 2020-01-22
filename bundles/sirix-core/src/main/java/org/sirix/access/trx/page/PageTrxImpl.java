@@ -276,6 +276,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
 
     final PageContainer container = mLog.get(reference, mPageRtx);
 
+    mLog.remove(reference);
+
     Page page = null;
 
     if (container != null) {
@@ -294,6 +296,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
 
     // Remove page reference.
     reference.setPage(null);
+
   }
 
   @Override
@@ -419,7 +422,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         final UnorderedKeyValuePage completePage =
             new UnorderedKeyValuePage(recordPageKey, pageKind, Constants.NULL_ID_LONG, mPageRtx);
-        final UnorderedKeyValuePage modifyPage = mPageRtx.clone(completePage);
+        final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(mPageRtx, completePage);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);

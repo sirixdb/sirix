@@ -46,6 +46,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.RevisionInfo;
+import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.cache.BufferManager;
 import org.sirix.exception.SirixException;
@@ -122,7 +123,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @param database {@link LocalXmlDatabase} for centralized operations on related sessions
    * @param resourceStore the resource store with which this manager has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
-   * @param pageCache the cache of in-memory pages shared amongst all sessions / resource transactions
+   * @param bufferManager the cache of in-memory pages shared amongst all resource managers and transactions
    * @throws SirixException if Sirix encounters an exception
    */
   public AbstractResourceManager(final Database<? extends ResourceManager<R, W>> database,
@@ -405,6 +406,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
       for (NodeReadOnlyTrx rtx : mNodeReaderMap.values()) {
         if (rtx instanceof XmlNodeTrx) {
           ((XmlNodeTrx) rtx).rollback();
+        } else if (rtx instanceof JsonNodeTrx) {
+          ((JsonNodeTrx) rtx).rollback();
         }
         rtx.close();
         rtx = null;

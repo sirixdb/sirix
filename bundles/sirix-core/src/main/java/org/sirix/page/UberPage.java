@@ -212,8 +212,7 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Create revision tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
-   * @param revisionRoot {@link RevisionRootPage} instance
+   * @param log the transaction intent log
    */
   public void createRevisionTree(final TransactionIntentLog log) {
     // Initialize revision tree to guarantee that there is a revision root page.

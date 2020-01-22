@@ -207,7 +207,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   public Writer truncate() {
     try {
       mDataFile.setLength(0);
-      mRevisionsOffsetFile.setLength(0);
+
+      if (mRevisionsOffsetFile != null)
+        mRevisionsOffsetFile.setLength(0);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

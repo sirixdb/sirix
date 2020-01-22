@@ -115,13 +115,13 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * Standard constructor.
    *
    * @param trxId the transaction-ID.
-   * @param resourceManager {@link XmlResourceManagerImpl} instance
+   * @param resourceManager the resource manager
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
    * @param reader reader to read stored pages for this transaction
    * @param trxIntentLog transaction intent log
-   * @param pageCache caches in-memory reconstructed pages of a specific resource.
-   * @param unorderedKeyValuePageWriteLog optional key/value page cache
+   * @param indexController the index controller
+   * @param bufferManager caches in-memory reconstructed pages
    * @throws SirixIOException if reading of the persistent storage fails
    */
   public PageReadOnlyTrxImpl(final long trxId,
@@ -427,9 +427,6 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * Dereference key/value page reference and get all leaves, the {@link KeyValuePage}s from the
    * revision-trees.
    *
-   * @param recordPageKey key of node page
-   * @param pageKind kind of page, that is the type of tree to dereference
-   * @param index index number or {@code -1}, if it's a regular record page
    * @param pageReference optional page reference pointing to the first page
    * @return dereferenced pages
    *
