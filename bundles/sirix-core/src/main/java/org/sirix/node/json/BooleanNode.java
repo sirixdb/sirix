@@ -54,11 +54,11 @@ public final class BooleanNode extends AbstractStructForwardingNode implements I
   /**
    * Constructor.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
+   * @param hashCode the hash code of the node
+   * @param boolValue the boolean value
    * @param structDel delegate for {@link StructNode} implementation
    */
   public BooleanNode(final BigInteger hashCode, final boolean boolValue, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

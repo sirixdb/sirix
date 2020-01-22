@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -130,7 +131,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   /** Scheduled executor service. */
   private final ScheduledExecutorService mPool =
-      Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
+      Executors.newScheduledThreadPool(1, new JsonNodeTrxThreadFactory());
 
   /** {@link InternalJsonNodeReadOnlyTrx} reference. */
   final InternalJsonNodeReadOnlyTrx mNodeReadOnlyTrx;
@@ -1931,5 +1932,17 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   public PageTrx<Long, Record, UnorderedKeyValuePage> getPageWtx() {
     mNodeReadOnlyTrx.assertNotClosed();
     return (PageTrx<Long, Record, UnorderedKeyValuePage>) mNodeReadOnlyTrx.getPageTrx();
+  }
+
+  private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
+    @Override
+    public Thread newThread(final Runnable runnable) {
+      final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
+
+      thread.setPriority(Thread.NORM_PRIORITY);
+      thread.setDaemon(false);
+
+      return thread;
+    }
   }
 }

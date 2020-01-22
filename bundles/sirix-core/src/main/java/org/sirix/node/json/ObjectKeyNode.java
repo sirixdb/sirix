@@ -80,12 +80,14 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   /**
    * Constructor
    *
+   * @param hashCode the hash code
    * @param structDel {@link StructNodeDelegate} to be set
-   * @param name the key name
+   * @param nameKey the key of the name
+   * @param name the String name
+   * @param pathNodeKey the path node key
    */
   public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

@@ -58,7 +58,6 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
    * @param structDel delegate for {@link StructNode} implementation
    */
   public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     mNumber = number;
     assert structDel != null;

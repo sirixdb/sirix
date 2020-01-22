@@ -86,7 +86,6 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
    */
   public NamespaceNode(final BigInteger hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameDel,
       final QNm qNm) {
-    assert hashCode != null;
     assert nodeDel != null;
     assert nameDel != null;
     assert qNm != null;
