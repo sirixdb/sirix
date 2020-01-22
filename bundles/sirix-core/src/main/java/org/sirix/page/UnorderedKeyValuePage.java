@@ -103,6 +103,20 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
   /** The resource configuration. */
   private final ResourceConfiguration mResourceConfig;
 
+  public UnorderedKeyValuePage(final PageReadOnlyTrx pageTrx, final UnorderedKeyValuePage pageToClone) {
+    mAddedReferences = pageToClone.mAddedReferences;
+    mReferences = pageToClone.mReferences;
+    mRecordPageKey = pageToClone.mRecordPageKey;
+    mRecords = pageToClone.mRecords;
+    mSlots = pageToClone.mSlots;
+    mDeweyIDs = pageToClone.mDeweyIDs;
+    mPageReadTrx = pageTrx;
+    mPageKind = pageToClone.mPageKind;
+    mRecordPersister = pageToClone.mRecordPersister;
+    mPreviousPageRefKey = pageToClone.mPreviousPageRefKey;
+    mResourceConfig = pageToClone.mResourceConfig;
+  }
+
   /**
    * Constructor which initializes a new {@link UnorderedKeyValuePage}.
    *

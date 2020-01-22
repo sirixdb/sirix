@@ -47,9 +47,11 @@ public final class Names {
   }
 
   /**
-   * Constructor to build index of from a persistent storage.
+   * Constructor to build index from a persistent storage.
    *
-   * @param in the persistent storage
+   * @param pageReadTrx the page reading transaction
+   * @param indexNumber the kind of name dictionary
+   * @param maxNodeKey the maximum node key
    */
   private Names(final PageReadOnlyTrx pageReadTrx, final int indexNumber, final long maxNodeKey) {
     mIndexNumber = indexNumber;

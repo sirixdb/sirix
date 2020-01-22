@@ -1,6 +1,7 @@
 package org.sirix.service.json.shredder;
 
 import static org.junit.Assert.assertEquals;
+
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.Before;
@@ -15,6 +17,12 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
 import org.sirix.JsonTestHelper.PATHS;
+import org.sirix.access.DatabaseConfiguration;
+import org.sirix.access.Databases;
+import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
+import org.sirix.api.Database;
+import org.sirix.axis.DescendantAxis;
 import org.sirix.service.json.serialize.JsonSerializer;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.skyscreamer.jsonassert.JSONAssert;
@@ -30,6 +38,47 @@ public final class JsonShredderTest {
   @After
   public void tearDown() {
     JsonTestHelper.closeEverything();
+  }
+
+  @Ignore
+  @Test
+  public void testChicagoDescendantAxis() {
+    final var jsonPath = JSON.resolve("cityofchicago.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var rtx = manager.beginNodeReadOnlyTrx()) {
+      final var axis = new DescendantAxis(rtx);
+
+      axis.forEach((unused) ->
+                   {
+                   });
+
+      System.out.println("done");
+    }
+  }
+
+//  @Ignore
+  @Test
+  public void testChicago() {
+    try {
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                     .buildPathSummary(false)
+                                                     .hashKind(HashType.NONE)
+                                                     .useTextCompression(true)
+                                                     .build());
+        try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+            final var trx = manager.beginNodeTrx(20_000_000)) {
+          trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+
+          System.out.println();
+        }
+      }
+    } catch (Error e) {
+      e.printStackTrace();
+    }
   }
 
   @Test
