@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:a xmlns:p="ns" i="j">
+  oops1
+  <c:a xmlns:c="ns" i="j"></c:a>
+  oops2
+  <b p:x="y"><c/>bar</b>
+  oops3
+</p:a>
