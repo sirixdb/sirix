@@ -197,6 +197,7 @@ public final class ResourceConfiguration {
   /** The hash function used for hashing nodes. */
   public final HashFunction nodeHashFunction;
 
+  /** The name of the resource. */
   private String resourceName;
 
   // END MEMBERS FOR FIXED FIELDS
@@ -656,6 +657,8 @@ public final class ResourceConfiguration {
                         .add("RevisionKind", mRevisionKind)
                         .add("HashKind", mHashKind)
                         .add("HashFunction", mHashFunction)
+                        .add("PathSummary", mPathSummary)
+                        .add("TextCompression", mCompression)
                         .toString();
     }
 

@@ -72,7 +72,6 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
    * @param pathNodeKey the path node key
    */
   public ArrayNode(final BigInteger hashCode, final StructNodeDelegate structDel, final long pathNodeKey) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

@@ -170,7 +170,7 @@ public final class PageDelegate implements Page {
   /**
    * Recursively call commit on all referenced pages.
    *
-   * @param pageWriteTransaction the page write transaction
+   * @param pageWriteTrx the page write transaction
    */
   @Override
   public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
@@ -187,7 +187,7 @@ public final class PageDelegate implements Page {
    * Serialize page references into output.
    *
    * @param out output stream
-   * @param serializationType the type to serialize (transaction intent log or the data file
+   * @param type the type to serialize (transaction intent log or the data file
    *        itself).
    */
   @Override

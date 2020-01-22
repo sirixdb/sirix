@@ -47,7 +47,6 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
    * @param structDel delegate for {@link StructNode} implementation
    */
   public CommentNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert valDel != null;
     mValDel = valDel;

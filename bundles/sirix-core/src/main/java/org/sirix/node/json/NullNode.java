@@ -56,7 +56,6 @@ public final class NullNode extends AbstractStructForwardingNode implements Immu
    * @param structDel {@link StructNodeDelegate} to be set
    */
   public NullNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

@@ -61,7 +61,6 @@ public final class StringNode extends AbstractStructForwardingNode implements Va
    * @param structDel delegate for {@link StructNode} implementation
    */
   public StringNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

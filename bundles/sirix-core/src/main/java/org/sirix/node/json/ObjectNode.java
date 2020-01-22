@@ -55,7 +55,6 @@ public final class ObjectNode extends AbstractStructForwardingNode implements Im
    * @param structDel {@link StructNodeDelegate} to be set
    */
   public ObjectNode(final BigInteger hashCode, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

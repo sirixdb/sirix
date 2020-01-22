@@ -68,7 +68,6 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
    * @param structDel delegate for {@link StructNode} implementation
    */
   public TextNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    assert hashCode != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;

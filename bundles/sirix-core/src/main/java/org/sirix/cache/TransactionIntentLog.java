@@ -149,10 +149,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     return new ArrayList<Map.Entry<? super PageReference, ? super PageContainer>>(mMap.entrySet());
   }
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
-  }
+//  @Override
+//  public String toString() {
+//    return MoreObjects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
+//  }
 
   /**
    * Get a view of the underlying map.
