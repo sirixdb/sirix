@@ -1,9 +1,0 @@
-<graphml xmlns:p="ns">
-  <p:bla id="2"/>
-  <p:bla id="2"/>
-  <t><p><a/>text</p>bla</t>
-  <t><p><a/></p></t>
-  oooops
-  <o><bla bla="blubb" blubb="bla"/>ttt</o>
-  <blubb>text</blubb>
-</graphml>
