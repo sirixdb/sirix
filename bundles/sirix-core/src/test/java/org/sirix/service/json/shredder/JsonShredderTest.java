@@ -57,7 +57,7 @@ public final class JsonShredderTest {
     }
   }
 
-//  @Ignore
+  @Ignore
   @Test
   public void testChicago() {
     try {
