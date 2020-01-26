@@ -145,23 +145,31 @@ public enum SerializationType {
   };
 
   private static void serializeBitSet(DataOutput out, final BitSet bitmap) throws IOException {
-    final int len = bitmap.length();
+
+    final var bytes = bitmap.toByteArray();
+    final int len = bytes.length;
     out.writeShort(len);
-    for (int i = 0; i < len; i++) {
-      out.writeBoolean(bitmap.get(i));
-    }
+    out.write(bytes);
+
+//    for (int i = 0; i < len; i++) {
+//      out.writeBoolean(bitmap.get(i));
+//    }
   }
 
   private static BitSet deserializeBitSet(DataInput in, @Nonnegative int referenceCount)
       throws IOException {
     final int len = in.readShort();
-    final BitSet ret = new BitSet(referenceCount);
+    final var bytes = new byte[len];
 
-    for (int i = 0; i < len; i++) {
-      ret.set(i, in.readBoolean());
-    }
-
-    return ret;
+    in.readFully(bytes);
+    return BitSet.valueOf(bytes);
+//    final BitSet ret = new BitSet(referenceCount);
+//
+//    for (int i = 0; i < len; i++) {
+//      ret.set(i, in.readBoolean());
+//    }
+//
+//    return ret;
   }
 
   /**

@@ -81,47 +81,67 @@ import org.sirix.settings.VersioningType;
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     implements PageTrx<Long, Record, UnorderedKeyValuePage> {
 
-  /** Page writer to serialize. */
+  /**
+   * Page writer to serialize.
+   */
   private final Writer mPageWriter;
 
-  /** Transaction intent log. */
+  /**
+   * Transaction intent log.
+   */
   TransactionIntentLog mLog;
 
-  /** Last reference to the actual revRoot. */
+  /**
+   * Last reference to the actual revRoot.
+   */
   private final RevisionRootPage mNewRoot;
 
-  /** {@link NodePageReadOnlyTrx} instance. */
+  /**
+   * {@link NodePageReadOnlyTrx} instance.
+   */
   private final NodePageReadOnlyTrx mPageRtx;
 
-  /** Determines if a log must be replayed or not. */
+  /**
+   * Determines if a log must be replayed or not.
+   */
   private Restore mRestore = Restore.NO;
 
-  /** Determines if transaction is closed. */
+  /**
+   * Determines if transaction is closed.
+   */
   private boolean mIsClosed;
 
-  /** {@link XmlIndexController} instance. */
+  /**
+   * {@link XmlIndexController} instance.
+   */
   private final IndexController<?, ?> mIndexController;
 
-  /** The tree modifier. */
+  /**
+   * The tree modifier.
+   */
   private final TreeModifier mTreeModifier;
 
-  /** The revision to represent. */
+  /**
+   * The revision to represent.
+   */
   private final int mRepresentRevision;
 
-  /** {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise */
+  /**
+   * {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise
+   */
   private final boolean mIsBoundToNodeTrx;
 
   /**
    * Constructor.
    *
-   * @param writer the page writer
-   * @param log the transaction intent log
-   * @param revisionRootPage the revision root page
-   * @param pageRtx the page reading transaction used as a delegate
-   * @param indexController the index controller, which is used to update indexes
+   * @param writer            the page writer
+   * @param log               the transaction intent log
+   * @param revisionRootPage  the revision root page
+   * @param pageRtx           the page reading transaction used as a delegate
+   * @param indexController   the index controller, which is used to update indexes
    * @param representRevision the revision to represent
-   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
-   *        {@code false} otherwise
+   * @param isBoundToNodeTrx  {@code true} if this page write trx will be bound to a node trx,
+   *                          {@code false} otherwise
    */
   NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
@@ -333,7 +353,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     uberPageReference.setPage(null);
 
     final Path indexes = mPageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(
-        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(String.valueOf(revision) + ".xml");
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 
     if (!Files.exists(indexes)) {
       try {
@@ -398,8 +418,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
    * Prepare record page.
    *
    * @param recordPageKey the key of the record page
-   * @param indexNumber the index number if it's a record-page of an index, {@code -1}, else
-   * @param pageKind the kind of page (used to determine the right subtree)
+   * @param indexNumber   the index number if it's a record-page of an index, {@code -1}, else
+   * @param pageKind      the kind of page (used to determine the right subtree)
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
