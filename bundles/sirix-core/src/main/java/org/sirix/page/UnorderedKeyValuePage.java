@@ -20,6 +20,7 @@
  */
 package org.sirix.page;
 
+import static java.util.stream.Collectors.toList;
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
 import java.io.ByteArrayInputStream;
@@ -31,6 +32,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
@@ -169,33 +171,27 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       final int deweyIDSize = in.readInt();
 
       mRecords = new LinkedHashMap<>(deweyIDSize);
-      Optional<SirixDeweyID> id = Optional.empty();
+      var optionalDeweyId = Optional.<SirixDeweyID>empty();
 
       for (int index = 0; index < deweyIDSize; index++) {
-        id = persistenter.deserializeDeweyID(in, id.orElse(null), mResourceConfig);
+        optionalDeweyId = persistenter.deserializeDeweyID(in, optionalDeweyId.orElse(null), mResourceConfig);
 
-        id.ifPresent(deweyId -> {
-          try {
-            final long key = getVarLong(in);
-            final int dataSize = in.readInt();
-            final byte[] data = new byte[dataSize];
-            in.readFully(data);
-            final Record record = mRecordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key,
-                deweyId, mPageReadTrx);
-            mRecords.put(key, record);
-          } catch (final IOException e) {
-            throw new SirixIOException(e);
-          }
-        });
+        deserializeRecordAndPutIntoMap(in, optionalDeweyId);
       }
     } else {
       mDeweyIDs = Collections.emptyMap();
       mRecords = new LinkedHashMap<>();
     }
 
+    final var entriesBitmap = SerializationType.deserializeBitSet(in, Constants.NDP_NODE_COUNT);
+    final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in, Constants.NDP_NODE_COUNT);
+
     final int normalEntrySize = in.readInt();
+    var setBit = -1;
     for (int index = 0; index < normalEntrySize; index++) {
-      final long key = getVarLong(in);
+      setBit = entriesBitmap.nextSetBit(setBit + 1);
+      assert setBit >= 0;
+      final long key = mRecordPageKey * Constants.NDP_NODE_COUNT + setBit;
       final int dataSize = in.readInt();
       final byte[] data = new byte[dataSize];
       in.readFully(data);
@@ -203,10 +199,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           mRecordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key, null, mPageReadTrx);
       mRecords.put(key, record);
     }
+
     final int overlongEntrySize = in.readInt();
     mReferences = new LinkedHashMap<>(overlongEntrySize);
+    setBit = -1;
     for (int index = 0; index < overlongEntrySize; index++) {
-      final long key = in.readLong();
+      setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
+      assert setBit >= 0;
+      final long key = mRecordPageKey * Constants.NDP_NODE_COUNT + setBit;
       final PageReference reference = new PageReference();
       reference.setKey(in.readLong());
       mReferences.put(key, reference);
@@ -219,6 +219,22 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       mPreviousPageRefKey = Constants.NULL_ID_LONG;
     }
     mPageKind = PageKind.getKind(in.readByte());
+  }
+
+  private void deserializeRecordAndPutIntoMap(DataInput in, Optional<SirixDeweyID> optionalDeweyId) {
+    optionalDeweyId.ifPresent(deweyId -> {
+      try {
+        final long key = getVarLong(in);
+        final int dataSize = in.readInt();
+        final byte[] data = new byte[dataSize];
+        in.readFully(data);
+        final Record record = mRecordPersister.deserialize(new DataInputStream(new ByteArrayInputStream(data)), key,
+                                                           deweyId, mPageReadTrx);
+        mRecords.put(key, record);
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    });
   }
 
   @Override
@@ -269,7 +285,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
     putVarLong(out, mRecordPageKey);
     // Write dewey IDs.
     if (mResourceConfig.areDeweyIDsStored && mRecordPersister instanceof NodePersistenter) {
-      final NodePersistenter persistenter = (NodePersistenter) mRecordPersister;
+      final var persistence = (NodePersistenter) mRecordPersister;
       out.writeInt(mDeweyIDs.size());
       final List<SirixDeweyID> ids = new ArrayList<>(mDeweyIDs.keySet());
       ids.sort((SirixDeweyID first, SirixDeweyID second) -> Integer.valueOf(first.toBytes().length)
@@ -278,33 +294,49 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       SirixDeweyID id = null;
       if (iter.hasNext()) {
         id = iter.next();
-        persistenter.serializeDeweyID(out, NodeKind.ELEMENT, id, null, mResourceConfig);
+        persistence.serializeDeweyID(out, NodeKind.ELEMENT, id, null, mResourceConfig);
         serializeDeweyRecord(id, out);
       }
       while (iter.hasNext()) {
         final SirixDeweyID nextDeweyID = iter.next();
-        persistenter.serializeDeweyID(out, NodeKind.ELEMENT, id, nextDeweyID, mResourceConfig);
+        persistence.serializeDeweyID(out, NodeKind.ELEMENT, id, nextDeweyID, mResourceConfig);
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }
     }
+
+    final var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+    final var entriesSortedByKey = mSlots.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
+    for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
+      final var pageOffset = mPageReadTrx.recordPageOffset(entry.getKey());
+      entriesBitmap.set(pageOffset);
+    }
+    SerializationType.serializeBitSet(out, entriesBitmap);
+
+    final var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+    final var overlongEntriesSortedByKey = mReferences.entrySet().stream().sorted(Entry.comparingByKey()).collect(toList());
+    for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
+      final var pageOffset = mPageReadTrx.recordPageOffset(entry.getKey());
+      overlongEntriesBitmap.set(pageOffset);
+    }
+    SerializationType.serializeBitSet(out, overlongEntriesBitmap);
+
     // Write normal entries.
-    out.writeInt(mSlots.size());
-    for (final Entry<Long, byte[]> entry : mSlots.entrySet()) {
-      putVarLong(out, entry.getKey());
+    out.writeInt(entriesSortedByKey.size());
+    for (final Entry<Long, byte[]> entry : entriesSortedByKey) {
       final byte[] data = entry.getValue();
       final int length = data.length;
       out.writeInt(length);
       out.write(data);
     }
+
     // Write overlong entries.
-    out.writeInt(mReferences.size());
-    for (final Map.Entry<Long, PageReference> entry : mReferences.entrySet()) {
-      // Write record ID.
-      out.writeLong(entry.getKey());
+    out.writeInt(overlongEntriesSortedByKey.size());
+    for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
       // Write key in persistent storage.
       out.writeLong(entry.getValue().getKey());
     }
+
     // Write previous reference if it has any reference.
     final boolean hasPreviousReference = mPreviousPageRefKey != Constants.NULL_ID_LONG;
     out.writeBoolean(hasPreviousReference);
@@ -382,7 +414,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
   // Add references to OverflowPages.
   private void addReferences() throws IOException {
-    final boolean storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
+    final var storeDeweyIDs = mPageReadTrx.getResourceManager().getResourceConfig().areDeweyIDsStored;
 
     final List<Entry<Long, Record>> entries = sort();
     final Iterator<Entry<Long, Record>> it = entries.iterator();
@@ -424,13 +456,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
           final Optional<SirixDeweyID> second = ((ImmutableXmlNode) b.getValue()).getDeweyID();
 
           // Document node has no DeweyID.
-          if (!first.isPresent() && second.isPresent())
+          if (first.isEmpty() && second.isPresent())
             return 1;
 
-          if (!second.isPresent() && first.isPresent())
+          if (second.isEmpty() && first.isPresent())
             return -1;
 
-          if (!first.isPresent() && !second.isPresent())
+          if (first.isEmpty() && second.isEmpty())
             return 0;
 
           return first.get().compareTo(second.get());
