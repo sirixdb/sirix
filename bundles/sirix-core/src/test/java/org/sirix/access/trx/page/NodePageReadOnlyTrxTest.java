@@ -15,7 +15,16 @@ import static org.mockito.Mockito.mock;
 public final class NodePageReadOnlyTrxTest {
 
   @Test
-  public void recordPageOffset() {
+  public void testPageKey() {
+    final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class), mock(
+        TransactionIntentLog.class), mock(IndexController.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
+
+    assertEquals(0, trx.pageKey(1));
+    assertEquals(1, trx.pageKey(1023));
+  }
+
+  @Test
+  public void testRecordPageOffset() {
     final var trx = new NodePageReadOnlyTrx(1, mock(InternalResourceManager.class), new UberPage(), 0, mock(Reader.class), mock(
         TransactionIntentLog.class), mock(IndexController.class), mock(BufferManager.class), mock(RevisionRootPageReader.class));
 
