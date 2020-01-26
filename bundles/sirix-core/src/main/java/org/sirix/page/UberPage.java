@@ -74,8 +74,6 @@ public final class UberPage extends AbstractForwardingPage {
 
   /**
    * Create uber page.
-   *
-   * @param user optional user.
    */
   public UberPage() {
     mDelegate = new PageDelegate(1);
@@ -91,7 +89,7 @@ public final class UberPage extends AbstractForwardingPage {
    * Read uber page.
    *
    * @param in input bytes
-   * @param resourceConfig {@link ResourceConfiguration} reference
+   * @param type the serialization type
    */
   protected UberPage(final DataInput in, final SerializationType type) throws IOException {
     mDelegate = new PageDelegate(1, in, type);
@@ -109,8 +107,8 @@ public final class UberPage extends AbstractForwardingPage {
   /**
    * Clone constructor.
    *
-   * @param commitedUberPage page to clone
-   * @param resourceConfig {@link ResourceConfiguration} reference
+   * @param committedUberPage page to clone
+   * @param previousUberPageKey the previous uber page key
    */
   public UberPage(final UberPage committedUberPage, final long previousUberPageKey) {
     mDelegate = new PageDelegate(checkNotNull(committedUberPage), committedUberPage.mDelegate.getBitmap());

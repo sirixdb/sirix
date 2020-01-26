@@ -108,8 +108,8 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final PageReadOnlyTrxImpl pageRtx = new PageReadOnlyTrxImpl(trxId, resourceManager, uberPage, representRevision,
-        writer, log, indexController, null);
+    final NodePageReadOnlyTrx pageRtx = new NodePageReadOnlyTrx(trxId, resourceManager, uberPage, representRevision,
+                                                                writer, log, indexController, null, new RevisionRootPageReader());
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
@@ -171,7 +171,7 @@ public final class PageTrxFactory {
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
 
-    return new PageTrxImpl(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
-        isBoundToNodeTrx);
+    return new NodePageTrx(treeModifier, writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
+                           isBoundToNodeTrx);
   }
 }

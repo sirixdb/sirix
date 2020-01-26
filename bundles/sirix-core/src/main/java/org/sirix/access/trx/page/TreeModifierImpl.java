@@ -50,7 +50,7 @@ public final class TreeModifierImpl implements TreeModifier {
   TreeModifierImpl() {}
 
   @Override
-  public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final PageReadOnlyTrxImpl pageRtx,
+  public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
       final TransactionIntentLog log, final @Nonnegative int baseRevision, final @Nonnegative int representRevision) {
     if (uberPage.isBootstrap()) {
       final RevisionRootPage revisionRootPage = pageRtx.loadRevRoot(baseRevision);

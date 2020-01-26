@@ -40,14 +40,19 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public RevisionRootPage loadRevRoot(int lastCommitedRev) {
-    return delegate().loadRevRoot(lastCommitedRev);
+  public int recordPageOffset(long key) {
+    return delegate().recordPageOffset(key);
   }
 
   @Override
-  public PageReference getPageReferenceForPage(@Nonnull PageReference startReference, @Nonnegative long pageKey,
+  public RevisionRootPage loadRevRoot(int lastCommittedRevision) {
+    return delegate().loadRevRoot(lastCommittedRevision);
+  }
+
+  @Override
+  public PageReference getReferenceToLeafOfSubtree(@Nonnull PageReference startReference, @Nonnegative long pageKey,
       int indexNumber, @Nonnull PageKind pageKind) {
-    return delegate().getPageReferenceForPage(startReference, pageKey, indexNumber, pageKind);
+    return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, pageKind);
   }
 
   @Override

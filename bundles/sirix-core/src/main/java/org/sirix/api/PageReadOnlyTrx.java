@@ -19,6 +19,7 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.settings.Constants;
 
 /**
  * Interface for reading pages.
@@ -138,6 +139,14 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   int getRevisionNumber();
 
   /**
+   * Calculate record page offset for a given node key.
+   *
+   * @param key record key to find offset for
+   * @return offset into record page
+   */
+  int recordPageOffset(long key);
+
+  /**
    * Calculate record page key from a given record key.
    *
    * @param recordKey record key to find record page key for
@@ -190,7 +199,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} < 0
    */
-  PageReference getPageReferenceForPage(PageReference startReference, @Nonnegative long pageKey, int indexNumber,
+  PageReference getReferenceToLeafOfSubtree(PageReference startReference, @Nonnegative long pageKey, int indexNumber,
       @Nonnull PageKind pageKind);
 
   /**

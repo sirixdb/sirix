@@ -53,7 +53,7 @@ public interface TreeModifier {
    * @return new {@link RevisionRootPage} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, PageReadOnlyTrxImpl pageRtx,
+  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
       TransactionIntentLog log, @Nonnegative int baseRevision, @Nonnegative int representRevision);
 
   /**
