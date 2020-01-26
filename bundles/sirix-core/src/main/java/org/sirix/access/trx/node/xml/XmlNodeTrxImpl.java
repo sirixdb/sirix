@@ -1704,7 +1704,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
 
       // Reset internal transaction state to new uber page.
       mResourceManager.closeNodePageWriteTransaction(getId());
-      mPageWriteTrx = mResourceManager.createPageWriteTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+      mPageWriteTrx = mResourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       mNodeReadOnlyTrx.setPageReadTransaction(mPageWriteTrx);
       mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);
@@ -1785,7 +1785,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();
 
-      mPageWriteTrx = mResourceManager.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.YES, true);
+      mPageWriteTrx = mResourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
       mNodeReadOnlyTrx.setPageReadTransaction(mPageWriteTrx);
       mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);
 
@@ -2764,7 +2764,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
   void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
     // Reset page transaction to new uber page.
     mResourceManager.closeNodePageWriteTransaction(getId());
-    mPageWriteTrx = mResourceManager.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.NO, true);
+    mPageWriteTrx = mResourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
     mNodeReadOnlyTrx.setPageReadTransaction(null);
     mNodeReadOnlyTrx.setPageReadTransaction(mPageWriteTrx);
     mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);

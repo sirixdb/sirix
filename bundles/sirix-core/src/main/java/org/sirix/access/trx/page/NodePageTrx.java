@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,6 +23,7 @@ package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -33,6 +34,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -76,7 +78,7 @@ import org.sirix.settings.VersioningType;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
+final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     implements PageTrx<Long, Record, UnorderedKeyValuePage> {
 
   /** Page writer to serialize. */
@@ -88,8 +90,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   /** Last reference to the actual revRoot. */
   private final RevisionRootPage mNewRoot;
 
-  /** {@link PageReadOnlyTrxImpl} instance. */
-  private final PageReadOnlyTrxImpl mPageRtx;
+  /** {@link NodePageReadOnlyTrx} instance. */
+  private final NodePageReadOnlyTrx mPageRtx;
 
   /** Determines if a log must be replayed or not. */
   private Restore mRestore = Restore.NO;
@@ -121,8 +123,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
    * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
    *        {@code false} otherwise
    */
-  PageTrxImpl(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final PageReadOnlyTrxImpl pageRtx,
+  NodePageTrx(final TreeModifier treeModifier, final Writer writer, final TransactionIntentLog log,
+      final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     mTreeModifier = checkNotNull(treeModifier);
     mPageWriter = checkNotNull(writer);
@@ -207,7 +209,7 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     final PageContainer cont = prepareRecordPage(recordPageKey, index, pageKind);
     @SuppressWarnings("unchecked")
     final KeyValuePage<Long, Record> modified = (KeyValuePage<Long, Record>) cont.getModified();
-    modified.setEntry(record.getNodeKey(), record);
+    modified.setEntry(key, record);
     return record;
   }
 
@@ -219,8 +221,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     final Optional<Record> node = getRecord(recordKey, pageKind, index);
     if (node.isPresent()) {
       final Record nodeToDel = node.get();
-      final Node delNode =
-          new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(), -1, null, null, mPageRtx.getRevisionNumber(), null));
+      final Node delNode = new DeletedNode(
+          new NodeDelegate(nodeToDel.getNodeKey(), -1, null, null, mPageRtx.getRevisionNumber(), null));
       ((UnorderedKeyValuePage) cont.getModified()).setEntry(delNode.getNodeKey(), delNode);
       ((UnorderedKeyValuePage) cont.getComplete()).setEntry(delNode.getNodeKey(), delNode);
     } else {
@@ -253,18 +255,15 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   public String getName(final int nameKey, final NodeKind nodeKind) {
     mPageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(mNewRoot);
-    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, mPageRtx) == null)
-        ? mPageRtx.getName(nameKey, nodeKind)
-        : currentNamePage.getName(nameKey, nodeKind, mPageRtx);
+    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, mPageRtx) == null) ? mPageRtx.getName(
+        nameKey, nodeKind) : currentNamePage.getName(nameKey, nodeKind, mPageRtx);
   }
 
   @Override
   public int createNameKey(final @Nullable String name, final NodeKind nodeKind) {
     mPageRtx.assertNotClosed();
     checkNotNull(nodeKind);
-    final String string = (name == null
-        ? ""
-        : name);
+    final String string = (name == null ? "" : name);
     final NamePage namePage = getNamePage(mNewRoot);
     return namePage.setName(string, nodeKind, this);
   }
@@ -333,9 +332,8 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
     mPageWriter.writeUberPageReference(uberPageReference);
     uberPageReference.setPage(null);
 
-    final Path indexes =
-        mPageRtx.mResourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                             .resolve(String.valueOf(revision) + ".xml");
+    final Path indexes = mPageRtx.getResourceManager().getResourceConfig().resourcePath.resolve(
+        ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(String.valueOf(revision) + ".xml");
 
     if (!Files.exists(indexes)) {
       try {
@@ -414,14 +412,16 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
 
     // Get the reference to the unordered key/value page storing the records.
     final PageReference reference = mTreeModifier.prepareLeafOfTree(mPageRtx, mLog,
-        getUberPage().getPageCountExp(pageKind), pageReference, recordPageKey, indexNumber, pageKind, mNewRoot);
+                                                                    getUberPage().getPageCountExp(pageKind),
+                                                                    pageReference, recordPageKey, indexNumber, pageKind,
+                                                                    mNewRoot);
 
     PageContainer pageContainer = mLog.get(reference, mPageRtx);
 
     if (pageContainer.equals(PageContainer.emptyInstance())) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final UnorderedKeyValuePage completePage =
-            new UnorderedKeyValuePage(recordPageKey, pageKind, Constants.NULL_ID_LONG, mPageRtx);
+        final UnorderedKeyValuePage completePage = new UnorderedKeyValuePage(recordPageKey, pageKind,
+                                                                             Constants.NULL_ID_LONG, mPageRtx);
         final UnorderedKeyValuePage modifyPage = new UnorderedKeyValuePage(mPageRtx, completePage);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
@@ -504,4 +504,5 @@ final class PageTrxImpl extends AbstractForwardingPageReadOnlyTrx
   public CommitCredentials getCommitCredentials() {
     return mPageRtx.getCommitCredentials();
   }
+
 }

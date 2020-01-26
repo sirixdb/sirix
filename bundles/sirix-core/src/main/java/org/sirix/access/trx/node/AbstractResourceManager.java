@@ -36,8 +36,9 @@ import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.ResourceStore;
 import org.sirix.access.User;
 import org.sirix.access.trx.node.xml.XmlResourceManagerImpl;
-import org.sirix.access.trx.page.PageReadOnlyTrxImpl;
+import org.sirix.access.trx.page.NodePageReadOnlyTrx;
 import org.sirix.access.trx.page.PageTrxFactory;
+import org.sirix.access.trx.page.RevisionRootPageReader;
 import org.sirix.api.Database;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadOnlyTrx;
@@ -181,7 +182,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link PageTrx} instance
    */
   @Override
-  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(final @Nonnegative long id,
+  public PageTrx<Long, Record, UnorderedKeyValuePage> createPageTransaction(final @Nonnegative long id,
       final @Nonnegative int representRevision, final @Nonnegative int storedRevision, final Abort abort,
       boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
@@ -378,7 +379,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final long nodeTrxId = mNodeTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
-        createPageWriteTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+        createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -651,8 +652,8 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     }
 
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final PageReadOnlyTrx pageReadTrx = new PageReadOnlyTrxImpl(currentPageTrxID, this, mLastCommittedUberPage.get(),
-        revision, mFac.createReader(), null, null, mBufferManager);
+    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID, this, mLastCommittedUberPage.get(),
+                                                                revision, mFac.createReader(), null, null, mBufferManager, new RevisionRootPageReader());
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
@@ -693,7 +694,7 @@ public abstract class AbstractResourceManager<R extends NodeReadOnlyTrx & NodeCu
     final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
     final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
     final PageTrx<Long, Record, UnorderedKeyValuePage> pageWtx =
-        createPageWriteTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+        createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {

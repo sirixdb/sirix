@@ -118,29 +118,17 @@ public final class XmlResourceManagerImpl extends AbstractResourceManager<XmlNod
         documentNode, nodeFactory);
   }
 
-  // TODO: Change for Java9 and above.
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    XmlIndexController controller = mRtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new XmlIndexController();
-      mRtxIndexControllers.put(revision, controller);
-
-      inititializeIndexController(revision, controller);
-    }
-    return controller;
+    return mRtxIndexControllers.computeIfAbsent(revision, (unused) -> new XmlIndexController());
   }
 
-  // TODO: Change for Java9 and above.
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
-    XmlIndexController controller = mWtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new XmlIndexController();
-      mWtxIndexControllers.put(revision, controller);
-    }
-    return controller;
+    return mWtxIndexControllers.computeIfAbsent(revision, unused -> {
+      final var controller = new XmlIndexController();
+      inititializeIndexController(revision, controller);
+      return controller;
+    });
   }
 }

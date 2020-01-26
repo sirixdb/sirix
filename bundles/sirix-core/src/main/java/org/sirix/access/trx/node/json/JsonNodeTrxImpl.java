@@ -47,7 +47,6 @@ import org.sirix.access.trx.node.InternalResourceManager.Abort;
 import org.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import org.sirix.access.trx.node.xml.InsertPos;
 import org.sirix.access.trx.node.xml.XmlIndexController.ChangeType;
-import org.sirix.api.Axis;
 import org.sirix.api.PageTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
@@ -1211,7 +1210,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       // Reset internal transaction state to new uber page.
       mResourceManager.closeNodePageWriteTransaction(getId());
       final PageTrx<Long, Record, UnorderedKeyValuePage> trx =
-          mResourceManager.createPageWriteTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
+          mResourceManager.createPageTransaction(trxID, revision, revNumber - 1, Abort.NO, true);
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       mNodeReadOnlyTrx.setPageReadTransaction(trx);
       mResourceManager.setNodePageWriteTransaction(getId(), trx);
@@ -1292,7 +1291,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
       mNodeReadOnlyTrx.setPageReadTransaction(null);
       removeCommitFile();
 
-      mPageWriteTrx = mResourceManager.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.YES, true);
+      mPageWriteTrx = mResourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.YES, true);
       mNodeReadOnlyTrx.setPageReadTransaction(mPageWriteTrx);
       mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);
 
@@ -1331,7 +1330,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   void reInstantiate(final @Nonnegative long trxID, final @Nonnegative int revNumber) {
     // Reset page transaction to new uber page.
     mResourceManager.closeNodePageWriteTransaction(getId());
-    mPageWriteTrx = mResourceManager.createPageWriteTransaction(trxID, revNumber, revNumber, Abort.NO, true);
+    mPageWriteTrx = mResourceManager.createPageTransaction(trxID, revNumber, revNumber, Abort.NO, true);
     mNodeReadOnlyTrx.setPageReadTransaction(null);
     mNodeReadOnlyTrx.setPageReadTransaction(mPageWriteTrx);
     mResourceManager.setNodePageWriteTransaction(getId(), mPageWriteTrx);

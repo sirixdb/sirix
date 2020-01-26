@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,6 +23,7 @@ package org.sirix.access.trx.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.access.trx.node.IndexController;
@@ -72,7 +74,7 @@ import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
 /**
- * <h1>PageReadOnlyTrxImpl</h1>
+ * <h1>NodePageReadOnlyTrx</h1>
  *
  * <p>
  * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
@@ -80,27 +82,24 @@ import com.google.common.io.ByteStreams;
  * access to this transaction.
  * </p>
  */
-public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
+public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /** Page reader exclusively assigned to this transaction. */
   private final Reader mPageReader;
 
   /** Uber page this transaction is bound to. */
   private final UberPage mUberPage;
 
-  /** Cached name page of this revision. */
-  private final RevisionRootPage mRootPage;
-
   /** {@link XmlResourceManagerImpl} reference. */
   protected final InternalResourceManager<?, ?> mResourceManager;
 
-  /** {@link NamePage} reference. */
-  private final NamePage mNamePage;
+  /** The revision number, this page trx is bound to. */
+  private final int mRevisionNumber;
 
   /** Determines if page reading transaction is closed or not. */
   private boolean mClosed;
 
   /** {@link ResourceConfiguration} instance. */
-  final ResourceConfiguration mResourceConfig;
+  private final ResourceConfiguration mResourceConfig;
 
   /** Caches in-memory reconstructed pages of a specific resource. */
   private final BufferManager mResourceBufferManager;
@@ -110,6 +109,12 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
 
   /** The transaction-ID. */
   private long mTrxId;
+
+  /** Cached name page of this revision. */
+  private RevisionRootPage mRootPage;
+
+  /** {@link NamePage} reference. */
+  private NamePage mNamePage;
 
   /**
    * Standard constructor.
@@ -124,28 +129,31 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * @param bufferManager caches in-memory reconstructed pages
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  public PageReadOnlyTrxImpl(final long trxId,
+  public NodePageReadOnlyTrx(final long trxId,
       final InternalResourceManager<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final @Nonnegative int revision, final Reader reader,
       final @Nullable TransactionIntentLog trxIntentLog, final @Nullable IndexController<?, ?> indexController,
-      final @Nonnull BufferManager bufferManager) {
+      final @Nonnull BufferManager bufferManager, final @Nonnull RevisionRootPageReader revisionRootPageReader) {
     checkArgument(revision >= 0, "Revision must be >= 0.");
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     mTrxId = trxId;
     mResourceBufferManager = bufferManager;
     mTrxIntentLog = trxIntentLog;
     mClosed = false;
-    mResourceConfig = resourceManager.getResourceConfig();
-
     mResourceManager = checkNotNull(resourceManager);
+    mResourceConfig = resourceManager.getResourceConfig();
     mPageReader = checkNotNull(reader);
     mUberPage = checkNotNull(uberPage);
-
-    // Load revision root.
-    mRootPage = loadRevRoot(revision);
-    assert mRootPage != null : "root page must not be null!";
-    mNamePage = getNamePage(mRootPage);
+    mRevisionNumber = revision;
+    mRootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
+    mNamePage = revisionRootPageReader.getNamePage(this, mRootPage);
   }
+
+//  public NodePageReadOnlyTrx loadRevisionRoot() {
+//    mRootPage = loadRevRoot(mRevisionNumber);
+//    mNamePage = getNamePage(mRootPage);
+//    return this;
+//  }
 
   private PageContainer loadPageContainer(final IndexLogKey key) {
     return getRecordPageContainer(key.getRecordPageKey(), key.getIndex(), key.getIndexType());
@@ -157,9 +165,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
       if (mTrxIntentLog != null) {
         // Try to get it from the transaction log if it's present.
         final PageContainer cont = mTrxIntentLog.get(reference, this);
-        page = cont == null
-            ? null
-            : cont.getComplete();
+        page = cont == null ? null : cont.getComplete();
       }
 
       if (page == null) {
@@ -257,13 +263,13 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public String getName(final int nameKey, final NodeKind nodeKind) {
+  public String getName(final int nameKey, @Nonnull final NodeKind nodeKind) {
     assertNotClosed();
     return mNamePage.getName(nameKey, nodeKind, this);
   }
 
   @Override
-  public final byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
+  public byte[] getRawName(final int nameKey, @Nonnull final NodeKind nodeKind) {
     assertNotClosed();
     return mNamePage.getRawName(nameKey, nodeKind, this);
   }
@@ -279,8 +285,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   @Override
   public RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey) {
     checkArgument(revisionKey >= 0 && revisionKey <= mResourceManager.getMostRecentRevisionNumber(),
-        "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-        mResourceManager.getMostRecentRevisionNumber());
+                  "%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
+                  mResourceManager.getMostRecentRevisionNumber());
     if (mTrxIntentLog == null) {
       final Cache<Integer, RevisionRootPage> cache = mResourceBufferManager.getRevisionRootPageCache();
       RevisionRootPage revisionRootPage = cache.get(revisionKey);
@@ -292,17 +298,15 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     } else {
       // The indirect page reference either fails horribly or returns a non null
       // instance.
-      final PageReference reference =
-          getPageReferenceForPage(mUberPage.getIndirectPageReference(), revisionKey, -1, PageKind.UBERPAGE);
+      final PageReference reference = getReferenceToLeafOfSubtree(mUberPage.getIndirectPageReference(), revisionKey, -1,
+                                                                  PageKind.UBERPAGE);
 
       RevisionRootPage page = null;
 
       if (mTrxIntentLog != null) {
         // Try to get it from the transaction log if it's present.
         final PageContainer cont = mTrxIntentLog.get(reference, this);
-        page = cont == null
-            ? null
-            : (RevisionRootPage) cont.getComplete();
+        page = cont == null ? null : (RevisionRootPage) cont.getComplete();
       }
 
       if (page == null) {
@@ -316,27 +320,27 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   }
 
   @Override
-  public final NamePage getNamePage(final RevisionRootPage revisionRoot) {
+  public NamePage getNamePage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (NamePage) getPage(revisionRoot.getNamePageReference(), PageKind.NAMEPAGE);
+    return (NamePage) getPage(revisionRoot.getNamePageReference());
   }
 
   @Override
-  public final PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) {
+  public PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference(), PageKind.PATHSUMMARYPAGE);
+    return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference());
   }
 
   @Override
-  public final PathPage getPathPage(final RevisionRootPage revisionRoot) {
+  public PathPage getPathPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (PathPage) getPage(revisionRoot.getPathPageReference(), PageKind.PATHPAGE);
+    return (PathPage) getPage(revisionRoot.getPathPageReference());
   }
 
   @Override
-  public final CASPage getCASPage(final RevisionRootPage revisionRoot) {
+  public CASPage getCASPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
-    return (CASPage) getPage(revisionRoot.getCASPageReference(), PageKind.CASPAGE);
+    return (CASPage) getPage(revisionRoot.getCASPageReference());
   }
 
   /**
@@ -345,7 +349,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    * @param reference page reference
    * @throws SirixIOException if an I/O error occurs
    */
-  private Page getPage(final PageReference reference, final PageKind pageKind) {
+  private Page getPage(final PageReference reference) {
     Page page = reference.getPage();
 
     if (page == null) {
@@ -368,8 +372,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     assertNotClosed();
     checkArgument(pageKey >= 0, "recordPageKey must not be negative!");
 
-    final Optional<PageReference> pageReferenceToRecordPage =
-        getLeafPageReference(checkNotNull(pageKey), index, checkNotNull(pageKind));
+    final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(checkNotNull(pageKey), index,
+                                                                                   checkNotNull(pageKind));
 
     if (!pageReferenceToRecordPage.isPresent()) {
       return PageContainer.emptyInstance();
@@ -377,8 +381,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
 
     // Try to get from resource buffer manager.
     if (mTrxIntentLog == null) {
-      final PageContainer recordPageContainerFromBuffer =
-          mResourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage.get());
+      final PageContainer recordPageContainerFromBuffer = mResourceBufferManager.getRecordPageCache().get(
+          pageReferenceToRecordPage.get());
 
       if (recordPageContainerFromBuffer != null) {
         return recordPageContainerFromBuffer;
@@ -396,7 +400,14 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     final VersioningType revisioning = mResourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    final PageContainer recordPageContainer = PageContainer.getInstance(completePage, clone(completePage));
+    final PageContainer recordPageContainer;
+
+    if (completePage instanceof UnorderedKeyValuePage) {
+      recordPageContainer = PageContainer.getInstance(completePage, new UnorderedKeyValuePage(this,
+                                                                                              (UnorderedKeyValuePage) completePage));
+    } else {
+      recordPageContainer = PageContainer.getInstance(completePage, clone(completePage));
+    }
 
     if (mTrxIntentLog == null)
       mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), recordPageContainer);
@@ -419,8 +430,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
 
   final Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
       final PageKind pageKind) {
-    final PageReference tmpRef = getPageReference(mRootPage, pageKind, indexNumber);
-    return Optional.ofNullable(getPageReferenceForPage(tmpRef, recordPageKey, indexNumber, pageKind));
+    final PageReference pageReferenceToSubtree = getPageReference(mRootPage, pageKind, indexNumber);
+    return Optional.ofNullable(getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, pageKind));
   }
 
   /**
@@ -520,9 +531,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     if (mTrxIntentLog != null) {
       // Try to get it from the transaction log if it's present.
       final PageContainer cont = mTrxIntentLog.get(reference, this);
-      page = cont == null
-          ? null
-          : (IndirectPage) cont.getComplete();
+      page = cont == null ? null : (IndirectPage) cont.getComplete();
     }
 
     if (page == null) {
@@ -551,7 +560,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
    */
   @Nullable
   @Override
-  public final PageReference getPageReferenceForPage(final PageReference startReference,
+  public PageReference getReferenceToLeafOfSubtree(final PageReference startReference,
       final @Nonnegative long pageKey, final int indexNumber, final @Nonnull PageKind pageKind) {
     assertNotClosed();
 
@@ -564,8 +573,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
     final int maxHeight = getCurrentMaxIndirectPageTreeLevel(pageKind, indexNumber, null);
 
     // Iterate through all levels.
-    for (int level = inpLevelPageCountExp.length - maxHeight, height =
-        inpLevelPageCountExp.length; level < height; level++) {
+    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
+         level < height; level++) {
       final Page derefPage = dereferenceIndirectPageReference(reference);
       if (derefPage == null) {
         reference = null;
@@ -598,9 +607,7 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   public int getCurrentMaxIndirectPageTreeLevel(final PageKind pageKind, final int index,
       final RevisionRootPage revisionRootPage) {
     final int maxLevel;
-    final RevisionRootPage currentRevisionRootPage = revisionRootPage == null
-        ? mRootPage
-        : revisionRootPage;
+    final RevisionRootPage currentRevisionRootPage = revisionRootPage == null ? mRootPage : revisionRootPage;
 
     switch (pageKind) {
       case UBERPAGE:
@@ -637,12 +644,8 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("Session", mResourceManager)
-                      .add("PageReader", mPageReader)
-                      .add("UberPage", mUberPage)
-                      .add("RevRootPage", mRootPage)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("Session", mResourceManager).add("PageReader", mPageReader).add(
+        "UberPage", mUberPage).add("RevRootPage", mRootPage).toString();
   }
 
   @Override
@@ -684,5 +687,11 @@ public final class PageReadOnlyTrxImpl implements PageReadOnlyTrx {
   public CommitCredentials getCommitCredentials() {
     assertNotClosed();
     return mRootPage.getCommitCredentials();
+  }
+
+  @Override
+  public int recordPageOffset(final long key) {
+    assertNotClosed();
+    return (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
   }
 }

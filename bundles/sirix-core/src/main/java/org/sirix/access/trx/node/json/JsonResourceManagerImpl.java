@@ -119,29 +119,17 @@ public final class JsonResourceManagerImpl extends AbstractResourceManager<JsonN
         documentNode, nodeFactory);
   }
 
-  // TODO: Change for Java9 and above.
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized JsonIndexController getRtxIndexController(final int revision) {
-    JsonIndexController controller = mRtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new JsonIndexController();
-      mRtxIndexControllers.put(revision, controller);
-
-      inititializeIndexController(revision, controller);
-    }
-    return controller;
+    return mRtxIndexControllers.computeIfAbsent(revision, unused -> new JsonIndexController());
   }
 
-  // TODO: Change for Java9 and above.
-  @SuppressWarnings("unchecked")
   @Override
   public synchronized JsonIndexController getWtxIndexController(final int revision) {
-    JsonIndexController controller = mWtxIndexControllers.get(revision);
-    if (controller == null) {
-      controller = new JsonIndexController();
-      mWtxIndexControllers.put(revision, controller);
-    }
-    return controller;
+    return mWtxIndexControllers.computeIfAbsent(revision, unused -> {
+      final var controller = new JsonIndexController();
+      inititializeIndexController(revision, controller);
+      return controller;
+    });
   }
 }
