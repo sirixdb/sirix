@@ -33,6 +33,8 @@ import java.io.IOException;
 import java.util.BitSet;
 import java.util.List;
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.magicwerk.brownies.collections.GapList;
 import org.sirix.exception.SirixIOException;
 
@@ -144,32 +146,19 @@ public enum SerializationType {
     }
   };
 
-  private static void serializeBitSet(DataOutput out, final BitSet bitmap) throws IOException {
-
+  public static void serializeBitSet(DataOutput out, @Nonnull final BitSet bitmap) throws IOException {
     final var bytes = bitmap.toByteArray();
     final int len = bytes.length;
     out.writeShort(len);
     out.write(bytes);
-
-//    for (int i = 0; i < len; i++) {
-//      out.writeBoolean(bitmap.get(i));
-//    }
   }
 
-  private static BitSet deserializeBitSet(DataInput in, @Nonnegative int referenceCount)
+  public static BitSet deserializeBitSet(DataInput in, @Nonnegative int referenceCount)
       throws IOException {
     final int len = in.readShort();
     final var bytes = new byte[len];
-
     in.readFully(bytes);
     return BitSet.valueOf(bytes);
-//    final BitSet ret = new BitSet(referenceCount);
-//
-//    for (int i = 0; i < len; i++) {
-//      ret.set(i, in.readBoolean());
-//    }
-//
-//    return ret;
   }
 
   /**
