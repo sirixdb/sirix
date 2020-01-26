@@ -20,7 +20,6 @@ services:
     networks:
       - auth-network
   server:
-    build: .
     image: sirixdb/sirix
     ports:
       - "9443:9443"
