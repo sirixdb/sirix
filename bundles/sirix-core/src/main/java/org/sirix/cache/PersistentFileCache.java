@@ -50,6 +50,8 @@ public final class PersistentFileCache implements AutoCloseable {
       reference.setLength(length);
     }
 
+    reference.setPage(null);
+
     return this;
   }
 

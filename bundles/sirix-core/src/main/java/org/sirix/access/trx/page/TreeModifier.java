@@ -64,7 +64,7 @@ public interface TreeModifier {
    * @param log the transaction intent log
    * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
    *        tree-level
-   * @param startPageReference the reference to start the tree traversal from
+   * @param startReference the reference to start the tree traversal from
    * @param pageKey page key to lookup
    * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
    * @param pageKind the kind of page subtree

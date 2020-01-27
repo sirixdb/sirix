@@ -268,8 +268,15 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
   }
 
   private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition) {
+    mNodeReadOnlyTrx.assertNotClosed();
     checkNotNull(reader);
     assert insertionPosition != null;
+
+    if (mHashKind != HashType.NONE && (mMaxNodeCount != 0 || mLock != null)) {
+      throw new IllegalStateException("Calling insertSubtree() with auto-commit and setting hashes is not allowed,"
+                                      + " as the hashes are calculated after the insertion, which is not possible.");
+    }
+
     acquireLock();
     try {
       final var peekedJsonToken = reader.peek();
@@ -420,7 +427,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
           moveToParent();
           node = (Node) mPageWriteTrx.prepareEntryForModification(mNodeReadOnlyTrx.getCurrentNode().getNodeKey(),
               PageKind.RECORDPAGE, -1);
-          final BigInteger hash = node.getHash() == null
+          final BigInteger hash = node.getHash() == null || BigInteger.ZERO.equals(node.getHash())
               ? node.computeHash()
               : node.getHash();
           node.setHash(hash.add(hashToAdd.multiply(PRIME)));

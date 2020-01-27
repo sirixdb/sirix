@@ -175,29 +175,29 @@ public enum PageKind {
     }
   },
 
-  /**
-   * {@link TextValuePage}.
-   */
-  TEXTVALUEPAGE((byte) 7, PathPage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
-        final @Nonnull SerializationType type) throws IOException {
-      return new PathPage(source, type);
-    }
-
-    @Override
-    void serializePage(final DataOutput sink, final Page page, final @Nonnull SerializationType type)
-        throws IOException {
-      sink.writeByte(TEXTVALUEPAGE.mId);
-      page.serialize(sink, type);
-    }
-
-    @Override
-    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
-      return new PathPage();
-    }
-  },
+//  /**
+//   * {@link PathPage}.
+//   */
+//  TEXTVALUEPAGE((byte) 7, PathPage.class) {
+//    @Override
+//    @Nonnull
+//    Page deserializePage(final DataInput source, final PageReadOnlyTrx pageReadTrx,
+//        final @Nonnull SerializationType type) throws IOException {
+//      return new PathPage(source, type);
+//    }
+//
+//    @Override
+//    void serializePage(final DataOutput sink, final Page page, final @Nonnull SerializationType type)
+//        throws IOException {
+//      sink.writeByte(TEXTVALUEPAGE.mId);
+//      page.serialize(sink, type);
+//    }
+//
+//    @Override
+//    public @Nonnull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+//      return new PathPage();
+//    }
+//  },
 
   /**
    * {@link CASPage}.
@@ -223,7 +223,7 @@ public enum PageKind {
   },
 
   /**
-   * {@link AttributeValuePage}.
+   * {@link OverflowPage}.
    */
   OVERFLOWPAGE((byte) 9, OverflowPage.class) {
     @Override

@@ -72,7 +72,7 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
 
       final PersistentFileCache persistentFileCache = new PersistentFileCache(fileWriter);
 
-      return new TransactionIntentLog(persistentFileCache, 1 << 13);
+      return new TransactionIntentLog(persistentFileCache, 1 << 12);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }

@@ -293,6 +293,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
     if (reference == null)
       return;
 
+    mLog.setEvict(false);
+
     final PageContainer container = mLog.get(reference, mPageRtx);
 
     mLog.remove(reference);
@@ -315,7 +317,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
 
     // Remove page reference.
     reference.setPage(null);
-
   }
 
   @Override

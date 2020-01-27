@@ -214,25 +214,24 @@ public final class UberPage extends AbstractForwardingPage {
    */
   public void createRevisionTree(final TransactionIntentLog log) {
     // Initialize revision tree to guarantee that there is a revision root page.
-    Page page = null;
-    PageReference reference = getIndirectPageReference();
+    var reference = getIndirectPageReference();
 
-    page = new IndirectPage();
+    final var page = new IndirectPage();
     log.put(reference, PageContainer.getInstance(page, page));
     reference = page.getReference(0);
 
     mRootPage = new RevisionRootPage();
 
-    final Page namePage = mRootPage.getNamePageReference().getPage();
+    final var namePage = mRootPage.getNamePageReference().getPage();
     log.put(mRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
 
-    final Page casPage = mRootPage.getCASPageReference().getPage();
+    final var casPage = mRootPage.getCASPageReference().getPage();
     log.put(mRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
 
-    final Page pathPage = mRootPage.getPathPageReference().getPage();
+    final var pathPage = mRootPage.getPathPageReference().getPage();
     log.put(mRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
 
-    final Page pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
+    final var pathSummaryPage = mRootPage.getPathSummaryPageReference().getPage();
     log.put(mRootPage.getPathSummaryPageReference(), PageContainer.getInstance(pathSummaryPage, pathSummaryPage));
 
     log.put(reference, PageContainer.getInstance(mRootPage, mRootPage));

@@ -140,7 +140,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final ElementNode node = (ElementNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -197,7 +197,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final AttributeNode node = (AttributeNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -237,7 +237,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final NamespaceNode node = (NamespaceNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
     }
@@ -273,7 +273,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final TextNode node = (TextNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
@@ -314,7 +314,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final PINode node = (PINode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -352,7 +352,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final CommentNode node = (CommentNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
@@ -841,7 +841,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final ObjectNode node = (ObjectNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
@@ -883,7 +883,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final ArrayNode node = (ArrayNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
@@ -931,7 +931,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       sink.writeInt(node.getNameKey());
       putVarLong(sink, node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -979,7 +979,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final StringNode node = (StringNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
@@ -1021,7 +1021,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final BooleanNode node = (BooleanNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
@@ -1095,7 +1095,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final NumberNode node = (NumberNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       final Number number = node.getValue();
 
       if (number instanceof Double) {
@@ -1168,7 +1168,7 @@ public enum NodeKind implements NodePersistenter {
         throws IOException {
       final NullNode node = (NullNode) record;
       if (pageReadTrx.getResourceManager().getResourceConfig().hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
+        writeHash(sink, node.getHash() == null ? BigInteger.ZERO : node.getHash());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(node.getStructNodeDelegate(), sink);
     }
@@ -1540,12 +1540,9 @@ public enum NodeKind implements NodePersistenter {
   }
 
   private static void writeHash(final DataOutput sink, final BigInteger hashCode) throws IOException {
-    assert !BigInteger.ZERO.equals(hashCode);
     final byte[] bigIntegerBytes = hashCode.toByteArray();
     final List<Byte> bytes = new ArrayList<>();
-    final int maxLength = bigIntegerBytes.length < 17
-        ? bigIntegerBytes.length
-        : 17;
+    final int maxLength = Math.min(bigIntegerBytes.length, 17);
 
     for (int i = 1; i < maxLength; i++) {
       bytes.add(bigIntegerBytes[i]);
