@@ -316,7 +316,7 @@ https://piotrminkowski.wordpress.com/2017/09/15/building-secure-apis-with-vert-x
 
 Have a look into our [REST-API documentation](https://sirix.io/rest-api.html) how to setup Keycloak and the non-blocking SirixDB HTTP-Server.
 
-After Keycloak and our server are up and running, we can write a simple HTTP-Client. We first have to obtain a token from the `/login` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
+After Keycloak and our server are up and running, we can write a simple HTTP-Client. We first have to obtain a token from the `/token` endpoint with a given "username/password" JSON-Object. Using an asynchronous HTTP-Client (from Vert.x) in Kotlin, it looks like this:
 
 ```kotlin
 val server = "https://localhost:9443"
