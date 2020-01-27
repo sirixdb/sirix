@@ -72,6 +72,7 @@ public final class TransactionIntentLog implements AutoCloseable {
             final PageContainer value = eldest.getValue();
             if (key != null && value != null) {
               mSecondCache.put(key, value);
+              key.setPage(null);
               mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
             }
           }
