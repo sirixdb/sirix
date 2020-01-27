@@ -40,46 +40,48 @@ public final class JsonShredderTest {
     JsonTestHelper.closeEverything();
   }
 
-//  @Ignore
-//  @Test
-//  public void testChicagoDescendantAxis() {
-//    final var jsonPath = JSON.resolve("cityofchicago.json");
-//    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-//    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-//        final var rtx = manager.beginNodeReadOnlyTrx()) {
-//      final var axis = new DescendantAxis(rtx);
-//
-//      axis.forEach((unused) ->
-//                   {
-//                   });
-//
-//      System.out.println("done");
-//    }
-//  }
-//
-//  @Ignore
-//  @Test
-//  public void testChicago() {
-//    try {
-//      final var jsonPath = JSON.resolve("cityofchicago.json");
-//      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-//      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-//        database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-//                                                     .buildPathSummary(false)
-//                                                     .hashKind(HashType.NONE)
-//                                                     .useTextCompression(true)
-//                                                     .build());
-//        try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
-//            final var trx = manager.beginNodeTrx(20_000_000)) {
-//          trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
-//
-//          System.out.println();
-//        }
-//      }
-//    } catch (Error e) {
-//      e.printStackTrace();
-//    }
-//  }
+  @Ignore
+  @Test
+  public void testChicagoDescendantAxis() {
+    final var jsonPath = JSON.resolve("cityofchicago.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var rtx = manager.beginNodeReadOnlyTrx()) {
+      final var axis = new DescendantAxis(rtx);
+
+      axis.forEach((unused) ->
+                   {
+                   });
+
+      System.out.println("done");
+    }
+  }
+
+  @Ignore
+  @Test
+  public void testChicago() {
+    try {
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                     .buildPathSummary(true)
+                                                     .useTextCompression(true)
+                                                     .build());
+        try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+            final var trx = manager.beginNodeTrx()) {
+//          final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath), InsertPosition.AS_FIRST_CHILD).build();
+//          shredder.call();
+//          trx.commit();
+          trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+
+          System.out.println();
+        }
+      }
+    } catch (Error e) {
+      e.printStackTrace();
+    }
+  }
 
   @Test
   public void testLinux() throws IOException {

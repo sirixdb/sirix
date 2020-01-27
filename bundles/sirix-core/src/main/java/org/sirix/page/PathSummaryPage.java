@@ -121,7 +121,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return mCurrentMaxLevelsOfIndirectPages.get(index);
+    return mCurrentMaxLevelsOfIndirectPages.getOrDefault(index, 1);
   }
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
