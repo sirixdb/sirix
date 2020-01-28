@@ -295,7 +295,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
 
     mLog.setEvict(false);
 
-    final PageContainer container = mLog.get(reference, mPageRtx);
+    final PageContainer container = mLog.get(reference, this);
 
     mLog.remove(reference);
 
@@ -437,7 +437,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
                                                                     pageReference, recordPageKey, indexNumber, pageKind,
                                                                     mNewRoot);
 
-    PageContainer pageContainer = mLog.get(reference, mPageRtx);
+    PageContainer pageContainer = mLog.get(reference, this);
 
     if (pageContainer.equals(PageContainer.emptyInstance())) {
       if (reference.getKey() == Constants.NULL_ID_LONG) {
@@ -507,7 +507,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx
   @Override
   public PageContainer getLogRecord(final PageReference reference) {
     checkNotNull(reference);
-    return mLog.get(reference, mPageRtx);
+    return mLog.get(reference, this);
   }
 
   @Override

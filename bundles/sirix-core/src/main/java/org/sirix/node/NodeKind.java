@@ -922,6 +922,8 @@ public enum NodeKind implements NodePersistenter {
           ? ""
           : pageReadTrx.getName(nameKey, NodeKind.OBJECT_KEY);
 
+      assert name != null;
+
       // Returning an instance.
       return new ObjectKeyNode(hashCode, structDel, nameKey, name, pathNodeKey);
     }

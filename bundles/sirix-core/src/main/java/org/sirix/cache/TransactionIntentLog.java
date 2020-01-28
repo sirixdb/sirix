@@ -11,11 +11,13 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.io.Key;
 import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -52,7 +54,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   private int mLogKey;
 
   /**
-   * Creates a new LRU cache.
+   * Creates a new transaction intent log.
    *
    * @param secondCache         the reference to the second {@link Cache} where the data is stored when it
    *                            gets removed from the first one.
@@ -60,115 +62,57 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public TransactionIntentLog(final PersistentFileCache secondCache, final int maxInMemoryCapacity) {
     // Assertion instead of checkNotNull(...).
-//    assert secondCache != null;
-//    mLogKey = 0;
-//    mSecondCache = secondCache;
-//    mMapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity);
-//    mMap = new LinkedHashMap<>(maxInMemoryCapacity) {
-//      private static final long serialVersionUID = 1;
-//
-//      @Override
-//      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
-//        boolean returnVal = false;
-//        if (size() > maxInMemoryCapacity) {
-//          if (eldest != null) {
-//            final PageReference key = eldest.getKey();
-//            assert key.getLogKey() != Constants.NULL_ID_INT;
-//            final PageContainer value = eldest.getValue();
-//            if (key != null && value != null) {
-//              mSecondCache.put(key, value);
-//              mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
-//            }
-//          }
-//          returnVal = true;
-//        }
-//        return returnVal;
-//      }
-//    };
-//    // Assertion instead of checkNotNull(...).
-//    assert secondCache != null;
-//    mLogKey = 0;
-//    mSecondCache = secondCache;
-//    mMapToPersistentLogKey = HashBiMap.create();
-//    mMap = new LinkedHashMap<>(maxInMemoryCapacity, 0.75f, true) {
-//      private static final long serialVersionUID = 1;
-//
-//      @Override
-//      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
-//        boolean returnVal = false;
-//        if (size() > maxInMemoryCapacity) {
-//          if (isImportant(eldest)) {
-//            this.remove(eldest.getKey());
-//            this.put(eldest.getKey(), eldest.getValue());
-//          } else {
-//            final PageReference key = eldest.getKey();
-//            assert key.getLogKey() != Constants.NULL_ID_INT;
-//            final PageContainer value = eldest.getValue();
-//            if (key != null && value != null) {
-//              mSecondCache.put(key, value);
-//              mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
-//            }
-//          }
-//          returnVal = true;
-//        }
-//        return returnVal;
-//      }
-//
-//      private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
-//        final var page = eldest.getValue().getComplete();
-//        if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
-//            || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
-//          return true;
-//        }
-//        return false;
-//      }
-//    };
-        // Assertion instead of checkNotNull(...).
-        assert secondCache != null;
-        mEvict = true;
-        mLogKey = 0;
-        mSecondCache = secondCache;
-        mMapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity);
-        mMap = new LinkedHashMap<>(maxInMemoryCapacity) {
-          private static final long serialVersionUID = 1;
+    assert secondCache != null;
+    mEvict = true;
+    mLogKey = 0;
+    mSecondCache = secondCache;
+    mMapToPersistentLogKey = HashBiMap.create(maxInMemoryCapacity >> 1);
+    mMap = new LinkedHashMap<>(maxInMemoryCapacity >> 1) {
+      private static final long serialVersionUID = 1;
 
-                private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
-                  final var page = eldest.getValue().getComplete();
-                  if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
-                      || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
-                    return true;
-                  }
-                  return false;
-                }
+      @Override
+      protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
+        if (size() > maxInMemoryCapacity && mEvict) {
+          int i = 0;
+          final var iter = mMap.entrySet().iterator();
+          final int size = size();
+          while (iter.hasNext() && i < (size / 2)) {
+            final Map.Entry<PageReference, PageContainer> entry = iter.next();
 
-          @Override
-          protected boolean removeEldestEntry(final @Nullable Map.Entry<PageReference, PageContainer> eldest) {
-            if (size() > maxInMemoryCapacity && mEvict) {
-              int i = 0;
-              final var iter = mMap.entrySet().iterator();
-              final int size = size();
-              while (iter.hasNext() && i < (size / 2)) {
-                final Map.Entry<PageReference, PageContainer> entry = iter.next();
+            if (isImportant(entry))
+              continue;
 
-                if (isImportant(entry))
-                  continue;
+            i++;
+            final PageReference key = entry.getKey();
+            assert key.getLogKey() != Constants.NULL_ID_INT;
+            PageContainer value = entry.getValue();
 
-                i++;
-                final PageReference key = entry.getKey();
-                assert key.getLogKey() != Constants.NULL_ID_INT;
-                PageContainer value = entry.getValue();
-
-                if (key != null && value != null) {
-                  iter.remove();
-                  mSecondCache.put(key, value);
-                  value = null;
-                  mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
-                }
-              }
+            if (key != null && value != null) {
+              iter.remove();
+              mSecondCache.put(key, value);
+              value = null;
+              mMapToPersistentLogKey.put(key.getLogKey(), key.getPersistentLogKey());
             }
-            return false;
           }
-        };
+        }
+        return false;
+      }
+
+      private boolean isImportant(Map.Entry<PageReference, PageContainer> eldest) {
+        final var page = eldest.getValue().getComplete();
+        if (page instanceof RevisionRootPage || page instanceof NamePage || page instanceof CASPage
+            || page instanceof PathPage || page instanceof PathSummaryPage || page instanceof UberPage) {
+          return true;
+        } else if (page instanceof UnorderedKeyValuePage) {
+          var dataPage = (UnorderedKeyValuePage) page;
+          if (dataPage.getPageKind() == PageKind.RECORDPAGE)
+            return false;
+          else
+            return true;
+        }
+        return false;
+      }
+    };
   }
 
   public TransactionIntentLog setEvict(boolean evict) {
@@ -178,7 +122,6 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /**
    * Retrieves an entry from the cache.<br>
-   * The retrieved entry becomes the MRU (most recently used) entry.
    *
    * @param key the key whose associated value is to be returned.
    * @return the value associated to this key, or {@code null} if no value with this key exists in the
