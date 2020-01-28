@@ -21,8 +21,6 @@ public final class NodePageReadOnlyTrxTest {
 
     assertEquals(0, trx.pageKey(1));
     assertEquals(1, trx.pageKey(1023));
-
-    System.out.println(512 + 511);
   }
 
   @Test
