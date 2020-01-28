@@ -922,7 +922,7 @@ public enum NodeKind implements NodePersistenter {
           ? ""
           : pageReadTrx.getName(nameKey, NodeKind.OBJECT_KEY);
 
-      assert name != null;
+      // Name can be null for removed nodes (the previous record page still has the ObjectKeyNode).
 
       // Returning an instance.
       return new ObjectKeyNode(hashCode, structDel, nameKey, name, pathNodeKey);

@@ -90,7 +90,6 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
    */
   public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
-    assert name != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;
