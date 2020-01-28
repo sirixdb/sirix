@@ -24,6 +24,7 @@ package org.sirix.node.json;
 import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 
+import com.google.common.hash.HashFunction;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
@@ -71,6 +72,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
     assert structDel != null;
+    assert name != null;
     mStructNodeDel = structDel;
     mNameKey = nameKey;
     mName = name;
@@ -88,6 +90,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
    */
   public ObjectKeyNode(final BigInteger hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
       final long pathNodeKey) {
+    assert name != null;
     mHash = hashCode;
     assert structDel != null;
     mStructNodeDel = structDel;
@@ -103,7 +106,9 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
 
   @Override
   public BigInteger computeHash() {
-    final HashCode hashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashString(mName, Constants.DEFAULT_ENCODING);
+    final HashFunction hashFunction = mStructNodeDel.getNodeDelegate().getHashFunction();
+    assert mName != null;
+    final HashCode hashCode = hashFunction.hashString(mName, Constants.DEFAULT_ENCODING);
 
     BigInteger result = BigInteger.ONE;
 

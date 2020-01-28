@@ -72,7 +72,6 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param leftSib left sibling key
    * @param childCount number of children of the node
    * @param descendantCount number of descendants of the node
-   * @param pSiblingPos sibling position
    */
   public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib, final long leftSib,
       final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
