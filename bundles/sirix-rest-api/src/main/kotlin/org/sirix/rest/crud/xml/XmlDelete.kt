@@ -78,7 +78,7 @@ class XmlDelete(private val location: Path) {
         }
 
         if (!ctx.failed())
-            ctx.response().setStatusCode(200).end()
+            ctx.response().setStatusCode(204).end()
     }
 
     private suspend fun removeDatabase(dbFile: Path?, dispatcher: CoroutineDispatcher) {

@@ -64,7 +64,7 @@ class SirixVerticleJsonTest {
                         .toString(), "Bearer $accessToken"
                 ).sendAwait()
 
-                if (200 == httpResponse.statusCode()) {
+                if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
             }
@@ -724,7 +724,7 @@ class SirixVerticleJsonTest {
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
                     .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
-                if (200 == httpResponse.statusCode()) {
+                if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
             }

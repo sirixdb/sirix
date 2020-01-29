@@ -61,7 +61,7 @@ class SirixVerticleXmlTest {
                         .toString(), "Bearer $accessToken"
                 ).sendAwait()
 
-                if (200 == httpResponse.statusCode()) {
+                if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
             }
@@ -906,7 +906,7 @@ class SirixVerticleXmlTest {
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml")
                     .putHeader(HttpHeaders.ETAG.toString(), hashCode).sendAwait()
 
-                if (200 == httpResponse.statusCode()) {
+                if (204 == httpResponse.statusCode()) {
                     testContext.completeNow()
                 }
             }
