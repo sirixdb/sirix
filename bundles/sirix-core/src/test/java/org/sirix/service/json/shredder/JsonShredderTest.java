@@ -30,20 +30,18 @@ import org.skyscreamer.jsonassert.JSONAssert;
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  @Before
-  public void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
+//  @Before
+//  public void setUp() {
+//    JsonTestHelper.deleteEverything();
+//  }
+//
+//  @After
+//  public void tearDown() {
+//    JsonTestHelper.closeEverything();
+//  }
 
-  @After
-  public void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
-
-  @Ignore
   @Test
   public void testChicagoDescendantAxis() {
-    final var jsonPath = JSON.resolve("cityofchicago.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
         final var rtx = manager.beginNodeReadOnlyTrx()) {
@@ -57,7 +55,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -65,8 +62,9 @@ public final class JsonShredderTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                     .buildPathSummary(true)
-                                                     .useTextCompression(true)
+                                                     .buildPathSummary(false)
+                                                     .hashKind(HashType.NONE)
+                                                     .useTextCompression(false)
                                                      .build());
         try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
             final var trx = manager.beginNodeTrx()) {

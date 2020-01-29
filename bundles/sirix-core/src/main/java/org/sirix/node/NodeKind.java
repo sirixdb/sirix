@@ -1235,15 +1235,13 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
-      return new HashEntryNode(getVarLong(source), source.readInt(), source.readUTF());
+      return new HashEntryNode(recordID, source.readInt(), source.readUTF());
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final HashEntryNode node = (HashEntryNode) record;
-
-      putVarLong(sink, node.getNodeKey());
       sink.writeInt(node.getKey());
       sink.writeUTF(node.getValue());
     }
@@ -1263,15 +1261,13 @@ public enum NodeKind implements NodePersistenter {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
-      return new HashCountEntryNode(getVarLong(source), source.readInt());
+      return new HashCountEntryNode(recordID, source.readInt());
     }
 
     @Override
     public void serialize(final DataOutput sink, final Record record, final PageReadOnlyTrx pageReadTrx)
         throws IOException {
       final HashCountEntryNode node = (HashCountEntryNode) record;
-
-      putVarLong(sink, node.getNodeKey());
       sink.writeInt(node.getValue());
     }
 
