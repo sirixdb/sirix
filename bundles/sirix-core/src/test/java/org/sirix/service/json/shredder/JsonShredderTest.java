@@ -30,16 +30,17 @@ import org.skyscreamer.jsonassert.JSONAssert;
 public final class JsonShredderTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-//  @Before
-//  public void setUp() {
-//    JsonTestHelper.deleteEverything();
-//  }
-//
-//  @After
-//  public void tearDown() {
-//    JsonTestHelper.closeEverything();
-//  }
+  @Before
+  public void setUp() {
+    JsonTestHelper.deleteEverything();
+  }
 
+  @After
+  public void tearDown() {
+    JsonTestHelper.closeEverything();
+  }
+
+  @Ignore
   @Test
   public void testChicagoDescendantAxis() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -55,6 +56,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Ignore
   @Test
   public void testChicago() {
     try {
