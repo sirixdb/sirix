@@ -381,14 +381,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
-//    if (mTrxIntentLog == null && isMostRecentlyReadPage(indexLogKey)) {
-//      return Optional.of(mMostRecentlyReadRecordPage.getPage());
+    if (mTrxIntentLog == null && isMostRecentlyReadPage(indexLogKey)) {
+      return Optional.of(mMostRecentlyReadRecordPage.getPage());
 //      //      final var page = mResourceBufferManager.getUnorderedKeyValuePageCache().get(indexLogKey);
 //      //
 //      //      if (page != null) {
 //      //        return Optional.of(page);
 //      //      }
-//    }
+    }
 
     final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(
         checkNotNull(indexLogKey.getRecordPageKey()), indexLogKey.getIndex(), checkNotNull(indexLogKey.getIndexType()));
@@ -432,20 +432,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
       //      mResourceBufferManager.getUnorderedKeyValuePageCache().put(indexLogKey, completePage);
       pageReferenceToRecordPage.get().setPage(completePage);
-//      mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-//                                                   indexLogKey.getRecordPageKey(), completePage);
+      mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
+                                                   indexLogKey.getRecordPageKey(), completePage);
     }
 
     return Optional.of(completePage);
   }
 
-//  private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
-//    return mMostRecentlyReadRecordPage != null
-//        && indexLogKey.getRecordPageKey() > 512
-//        && mMostRecentlyReadRecordPage.getRecordPageKey() == indexLogKey.getRecordPageKey()
-//        && mMostRecentlyReadRecordPage.getIndex() == indexLogKey.getIndex()
-//        && mMostRecentlyReadRecordPage.getPageKind() == indexLogKey.getIndexType();
-//  }
+  private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
+    return mMostRecentlyReadRecordPage != null
+        && mMostRecentlyReadRecordPage.getRecordPageKey() == indexLogKey.getRecordPageKey()
+        && mMostRecentlyReadRecordPage.getIndex() == indexLogKey.getIndex()
+        && mMostRecentlyReadRecordPage.getPageKind() == indexLogKey.getIndexType();
+  }
 
   final Optional<PageReference> getLeafPageReference(final @Nonnegative long recordPageKey, final int indexNumber,
       final PageKind pageKind) {
