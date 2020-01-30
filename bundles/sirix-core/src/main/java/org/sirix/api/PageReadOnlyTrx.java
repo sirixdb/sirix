@@ -4,6 +4,7 @@ import java.util.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.CommitCredentials;
+import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -117,9 +118,8 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * Get a the record page with the full pages from the page layer, given the
    * unique page key and the page kind.
    *
-   * @param key {@code key} of key/value page to get the record from
-   * @param index index number or {@code -1}, if it's a regular record page to lookup
-   * @param pageKind kind of page to lookup
+   * @param indexLogKey it has the key {@code key} of key/value page to get the record from, the index number
+   *                    or {@code -1}, if it's a regular record page to lookup and the kind of page to lookup
    * @return {@code the node} or {@code null} if it's not available
    * @throws SirixIOException if can't read recordPage
    * @throws NullPointerException if {@code key} is {@code null}
@@ -127,7 +127,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws IllegalArgumentException if {@code key} is negative
    */
   <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
-      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind);
+      @Nonnull IndexLogKey indexLogKey);
 
   /** Determines if transaction is closed or not. */
   boolean isClosed();

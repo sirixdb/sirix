@@ -19,7 +19,11 @@ public final class IndexLogKey {
   /** Record page key. */
   private final long mRecordPageKey;
 
+  /** The kind of index. */
   private final PageKind mPageKind;
+
+  /** The revision number. */
+  private final int mRevisionNumber;
 
   /**
    * Constructor.
@@ -27,12 +31,14 @@ public final class IndexLogKey {
    * @param recordPageKey the record page key
    * @param index the index number
    * @param pageKind the page kind (kind of the index)
+   * @param revisionNumber the revision number
    */
   public IndexLogKey(final PageKind pageKind, final long recordPageKey,
-      final @Nonnegative int index) {
+      final @Nonnegative int index, final @Nonnegative int revisionNumber) {
     mRecordPageKey = recordPageKey;
     mIndex = index;
     mPageKind = pageKind;
+    mRevisionNumber = revisionNumber;
   }
 
   public long getRecordPageKey() {
@@ -49,7 +55,7 @@ public final class IndexLogKey {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mRecordPageKey, mIndex, mPageKind);
+    return Objects.hashCode(mRecordPageKey, mIndex, mPageKind, mRevisionNumber);
   }
 
   @Override
@@ -57,7 +63,7 @@ public final class IndexLogKey {
     if (obj instanceof IndexLogKey) {
       final IndexLogKey other = (IndexLogKey) obj;
       return mRecordPageKey == other.mRecordPageKey && mIndex == other.mIndex
-          && mPageKind == other.mPageKind;
+          && mPageKind == other.mPageKind && mRevisionNumber == other.mRevisionNumber;
     }
     return false;
   }
@@ -68,6 +74,7 @@ public final class IndexLogKey {
                       .add("recordPageKey", mRecordPageKey)
                       .add("index", mIndex)
                       .add("pageKind", mPageKind)
+                      .add("revisionNumber", mRevisionNumber)
                       .toString();
   }
 }
