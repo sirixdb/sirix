@@ -9,7 +9,7 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.node.SirixDeweyID;
 
 /**
- * Persistenting a record (first byte of a record must be its type).
+ * Persisting a record (first byte of a record must be its type).
  *
  * @author Johannes Lichtenberger
  *

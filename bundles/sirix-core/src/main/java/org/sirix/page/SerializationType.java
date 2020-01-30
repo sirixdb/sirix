@@ -68,7 +68,7 @@ public enum SerializationType {
       assert in != null;
 
       try {
-        final BitSet bitmap = deserializeBitSet(in, referenceCount);
+        final BitSet bitmap = deserializeBitSet(in);
 
         final int length = bitmap.cardinality();
 
@@ -119,7 +119,7 @@ public enum SerializationType {
       assert in != null;
 
       try {
-        final BitSet bitmap = deserializeBitSet(in, referenceCount);
+        final BitSet bitmap = deserializeBitSet(in);
         final int length = bitmap.cardinality();
         final GapList<PageReference> references = new GapList<>(length);
 
@@ -153,7 +153,7 @@ public enum SerializationType {
     out.write(bytes);
   }
 
-  public static BitSet deserializeBitSet(DataInput in, @Nonnegative int referenceCount)
+  public static BitSet deserializeBitSet(DataInput in)
       throws IOException {
     final int len = in.readShort();
     final var bytes = new byte[len];

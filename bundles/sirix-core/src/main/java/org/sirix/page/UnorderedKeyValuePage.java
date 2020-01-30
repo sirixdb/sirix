@@ -183,8 +183,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
       mRecords = new LinkedHashMap<>();
     }
 
-    final var entriesBitmap = SerializationType.deserializeBitSet(in, Constants.NDP_NODE_COUNT);
-    final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in, Constants.NDP_NODE_COUNT);
+    final var entriesBitmap = SerializationType.deserializeBitSet(in);
+    final var overlongEntriesBitmap = SerializationType.deserializeBitSet(in);
 
     final int normalEntrySize = in.readInt();
     var setBit = -1;

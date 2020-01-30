@@ -18,9 +18,9 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
         (PageReference key, PageContainer value, RemovalCause cause) -> key.setPage(null);
 
     mPageCache = Caffeine.newBuilder()
-                         .maximumSize(1000)
-                         .expireAfterWrite(5000, TimeUnit.SECONDS)
-                         .expireAfterAccess(5000, TimeUnit.SECONDS)
+                         .maximumSize(1_000)
+                         .expireAfterWrite(20, TimeUnit.SECONDS)
+                         .expireAfterAccess(20, TimeUnit.SECONDS)
                          .removalListener(removalListener)
                          .build();
   }
