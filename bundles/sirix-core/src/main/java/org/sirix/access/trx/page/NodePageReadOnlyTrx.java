@@ -149,12 +149,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     mNamePage = revisionRootPageReader.getNamePage(this, mRootPage);
   }
 
-//  public NodePageReadOnlyTrx loadRevisionRoot() {
-//    mRootPage = loadRevRoot(mRevisionNumber);
-//    mNamePage = getNamePage(mRootPage);
-//    return this;
-//  }
-
   private PageContainer loadPageContainer(final IndexLogKey key) {
     return getRecordPageContainer(key.getRecordPageKey(), key.getIndex(), key.getIndexType());
   }
@@ -381,6 +375,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Try to get from resource buffer manager.
     if (mTrxIntentLog == null) {
+      final var page = pageReferenceToRecordPage.get().getPage();
+
+      if (page != null) {
+        return PageContainer.getInstance(page, page);
+      }
+
       final PageContainer recordPageContainerFromBuffer = mResourceBufferManager.getRecordPageCache().get(
           pageReferenceToRecordPage.get());
 
@@ -409,8 +409,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       recordPageContainer = PageContainer.getInstance(completePage, clone(completePage));
     }
 
-    if (mTrxIntentLog == null)
+    if (mTrxIntentLog == null) {
       mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), recordPageContainer);
+      pageReferenceToRecordPage.get().setPage(recordPageContainer.getComplete());
+    }
 
     return recordPageContainer;
   }
