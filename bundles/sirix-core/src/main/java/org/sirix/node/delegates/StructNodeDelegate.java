@@ -76,6 +76,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   public StructNodeDelegate(final NodeDelegate del, final long firstChild, final long rightSib, final long leftSib,
       final @Nonnegative long childCount, final @Nonnegative long descendantCount) {
     assert childCount >= 0 : "childCount must be >= 0!";
+    if (descendantCount < 0)
+      System.out.println();
     assert descendantCount >= 0 : "descendantCount must be >= 0!";
     assert del != null : "del must not be null!";
     mDelegate = del;

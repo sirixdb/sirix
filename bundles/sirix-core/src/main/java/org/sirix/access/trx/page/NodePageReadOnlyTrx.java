@@ -149,8 +149,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     mNamePage = revisionRootPageReader.getNamePage(this, mRootPage);
   }
 
-  private PageContainer loadPageContainer(final IndexLogKey key) {
-    return getRecordPageContainer(key.getRecordPageKey(), key.getIndex(), key.getIndexType());
+  private Optional<Page> loadPage(final IndexLogKey key) {
+    return getRecordPage(key.getRecordPageKey(), key.getIndex(), key.getIndexType());
   }
 
   private Page loadIndirectPage(final PageReference reference) {
@@ -219,7 +219,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final long recordPageKey = pageKey(nodeKey);
 
-    final PageContainer cont;
+    final Optional<Page> page;
 
     switch (pageKind) {
       case RECORDPAGE:
@@ -227,19 +227,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       case PATHPAGE:
       case CASPAGE:
       case NAMEPAGE:
-        cont = loadPageContainer(new IndexLogKey(pageKind, recordPageKey, index));
+        page = loadPage(new IndexLogKey(pageKind, recordPageKey, index));
         break;
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException();
     }
 
-    if (PageContainer.emptyInstance().equals(cont)) {
-      return Optional.empty();
-    }
-
-    final Record retVal = ((UnorderedKeyValuePage) cont.getComplete()).getValue(nodeKey);
-    return checkItemIfDeleted(retVal);
+    return page.map(thePage -> ((UnorderedKeyValuePage) thePage).getValue(nodeKey)).flatMap(this::checkItemIfDeleted);
   }
 
   /**
@@ -361,7 +356,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
+  public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       final @Nonnegative Long pageKey, final int index, final PageKind pageKind) {
     assertNotClosed();
     checkArgument(pageKey >= 0, "recordPageKey must not be negative!");
@@ -370,7 +365,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                                    checkNotNull(pageKind));
 
     if (!pageReferenceToRecordPage.isPresent()) {
-      return PageContainer.emptyInstance();
+      return Optional.empty();
     }
 
     // Try to get from resource buffer manager.
@@ -378,14 +373,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final var page = pageReferenceToRecordPage.get().getPage();
 
       if (page != null) {
-        return PageContainer.getInstance(page, page);
+        return Optional.of(page);
       }
 
-      final PageContainer recordPageContainerFromBuffer = mResourceBufferManager.getRecordPageCache().get(
+      final Page recordPageFromBuffer = mResourceBufferManager.getRecordPageContainerCache().get(
           pageReferenceToRecordPage.get());
 
-      if (recordPageContainerFromBuffer != null) {
-        return recordPageContainerFromBuffer;
+      if (recordPageFromBuffer != null) {
+        return Optional.of(recordPageFromBuffer);
       }
     }
 
@@ -393,28 +388,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final List<T> pages = getSnapshotPages(pageReferenceToRecordPage.get());
 
     if (pages.isEmpty()) {
-      return PageContainer.emptyInstance();
+      return Optional.empty();
     }
 
     final int mileStoneRevision = mResourceConfig.numberOfRevisionsToRestore;
     final VersioningType revisioning = mResourceConfig.revisioningType;
     final Page completePage = revisioning.combineRecordPages(pages, mileStoneRevision, this);
 
-    final PageContainer recordPageContainer;
-
-    if (completePage instanceof UnorderedKeyValuePage) {
-      recordPageContainer = PageContainer.getInstance(completePage, new UnorderedKeyValuePage(this,
-                                                                                              (UnorderedKeyValuePage) completePage));
-    } else {
-      recordPageContainer = PageContainer.getInstance(completePage, clone(completePage));
-    }
-
     if (mTrxIntentLog == null) {
-      mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), recordPageContainer);
-      pageReferenceToRecordPage.get().setPage(recordPageContainer.getComplete());
+      mResourceBufferManager.getRecordPageContainerCache().put(pageReferenceToRecordPage.get(), completePage);
+      pageReferenceToRecordPage.get().setPage(completePage);
     }
 
-    return recordPageContainer;
+    return Optional.of(completePage);
   }
 
   @SuppressWarnings("unchecked")

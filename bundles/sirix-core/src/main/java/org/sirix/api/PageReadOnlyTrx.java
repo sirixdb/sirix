@@ -19,6 +19,7 @@ import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 /**
@@ -113,7 +114,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   void close();
 
   /**
-   * Get a the record page container with the full/modified pages from the page layer, given the
+   * Get a the record page with the full pages from the page layer, given the
    * unique page key and the page kind.
    *
    * @param key {@code key} of key/value page to get the record from
@@ -125,7 +126,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
+  <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
       @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind);
 
   /** Determines if transaction is closed or not. */

@@ -23,7 +23,7 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<PageReference, PageContainer> getRecordPageCache() {
+  public Cache<PageReference, Page> getRecordPageContainerCache() {
     return mRecordPageCache;
   }
 

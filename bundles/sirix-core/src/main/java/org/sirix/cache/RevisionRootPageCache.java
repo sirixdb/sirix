@@ -42,8 +42,8 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   public RevisionRootPageCache() {
     mPageCache = Caffeine.newBuilder()
                          .maximumSize(1000)
-                         .expireAfterWrite(5000, TimeUnit.SECONDS)
-                         .expireAfterAccess(5000, TimeUnit.SECONDS)
+                         .expireAfterWrite(5, TimeUnit.MINUTES)
+                         .expireAfterAccess(5, TimeUnit.MINUTES)
                          .build();
   }
 
