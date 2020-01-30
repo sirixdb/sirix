@@ -22,6 +22,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import com.google.common.collect.ForwardingObject;
+import org.sirix.page.interfaces.Page;
 
 /**
  * Forwards all methods to the delegate.
@@ -132,9 +133,9 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> PageContainer getRecordPageContainer(
-      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind) throws SirixIOException {
-    return delegate().<K, V, S>getRecordPageContainer(key, index, pageKind);
+  public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
+      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind) {
+    return delegate().<K, V, S>getRecordPage(key, index, pageKind);
   }
 
   @Override

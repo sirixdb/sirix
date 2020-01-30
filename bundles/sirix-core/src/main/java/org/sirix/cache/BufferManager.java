@@ -5,7 +5,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
 
 public interface BufferManager {
-  Cache<PageReference, PageContainer> getRecordPageCache();
+  Cache<PageReference, Page> getRecordPageContainerCache();
 
   Cache<PageReference, Page> getPageCache();
 

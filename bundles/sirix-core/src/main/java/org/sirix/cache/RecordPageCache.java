@@ -2,20 +2,24 @@ package org.sirix.cache;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 import org.sirix.page.PageReference;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import org.sirix.page.interfaces.Page;
 
-public final class RecordPageCache implements Cache<PageReference, PageContainer> {
+import javax.annotation.Nonnull;
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, PageContainer> mPageCache;
+public final class RecordPageCache implements Cache<PageReference, Page> {
+
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> mPageCache;
 
   public RecordPageCache() {
-    final RemovalListener<PageReference, PageContainer> removalListener;
-
-    removalListener =
-        (PageReference key, PageContainer value, RemovalCause cause) -> key.setPage(null);
+    final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
+      assert key != null;
+      key.setPage(null);
+    };
 
     mPageCache = Caffeine.newBuilder()
                          .maximumSize(1_000)
@@ -31,17 +35,17 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
   }
 
   @Override
-  public PageContainer get(PageReference key) {
+  public Page get(PageReference key) {
     return mPageCache.getIfPresent(key);
   }
 
   @Override
-  public void put(PageReference key, PageContainer value) {
+  public void put(PageReference key, @Nonnull Page value) {
     mPageCache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends PageReference, ? extends PageContainer> map) {
+  public void putAll(Map<? extends PageReference, ? extends Page> map) {
     mPageCache.putAll(map);
   }
 
@@ -51,7 +55,7 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
   }
 
   @Override
-  public Map<PageReference, PageContainer> getAll(Iterable<? extends PageReference> keys) {
+  public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
     return mPageCache.getAllPresent(keys);
   }
 
@@ -61,5 +65,6 @@ public final class RecordPageCache implements Cache<PageReference, PageContainer
   }
 
   @Override
-  public void close() {}
+  public void close() {
+  }
 }
