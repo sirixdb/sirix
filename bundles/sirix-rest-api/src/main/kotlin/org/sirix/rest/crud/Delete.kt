@@ -23,7 +23,7 @@ class Delete(private val location: Path) {
                             it.toFile().deleteRecursively()
                         }
 
-                    ctx.response().setStatusCode(200).end()
+                    ctx.response().setStatusCode(204).end()
                 }
             }
         } else {
