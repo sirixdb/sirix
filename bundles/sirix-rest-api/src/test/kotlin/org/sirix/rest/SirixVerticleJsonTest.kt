@@ -112,7 +112,7 @@ class SirixVerticleJsonTest {
                     .sendAwait()
 
                 testContext.verify {
-                    assertEquals(200, httpDeleteResponseJson.statusCode())
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
                 }
 
                 testContext.completeNow()
@@ -160,7 +160,7 @@ class SirixVerticleJsonTest {
                     .sendAwait()
 
                 testContext.verify {
-                    assertEquals(200, httpDeleteResponseJson.statusCode())
+                    assertEquals(204, httpDeleteResponseJson.statusCode())
                 }
 
                 testContext.completeNow()
@@ -203,8 +203,8 @@ class SirixVerticleJsonTest {
                     ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").sendAwait()
 
                 testContext.verify {
-                    assertEquals(200, httpResponseJson.statusCode())
-                    assertEquals(200, httpResponseXml.statusCode())
+                    assertEquals(204, httpResponseJson.statusCode())
+                    assertEquals(204, httpResponseXml.statusCode())
                 }
 
                 httpResponseJson =
@@ -285,8 +285,8 @@ class SirixVerticleJsonTest {
                     ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/xml").sendAwait()
 
                 testContext.verify {
-                    assertEquals(200, httpResponseJson.statusCode())
-                    assertEquals(200, httpResponseXml.statusCode())
+                    assertEquals(204, httpResponseJson.statusCode())
+                    assertEquals(204, httpResponseXml.statusCode())
                 }
 
                 httpResponseJson =
