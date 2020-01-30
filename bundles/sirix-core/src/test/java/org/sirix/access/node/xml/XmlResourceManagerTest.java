@@ -43,7 +43,7 @@ import org.sirix.node.NodeKind;
 import org.sirix.settings.Constants;
 import org.sirix.utils.XmlDocumentCreator;
 
-public class XdmResourceManagerTest {
+public class XmlResourceManagerTest {
 
   private Holder holder;
 

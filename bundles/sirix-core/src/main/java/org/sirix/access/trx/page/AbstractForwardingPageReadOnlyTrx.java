@@ -6,6 +6,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.CommitCredentials;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.ResourceManager;
+import org.sirix.cache.IndexLogKey;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -134,8 +135,8 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
 
   @Override
   public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> Optional<Page> getRecordPage(
-      @Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind) {
-    return delegate().<K, V, S>getRecordPage(key, index, pageKind);
+      @Nonnull IndexLogKey indexLogKey) {
+    return delegate().getRecordPage(indexLogKey);
   }
 
   @Override

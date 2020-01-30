@@ -42,7 +42,7 @@ class XmlDelete(private val location: Path) {
                         }
                 }
 
-                ctx.response().setStatusCode(200).end()
+                ctx.response().setStatusCode(204).end()
                 promise.complete(null)
             }
         } else {
@@ -59,7 +59,7 @@ class XmlDelete(private val location: Path) {
 
         if (resPathName == null) {
             removeDatabase(dbFile, dispatcher)
-            ctx.response().setStatusCode(200).end()
+            ctx.response().setStatusCode(204).end()
             return
         }
 

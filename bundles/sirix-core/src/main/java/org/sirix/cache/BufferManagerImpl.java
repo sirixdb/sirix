@@ -9,11 +9,14 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RecordPageCache mRecordPageCache;
 
+  private final UnorderedKeyValuePageCache mUnorderedKeyValuePageCache;
+
   private final RevisionRootPageCache mRevisionRootPageCache;
 
   public BufferManagerImpl() {
     mPageCache = new PageCache();
     mRecordPageCache = new RecordPageCache();
+    mUnorderedKeyValuePageCache = new UnorderedKeyValuePageCache();
     mRevisionRootPageCache = new RevisionRootPageCache();
   }
 
@@ -23,8 +26,13 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   @Override
-  public Cache<PageReference, Page> getRecordPageContainerCache() {
+  public Cache<PageReference, Page> getRecordPageCache() {
     return mRecordPageCache;
+  }
+
+  @Override
+  public Cache<IndexLogKey, Page> getUnorderedKeyValuePageCache() {
+    return mUnorderedKeyValuePageCache;
   }
 
   @Override
