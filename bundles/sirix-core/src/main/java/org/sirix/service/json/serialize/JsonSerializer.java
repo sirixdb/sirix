@@ -46,6 +46,7 @@ import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
 import org.sirix.api.json.JsonResourceManager;
+import org.sirix.node.NodeKind;
 import org.sirix.service.AbstractSerializer;
 import org.sirix.service.xml.serialize.XmlSerializerProperties;
 import org.sirix.settings.Constants;
@@ -124,21 +125,40 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case JSON_DOCUMENT:
           break;
         case OBJECT:
-          // Emit start element.
           indent();
+
+          emitMetaData(rtx);
+
+          if (mWithMetaData && rtx.hasFirstChild()) {
+            mOut.append("[");
+          }
+
           mOut.append("{");
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("}");
+
+            if (mWithMetaData) {
+              mOut.append("}");
+            }
+
             if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
               mOut.append(",");
           }
           break;
         case ARRAY:
+          emitMetaData(rtx);
+
           mOut.append("[");
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             mOut.append("]");
-            if (rtx.hasRightSibling())
+
+            if (mWithMetaData) {
+              mOut.append("}");
+            }
+
+            if (rtx.hasRightSibling()) {
               mOut.append(",");
+            }
           }
           break;
         case OBJECT_KEY:
@@ -146,11 +166,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             mOut.append("{");
             mHadToAddBracket = true;
           }
-          mOut.append("\"");
-          mOut.append(rtx.getName().stringValue());
-          mOut.append("\":");
+
           if (mWithMetaData) {
-            mOut.append("{\"metadata\":{");
+            if (rtx.hasLeftSibling()) {
+              mOut.append("{");
+            }
+            mOut.append("\"key\":\"");
+            mOut.append(rtx.getName().stringValue());
+            mOut.append("\",");
+            mOut.append("\"metadata\":{");
 
             mOut.append("\"nodeKey\":");
             mOut.append(String.valueOf(rtx.getNodeKey()));
@@ -164,25 +188,45 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             mOut.append(String.valueOf(rtx.getDescendantCount()));
 
             mOut.append("},");
-            mOut.append("\"children\":");
+            mOut.append("\"value\":");
+          } else {
+            mOut.append("\"");
+            mOut.append(rtx.getName().stringValue());
+            mOut.append("\":");
           }
           break;
         case BOOLEAN_VALUE:
+          emitMetaData(rtx);
           mOut.append(Boolean.valueOf(rtx.getValue()).toString());
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
           printCommaIfNeeded(rtx);
           break;
         case NULL_VALUE:
+          emitMetaData(rtx);
           mOut.append("null");
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
           printCommaIfNeeded(rtx);
           break;
         case NUMBER_VALUE:
+          emitMetaData(rtx);
           mOut.append(rtx.getValue());
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
           printCommaIfNeeded(rtx);
           break;
         case STRING_VALUE:
+          emitMetaData(rtx);
           mOut.append("\"");
           mOut.append(StringValue.escape(rtx.getValue()));
           mOut.append("\"");
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
           printCommaIfNeeded(rtx);
           break;
         // $CASES-OMITTED$
@@ -191,6 +235,37 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
+    }
+  }
+
+  private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
+    if (mWithMetaData) {
+      mOut.append("{");
+      mOut.append("\"metadata\":{");
+
+      mOut.append("\"nodeKey\":");
+      mOut.append(String.valueOf(rtx.getNodeKey()));
+      mOut.append(",");
+
+      mOut.append("\"hash\":");
+      mOut.append(String.valueOf(rtx.getHash()));
+      mOut.append(",");
+
+      mOut.append("\"type\":\"");
+      mOut.append(rtx.getKind().toString());
+      mOut.append("\"");
+
+      if (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY) {
+        mOut.append(",");
+        mOut.append("\"descendantCount\":");
+        mOut.append(String.valueOf(rtx.getDescendantCount()));
+        mOut.append(",");
+        mOut.append("\"childCount\":");
+        mOut.append(String.valueOf(rtx.getChildCount()));
+      }
+
+      mOut.append("},");
+      mOut.append("\"value\":");
     }
   }
 
@@ -248,11 +323,20 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       switch (rtx.getKind()) {
         case ARRAY:
           mOut.append("]");
+          if (mWithMetaData) {
+            mOut.append("}");
+          }
           break;
         case OBJECT:
-          mOut.append("}");
-          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
+          if (mWithMetaData) {
+            mOut.append("]}");
+          } else {
+            mOut.append("}");
+          }
+
+          if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
             mOut.append(",");
+          }
           break;
         case OBJECT_KEY:
           if (mWithMetaData) {

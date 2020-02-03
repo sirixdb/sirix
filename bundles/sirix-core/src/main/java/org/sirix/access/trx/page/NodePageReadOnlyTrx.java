@@ -381,13 +381,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
-    if (mTrxIntentLog == null && isMostRecentlyReadPage(indexLogKey)) {
+    if (isMostRecentlyReadPage(indexLogKey)) {
       return Optional.of(mMostRecentlyReadRecordPage.getPage());
-//      //      final var page = mResourceBufferManager.getUnorderedKeyValuePageCache().get(indexLogKey);
-//      //
-//      //      if (page != null) {
-//      //        return Optional.of(page);
-//      //      }
+      //      final var page = mResourceBufferManager.getUnorderedKeyValuePageCache().get(indexLogKey);
+      //
+      //      if (page != null) {
+      //        return Optional.of(page);
+      //      }
     }
 
     final Optional<PageReference> pageReferenceToRecordPage = getLeafPageReference(
@@ -432,9 +432,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       mResourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage.get(), completePage);
       //      mResourceBufferManager.getUnorderedKeyValuePageCache().put(indexLogKey, completePage);
       pageReferenceToRecordPage.get().setPage(completePage);
-      mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
-                                                   indexLogKey.getRecordPageKey(), completePage);
     }
+
+    mMostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndex(), indexLogKey.getIndexType(),
+                                                 indexLogKey.getRecordPageKey(), completePage);
 
     return Optional.of(completePage);
   }
@@ -558,8 +559,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (page == null && (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
         || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-      // Then try to get it from the page cache which might read it from the persistent storage on a
-      // cache miss.
+      // Then try to get it from the page cache which might read it from the persistent storage on a cache miss.
       page = (IndirectPage) loadIndirectPage(reference);
     }
 
