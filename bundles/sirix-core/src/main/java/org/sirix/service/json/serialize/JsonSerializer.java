@@ -184,6 +184,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
             mOut.append(String.valueOf(rtx.getHash()));
             mOut.append(",");
 
+            mOut.append("\"type\":\"");
+            mOut.append(rtx.getKind().toString());
+            mOut.append("\",");
+
             mOut.append("\"descendantCount\":");
             mOut.append(String.valueOf(rtx.getDescendantCount()));
 
