@@ -196,16 +196,16 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
     if (newRtx.getChildCount() > 0) {
       json.addProperty("type", "jsonFragment");
       serialize(newRevision, resourceManager, newRtx, json);
-    } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
+    } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
       json.addProperty("type", "boolean");
       json.addProperty("data", newRtx.getBooleanValue());
-    } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
+    } else if (newRtx.getKind() == NodeKind.STRING_VALUE || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
       json.addProperty("type", "string");
       json.addProperty("data", newRtx.getValue());
-    } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
+    } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
       json.addProperty("type", "null");
       json.add("data", null);
-    } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
+    } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
       json.addProperty("type", "number");
       json.addProperty("data", newRtx.getNumberValue());
     }
