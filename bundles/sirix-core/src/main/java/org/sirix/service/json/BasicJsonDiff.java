@@ -160,16 +160,19 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
             if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
               jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
             } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
-              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE) {
+              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
+                  || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
                 jsonUpdateDiff.addProperty("type", "boolean");
                 jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
-              } else if (newRtx.getKind() == NodeKind.STRING_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.STRING_VALUE
+                         || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
                 jsonUpdateDiff.addProperty("type", "string");
                 jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.NULL_VALUE
+                         || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
                 jsonUpdateDiff.addProperty("type", "null");
                 jsonUpdateDiff.add("value", null);
-              } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
                 jsonUpdateDiff.addProperty("type", "number");
                 jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
               }
