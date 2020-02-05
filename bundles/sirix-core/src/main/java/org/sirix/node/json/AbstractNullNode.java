@@ -22,10 +22,9 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
     BigInteger result = BigInteger.ONE;
 
     result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-
-    if (mStructNodeDel.isNotEmpty())
+    if (mStructNodeDel.isNotEmpty()) {
       result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
-
+    }
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 

@@ -29,7 +29,9 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
     BigInteger result = BigInteger.ONE;
 
     result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+    if (structNodeDelegate.isNotEmpty()) {
+      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+    }
     result = BigInteger.valueOf(31).multiply(result).add(valueNodeDelegate.computeHash());
 
     return Node.to128BitsAtMaximumBigInteger(result);

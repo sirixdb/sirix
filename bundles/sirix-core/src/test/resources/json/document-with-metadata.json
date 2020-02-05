@@ -1,7 +1,7 @@
 {
   "metadata": {
     "nodeKey": 1,
-    "hash": 265733614641353216334192177030989802675,
+    "hash": 305340252195044814438348444821654358174,
     "type": "OBJECT",
     "descendantCount": 24,
     "childCount": 4
@@ -10,14 +10,14 @@
     "key": "foo",
     "metadata": {
       "nodeKey": 2,
-      "hash": 87588092415439905136780802494009113124,
+      "hash": 275945794113310493487988514221149559173,
       "type": "OBJECT_KEY",
       "descendantCount": 4
     },
     "value": {
       "metadata": {
         "nodeKey": 3,
-        "hash": 244764497419664092925804987471584412159,
+        "hash": 252942794292295168092480575238678272748,
         "type": "ARRAY",
         "descendantCount": 3,
         "childCount": 3
@@ -25,14 +25,14 @@
       "value": [{
         "metadata": {
           "nodeKey": 4,
-          "hash": 43123621054888476341947620158447110518,
+          "hash": 211068242331903259898576732609833313279,
           "type": "STRING_VALUE"
         },
         "value": "bar"
       }, {
         "metadata": {
           "nodeKey": 5,
-          "hash": 228744900773092343581338760875554577454,
+          "hash": 316790235372899751121424403509516390047,
           "type": "NULL_VALUE"
         },
         "value": null
@@ -49,14 +49,14 @@
     "key": "bar",
     "metadata": {
       "nodeKey": 7,
-      "hash": 7925123140688442101064701619077463369,
+      "hash": 40001479485052608217895737715539514036,
       "type": "OBJECT_KEY",
       "descendantCount": 5
     },
     "value": {
       "metadata": {
         "nodeKey": 8,
-        "hash": 205218170791476174913423894685762663916,
+        "hash": 73751573179234467128455108885345429123,
         "type": "OBJECT",
         "descendantCount": 4,
         "childCount": 2
@@ -65,14 +65,14 @@
         "key": "hello",
         "metadata": {
           "nodeKey": 9,
-          "hash": 211455308309125107563287437944615474567,
+          "hash": 148265057806979126964817724823702134778,
           "type": "OBJECT_KEY",
           "descendantCount": 1
         },
         "value": {
           "metadata": {
             "nodeKey": 10,
-            "hash": 10169020970736956437540285487462263757,
+            "hash": 7907922099237849792921685978916886328,
             "type": "OBJECT_STRING_VALUE"
           },
           "value": "world"
@@ -81,14 +81,14 @@
         "key": "helloo",
         "metadata": {
           "nodeKey": 11,
-          "hash": 175085324914471279448241792209155588623,
+          "hash": 51491823116796050788357765637746391809,
           "type": "OBJECT_KEY",
           "descendantCount": 1
         },
         "value": {
           "metadata": {
             "nodeKey": 12,
-            "hash": 183967672696861437421468697841748109131,
+            "hash": 43559475171891010134831403652596964562,
             "type": "OBJECT_BOOLEAN_VALUE"
           },
           "value": true
@@ -99,14 +99,14 @@
     "key": "baz",
     "metadata": {
       "nodeKey": 13,
-      "hash": 16888007229856707439877543771731703081,
+      "hash": 240404994135296060572081930227552565227,
       "type": "OBJECT_KEY",
       "descendantCount": 1
     },
     "value": {
       "metadata": {
         "nodeKey": 14,
-        "hash": 74887500757223809897082915624104181894,
+        "hash": 220515060786386671479307723031094151045,
         "type": "OBJECT_STRING_VALUE"
       },
       "value": "hello"
@@ -115,14 +115,14 @@
     "key": "tada",
     "metadata": {
       "nodeKey": 15,
-      "hash": 126864415688901173442808008598921089822,
+      "hash": 112720078620732034568869098912130723939,
       "type": "OBJECT_KEY",
       "descendantCount": 10
     },
     "value": {
       "metadata": {
         "nodeKey": 16,
-        "hash": 134129365758417052208347420546217650660,
+        "hash": 119799366052102468568527128715115220687,
         "type": "ARRAY",
         "descendantCount": 9,
         "childCount": 5
@@ -130,7 +130,7 @@
       "value": [{
         "metadata": {
           "nodeKey": 17,
-          "hash": 153666527387686514098358391758869655546,
+          "hash": 290605326628445792178459728770414672687,
           "type": "OBJECT",
           "descendantCount": 2,
           "childCount": 1
@@ -139,14 +139,14 @@
           "key": "foo",
           "metadata": {
             "nodeKey": 18,
-            "hash": 3914797534298766484033683061514042451,
+            "hash": 208105418517334890948552122351074201627,
             "type": "OBJECT_KEY",
             "descendantCount": 1
           },
           "value": {
             "metadata": {
               "nodeKey": 19,
-              "hash": 53672668317813595267798645916889119646,
+              "hash": 101640028720727146488644634269212664717,
               "type": "OBJECT_STRING_VALUE"
             },
             "value": "bar"
@@ -155,7 +155,7 @@
       }, {
         "metadata": {
           "nodeKey": 20,
-          "hash": 206178738362136863275169953919675494156,
+          "hash": 167327919046607219023237433895904724727,
           "type": "OBJECT",
           "descendantCount": 2,
           "childCount": 1
@@ -164,14 +164,14 @@
           "key": "baz",
           "metadata": {
             "nodeKey": 21,
-            "hash": 232905588279019153068703577838761725617,
+            "hash": 249892494223317432511923224144302913548,
             "type": "OBJECT_KEY",
             "descendantCount": 1
           },
           "value": {
             "metadata": {
               "nodeKey": 22,
-              "hash": 224947326041181808720699945958599690628,
+              "hash": 242464709298381742832895086939328557719,
               "type": "OBJECT_BOOLEAN_VALUE"
             },
             "value": false
