@@ -305,7 +305,7 @@ public final class XMLToken {
    *
    * @param value the string value to escape
    * @return escaped value
-   * @throws NullPointerException if {@code pValue} is {@code null}
+   * @throws NullPointerException if {@code value} is {@code null}
    */
   public static String escapeContent(final String value) {
     checkNotNull(value);

@@ -19,101 +19,88 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node.xdm;
+package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.XmlTestHelper;
+import org.sirix.JsonTestHelper;
+import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.xml.PINode;
-import org.sirix.utils.NamePageHash;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
 /**
- * Processing instruction node test.
+ * Boolean node test.
  */
-public class PINodeTest {
+public class BooleanNodeTest {
 
-  /** {@link Holder} instance. */
-  private Holder mHolder;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private Database<JsonResourceManager> database;
 
   @Before
   public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    JsonTestHelper.deleteEverything();
+    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
-    mHolder.close();
+    JsonTestHelper.closeEverything();
   }
 
   @Test
-  public void testProcessInstructionNode() throws IOException {
-    final byte[] value = {(byte) 17, (byte) 18};
-
-    final NodeDelegate del = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-
-    final PINode node = new PINode(structDel, nameDel, valDel, mPageReadTrx);
-    node.setHash(node.computeHash());
-
+  public void test() throws IOException {
     // Create empty node.
+    final boolean boolValue = true;
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final StructNodeDelegate strucDel =
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+    final BooleanNode node = new BooleanNode(boolValue, strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID().orElse(null), mPageReadTrx);
+    final BooleanNode node2 =
+        (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 
-  private final void check(final PINode node) {
+  private void check(final BooleanNode node) {
     // Now compare.
-    assertEquals(99L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
-
-    assertEquals(17L, node.getFirstChildKey());
+    assertEquals(13L, node.getNodeKey());
+    assertEquals(14L, node.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(22L, node.getLeftSiblingKey());
-    assertEquals(1, node.getDescendantCount());
-    assertEquals(1, node.getChildCount());
-
-    assertEquals(13, node.getURIKey());
-    assertEquals(14, node.getPrefixKey());
-    assertEquals(15, node.getLocalNameKey());
-
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.PROCESSING_INSTRUCTION, node.getKind());
+    assertTrue(node.getValue());
+    assertEquals(NodeKind.BOOLEAN_VALUE, node.getKind());
+    assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
-    assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
+    assertEquals(true, node.hasLeftSibling());
+    assertEquals(true, node.hasRightSibling());
   }
 
 }

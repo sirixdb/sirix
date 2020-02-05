@@ -19,7 +19,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node.xdm;
+package org.sirix.node.xml;
 
 import static org.junit.Assert.assertEquals;
 import java.io.ByteArrayInputStream;
@@ -27,6 +27,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,18 +37,15 @@ import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
+import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValueNodeDelegate;
-import org.sirix.node.xml.TextNode;
-import org.sirix.settings.Fixed;
-import org.sirix.utils.NamePageHash;
+import org.sirix.node.xml.NamespaceNode;
 import com.google.common.hash.Hashing;
 
 /**
- * Text node test.
+ * Namespace node test.
  */
-public class TextNodeTest {
+public class NamespaceNodeTest {
 
   /** {@link Holder} instance. */
   private Holder mHolder;
@@ -70,40 +68,33 @@ public class TextNodeTest {
   }
 
   @Test
-  public void testTextRootNode() throws IOException {
+  public void testNamespaceNode() throws IOException {
+    final NodeDelegate nodeDel = new NodeDelegate(99, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
+
     // Create empty node.
-    final byte[] value = {(byte) 17, (byte) 18};
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final TextNode node = new TextNode(valDel, strucDel);
+    final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
     node.setHash(node.computeHash());
-    check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(new DataInputStream(in), node.getNodeKey(),
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
         node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private final void check(final TextNode node) {
+  private final void check(final NamespaceNode node) {
     // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(15L, node.getLeftSiblingKey());
-    assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.TEXT, node.getKind());
-    assertEquals(false, node.hasFirstChild());
+    assertEquals(99L, node.getNodeKey());
+    assertEquals(13L, node.getParentKey());
+
+    assertEquals(13, node.getURIKey());
+    assertEquals(14, node.getPrefixKey());
+    assertEquals(15, node.getLocalNameKey());
+    assertEquals(NodeKind.NAMESPACE, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
   }
 
 }

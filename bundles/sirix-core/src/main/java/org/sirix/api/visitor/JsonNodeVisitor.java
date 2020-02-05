@@ -26,8 +26,12 @@ import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableDocumentNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.immutable.json.ImmutableObjectNode;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 
 /**
@@ -66,6 +70,15 @@ public interface JsonNodeVisitor extends NodeVisitor {
   }
 
   /**
+   * Do something when visiting a {@link ImmutableObjectBooleanNode}.
+   *
+   * @param node the {@link ImmutableObjectBooleanNode}
+   */
+  default VisitResult visit(ImmutableObjectBooleanNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
    * Do something when visiting a {@link ImmutableBooleanNode}.
    *
    * @param node the {@link ImmutableBooleanNode}
@@ -98,6 +111,33 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * @param node the {@link ImmutableNullNode}
    */
   default VisitResult visit(ImmutableNullNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * ImmutableDocumentRoot Do something when visiting a {@link ImmutableObjectStringNode}.
+   *
+   * @param node the {@link ImmutableObjectStringNode}
+   */
+  default VisitResult visit(ImmutableObjectStringNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Do something when visiting a {@link ImmutableObjectNumberNode}.
+   *
+   * @param node the {@link ImmutableObjectNumberNode}
+   */
+  default VisitResult visit(ImmutableObjectNumberNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Do something when visiting a {@link ImmutableObjectNullNode}.
+   *
+   * @param node the {@link ImmutableObjectNullNode}
+   */
+  default VisitResult visit(ImmutableObjectNullNode node) {
     return VisitResultType.CONTINUE;
   }
 

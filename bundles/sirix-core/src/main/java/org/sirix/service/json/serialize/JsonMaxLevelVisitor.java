@@ -9,8 +9,12 @@ import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.immutable.json.ImmutableObjectNode;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
@@ -113,6 +117,34 @@ public final class JsonMaxLevelVisitor implements JsonNodeVisitor {
 
   @Override
   public VisitResult visit(ImmutableNullNode node) {
+    adaptLevel(node);
+    mFirst = false;
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResult visit(ImmutableObjectBooleanNode node) {
+    adaptLevel(node);
+    mFirst = false;
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResult visit(ImmutableObjectStringNode node) {
+    adaptLevel(node);
+    mFirst = false;
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResult visit(ImmutableObjectNumberNode node) {
+    adaptLevel(node);
+    mFirst = false;
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResult visit(ImmutableObjectNullNode node) {
     adaptLevel(node);
     mFirst = false;
     return VisitResultType.CONTINUE;

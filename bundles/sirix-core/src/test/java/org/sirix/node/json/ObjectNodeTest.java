@@ -31,73 +31,70 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
+import org.sirix.JsonTestHelper;
 import org.sirix.XmlTestHelper;
-import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.Database;
+import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
 /**
- * Text node test.
+ * Object node test.
  */
-public class JSONNumberNodeTest {
+public class ObjectNodeTest {
 
-  /** {@link Holder} instance. */
-  private Holder mHolder;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private Database<JsonResourceManager> database;
 
   @Before
   public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    JsonTestHelper.deleteEverything();
+    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
-    mHolder.close();
+    JsonTestHelper.closeEverything();
   }
 
   @Test
-  public void test() throws IOException {
-    // Create empty node.
-    final double value = 10.87463D;
+  public void testNode() throws IOException {
     final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final NumberNode node = new NumberNode(value, strucDel);
+    final ObjectNode node = new ObjectNode(strucDel);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final NumberNode node2 =
-        (NumberNode) NodeKind.NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageReadTrx);
+    final ObjectNode node2 =
+        (ObjectNode) NodeKind.OBJECT.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 
-  private final void check(final NumberNode node) {
+  private final void check(final ObjectNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(10.87463D, node.getValue().doubleValue(), 0);
-    assertEquals(NodeKind.NUMBER_VALUE, node.getKind());
+
+    assertEquals(NodeKind.OBJECT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
     assertEquals(true, node.hasRightSibling());
   }
 

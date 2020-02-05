@@ -73,7 +73,7 @@
           "metadata": {
             "nodeKey": 10,
             "hash": 10169020970736956437540285487462263757,
-            "type": "STRING_VALUE"
+            "type": "OBJECT_STRING_VALUE"
           },
           "value": "world"
         }
@@ -89,7 +89,7 @@
           "metadata": {
             "nodeKey": 12,
             "hash": 183967672696861437421468697841748109131,
-            "type": "BOOLEAN_VALUE"
+            "type": "OBJECT_BOOLEAN_VALUE"
           },
           "value": true
         }
@@ -107,7 +107,7 @@
       "metadata": {
         "nodeKey": 14,
         "hash": 74887500757223809897082915624104181894,
-        "type": "STRING_VALUE"
+        "type": "OBJECT_STRING_VALUE"
       },
       "value": "hello"
     }
@@ -147,7 +147,7 @@
             "metadata": {
               "nodeKey": 19,
               "hash": 53672668317813595267798645916889119646,
-              "type": "STRING_VALUE"
+              "type": "OBJECT_STRING_VALUE"
             },
             "value": "bar"
           }
@@ -172,7 +172,7 @@
             "metadata": {
               "nodeKey": 22,
               "hash": 224947326041181808720699945958599690628,
-              "type": "BOOLEAN_VALUE"
+              "type": "OBJECT_BOOLEAN_VALUE"
             },
             "value": false
           }

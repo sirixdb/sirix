@@ -200,6 +200,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case BOOLEAN_VALUE:
+        case OBJECT_BOOLEAN_VALUE:
           emitMetaData(rtx);
           mOut.append(Boolean.valueOf(rtx.getValue()).toString());
           if (mWithMetaData) {
@@ -208,6 +209,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           printCommaIfNeeded(rtx);
           break;
         case NULL_VALUE:
+        case OBJECT_NULL_VALUE:
           emitMetaData(rtx);
           mOut.append("null");
           if (mWithMetaData) {
@@ -216,6 +218,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           printCommaIfNeeded(rtx);
           break;
         case NUMBER_VALUE:
+        case OBJECT_NUMBER_VALUE:
           emitMetaData(rtx);
           mOut.append(rtx.getValue());
           if (mWithMetaData) {
@@ -224,6 +227,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           printCommaIfNeeded(rtx);
           break;
         case STRING_VALUE:
+        case OBJECT_STRING_VALUE:
           emitMetaData(rtx);
           mOut.append("\"");
           mOut.append(StringValue.escape(rtx.getValue()));

@@ -23,11 +23,15 @@ public final class JsonUtil {
       case OBJECT_KEY:
         return new AtomicJsonDBItem(rtx, collection, rtx.getName());
       case STRING_VALUE:
+      case OBJECT_STRING_VALUE:
         return new AtomicJsonDBItem(rtx, collection, new Str(rtx.getValue()));
       case BOOLEAN_VALUE:
+      case OBJECT_BOOLEAN_VALUE:
         return new AtomicJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
+      case OBJECT_NULL_VALUE:
       case NULL_VALUE:
         return null;
+      case OBJECT_NUMBER_VALUE:
       case NUMBER_VALUE:
         final Number number = rtx.getNumberValue();
 

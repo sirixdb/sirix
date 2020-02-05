@@ -21,57 +21,56 @@
 
 package org.sirix.node.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
-import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.delegates.ValueNodeDelegate;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
+import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import org.sirix.node.xml.AbstractStructForwardingNode;
+import org.sirix.node.interfaces.ValueNode;
+
+import java.math.BigInteger;
 
 /**
- * <h1>JSONBooleanNode</h1>
+ * <h1>JSONStringNode</h1>
  *
  * <p>
- * Node representing a JSON boolean.
+ * Node representing a JSON string.
  * </p>
  */
-public final class BooleanNode extends AbstractBooleanNode {
+public final class ObjectStringNode extends AbstractStringNode {
 
   /**
    * Constructor.
    *
-   * @param hashCode the hash code of the node
-   * @param boolValue the boolean value
+   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public BooleanNode(final BigInteger hashCode, final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
+  public ObjectStringNode(final BigInteger hashCode, final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
+    super(valueNodeDelegate, structNodeDelegate);
     setHash(hashCode);
   }
 
   /**
    * Constructor.
    *
-   * @param boolValue the boolean value
+   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public BooleanNode(final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
+  public ObjectStringNode(final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
+    super(valueNodeDelegate, structNodeDelegate);
   }
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
+    return NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return this.acceptVisitor(visitor);
+    return visitor.visit(ImmutableObjectStringNode.of(this));
   }
+
 }

@@ -21,90 +21,87 @@
 
 package org.sirix.node.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import com.google.common.hash.Hashing;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.Holder;
-import org.sirix.XmlTestHelper;
+import org.sirix.JsonTestHelper;
+import org.sirix.api.Database;
 import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.delegates.ValueNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
-import com.google.common.hash.Hashing;
+import org.sirix.settings.Fixed;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
- * Object record node test.
+ * Object strjng node test.
  */
-public class JSONObjectKeyNodeTest {
+public class ObjectStringNodeTest {
 
-  /** {@link Holder} instance. */
-  private Holder mHolder;
-
-  /** Sirix {@link PageTrx} instance. */
-  private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
-
-  private int mNameKey;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
 
   @Before
   public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    mHolder = Holder.openResourceManager();
-    mPageWriteTrx = mHolder.getResourceManager().beginPageTrx();
+    JsonTestHelper.deleteEverything();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageWriteTrx.close();
-    mHolder.close();
+    JsonTestHelper.closeEverything();
   }
 
   @Test
-  public void testNode() throws IOException {
+  public void test() throws IOException {
     // Create empty node.
-    mNameKey = mPageWriteTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
-    final String name = "foobar";
-
-    final long pathNodeKey = 12;
-    final NodeDelegate del = new NodeDelegate(14, 13, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
-    final ObjectKeyNode node = new ObjectKeyNode(strucDel, mNameKey, name, pathNodeKey);
+    final byte[] value = {(byte) 17, (byte) 18};
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
+    final StructNodeDelegate strucDel =
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0L, 0L);
+    final ObjectStringNode node = new ObjectStringNode(valDel, strucDel);
     node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(new DataInputStream(in),
-        node.getNodeKey(), null, mPageWriteTrx);
+    final ObjectStringNode node2 =
+        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 
-  private void check(final ObjectKeyNode node) {
+  private void check(final ObjectStringNode node) {
     // Now compare.
-    assertEquals(14L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
-    assertEquals(17L, node.getFirstChildKey());
-    assertEquals(16L, node.getRightSiblingKey());
-
-    assertEquals(mNameKey, node.getNameKey());
-    assertEquals("foobar", node.getName().getLocalName());
-    assertEquals(NodeKind.OBJECT_KEY, node.getKind());
-    assertTrue(node.hasFirstChild());
+    assertEquals(13L, node.getNodeKey());
+    assertEquals(14L, node.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+    assertEquals(2, node.getRawValue().length);
+    assertEquals(NodeKind.OBJECT_STRING_VALUE, node.getKind());
+    assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
-    assertTrue(node.hasRightSibling());
+    assertFalse(node.hasLeftSibling());
+    assertFalse(node.hasRightSibling());
   }
 
 }

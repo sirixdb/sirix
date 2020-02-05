@@ -22,8 +22,12 @@ import org.sirix.node.immutable.json.ImmutableBooleanNode;
 import org.sirix.node.immutable.json.ImmutableDocumentNode;
 import org.sirix.node.immutable.json.ImmutableNullNode;
 import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import org.sirix.node.immutable.json.ImmutableObjectNode;
+import org.sirix.node.immutable.json.ImmutableObjectNullNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectStringNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
 import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
 import org.sirix.node.immutable.xdm.ImmutableComment;
@@ -41,8 +45,12 @@ import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.JsonDocumentRootNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectBooleanNode;
 import org.sirix.node.json.ObjectKeyNode;
 import org.sirix.node.json.ObjectNode;
+import org.sirix.node.json.ObjectNullNode;
+import org.sirix.node.json.ObjectNumberNode;
+import org.sirix.node.json.ObjectStringNode;
 import org.sirix.node.json.StringNode;
 import org.sirix.node.xml.AttributeNode;
 import org.sirix.node.xml.CommentNode;
@@ -116,14 +124,22 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
     final String returnVal;
     switch (mCurrentNode.getKind()) {
+      case OBJECT_STRING_VALUE:
       case STRING_VALUE:
         returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+        break;
+      case OBJECT_BOOLEAN_VALUE:
+        returnVal = String.valueOf(((ObjectBooleanNode) mCurrentNode).getValue());
         break;
       case BOOLEAN_VALUE:
         returnVal = String.valueOf(((BooleanNode) mCurrentNode).getValue());
         break;
+      case OBJECT_NULL_VALUE:
       case NULL_VALUE:
         returnVal = "null";
+        break;
+      case OBJECT_NUMBER_VALUE:
+        returnVal = String.valueOf(((ObjectNumberNode) mCurrentNode).getValue());
         break;
       case NUMBER_VALUE:
         returnVal = String.valueOf(((NumberNode) mCurrentNode).getValue());
@@ -141,6 +157,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
     if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE)
       return ((BooleanNode) mCurrentNode).getValue();
+    else if (mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
+      return ((ObjectBooleanNode) mCurrentNode).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
 
@@ -149,6 +167,8 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     assertNotClosed();
     if (mCurrentNode.getKind() == NodeKind.NUMBER_VALUE)
       return ((NumberNode) mCurrentNode).getValue();
+    else if (mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
+      return ((ObjectNumberNode) mCurrentNode).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
 
@@ -184,6 +204,14 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
         return ImmutableStringNode.of((StringNode) mCurrentNode);
       case NULL_VALUE:
         return ImmutableNullNode.of((NullNode) mCurrentNode);
+      case OBJECT_BOOLEAN_VALUE:
+        return ImmutableObjectBooleanNode.of((ObjectBooleanNode) mCurrentNode);
+      case OBJECT_NUMBER_VALUE:
+        return ImmutableObjectNumberNode.of((ObjectNumberNode) mCurrentNode);
+      case OBJECT_STRING_VALUE:
+        return ImmutableObjectStringNode.of((ObjectStringNode) mCurrentNode);
+      case OBJECT_NULL_VALUE:
+        return ImmutableObjectNullNode.of((ObjectNullNode) mCurrentNode);
       case JSON_DOCUMENT:
         return ImmutableDocumentNode.of((JsonDocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
