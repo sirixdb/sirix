@@ -79,7 +79,6 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("document-with-metadata.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString();
-      System.out.println(actual);
       JSONAssert.assertEquals(expected, actual, true);
     }
   }

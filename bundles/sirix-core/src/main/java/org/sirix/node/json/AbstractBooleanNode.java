@@ -29,7 +29,9 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
     BigInteger result = BigInteger.ONE;
 
     result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+    if (structNodeDelegate.isNotEmpty()) {
+      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
+    }
     result = BigInteger.valueOf(31).multiply(result).add(BigInteger.valueOf(Boolean.hashCode(boolValue)));
 
     return Node.to128BitsAtMaximumBigInteger(result);
