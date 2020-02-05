@@ -27,29 +27,26 @@
  */
 package org.sirix.node.json;
 
-import java.math.BigInteger;
-
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
-import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import org.sirix.node.immutable.json.ImmutableNullNode;
-import org.sirix.node.interfaces.Node;
+
+import java.math.BigInteger;
 
 /**
  * @author Johannes Lichtenberger <lichtenberger.johannes@gmail.com>
  */
-public final class NullNode extends AbstractNullNode {
+public final class ObjectNullNode extends AbstractNullNode {
 
   /**
    * Constructor.
    *
    * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public NullNode(final BigInteger hashCode, final StructNodeDelegate structNodeDelegate) {
+  public ObjectNullNode(final BigInteger hashCode, final StructNodeDelegate structNodeDelegate) {
     super(structNodeDelegate);
     setHash(hashCode);
   }
@@ -59,45 +56,17 @@ public final class NullNode extends AbstractNullNode {
    *
    * @param structNodeDelegate {@link StructNodeDelegate} to be set
    */
-  public NullNode(final StructNodeDelegate structNodeDelegate) {
+  public ObjectNullNode(final StructNodeDelegate structNodeDelegate) {
     super(structNodeDelegate);
   }
 
   @Override
-  public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(getNodeDelegate().computeHash());
-
-    return Node.to128BitsAtMaximumBigInteger(result);
-  }
-
-  @Override
   public NodeKind getKind() {
-    return NodeKind.NULL_VALUE;
+    return NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableNullNode.of(this));
-  }
-
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).toString();
-  }
-
-  @Override
-  public int hashCode() {
-    return delegate().hashCode();
-  }
-
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof NullNode))
-      return false;
-
-    final NullNode other = (NullNode) obj;
-    return Objects.equal(delegate(), other.delegate()) && Objects.equal(getHash(), other.getHash());
+  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+    return this.acceptVisitor(visitor);
   }
 }

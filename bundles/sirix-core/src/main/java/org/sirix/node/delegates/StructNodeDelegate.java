@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,6 +23,7 @@ package org.sirix.node.delegates;
 import java.math.BigInteger;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
+
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.NodeKind;
 import org.sirix.node.interfaces.Node;
@@ -160,12 +161,10 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public BigInteger computeHash() {
-    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) -> {
-      into.putLong(node.getChildCount())
-          .putLong(node.getDescendantCount())
-          .putLong(node.getLeftSiblingKey())
-          .putLong(node.getRightSiblingKey())
-          .putLong(node.getFirstChildKey());
+    final Funnel<StructNode> nodeFunnel = (StructNode node, PrimitiveSink into) ->
+    {
+      into.putLong(node.getChildCount()).putLong(node.getDescendantCount()).putLong(node.getLeftSiblingKey()).putLong(
+          node.getRightSiblingKey()).putLong(node.getFirstChildKey());
     };
 
     final BigInteger hash = new BigInteger(1, mDelegate.getHashFunction().hashObject(this, nodeFunnel).asBytes());
@@ -190,9 +189,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
     final StructNodeDelegate other = (StructNodeDelegate) obj;
 
-    return Objects.equal(mChildCount, other.mChildCount) && Objects.equal(mDelegate, other.mDelegate)
-        && Objects.equal(mFirstChild, other.mFirstChild) && Objects.equal(mLeftSibling, other.mLeftSibling)
-        && Objects.equal(mRightSibling, other.mRightSibling) && Objects.equal(mDescendantCount, other.mDescendantCount);
+    return Objects.equal(mChildCount, other.mChildCount) && Objects.equal(mDelegate, other.mDelegate) && Objects.equal(
+        mFirstChild, other.mFirstChild) && Objects.equal(mLeftSibling, other.mLeftSibling) && Objects.equal(
+        mRightSibling, other.mRightSibling) && Objects.equal(mDescendantCount, other.mDescendantCount);
   }
 
   @Override
@@ -236,5 +235,10 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   protected NodeDelegate delegate() {
     return mDelegate;
+  }
+
+  public boolean isNotEmpty() {
+    return mDescendantCount != 0 || mChildCount != 0 || mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty()
+        || mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 }

@@ -41,40 +41,28 @@ import com.google.common.hash.HashCode;
  * Node representing a JSON number.
  * </p>
  */
-public final class NumberNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
-
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
-
-  private Number mNumber;
-
-  private BigInteger mHash;
+public final class NumberNode extends AbstractNumberNode {
 
   /**
    * Constructor.
    *
    * @param hashCode the hash code
    * @param number the number value
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structDel) {
-    mHash = hashCode;
-    mNumber = number;
-    assert structDel != null;
-    mStructNodeDel = structDel;
+  public NumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structNodeDelegate) {
+    super(structNodeDelegate, number);
+    setHash(hashCode);
   }
 
   /**
    * Constructor.
    *
    * @param number the number value
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public NumberNode(final Number number, final StructNodeDelegate structDel) {
-    mNumber = number;
-
-    assert structDel != null;
-    mStructNodeDel = structDel;
+  public NumberNode(final Number number, final StructNodeDelegate structNodeDelegate) {
+    super(structNodeDelegate, number);
   }
 
   @Override
@@ -83,53 +71,8 @@ public final class NumberNode extends AbstractStructForwardingNode implements Im
   }
 
   @Override
-  public BigInteger computeHash() {
-    final HashCode valueHashCode = mStructNodeDel.getNodeDelegate().getHashFunction().hashInt(mNumber.hashCode());
-
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(new BigInteger(1, valueHashCode.asBytes()));
-
-    return Node.to128BitsAtMaximumBigInteger(result);
-  }
-
-  @Override
-  public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
-  }
-
-  @Override
-  public BigInteger getHash() {
-    return mHash;
-  }
-
-  public void setValue(final Number number) {
-    mNumber = number;
-  }
-
-  public Number getValue() {
-    return mNumber;
-  }
-
-  @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableNumberNode.of(this));
   }
 
-  @Override
-  public StructNodeDelegate getStructNodeDelegate() {
-    return mStructNodeDel;
-  }
-
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
-
-  @Override
-  protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
-  }
 }

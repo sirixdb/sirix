@@ -6,8 +6,12 @@ import org.sirix.node.json.ArrayNode;
 import org.sirix.node.json.BooleanNode;
 import org.sirix.node.json.NullNode;
 import org.sirix.node.json.NumberNode;
+import org.sirix.node.json.ObjectBooleanNode;
 import org.sirix.node.json.ObjectNode;
 import org.sirix.node.json.ObjectKeyNode;
+import org.sirix.node.json.ObjectNullNode;
+import org.sirix.node.json.ObjectNumberNode;
+import org.sirix.node.json.ObjectStringNode;
 import org.sirix.node.json.StringNode;
 
 /**
@@ -89,4 +93,37 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    */
   NullNode createJsonNullNode(@Nonnegative long parentKey, long leftSibKey, long rightSibKey);
+
+  /**
+   * Create a {@link StringNode}.
+   *
+   * @param parentKey parent node key
+   * @param value the value to store
+   * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
+   */
+  ObjectStringNode createJsonObjectStringNode(@Nonnegative long parentKey, byte[] value,
+      boolean isCompressed);
+
+  /**
+   * Create a {@link ObjectBooleanNode}.
+   *
+   * @param parentKey parent node key
+   * @param boolValue the boolean value
+   */
+  ObjectBooleanNode createJsonObjectBooleanNode(@Nonnegative long parentKey, boolean boolValue);
+
+  /**
+   * Create a {@link NumberNode}.
+   *
+   * @param parentKey parent node key
+   * @param value the number value
+   */
+  ObjectNumberNode createJsonObjectNumberNode(@Nonnegative long parentKey, Number value);
+
+  /**
+   * Create a {@link NullNode}.
+   *
+   * @param parentKey parent node key
+   */
+  ObjectNullNode createJsonObjectNullNode(@Nonnegative long parentKey);
 }

@@ -65,6 +65,7 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
       case ARRAY:
       case OBJECT:
       case NULL_VALUE:
+      case OBJECT_NULL_VALUE:
         found = true;
         break;
       case OBJECT_KEY:
@@ -72,14 +73,17 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
           found = true;
         break;
       case BOOLEAN_VALUE:
+      case OBJECT_BOOLEAN_VALUE:
         if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
           found = true;
         break;
       case NUMBER_VALUE:
+      case OBJECT_NUMBER_VALUE:
         if (Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
           found = true;
         break;
       case STRING_VALUE:
+      case OBJECT_STRING_VALUE:
         if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
           found = true;
         break;

@@ -44,39 +44,27 @@ import org.sirix.settings.Constants;
  * Node representing a JSON string.
  * </p>
  */
-public final class StringNode extends AbstractStructForwardingNode implements ValueNode, ImmutableJsonNode {
-
-  /** Delegate for common value node information. */
-  private final ValueNodeDelegate mValDel;
-
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
-
-  private BigInteger mHash;
+public final class StringNode extends AbstractStringNode {
 
   /**
    * Constructor.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
+   * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public StringNode(final BigInteger hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    mHash = hashCode;
-    assert structDel != null;
-    mStructNodeDel = structDel;
-    assert valDel != null;
-    mValDel = valDel;
+  public StringNode(final BigInteger hashCode, final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
+    super(valueNodeDelegate, structNodeDelegate);
+    setHash(hashCode);
   }
 
   /**
    * Constructor.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
+   * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public StringNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    mStructNodeDel = checkNotNull(structDel);
-    mValDel = checkNotNull(valDel);
+  public StringNode(final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
+    super(valueNodeDelegate, structNodeDelegate);
   }
 
   @Override
@@ -85,62 +73,8 @@ public final class StringNode extends AbstractStructForwardingNode implements Va
   }
 
   @Override
-  public BigInteger computeHash() {
-    BigInteger result = BigInteger.ONE;
-
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
-    result = BigInteger.valueOf(31).multiply(result).add(mValDel.computeHash());
-
-    return Node.to128BitsAtMaximumBigInteger(result);
-  }
-
-  @Override
-  public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
-  }
-
-  @Override
-  public BigInteger getHash() {
-    return mHash;
-  }
-
-  @Override
-  public byte[] getRawValue() {
-    return mValDel.getRawValue();
-  }
-
-  @Override
-  public void setValue(final byte[] value) {
-    mValDel.setValue(value);
-  }
-
-  @Override
-  public String getValue() {
-    return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
-
-  @Override
-  public StructNodeDelegate getStructNodeDelegate() {
-    return mStructNodeDel;
-  }
-
-  public ValueNodeDelegate getValNodeDelegate() {
-    return mValDel;
-  }
-
-  @Override
   public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableStringNode.of(this));
   }
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
-
-  @Override
-  protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
-  }
 }

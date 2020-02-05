@@ -60,30 +60,30 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   /** The json item store. */
   private final JsonDBStore mJsonStore;
 
-  public static final SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
+  public static SirixQueryContext createWithNodeStore(final XmlDBStore nodeStore) {
     return new SirixQueryContext(nodeStore, null, CommitStrategy.AUTO);
   }
 
-  public static final SirixQueryContext createWithNodeStoreAndCommitStrategy(final XmlDBStore nodeStore,
+  public static SirixQueryContext createWithNodeStoreAndCommitStrategy(final XmlDBStore nodeStore,
       final CommitStrategy commitStrategy) {
     return new SirixQueryContext(nodeStore, null, commitStrategy);
   }
 
-  public static final SirixQueryContext createWithJsonStore(final JsonDBStore jsonItemStore) {
+  public static SirixQueryContext createWithJsonStore(final JsonDBStore jsonItemStore) {
     return new SirixQueryContext(null, jsonItemStore, CommitStrategy.AUTO);
   }
 
-  public static final SirixQueryContext createWithJsonStoreAndCommitStrategy(final JsonDBStore jsonItemStore,
+  public static SirixQueryContext createWithJsonStoreAndCommitStrategy(final JsonDBStore jsonItemStore,
       final CommitStrategy commitStrategy) {
     return new SirixQueryContext(null, jsonItemStore, commitStrategy);
   }
 
-  public static final SirixQueryContext createWithJsonStoreAndNodeStoreAndCommitStrategy(
+  public static SirixQueryContext createWithJsonStoreAndNodeStoreAndCommitStrategy(
       final JsonDBStore jsonItemStore, final CommitStrategy commitStrategy) {
     return new SirixQueryContext(null, jsonItemStore, commitStrategy);
   }
 
-  public static final SirixQueryContext create() {
+  public static SirixQueryContext create() {
     return new SirixQueryContext(null, null, CommitStrategy.AUTO);
   }
 
@@ -91,7 +91,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
    * Private constructor.
    *
    * @param nodeStore the database node storage to use
-   * @param jsonStore the database json item storage to use
+   * @param jsonItemStore the database json item storage to use
    * @param commitStrategy the commit strategy to use
    */
   private SirixQueryContext(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,

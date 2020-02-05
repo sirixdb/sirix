@@ -19,107 +19,91 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node.xdm;
+package org.sirix.node.json;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
+import org.sirix.JsonTestHelper;
 import org.sirix.XmlTestHelper;
+import org.sirix.api.Database;
 import org.sirix.api.PageReadOnlyTrx;
+import org.sirix.api.PageTrx;
+import org.sirix.api.json.JsonResourceManager;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.utils.NamePageHash;
-import com.google.common.collect.HashBiMap;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
 /**
- * Element node test.
+ * Number node test.
  */
-public class ElementNodeTest {
+public class NumberNodeTest {
 
-  /** {@link Holder} instance. */
-  private Holder mHolder;
+  private PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
-  private PageReadOnlyTrx mPageReadTrx;
+  private Database<JsonResourceManager> database;
 
   @Before
   public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
+    JsonTestHelper.deleteEverything();
+    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    pageWriteTrx = database.openResourceManager(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
-    mHolder.close();
+    JsonTestHelper.closeEverything();
   }
 
   @Test
-  public void testElementNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
-
-    final ElementNode node = new ElementNode(strucDel, nameDel, new ArrayList<>(), HashBiMap.create(),
-        new ArrayList<>(), new QNm("ns", "a", "p"));
-    node.setHash(node.computeHash());
-
+  public void test() throws IOException {
     // Create empty node.
-    node.insertAttribute(97, 100);
-    node.insertAttribute(98, 101);
-    node.insertNamespace(99);
-    node.insertNamespace(100);
+    final double value = 10.87463D;
+    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final StructNodeDelegate strucDel =
+        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0l);
+    final NumberNode node = new NumberNode(value, strucDel);
+    node.setHash(node.computeHash());
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, pageWriteTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
-        node.getDeweyID().orElse(null), mPageReadTrx);
+    final NumberNode node2 =
+        (NumberNode) NodeKind.NUMBER_VALUE.deserialize(new DataInputStream(in), node.getNodeKey(), null, pageWriteTrx);
     check(node2);
   }
 
-  private final void check(final ElementNode node) {
+  private void check(final NumberNode node) {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
-    assertEquals(12L, node.getFirstChildKey());
-    assertEquals(16L, node.getLeftSiblingKey());
-    assertEquals(17L, node.getRightSiblingKey());
-    assertEquals(1, node.getChildCount());
-    assertEquals(2, node.getAttributeCount());
-    assertEquals(2, node.getNamespaceCount());
-    assertEquals(17, node.getURIKey());
-    assertEquals(18, node.getPrefixKey());
-    assertEquals(19, node.getLocalNameKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(NodeKind.ELEMENT, node.getKind());
-    assertEquals(true, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
-    assertEquals(97L, node.getAttributeKey(0));
-    assertEquals(98L, node.getAttributeKey(1));
-    assertEquals(99L, node.getNamespaceKey(0));
-    assertEquals(100L, node.getNamespaceKey(1));
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(15L, node.getLeftSiblingKey());
+    assertEquals(16L, node.getRightSiblingKey());
+    assertEquals(10.87463D, node.getValue().doubleValue(), 0);
+    assertEquals(NodeKind.NUMBER_VALUE, node.getKind());
+    assertFalse(node.hasFirstChild());
+    assertTrue(node.hasParent());
+    assertTrue(node.hasLeftSibling());
+    assertTrue(node.hasRightSibling());
   }
 
 }

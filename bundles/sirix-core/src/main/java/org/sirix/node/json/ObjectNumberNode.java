@@ -21,57 +21,55 @@
 
 package org.sirix.node.json;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import java.math.BigInteger;
 import org.sirix.api.visitor.JsonNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.node.NodeKind;
-import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.immutable.json.ImmutableBooleanNode;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.immutable.json.ImmutableNumberNode;
+import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import org.sirix.node.xml.AbstractStructForwardingNode;
+
+import java.math.BigInteger;
 
 /**
- * <h1>JSONBooleanNode</h1>
+ * <h1>JSONNumberNode</h1>
  *
  * <p>
- * Node representing a JSON boolean.
+ * Node representing a JSON number.
  * </p>
  */
-public final class BooleanNode extends AbstractBooleanNode {
+public final class ObjectNumberNode extends AbstractNumberNode {
 
   /**
    * Constructor.
    *
-   * @param hashCode the hash code of the node
-   * @param boolValue the boolean value
+   * @param hashCode the hash code
+   * @param number the number value
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public BooleanNode(final BigInteger hashCode, final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
+  public ObjectNumberNode(final BigInteger hashCode, final Number number, final StructNodeDelegate structNodeDelegate) {
+    super(structNodeDelegate, number);
     setHash(hashCode);
   }
 
   /**
    * Constructor.
    *
-   * @param boolValue the boolean value
+   * @param number the number value
    * @param structNodeDelegate delegate for {@link StructNode} implementation
    */
-  public BooleanNode(final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
+  public ObjectNumberNode(final Number number, final StructNodeDelegate structNodeDelegate) {
+    super(structNodeDelegate, number);
   }
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
+    return NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return this.acceptVisitor(visitor);
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+    return visitor.visit(ImmutableObjectNumberNode.of(this));
   }
+
 }

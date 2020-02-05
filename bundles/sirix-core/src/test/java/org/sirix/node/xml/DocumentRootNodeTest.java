@@ -19,12 +19,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.node.json;
+package org.sirix.node.xml;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -35,72 +32,71 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
-import org.sirix.api.PageTrx;
+import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.Record;
-import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
 /**
- * Object record node test.
+ * Document root node test.
  */
-public class JSONArrayNodeTest {
+public class DocumentRootNodeTest {
 
   /** {@link Holder} instance. */
   private Holder mHolder;
 
-  /** Sirix {@link PageTrx}. */
-  private PageTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+  /** Sirix {@link PageReadOnlyTrx} instance. */
+  private PageReadOnlyTrx mPageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.openResourceManager();
-    mPageWriteTrx = mHolder.getResourceManager().beginPageTrx();
+    mHolder = Holder.generateDeweyIDResourceMgr();
+    mPageReadTrx = mHolder.getResourceManager().beginPageReadTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageWriteTrx.close();
+    mPageReadTrx.close();
     mHolder.close();
   }
 
   @Test
-  public void testNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13, 14, Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-    final ArrayNode node = new ArrayNode(strucDel, 18);
-    node.setHash(node.computeHash());
+  public void testDocumentRootNode() throws IOException {
+
+    // Create empty node.
+    final NodeDelegate nodeDel =
+        new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Hashing.sha256(), null, 0, SirixDeweyID.newRootID());
+    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+    final XmlDocumentRootNode node = new XmlDocumentRootNode(nodeDel, strucDel);
     check(node);
 
     // Serialize and deserialize node.
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    node.getKind().serialize(new DataOutputStream(out), node, mPageWriteTrx);
+    node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final ArrayNode node2 =
-        (ArrayNode) NodeKind.ARRAY.deserialize(new DataInputStream(in), node.getNodeKey(), null, mPageWriteTrx);
+    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XDM_DOCUMENT.deserialize(new DataInputStream(in),
+        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
-  private void check(final ArrayNode node) {
+  private final void check(final XmlDocumentRootNode node) {
     // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
+    assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(18L, node.getPathNodeKey());
-
-    assertEquals(NodeKind.ARRAY, node.getKind());
-    assertFalse(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertTrue(node.hasRightSibling());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+    assertEquals(0L, node.getChildCount());
+    assertEquals(NodeKind.XDM_DOCUMENT, node.getKind());
   }
 
 }
