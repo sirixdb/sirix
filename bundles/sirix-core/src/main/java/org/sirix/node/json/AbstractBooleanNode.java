@@ -39,7 +39,11 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
 
   @Override
   public void setHash(final BigInteger hash) {
-    this.hashCode = Node.to128BitsAtMaximumBigInteger(hash);
+    if (hash != null) {
+      hashCode = Node.to128BitsAtMaximumBigInteger(hash);
+    } else {
+      hashCode = null;
+    }
   }
 
   @Override

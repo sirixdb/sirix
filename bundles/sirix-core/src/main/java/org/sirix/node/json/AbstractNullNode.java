@@ -9,42 +9,46 @@ import org.sirix.node.xml.AbstractStructForwardingNode;
 import java.math.BigInteger;
 
 public abstract class AbstractNullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
-  private StructNodeDelegate mStructNodeDel;
+  private StructNodeDelegate structNodeDelegate;
 
-  private BigInteger mHash;
+  private BigInteger hashCode;
 
   public AbstractNullNode(StructNodeDelegate mStructNodeDel) {
-    this.mStructNodeDel = mStructNodeDel;
+    this.structNodeDelegate = mStructNodeDel;
   }
 
   @Override
   public BigInteger computeHash() {
     BigInteger result = BigInteger.ONE;
 
-    result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.getNodeDelegate().computeHash());
-    if (mStructNodeDel.isNotEmpty()) {
-      result = BigInteger.valueOf(31).multiply(result).add(mStructNodeDel.computeHash());
+    result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.getNodeDelegate().computeHash());
+    if (structNodeDelegate.isNotEmpty()) {
+      result = BigInteger.valueOf(31).multiply(result).add(structNodeDelegate.computeHash());
     }
     return Node.to128BitsAtMaximumBigInteger(result);
   }
 
   @Override
   public void setHash(final BigInteger hash) {
-    mHash = Node.to128BitsAtMaximumBigInteger(hash);
+    if (hash != null) {
+      hashCode = Node.to128BitsAtMaximumBigInteger(hash);
+    } else {
+      hashCode = null;
+    }
   }
 
   @Override
   public BigInteger getHash() {
-    return mHash;
+    return hashCode;
   }
 
   @Override
   protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
+    return structNodeDelegate.getNodeDelegate();
   }
 
   @Override
   protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
+    return structNodeDelegate;
   }
 }

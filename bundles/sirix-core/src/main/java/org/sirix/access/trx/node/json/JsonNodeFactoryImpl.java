@@ -183,9 +183,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final long revision = mPageWriteTrx.getRevisionNumber();
     final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx.getActualRevisionRootPage().getMaxNodeKey() + 1,
                                                   parentKey, mHashFunction, null, revision, null);
-    final boolean compression = doCompress && value.length > 10;
+    final boolean compression = doCompress && value.length > 40;
     final byte[] compressedValue = compression
-        ? Compression.compress(value, Deflater.HUFFMAN_ONLY)
+        ? Compression.compress(value, Deflater.BEST_COMPRESSION)
         : value;
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
     final StructNodeDelegate structDel =
