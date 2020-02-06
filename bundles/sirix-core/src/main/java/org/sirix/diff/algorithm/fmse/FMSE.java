@@ -523,8 +523,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-
-    wtx.getNodeKey();
   }
 
   private void checkFromNodeForTextRemoval(final XmlNodeTrx wtx, final long child) {
@@ -597,8 +595,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-
-    wtx.getNodeKey();
   }
 
   /**
