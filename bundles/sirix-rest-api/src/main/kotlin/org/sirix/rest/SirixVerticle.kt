@@ -77,36 +77,34 @@ class SirixVerticle : CoroutineVerticle() {
             vertx, oauth2Config
         )
 
-        if (oauth2Config.flow == OAuth2FlowType.AUTH_CODE) {
-            val allowedHeaders = HashSet<String>()
-            allowedHeaders.add("x-requested-with")
-            allowedHeaders.add("Access-Control-Allow-Origin")
-            allowedHeaders.add("origin")
-            allowedHeaders.add("Content-Type")
-            allowedHeaders.add("accept")
-            allowedHeaders.add("X-PINGARUNER")
-            allowedHeaders.add("Authorization")
+        val allowedHeaders = HashSet<String>()
+        allowedHeaders.add("x-requested-with")
+        allowedHeaders.add("Access-Control-Allow-Origin")
+        allowedHeaders.add("origin")
+        allowedHeaders.add("Content-Type")
+        allowedHeaders.add("accept")
+        allowedHeaders.add("X-PINGARUNER")
+        allowedHeaders.add("Authorization")
 
-            val allowedMethods = HashSet<HttpMethod>()
-            allowedMethods.add(HttpMethod.GET)
-            allowedMethods.add(HttpMethod.POST)
-            allowedMethods.add(HttpMethod.OPTIONS)
+        val allowedMethods = HashSet<HttpMethod>()
+        allowedMethods.add(HttpMethod.GET)
+        allowedMethods.add(HttpMethod.POST)
+        allowedMethods.add(HttpMethod.OPTIONS)
 
-            allowedMethods.add(HttpMethod.DELETE)
-            allowedMethods.add(HttpMethod.PATCH)
-            allowedMethods.add(HttpMethod.PUT)
+        allowedMethods.add(HttpMethod.DELETE)
+        allowedMethods.add(HttpMethod.PATCH)
+        allowedMethods.add(HttpMethod.PUT)
 
-            this.route().handler(
+        this.route().handler(
                 CorsHandler.create(
-                    config.getString(
-                        "cors.allowedOriginPattern",
-                        "*"
-                    )
+                        config.getString(
+                                "cors.allowedOriginPattern",
+                                "*"
+                        )
                 ).allowedHeaders(allowedHeaders).allowedMethods(allowedMethods).allowCredentials(
-                    config.getBoolean("cors.allowCredentials", false)
+                        config.getBoolean("cors.allowCredentials", false)
                 )
-            )
-        }
+        )
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oauth2Config.flow != OAuth2FlowType.AUTH_CODE) {
