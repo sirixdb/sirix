@@ -82,7 +82,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   private SirixScope mScope;
 
   /** Optional dewey ID. */
-  private final Optional<SirixDeweyID> mDeweyID;
+  private final SirixDeweyID mDeweyID;
 
   /**
    * Constructor.
@@ -96,15 +96,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     mIsWtx = mRtx instanceof XmlNodeTrx;
     mNodeKey = mRtx.getNodeKey();
     mKind = mRtx.getKind();
-    mDeweyID = mRtx.getNode().getDeweyID();
+    mDeweyID = mRtx.getNode().getDeweyID().orElse(null);
   }
 
   /**
-   * Create a new {@link IReadTransaction} and move to {@link mKey}.
-   *
-   * @return new read transaction instance which is moved to {@link mKey}
+   * Create a new {@link NodeReadOnlyTrx} and move to node key.
    */
-  private final void moveRtx() {
+  private void moveRtx() {
     mRtx.moveTo(mNodeKey);
   }
 
@@ -124,9 +122,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (node.getImmutableNode().getNodeKey() == this.getImmutableNode().getNodeKey()) {
-        return true;
-      }
+      return node.getImmutableNode().getNodeKey() == this.getImmutableNode().getNodeKey();
     }
     return false;
   }
@@ -151,9 +147,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (node.getImmutableNode().getNodeKey() == mRtx.getParentKey()) {
-          return true;
-        }
+        return node.getImmutableNode().getNodeKey() == mRtx.getParentKey();
       }
     }
     return false;
@@ -168,8 +162,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       assert node.getNodeClassID() == this.getNodeClassID();
       moveRtx();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isDescendantOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isDescendantOf(node.mDeweyID);
         } else {
           for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
             axis.next();
@@ -203,8 +197,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       assert node.getNodeClassID() == this.getNodeClassID();
       if (isSelfOf(other)) {
         retVal = true;
+      } else {
+        retVal = isDescendantOf(other);
       }
-      retVal = isDescendantOf(other);
     }
     return retVal;
   }
@@ -215,8 +210,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mDeweyID.isPresent()) {
-        return mDeweyID.get().isAncestorOf(node.mDeweyID.get());
+      if (mDeweyID != null) {
+        return mDeweyID.isAncestorOf(node.mDeweyID);
       } else {
         return other.isDescendantOf(this);
       }
@@ -231,13 +226,14 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode) {
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
-      if (mDeweyID.isPresent()) {
-        retVal = mDeweyID.get().isAncestorOf(node.mDeweyID.get());
+      if (mDeweyID != null) {
+        retVal = mDeweyID.isAncestorOf(node.mDeweyID);
       } else {
         if (isSelfOf(other)) {
           retVal = true;
+        } else {
+          retVal = other.isDescendantOf(this);
         }
-        retVal = other.isDescendantOf(this);
       }
     }
     return retVal;
@@ -251,8 +247,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isSiblingOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isSiblingOf(node.mDeweyID);
         }
         if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
             && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
@@ -272,8 +268,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isPrecedingSiblingOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isPrecedingSiblingOf(node.mDeweyID);
         } else {
           while (mRtx.hasRightSibling()) {
             mRtx.moveToRightSibling();
@@ -293,8 +289,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isFollowingSiblingOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isFollowingSiblingOf(node.mDeweyID);
         } else {
           while (mRtx.hasLeftSibling()) {
             mRtx.moveToLeftSibling();
@@ -314,8 +310,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isPrecedingOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isPrecedingOf(node.mDeweyID);
         } else {
           for (final Axis axis = new FollowingAxis(mRtx); axis.hasNext();) {
             axis.next();
@@ -335,8 +331,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       final XmlDBNode node = (XmlDBNode) other;
       moveRtx();
       if (mKind != org.sirix.node.NodeKind.ATTRIBUTE && mKind != org.sirix.node.NodeKind.NAMESPACE) {
-        if (mDeweyID.isPresent()) {
-          return mDeweyID.get().isFollowingOf(node.mDeweyID.get());
+        if (mDeweyID != null) {
+          return mDeweyID.isFollowingOf(node.mDeweyID);
         } else {
           for (final Axis axis = new PrecedingAxis(mRtx); axis.hasNext();) {
             axis.next();
@@ -389,17 +385,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public boolean isDocumentRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
-        ? true
-        : false;
+    return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean isRoot() {
     moveRtx();
-    return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
-        ? true
-        : false;
+    return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -451,7 +443,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public void setName(final QNm name) throws OperationNotSupportedException, DocumentException {
+  public void setName(final QNm name) throws DocumentException {
     if (mIsWtx) {
       moveRtx();
       final XmlNodeTrx wtx = (XmlNodeTrx) mRtx;
@@ -533,7 +525,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public void setValue(final Atomic value) throws OperationNotSupportedException, DocumentException {
+  public void setValue(final Atomic value) throws DocumentException {
     moveRtx();
     if (!mRtx.isValueNode()) {
       throw new DocumentException("Node has no value!");
@@ -628,19 +620,15 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         throw new DocumentException(e);
       }
     } else {
-      final XmlNodeTrx wtx = getWtx();
-      try {
+      try (final XmlNodeTrx wtx = getWtx()) {
         return append(wtx, kind, name, value);
       } catch (final SirixException e) {
         throw new DocumentException(e);
-      } finally {
-        wtx.close();
       }
     }
   }
 
-  private XmlDBNode append(final XmlNodeTrx wtx, final Kind kind, final QNm name, final Atomic value)
-      throws SirixException {
+  private XmlDBNode append(final XmlNodeTrx wtx, final Kind kind, final QNm name, final Atomic value) {
     if (wtx.hasFirstChild()) {
       wtx.moveToLastChild();
       switch (kind) {
@@ -866,7 +854,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       if (!(child.getKind() == Kind.ELEMENT))
         return prepend(wtx, child.getKind(), child.getName(), child.getValue());
 
-      SubtreeBuilder builder = null;
+      SubtreeBuilder builder;
       if (wtx.hasFirstChild()) {
         wtx.moveToFirstChild();
 
@@ -1283,7 +1271,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   @Override
-  public Stream<XmlDBNode> getAttributes() throws OperationNotSupportedException, DocumentException {
+  public Stream<XmlDBNode> getAttributes() throws DocumentException {
     moveRtx();
     return new SirixNodeStream(new AttributeAxis(mRtx), mCollection);
   }
@@ -1428,7 +1416,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   }
 
   private SubtreeBuilder createBuilder(final XmlNodeTrx wtx) {
-    SubtreeBuilder builder = null;
+    SubtreeBuilder builder;
     try {
       if (wtx.hasLeftSibling()) {
         wtx.moveToLeftSibling();
@@ -1550,7 +1538,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
     // Temporal extension.
     final Integer revision = mRtx.getRevisionNumber();
-    final Integer otherRevision = ((XmlDBNode) otherNode).mRtx.getRevisionNumber();
+    final int otherRevision = ((XmlDBNode) otherNode).mRtx.getRevisionNumber();
     if (revision != otherRevision) {
       return revision.compareTo(otherRevision);
     }
@@ -1561,8 +1549,8 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     }
 
     // If dewey-IDs are present it's simply the comparison of dewey-IDs.
-    if (mDeweyID.isPresent() && ((XmlDBNode) otherNode).mDeweyID.isPresent()) {
-      return mDeweyID.get().compareTo(((XmlDBNode) otherNode).mDeweyID.get());
+    if (mDeweyID != null && ((XmlDBNode) otherNode).mDeweyID != null) {
+      return mDeweyID.compareTo(((XmlDBNode) otherNode).mDeweyID);
     }
 
     try {
