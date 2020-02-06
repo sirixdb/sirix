@@ -98,7 +98,6 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     /**
      * Set include self option.
      *
-     * @param pIncludeSelf include self
      * @return this builder instance
      */
     public Builder includeSelf() {
@@ -184,14 +183,13 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // If visitor is present and result is not
     // VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK or visitor is
     // not present.
-    if ((result != null && result != VisitResultType.SKIPSUBTREE && result != LocalVisitResult.SKIPSUBTREEPOPSTACK)
-        || result == null) {
+    if (result != VisitResultType.SKIPSUBTREE && result != LocalVisitResult.SKIPSUBTREEPOPSTACK) {
       // Always follow first child if there is one.
       if (cursor.hasFirstChild()) {
         final long key = cursor.getFirstChildKey();
         final long rightSiblNodeKey = cursor.getRightSiblingKey();
         if (cursor.hasRightSibling() && (mRightSiblingKeyStack.isEmpty()
-            || (!mRightSiblingKeyStack.isEmpty() && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
+            || mRightSiblingKeyStack.peek() != rightSiblNodeKey)) {
           mRightSiblingKeyStack.push(rightSiblNodeKey);
         }
         return key;
@@ -200,7 +198,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
     // If visitor is present and result is not VisitResult.SKIPSIBLINGS or
     // visitor is not present.
-    if ((result != null && result != VisitResultType.SKIPSIBLINGS) || result == null) {
+    if (result != VisitResultType.SKIPSIBLINGS) {
       // Then follow right sibling if there is one.
       if (cursor.hasRightSibling()) {
         final long nextKey = cursor.getRightSiblingKey();
