@@ -39,7 +39,11 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
 
   @Override
   public void setHash(final BigInteger hash) {
-    hashCode = Node.to128BitsAtMaximumBigInteger(hash);
+    if (hash != null) {
+      hashCode = Node.to128BitsAtMaximumBigInteger(hash);
+    } else {
+      hashCode = null;
+    }
   }
 
   @Override
