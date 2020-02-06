@@ -87,11 +87,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
   private Map<Long, Boolean> mAlreadyInserted;
 
   /**
-   * This is the matching M between nodes as described in the paper.
-   */
-  private Matching mFastMatching;
-
-  /**
    * This is the total matching M' between nodes as described in the paper.
    */
   private transient Matching mTotalMatching;
@@ -115,12 +110,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * Number of descendants in subtree of node on new revision.
    */
   private Map<Long, Long> mDescendantsNewRev;
-
-  /** {@link XmlNodeVisitor} implementation on old revision. */
-  private XmlNodeVisitor mOldRevVisitor;
-
-  /** {@link XmlNodeVisitor} implementation on new revision. */
-  private XmlNodeVisitor mNewRevVisitor;
 
   /** {@link XmlNodeVisitor} implementation to collect label/nodes on old revision. */
   private LabelFMSEVisitor mLabelOldRevVisitor;
@@ -180,7 +169,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param nodeComparisonFactory the node comparison factory to use
    * @return a new instance
    */
-  public static final FMSE createInstance(final NodeComparisonFactory nodeComparisonFactory) {
+  public static FMSE createInstance(final NodeComparisonFactory nodeComparisonFactory) {
     return new FMSE(null, nodeComparisonFactory);
   }
 
@@ -199,15 +188,16 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     mOldPathSummary = mWtx.getPathSummary();
     mNewPathSummary = mRtx.getResourceManager().openPathSummary(mRtx.getRevisionNumber());
 
-    mOldRevVisitor = new FMSEVisitor(mWtx, mInOrderOldRev, mDescendantsOldRev);
-    mNewRevVisitor = new FMSEVisitor(mRtx, mInOrderNewRev, mDescendantsNewRev);
+    final var oldRevVisitor = new FMSEVisitor(mWtx, mInOrderOldRev, mDescendantsOldRev);
+    final var newRevVisitor = new FMSEVisitor(mRtx, mInOrderNewRev, mDescendantsNewRev);
 
     mLabelOldRevVisitor = new LabelFMSEVisitor(mWtx);
     mLabelNewRevVisitor = new LabelFMSEVisitor(mRtx);
-    init(mWtx, mOldRevVisitor);
-    init(mRtx, mNewRevVisitor);
-    mFastMatching = fastMatch(mWtx, mRtx);
-    mTotalMatching = new Matching(mFastMatching);
+    init(mWtx, oldRevVisitor);
+    init(mRtx, newRevVisitor);
+
+    final var fastMatching = fastMatch(mWtx, mRtx);
+    mTotalMatching = new Matching(fastMatching);
     firstFMESStep(mWtx, mRtx);
     try {
       secondFMESStep(mWtx, mRtx);
@@ -436,14 +426,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Emits the move of node "child" to the pos-th child of node "parent".
-   *
-   * @param child child node to move
+   *  @param child child node to move
    * @param parent node where to insert the moved subtree
    * @param pos position among the childs to move to
    * @param wtx {@link XmlNodeTrx} implementation reference on old revision
    * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
    */
-  private long emitMove(final long child, final long parent, final int pos, final XmlNodeTrx wtx,
+  private void emitMove(final long child, final long parent, final int pos, final XmlNodeTrx wtx,
       final XmlNodeReadOnlyTrx rtx) {
     assert child >= 0;
     assert parent >= 0;
@@ -455,7 +444,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     if (wtx.getKind() == NodeKind.ATTRIBUTE || wtx.getKind() == NodeKind.NAMESPACE) {
       // Attribute- and namespace-nodes can't be moved.
-      return -1;
+      return;
     }
 
     assert pos >= 0;
@@ -535,13 +524,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
-    return wtx.getNodeKey();
+    wtx.getNodeKey();
   }
 
   private void checkFromNodeForTextRemoval(final XmlNodeTrx wtx, final long child) {
-    final boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child
-        ? true
-        : false;
+    final boolean maybeRemoveLeftSibling = wtx.getLeftSiblingKey() == child;
     if (wtx.moveTo(child).hasMoved()) {
       boolean isText = false;
       if (wtx.hasLeftSibling()) {
@@ -553,16 +540,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       }
       if (isText && wtx.hasRightSibling()) {
         wtx.moveToRightSibling();
-        if (wtx.getKind() == NodeKind.TEXT && isText) {
+        if (wtx.getKind() == NodeKind.TEXT) {
           if (maybeRemoveLeftSibling) {
             boolean moved = wtx.moveToLeftSibling().hasMoved();
             assert moved;
             moved = wtx.moveToLeftSibling().hasMoved();
             assert moved;
-            mTotalMatching.remove(wtx.getNodeKey());
-          } else {
-            mTotalMatching.remove(wtx.getNodeKey());
           }
+          mTotalMatching.remove(wtx.getNodeKey());
         }
         wtx.moveToLeftSibling();
       }
@@ -576,9 +561,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    * @param toNode the new node
    * @param wtx {@link XmlNodeTrx} implementation reference on old revision
    * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference on new revision
-   * @return updated {@link Node}
    */
-  private static long emitUpdate(final long fromNode, final long toNode, final XmlNodeTrx wtx,
+  private static void emitUpdate(final long fromNode, final long toNode, final XmlNodeTrx wtx,
       final XmlNodeReadOnlyTrx rtx) {
     assert fromNode >= 0;
     assert toNode >= 0;
@@ -614,7 +598,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
-    return wtx.getNodeKey();
+    wtx.getNodeKey();
   }
 
   /**
@@ -732,7 +716,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               if (newRtx.getAttributeCount() > 0) {
                 for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
                   rtx.moveToAttribute(i);
-                  for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); i < oldAttCount; j++) {
+                  for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); j < oldAttCount; j++) {
                     wtx.moveToAttribute(j);
                     if (wtx.getName().equals(rtx.getName())) {
                       process(oldAxis.asXdmNodeReadTrx().getNodeKey(), newAxis.asXdmNodeReadTrx().getNodeKey());
@@ -1008,13 +992,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert list != null;
     assert seen != null;
 
-    final Iterator<Long> iterator = list.iterator();
-    while (iterator.hasNext()) {
-      final Long item = iterator.next();
-      if (seen.containsKey(item)) {
-        iterator.remove();
-      }
-    }
+    list.removeIf(seen::containsKey);
   }
 
   /**
