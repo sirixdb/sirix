@@ -44,19 +44,22 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
   /** {@link Set} of databases. */
-  private final Set<Database<XmlResourceManager>> mDatabases;
+  private final Set<Database<XmlResourceManager>> databases;
 
   /** Mapping sirix databases to collections. */
-  private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> mCollections;
+  private final ConcurrentMap<Database<XmlResourceManager>, XmlDBCollection> collections;
 
   /** {@link StorageType} instance. */
   private final StorageType mStorageType;
 
   /** The location to store created collections/databases. */
-  private final Path mLocation;
+  private final Path location;
 
   /** Determines if a path summary should be built. */
   private boolean mBuildPathSummary;
+
+  /** Thread pool. */
+  private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
   /** Get a new builder instance. */
   public static Builder newBuilder() {
@@ -125,32 +128,32 @@ public final class BasicXmlDBStore implements XmlDBStore {
    * @param builder builder instance
    */
   private BasicXmlDBStore(final Builder builder) {
-    mDatabases = Collections.synchronizedSet(new HashSet<>());
-    mCollections = new ConcurrentHashMap<>();
+    databases = Collections.synchronizedSet(new HashSet<>());
+    collections = new ConcurrentHashMap<>();
     mStorageType = builder.mStorageType;
-    mLocation = builder.mLocation;
+    location = builder.mLocation;
     mBuildPathSummary = builder.mBuildPathSummary;
   }
 
   /** Get the location of the generated collections/databases. */
   public Path getLocation() {
-    return mLocation;
+    return location;
   }
 
   @Override
   public XmlDBCollection lookup(final String name) {
-    final Path dbPath = mLocation.resolve(name);
+    final Path dbPath = location.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
         final var database = Databases.openXmlDatabase(dbPath);
         final Optional<Database<XmlResourceManager>> storedCollection =
-            mDatabases.stream().findFirst().filter(db -> db.equals(database));
+            databases.stream().findFirst().filter(db -> db.equals(database));
         if (storedCollection.isPresent()) {
-          return mCollections.get(storedCollection.get());
+          return collections.get(storedCollection.get());
         }
-        mDatabases.add(database);
+        databases.add(database);
         final XmlDBCollection collection = new XmlDBCollection(name, database);
-        mCollections.put(database, collection);
+        collections.put(database, collection);
         return collection;
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
@@ -161,17 +164,17 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String name) {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(mLocation.resolve(name));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(location.resolve(name));
     try {
       if (Databases.createXmlDatabase(dbConf)) {
         throw new DocumentException("Document with name %s exists!", name);
       }
 
       final var database = Databases.openXmlDatabase(dbConf.getFile());
-      mDatabases.add(database);
+      databases.add(database);
 
       final XmlDBCollection collection = new XmlDBCollection(name, database);
-      mCollections.put(database, collection);
+      collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -185,16 +188,16 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String collName, final String optResName, final SubtreeParser parser) {
-    final Path dbPath = mLocation.resolve(collName);
+    final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
       Databases.removeDatabase(dbPath);
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
-      mDatabases.add(database);
+      databases.add(database);
       final String resName = optResName != null
           ? optResName
-          : new StringBuilder(3).append("resource").append(database.listResources().size() + 1).toString();
+          : "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .useTextCompression(true)
@@ -202,7 +205,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                    .storageType(mStorageType)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
-      mCollections.put(database, collection);
+      collections.put(database, collection);
 
       try (final XmlResourceManager manager = database.openResourceManager(resName);
           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
@@ -219,46 +222,37 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String collName, final @Nullable Stream<SubtreeParser> parsers) {
     if (parsers != null) {
-      final Path dbPath = mLocation.resolve(collName);
+      final Path dbPath = location.resolve(collName);
       final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
       try {
         Databases.removeDatabase(dbPath);
         Databases.createXmlDatabase(dbConf);
         final var database = Databases.openXmlDatabase(dbConf.getFile());
-        mDatabases.add(database);
-        final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        databases.add(database);
         int i = database.listResources().size() + 1;
-        try {
-          SubtreeParser parser = null;
+        try (parsers) {
+          SubtreeParser parser;
           while ((parser = parsers.next()) != null) {
             final SubtreeParser nextParser = parser;
-            final String resourceName = new StringBuilder("resource").append(String.valueOf(i)).toString();
+            final String resourceName = "resource" + i;
             pool.submit(() -> {
-              database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                           .storageType(mStorageType)
-                                                           .useDeweyIDs(true)
-                                                           .useTextCompression(true)
-                                                           .buildPathSummary(true)
-                                                           .build());
+              database.createResource(ResourceConfiguration.newBuilder(resourceName).storageType(
+                 mStorageType).useDeweyIDs(true).useTextCompression(true).buildPathSummary(true).build());
               try (final XmlResourceManager manager = database.openResourceManager(resourceName);
-                  final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-                final XmlDBCollection collection = new XmlDBCollection(collName, database);
-                mCollections.put(database, collection);
-                nextParser.parse(
-                    new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
-                wtx.commit();
+                   final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+                  final XmlDBCollection collection = new XmlDBCollection(collName, database);
+                  collections.put(database, collection);
+                  nextParser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD,
+                                                      Collections.emptyList()));
+                  wtx.commit();
               }
               return null;
             });
             i++;
           }
-        } finally {
-          parsers.close();
         }
-        pool.shutdown();
-        pool.awaitTermination(5, TimeUnit.SECONDS);
         return new XmlDBCollection(collName, database);
-      } catch (final SirixRuntimeException | InterruptedException e) {
+      } catch (final SirixRuntimeException e) {
         throw new DocumentException(e.getCause());
       }
     }
@@ -267,14 +261,14 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public void drop(final String name) {
-    final Path dbPath = mLocation.resolve(name);
+    final Path dbPath = location.resolve(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
     if (Databases.existsDatabase(dbPath)) {
       try {
         Databases.removeDatabase(dbPath);
         try (final var database = Databases.openXmlDatabase(dbConfig.getFile())) {
-          mDatabases.remove(database);
-          mCollections.remove(database);
+          databases.remove(database);
+          collections.remove(database);
         }
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
@@ -295,10 +289,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public void close() {
     try {
-      for (final var database : mDatabases) {
+      for (final var database : databases) {
         database.close();
       }
-    } catch (final SirixException e) {
+      pool.shutdown();
+      pool.awaitTermination(5, TimeUnit.SECONDS);
+    } catch (final SirixException | InterruptedException e) {
       throw new DocumentException(e.getCause());
     }
   }

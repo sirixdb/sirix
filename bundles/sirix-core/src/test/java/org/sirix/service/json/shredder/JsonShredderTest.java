@@ -56,7 +56,7 @@ public final class JsonShredderTest {
     }
   }
 
-  @Ignore
+//  @Ignore
   @Test
   public void testChicago() {
     try {
@@ -64,7 +64,7 @@ public final class JsonShredderTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
       try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
         database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                     .buildPathSummary(false)
+//                                                     .buildPathSummary(true)
                                                      .hashKind(HashType.NONE)
                                                      .useTextCompression(false)
                                                      .build());
