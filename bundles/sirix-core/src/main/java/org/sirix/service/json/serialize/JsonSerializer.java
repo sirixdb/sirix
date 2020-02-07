@@ -88,6 +88,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   private final boolean mWithMetaData;
 
   private boolean mHadToAddBracket;
+  private int currentIndent;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -125,78 +126,68 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case JSON_DOCUMENT:
           break;
         case OBJECT:
-          indent();
 
           emitMetaData(rtx);
 
           if (mWithMetaData && rtx.hasFirstChild()) {
-            mOut.append("[");
+            appendArrayStart();
           }
 
-          mOut.append("{");
+          appendObjectStart();
+
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
-            mOut.append("}");
+            appendObjectEnd();
 
             if (mWithMetaData) {
-              mOut.append("}");
+              appendObjectEnd();
             }
 
             if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
-              mOut.append(",");
+              appendObjectSeparator();
           }
           break;
         case ARRAY:
           emitMetaData(rtx);
 
-          mOut.append("[");
+          appendArrayStart();
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
-            mOut.append("]");
+            appendArrayEnd();
 
             if (mWithMetaData) {
-              mOut.append("}");
+              appendObjectEnd();
             }
 
             if (rtx.hasRightSibling()) {
-              mOut.append(",");
+              appendObjectSeparator();
             }
           }
           break;
         case OBJECT_KEY:
           if (mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey) {
-            mOut.append("{");
+            appendObjectStart();
             mHadToAddBracket = true;
           }
 
           if (mWithMetaData) {
             if (rtx.hasLeftSibling()) {
-              mOut.append("{");
+              appendObjectStart();
             }
-            mOut.append("\"key\":\"");
-            mOut.append(rtx.getName().stringValue());
-            mOut.append("\",");
-            mOut.append("\"metadata\":{");
-
-            mOut.append("\"nodeKey\":");
-            mOut.append(String.valueOf(rtx.getNodeKey()));
-            mOut.append(",");
-
-            mOut.append("\"hash\":");
-            mOut.append(String.valueOf(rtx.getHash()));
-            mOut.append(",");
-
-            mOut.append("\"type\":\"");
-            mOut.append(rtx.getKind().toString());
-            mOut.append("\",");
-
-            mOut.append("\"descendantCount\":");
-            mOut.append(String.valueOf(rtx.getDescendantCount()));
-
-            mOut.append("},");
-            mOut.append("\"value\":");
+            appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
+                    .appendObjectSeparator()
+                    .appendObjectKey(quote("metadata"))
+                    .appendObjectStart()
+                    .appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()))
+                    .appendObjectSeparator()
+                    .appendObjectKeyValue(quote("hash"), String.valueOf(rtx.getHash()))
+                    .appendObjectSeparator()
+                    .appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()))
+                    .appendObjectSeparator()
+                    .appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()))
+                    .appendObjectEnd()
+                    .appendObjectSeparator()
+                    .appendObjectKey(quote("value"));
           } else {
-            mOut.append("\"");
-            mOut.append(rtx.getName().stringValue());
-            mOut.append("\":");
+            appendObjectKey(quote(rtx.getName().stringValue()));
           }
           break;
         case BOOLEAN_VALUE:
@@ -204,16 +195,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           mOut.append(Boolean.valueOf(rtx.getValue()).toString());
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           printCommaIfNeeded(rtx);
           break;
         case NULL_VALUE:
         case OBJECT_NULL_VALUE:
           emitMetaData(rtx);
-          mOut.append("null");
+          appendObjectValue("null");
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           printCommaIfNeeded(rtx);
           break;
@@ -222,18 +213,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           mOut.append(rtx.getValue());
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           printCommaIfNeeded(rtx);
           break;
         case STRING_VALUE:
         case OBJECT_STRING_VALUE:
           emitMetaData(rtx);
-          mOut.append("\"");
-          mOut.append(StringValue.escape(rtx.getValue()));
-          mOut.append("\"");
+          appendObjectValue(quote(StringValue.escape(rtx.getValue())));
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           printCommaIfNeeded(rtx);
           break;
@@ -248,32 +237,24 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
     if (mWithMetaData) {
-      mOut.append("{");
-      mOut.append("\"metadata\":{");
-
-      mOut.append("\"nodeKey\":");
-      mOut.append(String.valueOf(rtx.getNodeKey()));
-      mOut.append(",");
-
-      mOut.append("\"hash\":");
-      mOut.append(String.valueOf(rtx.getHash()));
-      mOut.append(",");
-
-      mOut.append("\"type\":\"");
-      mOut.append(rtx.getKind().toString());
-      mOut.append("\"");
+      appendObjectStart()
+              .appendObjectKey(quote("metadata"))
+              .appendObjectStart()
+              .appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()))
+              .appendObjectSeparator()
+              .appendObjectKeyValue(quote("hash"), String.valueOf(rtx.getHash()))
+              .appendObjectSeparator()
+              .appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
 
       if (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY) {
-        mOut.append(",");
-        mOut.append("\"descendantCount\":");
-        mOut.append(String.valueOf(rtx.getDescendantCount()));
-        mOut.append(",");
-        mOut.append("\"childCount\":");
-        mOut.append(String.valueOf(rtx.getChildCount()));
+        appendObjectSeparator()
+                .appendObjectKeyValue(quote("descendantCount"), quote(String.valueOf(rtx.getDescendantCount())))
+                .appendObjectSeparator()
+                .appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
       }
-
-      mOut.append("},");
-      mOut.append("\"value\":");
+      appendObjectEnd()
+              .appendObjectSeparator()
+              .appendObjectKey(quote("value"));
     }
   }
 
@@ -316,7 +297,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     final boolean hasRightSibling = rtx.hasRightSibling();
 
     if (hasRightSibling && rtx.getNodeKey() != mStartNodeKey)
-      mOut.append(",");
+      appendObjectSeparator();
   }
 
   /**
@@ -327,34 +308,33 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitEndNode(final JsonNodeReadOnlyTrx rtx) {
     try {
-      indent();
       switch (rtx.getKind()) {
         case ARRAY:
-          mOut.append("]");
+          appendArrayEnd();
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           break;
         case OBJECT:
           if (mWithMetaData) {
-            mOut.append("]}");
+            appendArrayEnd().appendObjectEnd();
           } else {
-            mOut.append("}");
+            appendObjectEnd();
           }
 
           if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
-            mOut.append(",");
+            appendObjectSeparator();
           }
           break;
         case OBJECT_KEY:
           if (mWithMetaData) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
-            mOut.append(",");
+            appendObjectSeparator();
           }
           if (mHadToAddBracket && rtx.getNodeKey() == mStartNodeKey) {
-            mOut.append("}");
+            appendObjectEnd();
           }
           break;
         // $CASES-OMITTED$
@@ -373,15 +353,15 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (length > 1) {
-        mOut.append("{");
+        appendObjectStart();
 
         if (mIndent) {
           // mOut.append(CharsForSerializing.NEWLINE.getBytes());
           mStack.push(Constants.NULL_ID_LONG);
         }
 
-        mOut.append("\"sirix\":");
-        mOut.append("[");
+        appendObjectKey(quote("sirix"));
+        appendArrayStart();
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -399,13 +379,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         if (mIndent) {
           mStack.pop();
         }
-        indent();
 
-        mOut.append("]");
-
-        indent();
-
-        mOut.append("}");
+        appendArrayEnd().appendObjectEnd();
       }
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -420,20 +395,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : mRevisions.length;
 
       if (mEmitXQueryResultSequence || length > 1) {
-        indent();
 
-        mOut.append("{");
-        mOut.append("\"revisionNumber\":");
-        mOut.append(Integer.toString(rtx.getRevisionNumber()));
-        mOut.append(",");
+        appendObjectStart()
+                .appendObjectKeyValue(quote("revisionNumber"), Integer.toString(rtx.getRevisionNumber()))
+                .appendObjectSeparator();
 
         if (mSerializeTimestamp) {
-          mOut.append("\"revisionTimestamp\":\"");
-          mOut.append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
-          mOut.append("\",");
+          appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp())))
+                  .appendObjectSeparator();
         }
 
-        mOut.append("\"revision\":");
+        appendObjectKey(quote("revision"));
 
         if (rtx.hasFirstChild())
           mStack.push(Constants.NULL_ID_LONG);
@@ -457,11 +429,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       if (mEmitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot().trx().hasFirstChild())
           mStack.pop();
-        indent();
-        mOut.append("}");
+        appendObjectEnd();
 
         if (hasMoreRevisionsToSerialize(rtx))
-          mOut.append(",");
+          appendObjectSeparator();
       }
 
       // if (mIndent) {
@@ -482,15 +453,70 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    *
    * @throws IOException if can't indent output
    */
-  private void indent() throws IOException {
+  private JsonSerializer indent() throws IOException {
     if (mIndent) {
-      final int indentSpaces = mWithInitialIndent
-          ? (mStack.size() + 1) * mIndentSpaces
-          : mStack.size() * mIndentSpaces;
-      for (int i = 0; i < indentSpaces; i++) {
+      for (int i = 0; i < currentIndent; i++) {
         mOut.append(" ");
       }
     }
+    return this;
+  }
+
+  private JsonSerializer newLine() throws IOException {
+    if (mIndent) {
+      mOut.append("\n");
+      indent();
+    }
+    return this;
+  }
+
+  private JsonSerializer appendObjectStart() throws IOException {
+    mOut.append('{');
+    currentIndent += mIndentSpaces;
+    newLine();
+    return this;
+  }
+
+  private JsonSerializer appendObjectEnd() throws IOException {
+    currentIndent -= mIndentSpaces;
+    newLine();
+    mOut.append('}');
+    return this;
+  }
+
+  private JsonSerializer appendArrayStart() throws IOException {
+    mOut.append('[');
+    return this;
+  }
+
+  private JsonSerializer appendArrayEnd() throws IOException {
+    mOut.append(']');
+    return this;
+  }
+
+  private JsonSerializer appendObjectKey(String key) throws IOException {
+    mOut.append(key).append(":");
+    return this;
+  }
+
+  private JsonSerializer appendObjectValue(String value) throws IOException {
+    mOut.append(value);
+    return this;
+  }
+
+  private JsonSerializer appendObjectKeyValue(String key, String value) throws IOException {
+    mOut.append(key).append(":").append(value);
+    return this;
+  }
+
+  private JsonSerializer appendObjectSeparator() throws IOException {
+    mOut.append(',');
+    newLine();
+    return this;
+  }
+
+  private String quote(String value) {
+    return "\""+value+"\"";
   }
 
   /**
