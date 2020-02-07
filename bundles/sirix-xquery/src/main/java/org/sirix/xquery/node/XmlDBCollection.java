@@ -189,7 +189,6 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
 
         removeFromDocumentDataToXmlDBNodes(resourceName);
         removeFromInstantDocumentDataToXmlDBNode(resourceName);
-//        removeFromDocumentToXmlDBNodes(resourceName);
       }
     }
   }
