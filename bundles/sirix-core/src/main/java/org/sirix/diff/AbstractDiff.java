@@ -276,7 +276,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   }
 
   /**
-   * Fire {@code EDiff.INSERTs} for the whole subtree.
+   * Fire {@code Diff.INSERT}s for the whole subtree.
    */
   private void fireInserts() {
     fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),

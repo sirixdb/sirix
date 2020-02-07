@@ -37,7 +37,7 @@ import org.sirix.node.xml.TextNode;
 import org.sirix.service.xml.shredder.XmlShredder;
 
 /**
- * <h1>NodeWriteTrx</h1>
+ * <h1>XmlNodeTrx</h1>
  *
  * <h2>Description</h2>
  *
@@ -54,10 +54,10 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * <ol>
  * <li>Only a single thread accesses the single INodeWriteTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
- * <code>NodeWriteTrx.getKey() == n</code>.</li>
+ * <code>NodeWriteTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after modifying the cursor:
  * <code>(NodeWriteTrx.insertX() == m &&
- *       NodeWriteTrx.getKey() == m)</code>.</li>
+ *       NodeWriteTrx.getNodeKey() == m)</code>.</li>
  * </ol>
  * </p>
  *
@@ -67,13 +67,13 @@ import org.sirix.service.xml.shredder.XmlShredder;
  *
  * <pre>
  * // Without auto commit.
- * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx()) {
+ * try (final XmlNodeTrx wtx = resManager.beginNodeWriteTrx()) {
  *   wtx.insertElementAsFirstChild(&quot;foo&quot;);
  *   wtx.commit();
  * }
  *
  * // With auto commit after every 10th modification.
- * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(10,
+ * try (final XmlNodeTrx wtx = resManager.beginNodeWriteTrx(10,
  * 		TimeUnit.MINUTES, 0)) {
  *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
  *   // 9 other modifications.
@@ -81,7 +81,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * }
  *
  * // With auto commit after every minute.
- * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(0,
+ * try (final XmlNodeTrx wtx = resManager.beginNodeWriteTrx(0,
  * 		TimeUnit.MINUTES, 1)) {
  *   wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  *   ...
@@ -90,7 +90,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * }
  *
  * // With auto commit after every 10th modification and every second.
- * try (final NodeWriteTrx wtx = resManager.beginNodeWriteTrx(10,
+ * try (final XmlNodeTrx wtx = resManager.beginNodeWriteTrx(10,
  * 		TimeUnit.SECONDS, 1)) {
  *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
  *   ...
@@ -105,7 +105,7 @@ import org.sirix.service.xml.shredder.XmlShredder;
  * <p>
  *
  * <pre>
- *   public final void someNodeWriteTrxMethod() {
+ *   public void someNodeWriteTrxMethod() {
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     // This must be called to track the modifications.
@@ -128,7 +128,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param rtx read transaction reference which implements the {@link XmlNodeReadOnlyTrx} interface
    * @return the transaction instance
    * @throws SirixException if anything in sirix fails
-   * @throws NullpointerException if {@code rtx} is {@code null}
+   * @throws NullPointerException if {@code rtx} is {@code null}
    */
   XmlNodeTrx copySubtreeAsFirstChild(XmlNodeReadOnlyTrx rtx);
 
@@ -139,7 +139,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param rtx read transaction reference which implements the {@link XmlNodeReadOnlyTrx} interface
    * @return the transaction instance
    * @throws SirixException if anything in sirix fails
-   * @throws NullpointerException if {@code pRtx} is {@code null}
+   * @throws NullPointerException if {@code rtx} is {@code null}
    */
   XmlNodeTrx copySubtreeAsLeftSibling(XmlNodeReadOnlyTrx rtx);
 
@@ -150,7 +150,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param rtx read transaction reference which implements the {@link XmlNodeReadOnlyTrx} interface
    * @return the transaction instance
    * @throws SirixException if anything in sirix fails
-   * @throws NullpointerException if {@code pRtx} is {@code null}
+   * @throws NullPointerException if {@code rtx} is {@code null}
    */
   XmlNodeTrx copySubtreeAsRightSibling(XmlNodeReadOnlyTrx rtx);
 
@@ -161,8 +161,8 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param reader an XML reader
    * @return the transaction instance
    * @throws IOException if an I/O error occured
-   * @throws XMLStreamException if {@code pXML} is not well formed
-   * @throws NullpointerException if {@code pXML} is {@code null}
+   * @throws XMLStreamException if XML read by the reader is not well formed
+   * @throws NullPointerException if {@code reader} is {@code null}
    * @throws SirixException if anything in Sirix fails
    */
   XmlNodeTrx replaceNode(XMLEventReader reader);
@@ -171,7 +171,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * Replace a node with another node or subtree (the subtree rooted at the provided transaction),
    * depending on whether the replaced node is an {@code element}- or a {@code text-}node.
    *
-   * @param pNode a node from another resource
+   * @param rtx a read-only transaction, used to read from
    * @return the transaction instance
    * @throws SirixException if anything went wrong
    */
@@ -304,7 +304,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * Insert new element node as left sibling of currently selected node. The cursor is moved to the
    * inserted node.
    *
-   * @param pName {@link QNm} of node to insert
+   * @param name {@link QNm} of node to insert
    * @throws SirixException if element node couldn't be inserted as first child
    * @throws NullPointerException if {@code name} is {@code null}
    * @return the transaction instance
@@ -394,7 +394,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * Insert namespace declaration in currently selected node. The cursor is moved depending on the
    * value of {@code pMove}.
    *
-   * @param pName {@link QNm} reference
+   * @param name {@link QNm} reference
    * @return the current transaction
    * @throws SirixException if attribute couldn't be inserted
    * @throws NullPointerException if {@code name} or {@code move} is null
@@ -406,7 +406,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
-   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
    *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
@@ -421,7 +421,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
-   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
    *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs
@@ -436,7 +436,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    *
    * @param reader {@link XMLEventReader} instance maybe derived from
    *        {@link XmlShredder#createStringReader(String)},
-   *        {@link XmlShredder#createFileReader(java.io.File)} or
+   *        {@link XmlShredder#createFileReader(java.io.FileInputStream)} or
    *        {@link XmlShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException if an I/O error occurs or another sirix internal error occurs

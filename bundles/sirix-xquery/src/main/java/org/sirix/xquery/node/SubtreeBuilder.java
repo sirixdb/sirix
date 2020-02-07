@@ -10,6 +10,7 @@ import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.node.AbstractTemporalNode;
+import org.sirix.access.trx.node.xml.InternalXmlNodeTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbstractShredder;
@@ -19,8 +20,6 @@ import org.sirix.service.xml.shredder.InsertPosition;
  * Subtree builder to build a new tree.
  *
  * @author Johannes Lichtenberger
- *
- * @param <E> temporal node which extends {@link AbstractTemporalNode}
  */
 public final class SubtreeBuilder extends AbstractShredder implements SubtreeHandler {
 
@@ -51,13 +50,15 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   /**
    * Constructor.
    *
-   * @param wtx Sirix {@link IWriteTransaction}
+   * @param collection the database collection
+   * @param wtx the read/write transaction
    * @param insertPos determines how to insert (as a right sibling, first child or left sibling)
    * @param listeners listeners which implement
    */
   public SubtreeBuilder(final XmlDBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
       final List<SubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
+    ((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
     mCollection = checkNotNull(collection);
     mSubtreeProcessor = new SubtreeProcessor<>(checkNotNull(listeners));
     mWtx = checkNotNull(wtx);
@@ -130,6 +131,8 @@ public final class SubtreeBuilder extends AbstractShredder implements SubtreeHan
   public void endDocument() throws DocumentException {
     try {
       mSubtreeProcessor.notifyEndDocument();
+      ((InternalXmlNodeTrx) mWtx).adaptHashesInPostorderTraversal();
+      ((InternalXmlNodeTrx) mWtx).setBulkInsertion(false);
     } catch (final DocumentException e) {
       mSubtreeProcessor.notifyFail();
       throw e;

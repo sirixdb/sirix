@@ -41,12 +41,10 @@ public final class SirixXMarkTest extends XMarkTest {
   @Override
   public void setUp() throws Exception, FileNotFoundException {
     super.setUp();
-    // mTransaction = ((DBCollection) coll).beginTransaction();
   }
 
   @After
   public void commit() throws DocumentException {
-    // mTransaction.commit();
     mStore.close();
   }
 }
