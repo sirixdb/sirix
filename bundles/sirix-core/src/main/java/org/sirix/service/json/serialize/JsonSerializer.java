@@ -248,7 +248,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY) {
         appendObjectSeparator()
-                .appendObjectKeyValue(quote("descendantCount"), quote(String.valueOf(rtx.getDescendantCount())))
+                .appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()))
                 .appendObjectSeparator()
                 .appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
       }
