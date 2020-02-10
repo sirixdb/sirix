@@ -156,7 +156,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
    */
   AVLNode<K, V> getAVLNode() {
     assertNotClosed();
-    if (mCurrentNode.getKind() != NodeKind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() != NodeKind.XML_DOCUMENT) {
       @SuppressWarnings("unchecked")
       final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
       return node;
@@ -566,7 +566,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
     assertNotClosed();
     if (hasParent()) {
       if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        return NodeKind.XDM_DOCUMENT;
+        return NodeKind.XML_DOCUMENT;
       } else {
         final long nodeKey = mCurrentNode.getNodeKey();
         final NodeKind parentKind = moveToParent().trx().getKind();

@@ -12,7 +12,6 @@ import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Kind;
-import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.node.AbstractTemporalNode;
@@ -416,7 +415,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public Kind getKind() {
     moveRtx();
     switch (mRtx.getKind()) {
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
         return Kind.DOCUMENT;
       case ELEMENT:
         return Kind.ELEMENT;
@@ -474,7 +473,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
     final String value;
     switch (mKind) {
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
       case ELEMENT:
         value = expandString();
         break;

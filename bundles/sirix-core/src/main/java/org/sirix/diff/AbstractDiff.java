@@ -425,7 +425,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
     // Check for modifications.
     switch (newRtx.getKind()) {
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
       case TEXT:
       case ELEMENT:
         if (checkNodes(newRtx, oldRtx)) {

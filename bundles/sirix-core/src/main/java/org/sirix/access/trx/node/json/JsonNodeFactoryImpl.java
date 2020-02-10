@@ -56,8 +56,6 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
     mHashFunction = checkNotNull(hashFunction);
     mPageWriteTrx = checkNotNull(pageWriteTrx);
-    // pageWriteTrx.createNameKey("array", Kind.ARRAY);
-    // pageWriteTrx.createNameKey("object", Kind.ARRAY);
   }
 
   @Override

@@ -34,6 +34,20 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentPrettyPrinted() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(manager, writer).prettyPrint().build();
+      serializer.call();
+      System.out.println(writer.toString());
+//      assertEquals(JsonDocumentCreator.JSON, writer.toString());
+    }
+  }
+
+  @Test
   public void testJsonDocument() throws IOException {
     JsonTestHelper.createTestDocument();
 

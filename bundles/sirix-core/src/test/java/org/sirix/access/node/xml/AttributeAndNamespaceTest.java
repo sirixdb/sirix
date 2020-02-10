@@ -48,26 +48,26 @@ public class AttributeAndNamespaceTest {
 
   @Test
   public void testAttribute() throws SirixException {
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    assertEquals(1, holder.getXdmNodeReadTrx().getAttributeCount());
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
-    assertEquals("i", holder.getXdmNodeReadTrx().getName().getLocalName());
+    holder.getXmlNodeReadTrx().moveTo(1L);
+    assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
+    holder.getXmlNodeReadTrx().moveToAttribute(0);
+    assertEquals("i", holder.getXmlNodeReadTrx().getName().getLocalName());
 
-    holder.getXdmNodeReadTrx().moveTo(9L);
-    assertEquals(1, holder.getXdmNodeReadTrx().getAttributeCount());
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
+    holder.getXmlNodeReadTrx().moveTo(9L);
+    assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
+    holder.getXmlNodeReadTrx().moveToAttribute(0);
     assertEquals(
-        "p:x", new StringBuilder(holder.getXdmNodeReadTrx().getName().getPrefix()).append(
-            ":").append(holder.getXdmNodeReadTrx().getName().getLocalName()).toString());
-    assertEquals("ns", holder.getXdmNodeReadTrx().getName().getNamespaceURI());
+        "p:x", new StringBuilder(holder.getXmlNodeReadTrx().getName().getPrefix()).append(
+            ":").append(holder.getXmlNodeReadTrx().getName().getLocalName()).toString());
+    assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
   }
 
   @Test
   public void testNamespace() throws SirixException {
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    assertEquals(1, holder.getXdmNodeReadTrx().getNamespaceCount());
-    holder.getXdmNodeReadTrx().moveToNamespace(0);
-    assertEquals("p", holder.getXdmNodeReadTrx().getName().getPrefix());
-    assertEquals("ns", holder.getXdmNodeReadTrx().getName().getNamespaceURI());
+    holder.getXmlNodeReadTrx().moveTo(1L);
+    assertEquals(1, holder.getXmlNodeReadTrx().getNamespaceCount());
+    holder.getXmlNodeReadTrx().moveToNamespace(0);
+    assertEquals("p", holder.getXmlNodeReadTrx().getName().getPrefix());
+    assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
   }
 }

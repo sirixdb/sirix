@@ -48,7 +48,7 @@ public class NonStructuralWrapperAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     AbsAxisTest.testIAxisConventions(
         new NonStructuralWrapperAxis(new DescendantAxis(rtx)),

@@ -49,7 +49,7 @@ public class NodeFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveTo(9L);
     FilterTest.testFilterConventions(new NodeFilter(rtx), true);
 

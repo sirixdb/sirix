@@ -27,7 +27,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.XmlTestHelper;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
 
 public class NameFilterTest {
@@ -49,16 +49,16 @@ public class NameFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(9L);
-    FilterTest.testFilterConventions(new XdmNameFilter(rtx, "b"), true);
+    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), true);
 
     rtx.moveTo(4L);
-    FilterTest.testFilterConventions(new XdmNameFilter(rtx, "b"), false);
+    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
 
     rtx.moveTo(7L);
-    FilterTest.testFilterConventions(new XdmNameFilter(rtx, "b"), false);
+    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
   }
 
 }

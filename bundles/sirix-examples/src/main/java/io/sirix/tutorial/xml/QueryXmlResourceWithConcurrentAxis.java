@@ -20,7 +20,7 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.concurrent.ConcurrentAxis;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.shredder.XmlShredder;
 
@@ -80,13 +80,13 @@ public class QueryXmlResourceWithConcurrentAxis {
                     new NestedAxis(
                         new ConcurrentAxis<>(firstConcurrRtx,
                             new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
-                                new XdmNameFilter(firstRtx, "regions"))),
+                                new XmlNameFilter(firstRtx, "regions"))),
                         new ConcurrentAxis<>(secondConcurrRtx,
                             new FilterAxis<>(new ChildAxis(secondRtx),
-                                new XdmNameFilter(secondRtx, "africa")))),
+                                new XmlNameFilter(secondRtx, "africa")))),
                     new ConcurrentAxis<>(thirdConcurrRtx,
                         new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES),
-                            new XdmNameFilter(thirdRtx, "location"))));
+                            new XmlNameFilter(thirdRtx, "location"))));
 
             axis.forEach((unused) -> {
                 final var outputStream = new ByteArrayOutputStream();

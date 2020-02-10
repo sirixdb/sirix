@@ -51,7 +51,7 @@ public class AttributeAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new AttributeAxis(rtx), new long[] {});

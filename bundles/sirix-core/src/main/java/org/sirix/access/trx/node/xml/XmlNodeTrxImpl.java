@@ -651,7 +651,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     acquireLock();
     try {
       final NodeKind kind = mNodeReadOnlyTrx.getCurrentNode().getKind();
-      if (kind == NodeKind.ELEMENT || kind == NodeKind.XDM_DOCUMENT) {
+      if (kind == NodeKind.ELEMENT || kind == NodeKind.XML_DOCUMENT) {
         checkAccessAndCommit();
 
         final long parentKey = mNodeReadOnlyTrx.getCurrentNode().getNodeKey();
@@ -686,7 +686,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XDM_DOCUMENT) {
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT) {
         checkAccessAndCommit();
 
         final long key = getCurrentNode().getNodeKey();
@@ -970,8 +970,8 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     }
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != NodeKind.XDM_DOCUMENT
-          || (getCurrentNode().getKind() == NodeKind.XDM_DOCUMENT && insert == InsertPosition.AS_FIRST_CHILD))) {
+      if (getCurrentNode() instanceof StructNode && (getCurrentNode().getKind() != NodeKind.XML_DOCUMENT
+          || (getCurrentNode().getKind() == NodeKind.XML_DOCUMENT && insert == InsertPosition.AS_FIRST_CHILD))) {
         checkAccessAndCommit();
 
         // Insert new comment node.
@@ -1079,7 +1079,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XDM_DOCUMENT
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT
           && !value.isEmpty()) {
         checkAccessAndCommit();
 
@@ -1146,7 +1146,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     checkNotNull(value);
     acquireLock();
     try {
-      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XDM_DOCUMENT
+      if (getCurrentNode() instanceof StructNode && getCurrentNode().getKind() != NodeKind.XML_DOCUMENT
           && !value.isEmpty()) {
         checkAccessAndCommit();
 
@@ -1461,7 +1461,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     checkAccessAndCommit();
     acquireLock();
     try {
-      if (getCurrentNode().getKind() == NodeKind.XDM_DOCUMENT) {
+      if (getCurrentNode().getKind() == NodeKind.XML_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       } else if (getCurrentNode() instanceof StructNode) {
         final StructNode node = (StructNode) mNodeReadOnlyTrx.getCurrentNode();
@@ -1583,7 +1583,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
       page.removeName(node.getLocalNameKey(), nodeKind, mPageWriteTrx);
       page.removeName(node.getURIKey(), NodeKind.NAMESPACE, mPageWriteTrx);
 
-      assert nodeKind != NodeKind.XDM_DOCUMENT;
+      assert nodeKind != NodeKind.XML_DOCUMENT;
       if (mBuildPathSummary) {
         mPathSummaryWriter.remove(node, nodeKind, page);
       }
@@ -2429,7 +2429,7 @@ final class XmlNodeTrxImpl extends AbstractForwardingXmlNodeReadOnlyTrx implemen
     assert rtx.getRevisionNumber() == trx.getRevisionNumber();
     rtx.moveTo(trx.getNodeKey());
     assert rtx.getNodeKey() == trx.getNodeKey();
-    if (rtx.getKind() == NodeKind.XDM_DOCUMENT) {
+    if (rtx.getKind() == NodeKind.XML_DOCUMENT) {
       rtx.moveToFirstChild();
     }
     if (!(rtx.isStructuralNode())) {

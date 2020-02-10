@@ -49,7 +49,7 @@ public class PIFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveTo(8L);
     FilterTest.testFilterConventions(new PIFilter(rtx), false);
 

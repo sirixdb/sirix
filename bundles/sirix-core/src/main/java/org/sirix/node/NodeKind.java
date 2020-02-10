@@ -364,7 +364,7 @@ public enum NodeKind implements NodePersistenter {
 
   /** Node kind is document root. */
   // Virtualize document root node?
-  XDM_DOCUMENT((byte) 9, XmlDocumentRootNode.class) {
+  XML_DOCUMENT((byte) 9, XmlDocumentRootNode.class) {
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
         final PageReadOnlyTrx pageReadTrx) throws IOException {
@@ -1737,18 +1737,17 @@ public enum NodeKind implements NodePersistenter {
     final var isValueNode =
         kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
             || kind == NodeKind.NULL_VALUE;
-    if (isValueNode) {
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
-    } else {
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
+
+    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
+    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
+
+    if (!isValueNode) {
       putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
       putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getChildCount());
-    }
 
-    if (config.hashType != HashType.NONE && !isValueNode)
-      putVarLong(sink, nodeDel.getDescendantCount() - nodeDel.getChildCount());
+      if (config.hashType != HashType.NONE)
+        putVarLong(sink, nodeDel.getDescendantCount() - nodeDel.getChildCount());
+    }
   }
 
   private static final StructNodeDelegate deserializeStructDel(final NodeKind kind, final NodeDelegate nodeDel,

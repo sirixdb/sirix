@@ -56,19 +56,19 @@ public class DubFilterTest {
   @Test
   public void testDupElemination() throws SirixException {
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
+    holder.getXmlNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "child::node()/parent::node()"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node()"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "b/following-sibling::node()"), new long[] {8L, 9L, 13L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "b/following-sibling::node()"), new long[] {8L, 9L, 13L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "b/preceding::node()"), new long[] {4L, 8L, 7L, 6L, 5L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node()"), new long[] {4L, 8L, 7L, 6L, 5L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "//c/ancestor::node()"), new long[] {5L, 1L, 9L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node()"), new long[] {5L, 1L, 9L});
 
   }
 

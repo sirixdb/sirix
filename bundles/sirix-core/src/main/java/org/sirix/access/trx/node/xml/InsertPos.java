@@ -114,7 +114,7 @@ public enum InsertPos {
     void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) {
       assert wtx != null;
       assert rtx != null;
-      assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XDM_DOCUMENT;
+      assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XML_DOCUMENT;
       switch (rtx.getKind()) {
         case ELEMENT:
           wtx.insertElementAsFirstChild(rtx.getName());

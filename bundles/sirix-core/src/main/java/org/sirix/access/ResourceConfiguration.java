@@ -51,13 +51,9 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 /**
- * <h1>ResourceConfiguration</h1>
- *
- * <p>
  * Holds the settings for a resource which acts as a base for session that can not change. This
  * includes all settings which are persistent. Each {@link ResourceConfiguration} is furthermore
  * bound to one fixed database denoted by a related {@link DatabaseConfiguration}.
- * </p>
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger

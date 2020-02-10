@@ -55,25 +55,25 @@ public class SomeExprTest {
   @Test
   public void testEveryExpr() throws SirixException {
     final AbstractAxis axis1 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "some $child in child::node() satisfies $child/@i");
+        new XPathAxis(holder.getXmlNodeReadTrx(), "some $child in child::node() satisfies $child/@i");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
     final AbstractAxis axis2 =
-        new XPathAxis(holder.getXdmNodeReadTrx(), "some $child in child::node() satisfies $child/@abc");
+        new XPathAxis(holder.getXmlNodeReadTrx(), "some $child in child::node() satisfies $child/@abc");
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    final AbstractAxis axis3 = new XPathAxis(holder.getXdmNodeReadTrx(),
+    holder.getXmlNodeReadTrx().moveTo(1L);
+    final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(),
         "some $child in child::node() satisfies $child/attribute::attribute()");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
   }
 

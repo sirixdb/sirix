@@ -56,62 +56,62 @@ public class PredicateFilterAxisTest {
   public void testPredicates() throws SirixException {
 
     // Find descendants starting from nodeKey 0L (root).
-    holder.getXdmNodeReadTrx().moveToDocumentRoot();
+    holder.getXmlNodeReadTrx().moveToDocumentRoot();
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "/p:a[@i]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "/p:a[@i]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a/b[@p:x]"), new long[] {9L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a/b[@p:x]"), new long[] {9L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[text()]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[text()]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[element()]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[element()]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[node()/text()]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[node()/text()]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[./node()]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[./node()]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[./node()/node()/node()]"), new long[] {});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[./node()/node()/node()]"), new long[] {});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[//element()]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[//element()]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[/text()]"), new long[] {});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[/text()]"), new long[] {});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[3<4]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[3<4]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[13>=4]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[13>=4]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[13.0>=4]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[13.0>=4]"), new long[] {1L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[4 = 4]"), new long[] {1L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[4 = 4]"), new long[] {1L});
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[3=4]"), new long[] {});
-
-    AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "p:a[3.2 = 3.22]"), new long[] {});
-
-    holder.getXdmNodeReadTrx().moveTo(1L);
+    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[3=4]"), new long[] {});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "child::b[child::c]"), new long[] {5L, 9L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "p:a[3.2 = 3.22]"), new long[] {});
+
+    holder.getXmlNodeReadTrx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "child::*[text() or c]"), new long[] {5l, 9L});
+        new XPathAxis(holder.getXmlNodeReadTrx(), "child::b[child::c]"), new long[] {5L, 9L});
 
     AbsAxisTest.testIAxisConventions(
-        new XPathAxis(holder.getXdmNodeReadTrx(), "child::*[text() or c], /node(), //c"),
+        new XPathAxis(holder.getXmlNodeReadTrx(), "child::*[text() or c]"), new long[] {5l, 9L});
+
+    AbsAxisTest.testIAxisConventions(
+        new XPathAxis(holder.getXmlNodeReadTrx(), "child::*[text() or c], /node(), //c"),
         new long[] {5l, 9L, 1L, 7L, 11L});
 
   }

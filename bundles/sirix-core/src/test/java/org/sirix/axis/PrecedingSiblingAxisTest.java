@@ -48,7 +48,7 @@ public class PrecedingSiblingAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(12L);
     AbsAxisTest.testIAxisConventions(new PrecedingSiblingAxis(rtx), new long[] {11L});

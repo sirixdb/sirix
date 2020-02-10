@@ -49,14 +49,14 @@ public class ItemFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    holder.getXdmNodeReadTrx().moveTo(9L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getXmlNodeReadTrx().moveTo(9L);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getXmlNodeReadTrx()), true);
 
-    holder.getXdmNodeReadTrx().moveTo(3L);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getXmlNodeReadTrx().moveTo(3L);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getXmlNodeReadTrx()), true);
 
-    holder.getXdmNodeReadTrx().moveTo(2L);
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(new ItemFilter(holder.getXdmNodeReadTrx()), true);
+    holder.getXmlNodeReadTrx().moveTo(2L);
+    holder.getXmlNodeReadTrx().moveToAttribute(0);
+    FilterTest.testFilterConventions(new ItemFilter(holder.getXmlNodeReadTrx()), true);
   }
 }
