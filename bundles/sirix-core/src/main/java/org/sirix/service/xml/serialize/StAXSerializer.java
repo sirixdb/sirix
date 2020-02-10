@@ -166,7 +166,7 @@ public final class StAXSerializer implements XMLEventReader {
    */
   private void emitNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
         mEvent = mFac.createStartDocument();
         break;
       case ELEMENT:

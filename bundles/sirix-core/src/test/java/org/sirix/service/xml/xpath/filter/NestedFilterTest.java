@@ -34,7 +34,7 @@ import org.sirix.axis.filter.xml.ElementFilter;
 import org.sirix.axis.filter.xml.ItemFilter;
 import org.sirix.axis.filter.xml.NodeFilter;
 import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {
@@ -56,25 +56,25 @@ public class NestedFilterTest {
 
   @Test
   public void testFilterConvetions() throws SirixException {
-    holder.getXdmNodeReadTrx().moveTo(9L);
+    holder.getXmlNodeReadTrx().moveTo(9L);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getXdmNodeReadTrx(), List.of(new ItemFilter(holder.getXdmNodeReadTrx()),
-            new ElementFilter(holder.getXdmNodeReadTrx()), new XdmNameFilter(holder.getXdmNodeReadTrx(), "b"))),
+        new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
+                                                             new ElementFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
         true);
     FilterTest.testFilterConventions(
-        new NestedFilter(holder.getXdmNodeReadTrx(), List.of(new ItemFilter(holder.getXdmNodeReadTrx()),
-            new AttributeFilter(holder.getXdmNodeReadTrx()), new XdmNameFilter(holder.getXdmNodeReadTrx(), "b"))),
+        new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
+                                                             new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
         false);
 
-    holder.getXdmNodeReadTrx().moveTo(4L);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXdmNodeReadTrx(),
-        List.of(new NodeFilter(holder.getXdmNodeReadTrx()), new ElementFilter(holder.getXdmNodeReadTrx()))), false);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXdmNodeReadTrx(),
-        List.of(new NodeFilter(holder.getXdmNodeReadTrx()), new TextFilter(holder.getXdmNodeReadTrx()))), true);
+    holder.getXmlNodeReadTrx().moveTo(4L);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+        List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new ElementFilter(holder.getXmlNodeReadTrx()))), false);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+        List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new TextFilter(holder.getXmlNodeReadTrx()))), true);
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXdmNodeReadTrx(),
-        List.of(new AttributeFilter(holder.getXdmNodeReadTrx()), new XdmNameFilter(holder.getXdmNodeReadTrx(), "i"))), true);
+    holder.getXmlNodeReadTrx().moveTo(1L);
+    holder.getXmlNodeReadTrx().moveToAttribute(0);
+    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+        List.of(new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "i"))), true);
   }
 }

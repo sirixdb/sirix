@@ -88,7 +88,7 @@ public final class SAXSerializer extends org.sirix.service.AbstractSerializer<Xm
   @Override
   protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     switch (rtx.getKind()) {
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
         break;
       case ELEMENT:
         generateElement(rtx);

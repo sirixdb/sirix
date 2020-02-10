@@ -37,12 +37,8 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 /**
- * <h1>Database Configuration</h1>
- *
- * <p>
  * Represents a configuration of a database. Includes all settings which have to be made during the
  * creation of the database.
- * </p>
  *
  * @author Sebastian Graf, University of Konstanz
  */

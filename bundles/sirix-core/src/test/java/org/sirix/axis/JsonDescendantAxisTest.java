@@ -56,7 +56,7 @@ public class JsonDescendantAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new JsonDescendantAxis(rtx),
@@ -65,7 +65,7 @@ public class JsonDescendantAxisTest {
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new JsonDescendantAxis(rtx);
       }
@@ -77,7 +77,7 @@ public class JsonDescendantAxisTest {
         ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(1L);
         return new JsonDescendantAxis(rtx);
       }
@@ -88,7 +88,7 @@ public class JsonDescendantAxisTest {
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(9L);
         return new JsonDescendantAxis(rtx);
       }
@@ -99,7 +99,7 @@ public class JsonDescendantAxisTest {
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.<Long>emptyList(), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(13L);
         return new JsonDescendantAxis(rtx);
       }
@@ -108,7 +108,7 @@ public class JsonDescendantAxisTest {
 
   @Test
   public void testIterateIncludingSelf() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new JsonDescendantAxis(rtx, IncludeSelf.YES),
         new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
@@ -117,7 +117,7 @@ public class JsonDescendantAxisTest {
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveToDocumentRoot();
         return new JsonDescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -130,7 +130,7 @@ public class JsonDescendantAxisTest {
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(1L);
         return new JsonDescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -141,7 +141,7 @@ public class JsonDescendantAxisTest {
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(9L, 11L, 12L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(9L);
         return new JsonDescendantAxis(rtx, IncludeSelf.YES);
       }
@@ -152,7 +152,7 @@ public class JsonDescendantAxisTest {
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
-        final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+        final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
         rtx.moveTo(13L);
         return new JsonDescendantAxis(rtx, IncludeSelf.YES);
       }

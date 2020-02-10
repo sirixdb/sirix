@@ -76,7 +76,7 @@ public class XmlResourceManagerTest {
 
   @Test
   public void testClosed() {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.close();
 
     try {
@@ -101,7 +101,7 @@ public class XmlResourceManagerTest {
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       assertNotNull(wtx.moveToDocumentRoot());
-      assertEquals(NodeKind.XDM_DOCUMENT, wtx.getKind());
+      assertEquals(NodeKind.XML_DOCUMENT, wtx.getKind());
 
       assertNotNull(wtx.moveToFirstChild());
       assertEquals(NodeKind.ELEMENT, wtx.getKind());
@@ -114,7 +114,7 @@ public class XmlResourceManagerTest {
 
   @Test
   public void testRevision() {
-    XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     assertEquals(0L, rtx.getRevisionNumber());
 
     try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {

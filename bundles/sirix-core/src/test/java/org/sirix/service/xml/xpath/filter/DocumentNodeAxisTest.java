@@ -50,30 +50,30 @@ public class DocumentNodeAxisTest {
   @Test
   public void testIterate() throws SirixException {
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
+    holder.getXmlNodeReadTrx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(
-        new DocumentNodeAxis(holder.getXdmNodeReadTrx()),
+        new DocumentNodeAxis(holder.getXmlNodeReadTrx()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
-    holder.getXdmNodeReadTrx().moveTo(5L);
+    holder.getXmlNodeReadTrx().moveTo(5L);
     AbsAxisTest.testIAxisConventions(
-        new DocumentNodeAxis(holder.getXdmNodeReadTrx()),
+        new DocumentNodeAxis(holder.getXmlNodeReadTrx()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
-    holder.getXdmNodeReadTrx().moveTo(9L);
+    holder.getXmlNodeReadTrx().moveTo(9L);
     AbsAxisTest.testIAxisConventions(
-        new DocumentNodeAxis(holder.getXdmNodeReadTrx()),
+        new DocumentNodeAxis(holder.getXmlNodeReadTrx()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
-    holder.getXdmNodeReadTrx().moveTo(9L);
-    holder.getXdmNodeReadTrx().moveToAttribute(0);
+    holder.getXmlNodeReadTrx().moveTo(9L);
+    holder.getXmlNodeReadTrx().moveToAttribute(0);
     AbsAxisTest.testIAxisConventions(
-        new DocumentNodeAxis(holder.getXdmNodeReadTrx()),
+        new DocumentNodeAxis(holder.getXmlNodeReadTrx()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
-    holder.getXdmNodeReadTrx().moveTo(13L);
+    holder.getXmlNodeReadTrx().moveTo(13L);
     AbsAxisTest.testIAxisConventions(
-        new DocumentNodeAxis(holder.getXdmNodeReadTrx()),
+        new DocumentNodeAxis(holder.getXmlNodeReadTrx()),
         new long[] {Fixed.ROOT_PAGE_KEY.getStandardProperty()});
 
   }

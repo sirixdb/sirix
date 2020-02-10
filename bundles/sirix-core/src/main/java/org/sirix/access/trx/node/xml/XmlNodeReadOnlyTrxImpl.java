@@ -169,7 +169,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
         return ImmutableAttributeNode.of((AttributeNode) mCurrentNode);
       case NAMESPACE:
         return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
-      case XDM_DOCUMENT:
+      case XML_DOCUMENT:
         return ImmutableDocumentNode.of((XmlDocumentRootNode) mCurrentNode);
       // $CASES-OMITTED$
       default:
@@ -269,7 +269,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
       helper.add("Value of Node", getValue());
     }
 
-    if (mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
       helper.addValue("Node is DocumentRoot");
     }
     helper.add("node", mCurrentNode.toString());
@@ -432,7 +432,7 @@ public final class XmlNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<XmlNodeRea
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    return mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT;
+    return mCurrentNode.getKind() == NodeKind.XML_DOCUMENT;
   }
 
   @Override

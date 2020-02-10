@@ -147,7 +147,7 @@ public final class XmlSerializer extends org.sirix.service.AbstractSerializer<Xm
   protected void emitNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       switch (rtx.getKind()) {
-        case XDM_DOCUMENT:
+        case XML_DOCUMENT:
           break;
         case ELEMENT:
           // Emit start element.

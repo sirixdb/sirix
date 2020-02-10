@@ -47,12 +47,12 @@ public final class AllTimeAxisTest {
   public void testAxis() throws SirixException {
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-        final XmlNodeReadOnlyTrx thirdReader = holder.getXdmNodeReadTrx()) {
+        final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(firstReader, secondReader, thirdReader), null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(holder.getResourceManager(), holder.getXdmNodeReadTrx());
+          return new AllTimeAxis<>(holder.getResourceManager(), holder.getXmlNodeReadTrx());
         }
       }.test();
     }

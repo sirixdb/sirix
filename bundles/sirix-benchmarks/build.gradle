@@ -1,0 +1,30 @@
+// https://docs.gradle.org/current/userguide/building_java_projects.html#sec:java_source_sets
+sourceSets {
+    jmh {
+        java.srcDirs = ['src/jmh/java']
+        resources.srcDirs = ['src/jmh/resources']
+        compileClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
+dependencies {
+    implementation project(':sirix-core')
+    implementation project(':sirix-xquery')
+
+    jmhImplementation 'org.openjdk.jmh:jmh-core:1.21'
+    jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.21'
+}
+
+// https://docs.gradle.org/current/dsl/org.gradle.api.tasks.JavaExec.html
+task jmh(type: JavaExec, dependsOn: jmhClasses) {
+    main = 'org.openjdk.jmh.Main'
+    classpath = sourceSets.jmh.compileClasspath + sourceSets.jmh.runtimeClasspath
+
+    // To enable the built-in stacktrace sampling profiler
+    // args = ['-prof', 'stack']
+}
+
+// to make sure benchmarks always get compiled
+classes.finalizedBy(jmhClasses)
+
+description = 'Sirix benchmarks.'

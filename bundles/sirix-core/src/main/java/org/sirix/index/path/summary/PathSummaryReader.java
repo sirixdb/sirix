@@ -729,7 +729,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public NodeKind getParentKind() {
     assertNotClosed();
     if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      return NodeKind.XDM_DOCUMENT;
+      return NodeKind.XML_DOCUMENT;
     }
     if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
@@ -750,7 +750,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   public int getReferences() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
       return 1;
     } else {
       return getPathNode().getReferences();
@@ -760,7 +760,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    if (mCurrentNode.getKind() == NodeKind.XDM_DOCUMENT) {
+    if (mCurrentNode.getKind() == NodeKind.XML_DOCUMENT) {
       return true;
     }
     return false;

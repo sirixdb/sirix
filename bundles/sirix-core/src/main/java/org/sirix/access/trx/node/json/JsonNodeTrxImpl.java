@@ -1947,7 +1947,7 @@ final class JsonNodeTrxImpl extends AbstractForwardingJsonNodeReadOnlyTrx implem
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
     @Override
-    public Thread newThread(final Runnable runnable) {
+    public Thread newThread(@Nonnull final Runnable runnable) {
       final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
 
       thread.setPriority(Thread.NORM_PRIORITY);
