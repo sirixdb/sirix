@@ -36,7 +36,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XmlShredder;
@@ -98,7 +98,7 @@ public final class ConcurrentAxisTest {
     final String query = "//regions/africa//location";
     // final String result = "<name>Limor Simone</name>";
     final int resultNumber = 55;
-    final Axis axis = new XPathAxis(holder.getXdmNodeReadTrx(), query);
+    final Axis axis = new XPathAxis(holder.getXmlNodeReadTrx(), query);
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
       axis.next();
@@ -115,11 +115,11 @@ public final class ConcurrentAxisTest {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var axis = new NestedAxis(new NestedAxis(
-        new FilterAxis<>(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-            new XdmNameFilter(holder.getXdmNodeReadTrx(), "regions")),
-        new FilterAxis<>(new ChildAxis(holder.getXdmNodeReadTrx()), new XdmNameFilter(holder.getXdmNodeReadTrx(), "africa"))),
-        new FilterAxis<>(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-            new XdmNameFilter(holder.getXdmNodeReadTrx(), "location")));
+        new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+            new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions")),
+        new FilterAxis<>(new ChildAxis(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "africa"))),
+        new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+            new XmlNameFilter(holder.getXmlNodeReadTrx(), "location")));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
@@ -151,11 +151,11 @@ public final class ConcurrentAxisTest {
             new NestedAxis(
                 new ConcurrentAxis<>(firstConcurrRtx,
                     new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
-                        new XdmNameFilter(firstRtx, "regions"))),
+                        new XmlNameFilter(firstRtx, "regions"))),
                 new ConcurrentAxis<>(secondConcurrRtx,
-                    new FilterAxis<>(new ChildAxis(secondRtx), new XdmNameFilter(secondRtx, "africa")))),
+                    new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
             new ConcurrentAxis<>(thirdConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XdmNameFilter(thirdRtx, "location"))));
+                new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
@@ -178,11 +178,11 @@ public final class ConcurrentAxisTest {
     final var axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis<>(firstConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-                    new XdmNameFilter(holder.getXdmNodeReadTrx(), "regions"))),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XdmNameFilter(firstConcurrRtx, "africa"))),
+                new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+                    new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
+            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
         new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-            new XdmNameFilter(firstConcurrRtx, "location")));
+            new XmlNameFilter(firstConcurrRtx, "location")));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());
@@ -205,11 +205,11 @@ public final class ConcurrentAxisTest {
     final var axis = new NestedAxis(
         new NestedAxis(
             new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-                new XdmNameFilter(firstConcurrRtx, "regions")),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XdmNameFilter(firstConcurrRtx, "africa"))),
+                new XmlNameFilter(firstConcurrRtx, "regions")),
+            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
         new ConcurrentAxis<>(firstConcurrRtx,
-            new FilterAxis<>(new DescendantAxis(holder.getXdmNodeReadTrx(), IncludeSelf.YES),
-                new XdmNameFilter(holder.getXdmNodeReadTrx(), "location"))));
+            new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+                new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
 
     for (int i = 0; i < resultNumber; i++) {
       assertEquals(true, axis.hasNext());

@@ -60,36 +60,36 @@ public class AndExprTest {
 
   @Test(expected = NoSuchElementException.class)
   public void testAnd() throws SirixException {
-    long iTrue = holder.getXdmNodeReadTrx().getItemList().addItem(new AtomicValue(true));
-    long iFalse = holder.getXdmNodeReadTrx().getItemList().addItem(new AtomicValue(false));
+    long iTrue = holder.getXmlNodeReadTrx().getItemList().addItem(new AtomicValue(true));
+    long iFalse = holder.getXmlNodeReadTrx().getItemList().addItem(new AtomicValue(false));
 
-    AbstractAxis trueLit1 = new LiteralExpr(holder.getXdmNodeReadTrx(), iTrue);
-    AbstractAxis trueLit2 = new LiteralExpr(holder.getXdmNodeReadTrx(), iTrue);
-    AbstractAxis falseLit1 = new LiteralExpr(holder.getXdmNodeReadTrx(), iFalse);
-    AbstractAxis falseLit2 = new LiteralExpr(holder.getXdmNodeReadTrx(), iFalse);
+    AbstractAxis trueLit1 = new LiteralExpr(holder.getXmlNodeReadTrx(), iTrue);
+    AbstractAxis trueLit2 = new LiteralExpr(holder.getXmlNodeReadTrx(), iTrue);
+    AbstractAxis falseLit1 = new LiteralExpr(holder.getXmlNodeReadTrx(), iFalse);
+    AbstractAxis falseLit2 = new LiteralExpr(holder.getXmlNodeReadTrx(), iFalse);
 
-    AbstractAxis axis1 = new AndExpr(holder.getXdmNodeReadTrx(), trueLit1, trueLit2);
+    AbstractAxis axis1 = new AndExpr(holder.getXmlNodeReadTrx(), trueLit1, trueLit2);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    AbstractAxis axis2 = new AndExpr(holder.getXdmNodeReadTrx(), trueLit1, falseLit1);
+    AbstractAxis axis2 = new AndExpr(holder.getXmlNodeReadTrx(), trueLit1, falseLit1);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    AbstractAxis axis3 = new AndExpr(holder.getXdmNodeReadTrx(), falseLit1, trueLit1);
+    AbstractAxis axis3 = new AndExpr(holder.getXmlNodeReadTrx(), falseLit1, trueLit1);
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    AbstractAxis axis4 = new AndExpr(holder.getXdmNodeReadTrx(), falseLit1, falseLit2);
+    AbstractAxis axis4 = new AndExpr(holder.getXmlNodeReadTrx(), falseLit1, falseLit2);
     assertEquals(true, axis4.hasNext());
     axis4.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
     axis4.next();
   }
@@ -97,40 +97,40 @@ public class AndExprTest {
   @Test
   public void testAndQuery() throws SirixException {
 
-    holder.getXdmNodeReadTrx().moveTo(1L);
+    holder.getXmlNodeReadTrx().moveTo(1L);
 
-    final AbstractAxis axis1 = new XPathAxis(holder.getXdmNodeReadTrx(), "text() and node()");
+    final AbstractAxis axis1 = new XPathAxis(holder.getXmlNodeReadTrx(), "text() and node()");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new XPathAxis(holder.getXdmNodeReadTrx(), "comment() and node()");
+    final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(), "comment() and node()");
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    final AbstractAxis axis3 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 eq 1 and 2 eq 2");
+    final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(), "1 eq 1 and 2 eq 2");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    final AbstractAxis axis4 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 eq 1 and 2 eq 3");
+    final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(), "1 eq 1 and 2 eq 3");
     assertEquals(true, axis4.hasNext());
     axis4.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
 
     // is never evaluated.
-    final AbstractAxis axis5 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 eq 2 and (3 idiv 0 = 1)");
+    final AbstractAxis axis5 = new XPathAxis(holder.getXmlNodeReadTrx(), "1 eq 2 and (3 idiv 0 = 1)");
     assertEquals(true, axis5.hasNext());
     axis5.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getXdmNodeReadTrx().getValue()));
+    assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis5.hasNext());
 
-    final AbstractAxis axis6 = new XPathAxis(holder.getXdmNodeReadTrx(), "1 eq 1 and 3 idiv 0 = 1");
+    final AbstractAxis axis6 = new XPathAxis(holder.getXmlNodeReadTrx(), "1 eq 1 and 3 idiv 0 = 1");
     try {
       assertEquals(true, axis6.hasNext());
       axis6.next();

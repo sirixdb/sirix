@@ -45,7 +45,7 @@ public final class DocumentRootNodeFilter extends AbstractFilter<XmlNodeReadOnly
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == NodeKind.XDM_DOCUMENT;
+    return getTrx().getKind() == NodeKind.XML_DOCUMENT;
   }
 
 }

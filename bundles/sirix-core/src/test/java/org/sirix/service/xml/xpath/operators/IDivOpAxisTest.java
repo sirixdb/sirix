@@ -61,17 +61,17 @@ public class IDivOpAxisTest {
     AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbstractAxis op1 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item1));
+        new LiteralExpr(holder.getXmlNodeReadTrx(), holder.getXmlNodeReadTrx().getItemList().addItem(item1));
     AbstractAxis op2 =
-        new LiteralExpr(holder.getXdmNodeReadTrx(), holder.getXdmNodeReadTrx().getItemList().addItem(item2));
-    AbstractObAxis axis = new IDivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+        new LiteralExpr(holder.getXmlNodeReadTrx(), holder.getXmlNodeReadTrx().getItemList().addItem(item2));
+    AbstractObAxis axis = new IDivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
     axis.next();
     // note: although getRawValue() returns [1], parseString returns ""
     // assertEquals(1,
     // Integer.parseInt(TypedValue.parseString(holder.getRtx().getRawValue())));
-    assertEquals(holder.getXdmNodeReadTrx().keyForName("xs:integer"), holder.getXdmNodeReadTrx().getTypeKey());
+    assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:integer"), holder.getXmlNodeReadTrx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }
@@ -79,40 +79,40 @@ public class IDivOpAxisTest {
   @Test
   public final void testGetReturnType() throws SirixException {
 
-    AbstractAxis op1 = new SequenceAxis(holder.getXdmNodeReadTrx());
-    AbstractAxis op2 = new SequenceAxis(holder.getXdmNodeReadTrx());
-    AbstractObAxis axis = new IDivOpAxis(holder.getXdmNodeReadTrx(), op1, op2);
+    AbstractAxis op1 = new SequenceAxis(holder.getXmlNodeReadTrx());
+    AbstractAxis op2 = new SequenceAxis(holder.getXmlNodeReadTrx());
+    AbstractObAxis axis = new IDivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
 
     assertEquals(
         Type.INTEGER,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:double"),
-            holder.getXdmNodeReadTrx().keyForName("xs:double")));
+            holder.getXmlNodeReadTrx().keyForName("xs:double"),
+            holder.getXmlNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.INTEGER,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXdmNodeReadTrx().keyForName("xs:double")));
+            holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
+            holder.getXmlNodeReadTrx().keyForName("xs:double")));
     assertEquals(
         Type.INTEGER,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:float"),
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal")));
+            holder.getXmlNodeReadTrx().keyForName("xs:float"),
+            holder.getXmlNodeReadTrx().keyForName("xs:decimal")));
     assertEquals(
         Type.INTEGER,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXdmNodeReadTrx().keyForName("xs:integer")));
+            holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
+            holder.getXmlNodeReadTrx().keyForName("xs:integer")));
     assertEquals(
         Type.INTEGER,
         axis.getReturnType(
-            holder.getXdmNodeReadTrx().keyForName("xs:integer"),
-            holder.getXdmNodeReadTrx().keyForName("xs:integer")));
+            holder.getXmlNodeReadTrx().keyForName("xs:integer"),
+            holder.getXmlNodeReadTrx().keyForName("xs:integer")));
 
     try {
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"),
-          holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"));
+          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+          holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -125,7 +125,7 @@ public class IDivOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:double"));
+          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"), holder.getXmlNodeReadTrx().keyForName("xs:double"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -138,8 +138,8 @@ public class IDivOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:string"),
-          holder.getXdmNodeReadTrx().keyForName("xs:yearMonthDuration"));
+          holder.getXmlNodeReadTrx().keyForName("xs:string"),
+          holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(
@@ -152,7 +152,7 @@ public class IDivOpAxisTest {
     try {
 
       axis.getReturnType(
-          holder.getXdmNodeReadTrx().keyForName("xs:dateTime"), holder.getXdmNodeReadTrx().keyForName("xs:IDREF"));
+          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"), holder.getXmlNodeReadTrx().keyForName("xs:IDREF"));
       fail("Expected an XPathError-Exception.");
     } catch (XPathError e) {
       assertThat(

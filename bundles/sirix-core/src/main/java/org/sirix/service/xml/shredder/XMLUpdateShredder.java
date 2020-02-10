@@ -251,7 +251,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // If no content is in the XML, a normal insertNewContent is executed.
         new XmlShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
-        if (mWtx.getKind() == NodeKind.XDM_DOCUMENT) {
+        if (mWtx.getKind() == NodeKind.XML_DOCUMENT) {
           // Find the start key for the update operation.
           long startkey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey).hasMoved()) {

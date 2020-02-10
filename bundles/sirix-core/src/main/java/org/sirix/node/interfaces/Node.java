@@ -35,10 +35,10 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
  */
 public interface Node extends ImmutableNode {
   // 2^128-1.
-  static final BigInteger MAX_POSITIVE_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
+  BigInteger MAX_POSITIVE_VALUE_128_BIT = new BigInteger("340282366920938463463374607431768211455");
 
   @Override
-  public NodeKind getKind();
+  NodeKind getKind();
 
   /**
    * Set a new DeweyID (may only be necessary during moves.)

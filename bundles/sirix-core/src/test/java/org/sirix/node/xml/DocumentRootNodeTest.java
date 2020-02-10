@@ -38,7 +38,6 @@ import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.settings.Fixed;
 import com.google.common.hash.Hashing;
 
@@ -83,8 +82,8 @@ public class DocumentRootNodeTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
     final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XDM_DOCUMENT.deserialize(new DataInputStream(in),
-        node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
+    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(new DataInputStream(in),
+                                                                                              node.getNodeKey(), node.getDeweyID().orElse(null), mPageReadTrx);
     check(node2);
   }
 
@@ -96,7 +95,7 @@ public class DocumentRootNodeTest {
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(0L, node.getChildCount());
-    assertEquals(NodeKind.XDM_DOCUMENT, node.getKind());
+    assertEquals(NodeKind.XML_DOCUMENT, node.getKind());
   }
 
 }

@@ -69,7 +69,7 @@ public final class XmlDocumentRootNode extends AbstractStructForwardingNode impl
 
   @Override
   public NodeKind getKind() {
-    return NodeKind.XDM_DOCUMENT;
+    return NodeKind.XML_DOCUMENT;
   }
 
   @Override

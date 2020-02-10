@@ -46,7 +46,7 @@ public final class LastAxisTest {
   @Test
   public void testAxis() throws SirixException {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final XmlNodeReadOnlyTrx thirdRtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
     new IteratorTester<XmlNodeReadOnlyTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx), null) {
       @Override

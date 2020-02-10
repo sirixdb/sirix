@@ -51,7 +51,7 @@ import org.sirix.axis.filter.xml.PIFilter;
 import org.sirix.axis.filter.xml.TextFilter;
 import org.sirix.axis.filter.xml.TypeFilter;
 import org.sirix.axis.filter.xml.WildcardFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.axis.filter.xml.WildcardFilter.EType;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.ValueNode;
@@ -1017,7 +1017,7 @@ public final class XPathParser {
 
       filter = parseWildcard(mIsAtt);
     } else {
-      filter = new XdmNameFilter(getTransaction(), parseQName());
+      filter = new XmlNameFilter(getTransaction(), parseQName());
     }
     return filter;
   }
@@ -1537,7 +1537,7 @@ public final class XPathParser {
 
       consume(TokenType.CLOSE_BR, true);
 
-      filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), stringLiteral)));
+      filter = new NestedFilter(getTransaction(), List.of(filter, new XmlNameFilter(getTransaction(), stringLiteral)));
     }
 
     return filter;
@@ -1571,7 +1571,7 @@ public final class XPathParser {
       // add name filter
       final String name = parseAttributeNameOrWildcard();
       if (!name.equals("*")) {
-        filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), name)));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new XmlNameFilter(getTransaction(), name)));
       } // if it is '*', all attributes are accepted, so the normal
         // attribute
         // filter is sufficient
@@ -1661,7 +1661,7 @@ public final class XPathParser {
 
       final String mName = parseElementNameOrWildcard();
       if (!mName.equals("*")) {
-        filter = new NestedFilter(getTransaction(), List.of(filter, new XdmNameFilter(getTransaction(), mName)));
+        filter = new NestedFilter(getTransaction(), List.of(filter, new XmlNameFilter(getTransaction(), mName)));
       } // if it is '*', all elements are accepted, so the normal element
         // filter is sufficient
 

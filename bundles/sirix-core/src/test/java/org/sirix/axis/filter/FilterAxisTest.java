@@ -31,7 +31,7 @@ import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.xml.ValueFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
 
 public class FilterAxisTest {
@@ -53,16 +53,16 @@ public class FilterAxisTest {
 
   @Test
   public void testNameAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
-        new FilterAxis(new DescendantAxis(rtx), new XdmNameFilter(rtx, "b")), new long[] {5L, 9L});
+        new FilterAxis(new DescendantAxis(rtx), new XmlNameFilter(rtx, "b")), new long[] {5L, 9L});
   }
 
   @Test
   public void testValueAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(
@@ -71,16 +71,16 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAndNameAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(1L);
     AbsAxisTest.testIAxisConventions(
-        new FilterAxis(new AttributeAxis(rtx), new XdmNameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
+        new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
         new long[] {3L});
 
     rtx.moveTo(9L);
     AbsAxisTest.testIAxisConventions(
-        new FilterAxis(new AttributeAxis(rtx), new XdmNameFilter(rtx, "y"), new ValueFilter(rtx, "y")),
+        new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "y"), new ValueFilter(rtx, "y")),
         new long[] {});
 
   }

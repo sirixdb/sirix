@@ -48,7 +48,7 @@ public class SelfAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveTo(4L);
     AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {4L});
 

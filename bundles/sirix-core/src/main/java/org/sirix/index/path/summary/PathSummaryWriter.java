@@ -25,7 +25,6 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.json.ImmutableObjectNode;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
@@ -129,7 +128,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   public long getPathNodeKey(final QNm name, final NodeKind pathKind) {
     final NodeKind kind = mNodeRtx.getNode().getKind();
     int level = 0;
-    if (kind == NodeKind.XDM_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
+    if (kind == NodeKind.XML_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
       mPathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     } else {
       movePathSummary();
@@ -270,7 +269,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         processFoundPathNode(oldPathNodeKey, mPathSummaryReader.getNodeKey(), node.getNodeKey(), uriKey, prefixKey,
             localNameKey, RemoveSubtreePath.YES, type);
       } else {
-        if (mPathSummaryReader.getKind() == NodeKind.XDM_DOCUMENT || mPathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
+        if (mPathSummaryReader.getKind() == NodeKind.XML_DOCUMENT || mPathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
           insertPathAsFirstChild(name, node.getKind(), 1);
         } else {
           /* The path summary just needs to be updated for the new renamed node. */
@@ -577,7 +576,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       mNodeRtx.moveToParent();
 
     int level = 0;
-    if (mNodeRtx.getKind() == NodeKind.XDM_DOCUMENT || mNodeRtx.getKind() == NodeKind.JSON_DOCUMENT) {
+    if (mNodeRtx.getKind() == NodeKind.XML_DOCUMENT || mNodeRtx.getKind() == NodeKind.JSON_DOCUMENT) {
       mPathSummaryReader.moveToDocumentRoot();
     } else {
       movePathSummary();

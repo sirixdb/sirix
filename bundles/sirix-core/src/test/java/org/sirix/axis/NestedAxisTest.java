@@ -31,7 +31,7 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.xml.NodeFilter;
 import org.sirix.axis.filter.xml.TextFilter;
-import org.sirix.axis.filter.xml.XdmNameFilter;
+import org.sirix.axis.filter.xml.XmlNameFilter;
 import org.sirix.exception.SirixException;
 
 public class NestedAxisTest {
@@ -53,16 +53,16 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
 
     // XPath expression /p:a/b/text()
     // Part: /p:a
-    final Axis childA = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "p:a"));
+    final Axis childA = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XmlNameFilter(rtx, "p:a"));
     // Part: /b
-    final Axis childB = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XdmNameFilter(rtx, "b"));
+    final Axis childB = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new XmlNameFilter(rtx, "b"));
     // Part: /text()
     final Axis text = new FilterAxis<XmlNodeReadOnlyTrx>(new ChildAxis(rtx), new TextFilter(rtx));
     // Part: /p:a/b/text()
@@ -73,18 +73,18 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest2() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     // Find descendants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
 
     // XPath expression /[:a/b/@p:x]
     // Part: /p:a
-    final Axis childA = new FilterAxis(new ChildAxis(rtx), new XdmNameFilter(rtx, "p:a"));
+    final Axis childA = new FilterAxis(new ChildAxis(rtx), new XmlNameFilter(rtx, "p:a"));
     // Part: /b
-    final Axis childB = new FilterAxis(new ChildAxis(rtx), new XdmNameFilter(rtx, "b"));
+    final Axis childB = new FilterAxis(new ChildAxis(rtx), new XmlNameFilter(rtx, "b"));
     // Part: /@x
-    final Axis attributeX = new FilterAxis(new AttributeAxis(rtx), new XdmNameFilter(rtx, "p:x"));
+    final Axis attributeX = new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "p:x"));
     // Part: /p:a/b/@p:x
     final Axis axis = new NestedAxis(new NestedAxis(childA, childB), attributeX);
 
@@ -94,14 +94,14 @@ public class NestedAxisTest {
 
   @Test
   public void testNestedAxisTest3() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     // Find desceFndants starting from nodeKey 0L (root).
     rtx.moveToDocumentRoot();
 
     // XPath expression p:a/node():
     // Part: /p:a
-    final Axis childA = new FilterAxis(new ChildAxis(rtx), new XdmNameFilter(rtx, "p:a"));
+    final Axis childA = new FilterAxis(new ChildAxis(rtx), new XmlNameFilter(rtx, "p:a"));
 
     // Part: /node()
     final Axis childNode = new FilterAxis(new ChildAxis(rtx), new NodeFilter(rtx));

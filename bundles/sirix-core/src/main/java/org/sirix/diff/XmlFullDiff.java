@@ -50,7 +50,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
   }
 
   @Override NodeKind documentNode() {
-    return NodeKind.XDM_DOCUMENT;
+    return NodeKind.XML_DOCUMENT;
   }
 
   @Override

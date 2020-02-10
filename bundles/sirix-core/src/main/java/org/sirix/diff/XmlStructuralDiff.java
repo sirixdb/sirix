@@ -45,7 +45,7 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
   }
 
   @Override NodeKind documentNode() {
-    return NodeKind.XDM_DOCUMENT;
+    return NodeKind.XML_DOCUMENT;
   }
 
   @Override

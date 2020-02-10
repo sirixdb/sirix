@@ -48,7 +48,7 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(12L);
     AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {9L, 1L});
@@ -65,7 +65,7 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventionsIncludingSelf() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXdmNodeReadTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(11L);
     AbsAxisTest.testIAxisConventions(
