@@ -234,19 +234,7 @@ public final class TypedValue {
       if (mValue == null || mValue.length() == 0) {
         bytes = EMPTY;
       } else {
-        final StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < mValue.length(); i++) {
-          switch (mValue.charAt(i)) {
-            case '&':
-              builder.append("&amp;");
-              break;
-            case '<':
-              builder.append("&lt;");
-              break;
-            default:
-              builder.append(mValue.charAt(i));
-          }
-        }
+        final StringBuilder builder = getBytesHelp(mValue);
         bytes = builder.toString().getBytes(Constants.DEFAULT_ENCODING);
 
         // bytes = value.replace("&", "&amp;").replace("<", "&lt;")
@@ -255,10 +243,30 @@ public final class TypedValue {
     } catch (final Exception e) {
       throw new RuntimeException("Could not convert String to byte[]: " + e.getLocalizedMessage());
     }
+
     return bytes;
   }
 
-  public static boolean equals(final byte[] mValue1, final byte[] mValue2) {
+  public static StringBuilder getBytesHelp(String mValue) {
+    final StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < mValue.length(); i++) {
+      switch (mValue.charAt(i)) {
+        case '&':
+          builder.append("&amp;");
+          break;
+        case '<':
+          builder.append("&lt;");
+          break;
+        default:
+          builder.append(mValue.charAt(i));
+      }
+    }
+
+    return builder;
+  }
+
+
+    public static boolean equals(final byte[] mValue1, final byte[] mValue2) {
     // Fail if one is null.
     if ((mValue1 == null) || (mValue2 == null)) {
       return false;
