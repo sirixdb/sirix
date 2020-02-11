@@ -285,32 +285,41 @@ public final class Calc {
     }
   }
 
+  /**
+   * Nulls in this project are viewed as EOF, thus it is often of interest when comparing two values which one is
+   * greatest to check if one is null or possible both and return which.
+   * @param v1 the first value to be tested.
+   * @param v2 the second value to be tested.
+   * @return -1, if v2 is null but not v1, 1 for vice versa, 0 for both being null, and int max for when neither is null.
+   */
+  private final static int comparsionOfNull(byte[] v1, byte[] v2){
+    if(v1 == null && v2 == null)
+      return 0;
+    else if(v1 != null && v2 == null)
+      return -1;
+    else if(v1 == null && v2 != null)
+      return 1;
+    else
+      return Integer.MAX_VALUE;
+  }
+
   public final static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len1 = v1.length;
-        int len2 = v2.length;
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          if (v1[pos] != v2[pos]) {
-            return v1[pos] - v2[pos];
-          }
-        }
-        return (len1 <= len2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
+    if(comparsionOfNull(v1, v2) != Integer.MAX_VALUE)
+      return comparsionOfNull(v1, v2);
+
+    int len1 = v1.length;
+    int len2 = v2.length;
+    int len = Math.min(len1, len2);
+    int pos = -1;
+    while (++pos < len) {
+      if (v1[pos] != v2[pos]) {
+        return v1[pos] - v2[pos];
       }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
     }
+    return (len1 <= len2) ? 0 : 1;
   }
+
 
   public static int compareU(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
@@ -370,31 +379,20 @@ public final class Calc {
 
   public final static int compareUAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len1 = v1.length;
-        int len2 = v2.length;
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          int b1 = v1[pos] & 0xFF;
-          int b2 = v2[pos] & 0xFF;
-          if (b1 != b2) {
-            return b1 - b2;
-          }
-        }
-        return (len1 <= len2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
+    if(comparsionOfNull(v1, v2) != Integer.MAX_VALUE)
+      return comparsionOfNull(v1, v2);
+    int len1 = v1.length;
+    int len2 = v2.length;
+    int len = Math.min(len1, len2);
+    int pos = -1;
+    while (++pos < len) {
+      int b1 = v1[pos] & 0xFF;
+      int b2 = v2[pos] & 0xFF;
+      if (b1 != b2) {
+        return b1 - b2;
       }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
     }
+    return (len1 <= len2) ? 0 : 1;
   }
 
   public static int compareUIntVar(byte[] v1, byte[] v2) {
