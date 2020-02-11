@@ -535,32 +535,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     // set the prefixbits
     for (int i = 0; i < prefix.length; i++) {
       if (prefix[i] == true) {
-        switch (bitIndex % 8) {
-          case 0:
-            byteArray[bitIndex / 8] |= 128;
-            break;
-          case 1:
-            byteArray[bitIndex / 8] |= 64;
-            break;
-          case 2:
-            byteArray[bitIndex / 8] |= 32;
-            break;
-          case 3:
-            byteArray[bitIndex / 8] |= 16;
-            break;
-          case 4:
-            byteArray[bitIndex / 8] |= 8;
-            break;
-          case 5:
-            byteArray[bitIndex / 8] |= 4;
-            break;
-          case 6:
-            byteArray[bitIndex / 8] |= 2;
-            break;
-          case 7:
-            byteArray[bitIndex / 8] |= 1;
-            break;
-        }
+
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,bitIndex % 8);
+
       }
       bitIndex++;
     }
@@ -571,32 +548,9 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
       k = k << divisionSize - prefix.length - i;
       if (suffix >= k) {
         suffix -= k;
-        switch (bitIndex % 8) {
-          case 0:
-            byteArray[bitIndex / 8] |= 128;
-            break;
-          case 1:
-            byteArray[bitIndex / 8] |= 64;
-            break;
-          case 2:
-            byteArray[bitIndex / 8] |= 32;
-            break;
-          case 3:
-            byteArray[bitIndex / 8] |= 16;
-            break;
-          case 4:
-            byteArray[bitIndex / 8] |= 8;
-            break;
-          case 5:
-            byteArray[bitIndex / 8] |= 4;
-            break;
-          case 6:
-            byteArray[bitIndex / 8] |= 2;
-            break;
-          case 7:
-            byteArray[bitIndex / 8] |= 1;
-            break;
-        }
+
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,bitIndex % 8);
+
       }
       bitIndex++;
     }
