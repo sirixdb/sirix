@@ -4,27 +4,32 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 
 public class JsonNumber {
+
+    static Number isDecimal(String stringValue){
+        Number number;
+
+        if (stringValue.contains("E") || stringValue.contains("e")) {
+            try {
+                number = Float.valueOf(stringValue);
+            } catch (final NumberFormatException eeee) {
+                throw new IllegalStateException(eeee);
+            }
+        } else {
+            try {
+                number = new BigDecimal(stringValue);
+            } catch (final NumberFormatException eeeeee) {
+                throw new IllegalStateException(eeeeee);
+            }
+        }
+
+        return number;
+    }
+
     public static Number stringToNumber(String stringValue) {
         Number number;
 
         if (stringValue.contains(".")) {
-            if (stringValue.contains("E") || stringValue.contains("e")) {
-                try {
-                    number = Float.valueOf(stringValue);
-                } catch (final NumberFormatException eeee) {
-                    try {
-                        number = Double.valueOf(stringValue);
-                    } catch (final NumberFormatException eeeee) {
-                        throw new IllegalStateException(eeeee);
-                    }
-                }
-            } else {
-                try {
-                    number = new BigDecimal(stringValue);
-                } catch (final NumberFormatException eeeeee) {
-                    throw new IllegalStateException(eeeeee);
-                }
-            }
+            number = isDecimal(stringValue);
         } else {
             try {
                 number = Integer.valueOf(stringValue);
@@ -40,6 +45,7 @@ public class JsonNumber {
                 }
             }
         }
+
         return number;
     }
 }
