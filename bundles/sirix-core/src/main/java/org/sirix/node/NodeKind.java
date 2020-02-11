@@ -81,9 +81,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
+
+
+@FunctionalInterface
+interface numberReader {
+  Number read() throws IOException;
+}
 
 /**
  * Enumeration for different nodes. All nodes are determined by a unique id.
@@ -1058,37 +1065,29 @@ public enum NodeKind implements NodePersistenter {
 
   /** JSON number value node. */
   OBJECT_NUMBER_VALUE((byte) 42, ObjectNumberNode.class) {
+
+
     @Override
     public Record deserialize(final DataInput source, final @Nonnegative long recordID, final SirixDeweyID deweyID,
-        final PageReadOnlyTrx pageReadTrx) throws IOException {
+                              final PageReadOnlyTrx pageReadTrx) throws IOException {
       final BigInteger hashCode = getHash(source, pageReadTrx);
       final byte valueType = source.readByte();
       final Number number;
 
-      switch (valueType) {
-        case 0:
-          number = source.readDouble();
-          break;
-        case 1:
-          number = source.readFloat();
-          break;
-        case 2:
-          number = source.readInt();
-          break;
-        case 3:
-          number = source.readLong();
-          break;
-        case 4:
-          number = deserializeBigInteger(source);
-          break;
-        case 5:
-          final BigInteger bigInt = deserializeBigInteger(source);
-          final int scale = source.readInt();
-          number = new BigDecimal(bigInt, scale);
-          break;
-        default:
-          throw new AssertionError("Type not known.");
+      var readers = new numberReader[] {
+              source::readDouble,
+              source::readFloat,
+              source::readInt,
+              source::readLong,
+              () -> deserializeBigInteger(source),
+              () -> new BigDecimal(deserializeBigInteger(source), source.readInt())
+      };
+
+      if(valueType > readers.length) {
+        throw new AssertionError("Type not known.");
       }
+
+      number = readers[valueType].read();
 
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, pageReadTrx);
