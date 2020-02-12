@@ -30,7 +30,7 @@ public final class JsonResourceStore extends AbstractResourceStore<JsonResourceM
    * Default constructor.
    */
   public JsonResourceStore() {
-    super(new ConcurrentHashMap<>(), null);
+    super(new ConcurrentHashMap<>(), new User("admin", UUID.randomUUID()));
   }
 
   /**

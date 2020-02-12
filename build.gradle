@@ -189,8 +189,8 @@ subprojects {
         useTestNG()
         useJUnit()
 
-        minHeapSize = '2g'
-        maxHeapSize = '15g'
+//        minHeapSize = '2g'
+//        maxHeapSize = '15g'
     }
 }
 

@@ -30,7 +30,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
    * Default constructor.
    */
   public XmlResourceStore() {
-    super(new ConcurrentHashMap<>(), null);
+    super(new ConcurrentHashMap<>(), new User("admin", UUID.randomUUID()));
   }
 
   /**
