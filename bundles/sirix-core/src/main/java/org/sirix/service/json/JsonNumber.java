@@ -5,7 +5,7 @@ import java.math.BigInteger;
 
 public class JsonNumber {
 
-    static Number isDecimal(String stringValue){
+    static Number stringDecimal(String stringValue) {
         Number number;
 
         if (stringValue.contains("E") || stringValue.contains("e")) {
@@ -29,7 +29,7 @@ public class JsonNumber {
         Number number;
 
         if (stringValue.contains(".")) {
-            number = isDecimal(stringValue);
+            number = stringDecimal(stringValue);
         } else {
             try {
                 number = Integer.valueOf(stringValue);
