@@ -44,7 +44,7 @@ class SirixVerticleJsonTest {
     fun setup(vertx: Vertx, testContext: VertxTestContext) {
         val options = DeploymentOptions().setConfig(
             JsonObject().put("https.port", 9443)
-                .put("client.secret", "78a294c4-0492-4e44-a35f-7eb9cab0d831")
+                .put("client.secret", "64aaf9b2-9ea1-43cd-bcb6-87d2f430aaa2")//78a294c4-0492-4e44-a35f-7eb9cab0d831")
                 .put("keycloak.url", "http://localhost:8080/auth/realms/sirixdb")
         )
         vertx.deployVerticle("org.sirix.rest.SirixVerticle", options, testContext.completing())
@@ -73,7 +73,7 @@ class SirixVerticleJsonTest {
 
     @Disabled("Disabled until we find out what happens on Travis!")
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a resource")
     fun testDeleteResource(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -121,7 +121,111 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the retrieval of the history of a resource")
+    fun testResourceHistory(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val expectedJson = """
+                    {"foo":["bar",null,2.33],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                """.trimIndent()
+
+                val json = """
+                 {
+                   "foo": ["bar", null, 2.33],
+                   "bar": { "hello": "world", "helloo": true },
+                   "baz": "hello",
+                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
+                 }
+                """.trimIndent()
+
+                val credentials = json {
+                    obj(
+                            "username" to "admin",
+                            "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJsonAwait(credentials)
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .sendBufferAwait(Buffer.buffer(json))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                            expectedJson.replace("\n", System.getProperty("line.separator")),
+                            httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
+                    )
+                }
+
+                httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                val hashCode = httpResponse.getHeader(HttpHeaders.ETAG.toString())
+
+                val expectUpdatedString = """
+                        {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+                    """.trimIndent()
+
+                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
+
+                httpResponse = client.postAbs(url).putHeader(
+                        HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                        .putHeader(HttpHeaders.ETAG.toString(), hashCode)
+                        .sendBufferAwait(Buffer.buffer("{\"tadaaa\":true}"))
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                            expectUpdatedString.replace("\n", System.getProperty("line.separator")),
+                            httpResponse.bodyAsString().replace("\r\n", System.getProperty("line.separator")),
+                            false
+                    )
+                }
+
+                httpResponse = client.getAbs("$server$serverPath/history").putHeader(
+                        HttpHeaders.AUTHORIZATION
+                                .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendAwait()
+
+                val expectedHistoryJsonString = """
+                    {"history":[{"revision":2,"revisionTimestamp":"2020-02-12T17:59:59.457Z","author":"admin","commitMessage":""},{"revision":1,"revisionTimestamp":"2020-02-12T17:59:59.457Z","author":"admin","commitMessage":""}]}
+                """.trimIndent()
+
+                testContext.verify {
+                    assertEquals(200, response.statusCode())
+                    JSONAssert.assertEquals(
+                            expectedHistoryJsonString.replace("\n", System.getProperty("line.separator")),
+                            httpResponse.bodyAsString().replace("\"revisionTimestamp\":\"(?!\").+?\"".toRegex(), "\"revisionTimestamp\":\"2020-02-12T17:59:59.457Z\""),
+                            false
+                    )
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the deletion of a database")
     fun testDeleteDatabase(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -424,7 +528,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing a simple query to get the node-key of a node")
     fun testGetQuery(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
@@ -499,7 +603,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 1000, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the creation and storage of a database/resource")
     fun testPut(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {

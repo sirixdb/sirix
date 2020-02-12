@@ -53,14 +53,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         return ctx.currentRoute()
     }
 
-    private suspend fun createMultipleResources(databaseName: String?, ctx: RoutingContext) {
+    private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
         val sirixDBUser = SirixDBUser.create(ctx)
-
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
         database.use {
@@ -99,7 +98,8 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         context: Context,
         ctx: RoutingContext
     ) {
-        val database = Databases.openJsonDatabase(dbFile)
+        val sirixDBUser = SirixDBUser.create(ctx)
+        val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
         database.use {
             val resConfig = ResourceConfiguration.Builder(resPathName).build()

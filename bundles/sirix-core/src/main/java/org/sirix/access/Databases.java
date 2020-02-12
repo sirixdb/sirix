@@ -101,10 +101,10 @@ public final class Databases {
             }
           } else {
             try {
-              returnVal =
-                  toCreate.getFileName().equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())
-                      ? true
-                      : Files.createFile(toCreate) != null;
+              if (!toCreate.getFileName().equals(DatabaseConfiguration.DatabasePaths.LOCK.getFile().getFileName())) {
+                Files.createFile(toCreate);
+              }
+              returnVal = true;
             } catch (final IOException e) {
               SirixFiles.recursiveRemove(dbConfig.getFile());
               throw new SirixIOException(e);
@@ -152,8 +152,7 @@ public final class Databases {
    * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
    * instance bound to the {@link File} is returned.
    *
-   * @param file determines where the database is located sessionConf a
-   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @param file determines where the database is located
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
@@ -168,8 +167,8 @@ public final class Databases {
    * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
    * instance bound to the {@link File} is returned.
    *
-   * @param file determines where the database is located sessionConf a
-   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @param file determines where the database is located
+   * @param user the user, who opens the database
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
@@ -184,8 +183,7 @@ public final class Databases {
    * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
    * instance bound to the {@link File} is returned.
    *
-   * @param file determines where the database is located sessionConf a
-   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @param file determines where the database is located
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
@@ -200,8 +198,7 @@ public final class Databases {
    * Open database. A database can be opened only once (even across JVMs). Afterwards a singleton
    * instance bound to the {@link File} is returned.
    *
-   * @param file determines where the database is located sessionConf a
-   *        {@link ResourceManagerConfiguration} object to set up the session
+   * @param file determines where the database is located
    * @return {@link Database} instance.
    * @throws SirixIOException if an I/O exception occurs
    * @throws SirixUsageException if Sirix is not used properly
@@ -235,9 +232,7 @@ public final class Databases {
    * @return {@code true}, if database exists, {@code false} otherwise
    */
   public static synchronized boolean existsDatabase(final Path dbPath) {
-    return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0
-        ? true
-        : false;
+    return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0;
   }
 
   /**
@@ -274,10 +269,6 @@ public final class Databases {
   public static synchronized boolean hasOpenResourceManagers(final Path file) {
     final Set<ResourceManager<?, ?>> resourceManagers = RESOURCE_MANAGERS.get(file);
 
-    if (resourceManagers == null || resourceManagers.isEmpty()) {
-      return false;
-    }
-
-    return true;
+    return resourceManagers != null && !resourceManagers.isEmpty();
   }
 }
