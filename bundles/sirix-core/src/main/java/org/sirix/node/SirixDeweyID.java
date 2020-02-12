@@ -536,7 +536,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     for (int i = 0; i < prefix.length; i++) {
       if (prefix[i] == true) {
 
-        byteArray[bitIndex / 8] |= (int) Math.pow(2,bitIndex % 8);
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
 
       }
       bitIndex++;
@@ -549,7 +549,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
       if (suffix >= k) {
         suffix -= k;
 
-        byteArray[bitIndex / 8] |= (int) Math.pow(2,bitIndex % 8);
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
 
       }
       bitIndex++;
