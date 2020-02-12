@@ -21,28 +21,10 @@
 
 package org.sirix.service.json.serialize;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
-import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.concurrent.ConcurrentMap;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.util.serialize.Serializer;
 import org.sirix.access.DatabaseConfiguration;
 import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
-import org.sirix.api.NodeReadOnlyTrx;
 import org.sirix.api.ResourceManager;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.api.json.JsonNodeTrx;
@@ -55,6 +37,24 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.ConcurrentMap;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
+import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
 
 /**
  * <h1>JsonSerializer</h1>
@@ -546,7 +546,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    */
   public static void main(final String... args) throws Exception {
     if (args.length < 2 || args.length > 3) {
-      throw new IllegalArgumentException("Usage: XMLSerializer input-TT output.xml");
+      throw new IllegalArgumentException("Usage: JsonSerializer database output.json");
     }
 
     LOGWRAPPER.info("Serializing '" + args[0] + "' to '" + args[1] + "' ... ");
