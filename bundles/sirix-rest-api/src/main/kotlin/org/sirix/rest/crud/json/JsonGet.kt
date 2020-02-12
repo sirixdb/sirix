@@ -51,16 +51,6 @@ class JsonGet(private val location: Path) {
         databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
         vertxContext: Context, user: User
     ) {
-        val history = ctx.pathParam("history")
-
-        if (history != null && databaseName != null && resource != null) {
-            vertxContext.executeBlockingAwait { _: Promise<Unit> ->
-                History().serialize(ctx, location, databaseName, resource)
-            }
-
-            return
-        }
-
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
         val startRevision: String? = ctx.queryParam("start-revision").getOrNull(0)

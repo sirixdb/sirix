@@ -32,6 +32,16 @@ class Get(private val location: Path) {
             jsonBody?.getString("query")
         }
 
+        val history = ctx.pathParam("history")
+
+        if (history != null && databaseName != null && resourceName != null) {
+            context.executeBlockingAwait { _: Promise<Unit> ->
+                History().serialize(ctx, location, databaseName, resourceName)
+            }
+
+            return ctx.currentRoute()
+        }
+
         val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT)
 
         if (databaseName == null && resourceName == null) {
