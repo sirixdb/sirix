@@ -15,37 +15,43 @@ public class TypedValueTest {
     public void getBytesTest(){
         //GIVEN
         String s = "hej";
-        byte[] b1 = s.getBytes(Constants.DEFAULT_ENCODING);
 
+        //WHEN
+        byte[] b1 = s.getBytes(Constants.DEFAULT_ENCODING);
         byte[] b2 = TypedValue.getBytes(s);
 
-        //should be true if the conversion has been carried out correctly
-        assertTrue(Arrays.equals(b1,b2));
+        //THEN
+        assertTrue("should be true if the conversion has been carried out correctly",Arrays.equals(b1,b2));
 
+        //GIVEN
         s = "";
-        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
 
+        //WHEN
+        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
         b2 = TypedValue.getBytes(s);
 
-        //should be true since we should get an empty byte array
-        assertTrue(Arrays.equals(b1,b2));
+        //THEN
+        assertTrue("should be true since we should get an empty byte array",Arrays.equals(b1,b2));
 
+        //GIVEN
         s = "&amp;";
-        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
 
+        //WHEN
+        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
         b2 = TypedValue.getBytes("&");
 
-        //should be true according to our specific conversion constraints
-        assertTrue(Arrays.equals(b1,b2));
+        //THEN
+        assertTrue("should be true according to our specific conversion constraints",Arrays.equals(b1,b2));
 
-
+        //GIVEN
         s = "&lt;";
-        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
 
+        //WHEN
+        b1 = s.getBytes(Constants.DEFAULT_ENCODING);
         b2 = TypedValue.getBytes("<");
         
-        //should be true according to our specific conversion constraints
-        assertTrue(Arrays.equals(b1,b2));
+        //THEN
+        assertTrue("should be true according to our specific conversion constraints",Arrays.equals(b1,b2));
 
 
     }
