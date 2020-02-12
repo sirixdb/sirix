@@ -53,7 +53,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         return ctx.currentRoute()
     }
 
-    private suspend fun createMultipleResources(databaseName: String?, ctx: RoutingContext) {
+    private suspend fun createMultipleResources(databaseName: String, ctx: RoutingContext) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
@@ -99,7 +99,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         context: Context,
         ctx: RoutingContext
     ) {
-        val database = Databases.openXmlDatabase(dbFile)
+        val sirixDBUser = SirixDBUser.create(ctx)
+        val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
         database.use {
             val resConfig = ResourceConfiguration.Builder(resPathName).build()

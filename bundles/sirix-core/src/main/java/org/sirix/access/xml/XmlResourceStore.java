@@ -2,6 +2,7 @@ package org.sirix.access.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
@@ -29,7 +30,7 @@ public final class XmlResourceStore extends AbstractResourceStore<XmlResourceMan
    * Default constructor.
    */
   public XmlResourceStore() {
-    super(new ConcurrentHashMap<>(), null);
+    super(new ConcurrentHashMap<>(), new User("admin", UUID.randomUUID()));
   }
 
   /**
