@@ -18,8 +18,6 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx
 import org.sirix.api.json.JsonResourceManager
 import org.sirix.exception.SirixUsageException
 import org.sirix.node.NodeKind
-import org.sirix.rest.crud.History
-import org.sirix.rest.crud.JsonLevelBasedSerializer
 import org.sirix.rest.crud.QuerySerializer
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.xquery.JsonDBSerializer
@@ -35,7 +33,7 @@ import java.time.ZoneId
 class JsonGet(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val databaseName: String? = ctx.pathParam("database")
+        val databaseName = ctx.pathParam("database")
         val resource: String? = ctx.pathParam("resource")
         val jsonBody = ctx.bodyAsJson
         val query: String? = ctx.queryParam("query").getOrElse(0) {
@@ -48,7 +46,7 @@ class JsonGet(private val location: Path) {
     }
 
     private suspend fun get(
-        databaseName: String?, ctx: RoutingContext, resource: String?, query: String?,
+        databaseName: String, ctx: RoutingContext, resource: String?, query: String?,
         vertxContext: Context, user: User
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
@@ -261,12 +259,16 @@ class JsonGet(private val location: Path) {
 
         val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
         val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
+        val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
         if (withMetaData != null)
             serializerBuilder.withMetaData(withMetaData.toBoolean())
 
         if (maxLevel != null)
             serializerBuilder.maxLevel(maxLevel.toLong())
+
+        if (prettyPrint != null)
+            serializerBuilder.prettyPrint()
 
         val serializer = serializerBuilder.build()
 
