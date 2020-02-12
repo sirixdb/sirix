@@ -1,13 +1,12 @@
 package org.sirix.service.json.shredder;
 
-import org.brackit.xquery.atomic.Int;
 import org.junit.Test;
 import org.sirix.service.json.JsonNumber;
 
 import java.math.BigInteger;
 
-import static org.junit.Assert.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
+import static org.testng.AssertJUnit.fail;
 
 
 public final class JsonNumberTest {
@@ -18,7 +17,7 @@ public final class JsonNumberTest {
         String s = Float.toString(f);
         Number n = JsonNumber.stringToNumber(s);
 
-        assertTrue(n instanceof Float );
+        assertTrue("Expected type is Float", n instanceof Float);
     }
 
 
@@ -28,7 +27,7 @@ public final class JsonNumberTest {
         String s = Long.toString(l);
         Number n = JsonNumber.stringToNumber(s);
 
-        assertTrue(n  instanceof Long );
+        assertTrue("Expected type is Long", n instanceof Long);
     }
 
 
@@ -38,7 +37,7 @@ public final class JsonNumberTest {
         String s = Integer.toString(i);
         Number n = JsonNumber.stringToNumber(s);
 
-        assertTrue(n  instanceof Integer );
+        assertTrue("Expected type is Integer", n instanceof Integer);
     }
 
 
@@ -48,7 +47,7 @@ public final class JsonNumberTest {
         String s = b.toString();
         Number n = JsonNumber.stringToNumber(s);
 
-        assertTrue(n  instanceof BigInteger );
+        assertTrue("Expected type is BigInteger", n instanceof BigInteger);
     }
 
     @Test
@@ -57,8 +56,9 @@ public final class JsonNumberTest {
 
         try {
             JsonNumber.stringToNumber(s);
+            fail("Expected IllegalStateException to be thrown");
         } catch(IllegalStateException e){
-        assertTrue(true);
+             assertTrue(true);
     }
     }
 
