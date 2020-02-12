@@ -42,8 +42,8 @@ public final class JsonSerializerTest {
         final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).prettyPrint().build();
       serializer.call();
-      System.out.println(writer.toString());
-//      assertEquals(JsonDocumentCreator.JSON, writer.toString());
+      final var expected = Files.readString(JSON.resolve("pretty-printed-test-doc.json"), StandardCharsets.UTF_8);
+      JSONAssert.assertEquals(expected, writer.toString(), true);
     }
   }
 

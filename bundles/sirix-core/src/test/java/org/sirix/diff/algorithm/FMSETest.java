@@ -1,40 +1,41 @@
 package org.sirix.diff.algorithm;
 
-import static java.util.stream.Collectors.toList;
-import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.List;
-import java.util.function.Predicate;
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
-import org.custommonkey.xmlunit.XMLTestCase;
 import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.XmlTestHelper;
 import org.sirix.XmlTestHelper.PATHS;
-import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.api.xml.XmlNodeTrx;
+import org.sirix.api.xml.XmlResourceManager;
 import org.sirix.diff.service.FMSEImport;
-import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XmlSerializer;
 import org.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.service.xml.shredder.XmlShredder;
+
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.List;
+import java.util.function.Predicate;
+
+import static java.util.stream.Collectors.toList;
 
 /**
  * Test the FMSE implementation.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class FMSETest extends XMLTestCase {
+public final class FMSETest {
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
   private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
@@ -88,15 +89,13 @@ public final class FMSETest extends XMLTestCase {
     XMLUnit.setIgnoreWhitespace(true);
   }
 
-  @Override
   @Before
-  public void setUp() throws SirixException {
+  public void setUp() {
     XmlTestHelper.deleteEverything();
   }
 
-  @Override
   @After
-  public void tearDown() throws SirixException, IOException {
+  public void tearDown() {
     XmlTestHelper.closeEverything();
   }
 
@@ -223,25 +222,12 @@ public final class FMSETest extends XMLTestCase {
    */
   private void test(final Path folder) throws Exception {
     try (var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      assert database != null;
       XmlResourceManager resource = database.openResourceManager(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).collect(toList());
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).collect(toList());
 
       // Sort files list according to file names.
-      list.sort((first, second) -> {
-        final String firstName =
-            first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-        final String secondName =
-            second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
-
-        if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
-          return -1;
-        } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
-          return +1;
-        } else {
-          return 0;
-        }
-      });
 
       boolean first = true;
 
@@ -250,15 +236,16 @@ public final class FMSETest extends XMLTestCase {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XmlNodeTrx wtx = resource.beginNodeTrx();
-                final FileInputStream fis = new FileInputStream(file.toFile())) {
+            try (final XmlNodeTrx wtx = resource.beginNodeTrx(); final FileInputStream fis = new FileInputStream(
+                file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+                                                                   InsertPosition.AS_FIRST_CHILD).commitAfterwards()
+                                                                                                 .build();
               shredder.call();
             }
           } else {
             FMSEImport.main(
-                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
+                new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString() });
           }
 
           resource.close();
@@ -279,20 +266,20 @@ public final class FMSETest extends XMLTestCase {
             System.err.println("***********************");
           }
 
-          assertTrue("pieces of XML are similar " + diff, diff.similar());
-          assertTrue("but are they identical? " + diff, diff.identical());
+          Assert.assertTrue("pieces of XML are similar " + diff, diff.similar());
+          Assert.assertTrue("but are they identical? " + diff, diff.identical());
         }
       }
-
-      // try (final var baos = new ByteArrayOutputStream(); final var writer = new PrintStream(baos)) {
-      // final XmlSerializer serializer =
-      // new XmlSerializerBuilder(resource, writer, -1).prettyPrint().serializeTimestamp(true).build();
-      // serializer.call();
-      //
-      // final var content = baos.toString(StandardCharsets.UTF_8);
-      //
-      // System.out.println(content);
-      // }
     }
+  }
+
+  private Comparator<Path> comparator() {
+    return (first, second) -> {
+      final String firstName = first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+      final String secondName = second.getFileName().toString().substring(0,
+                                                                          second.getFileName().toString().indexOf('.'));
+
+      return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
+    };
   }
 }
