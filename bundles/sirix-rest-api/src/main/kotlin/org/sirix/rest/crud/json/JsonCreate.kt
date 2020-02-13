@@ -113,6 +113,8 @@ class JsonCreate(private val location: Path, private val createMultipleResources
 
                 if (maxNodeKey < 5000) {
                     serializeJson(manager, ctx)
+                } else {
+                    ctx.response().setStatusCode(200).end()
                 }
             }
         }
