@@ -7,10 +7,14 @@ public class JsonNumber {
 
   static Number stringDecimal(String stringValue) {
     Number number;
-
+    Number n1 = Float.MAX_VALUE;
     try{
       if (stringValue.contains("E") || stringValue.contains("e")) {
+        number = Double.valueOf(stringValue);
+
+        if (number.doubleValue() <= n1.doubleValue()) {
           number = Float.valueOf(stringValue);
+        }
       } else {
           number = new BigDecimal(stringValue);
       }
@@ -20,6 +24,7 @@ public class JsonNumber {
 
     return number;
   }
+
 
   public static Number stringToNumber(String stringValue) {
     Number number;

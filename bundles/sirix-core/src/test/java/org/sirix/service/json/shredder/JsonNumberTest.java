@@ -13,11 +13,20 @@ public final class JsonNumberTest {
 
   @Test
   public void testFloat() {
-    Float f = Float.MAX_VALUE - 1;
-    String s = Float.toString(f);
+    double f = (double) Float.MAX_VALUE - 1;
+    String s = Double.toString(f);
     Number n = JsonNumber.stringToNumber(s);
 
     assertTrue("Expected type is Float", n instanceof Float);
+  }
+
+  @Test
+  public void testDouble() {
+    Double d = Double.MAX_VALUE - 1;
+    String s = Double.toString(d);
+    Number n = JsonNumber.stringToNumber(s);
+
+    assertTrue("Expected type is Double", n instanceof Double);
   }
 
 
