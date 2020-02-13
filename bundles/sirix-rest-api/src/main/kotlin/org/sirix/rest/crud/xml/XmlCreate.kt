@@ -116,6 +116,8 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
                 if (maxNodeKey < 5000) {
                     serializeXml(manager, ctx)
+                } else {
+                    ctx.response().setStatusCode(200).end()
                 }
             }
         }
