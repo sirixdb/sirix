@@ -8,13 +8,16 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.readFileAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
 import org.sirix.access.ResourceConfiguration
 import org.sirix.api.Database
+import org.sirix.api.json.JsonResourceManager
 import org.sirix.api.xml.XmlResourceManager
 import org.sirix.rest.crud.SirixDBUser
+import org.sirix.service.json.shredder.JsonShredder
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
@@ -74,7 +77,7 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
                 manager.use {
                     val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
-                    insertXdmSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8), context)
+                    insertXmlSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8))
                 }
             }
         }
@@ -89,14 +92,13 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        insertResource(dbFile, resPathName, dispatcher, resFileToStore, context, ctx)
+        insertResource(dbFile, resPathName, dispatcher, resFileToStore, ctx)
     }
 
     private suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         dispatcher: CoroutineDispatcher,
         resFileToStore: String,
-        context: Context,
         ctx: RoutingContext
     ) {
         val sirixDBUser = SirixDBUser.create(ctx)
@@ -110,24 +112,25 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             val manager = database.openResourceManager(resPathName)
 
             manager.use {
-                insertXdmSubtreeAsFirstChild(manager, resFileToStore, context)
-                serializeXml(manager, context, ctx)
+                val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, resFileToStore)
+
+                if (maxNodeKey < 5000) {
+                    serializeXml(manager, ctx)
+                }
             }
         }
     }
 
     private suspend fun serializeXml(
-        manager: XmlResourceManager, vertxContext: Context,
+        manager: XmlResourceManager,
         routingCtx: RoutingContext
     ) {
-        vertxContext.executeBlockingAwait { promise: Promise<Unit> ->
+        withContext(Dispatchers.IO) {
             val out = ByteArrayOutputStream()
             val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
             val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
             XmlSerializeHelper().serializeXml(serializer, out, routingCtx, manager, null)
-
-            promise.complete(null)
         }
     }
 
@@ -165,18 +168,16 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         }
     }
 
-    private suspend fun insertXdmSubtreeAsFirstChild(
-        manager: XmlResourceManager,
-        resFileToStore: String,
-        context: Context
-    ) {
-        context.executeBlockingAwait { promise: Promise<Nothing> ->
+    private suspend fun insertXmlSubtreeAsFirstChild(
+            manager: XmlResourceManager,
+            resFileToStore: String
+    ) : Long {
+        return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
-            wtx.use {
+            return@withContext wtx.use {
                 wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
+                return@use wtx.maxNodeKey
             }
-
-            promise.complete(null)
         }
     }
 }

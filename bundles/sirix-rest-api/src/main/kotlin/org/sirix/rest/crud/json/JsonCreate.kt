@@ -8,6 +8,7 @@ import io.vertx.kotlin.core.executeBlockingAwait
 import io.vertx.kotlin.core.file.readFileAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.sirix.access.DatabaseConfiguration
 import org.sirix.access.Databases
@@ -73,7 +74,7 @@ class JsonCreate(private val location: Path, private val createMultipleResources
 
                 manager.use {
                     val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
-                    insertJsonSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8), context)
+                    insertJsonSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8))
                 }
             }
         }
@@ -88,14 +89,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         val dispatcher = ctx.vertx().dispatcher()
         createDatabaseIfNotExists(dbFile, context)
 
-        insertResource(dbFile, resPathName, dispatcher, resFileToStore, context, ctx)
+        insertResource(dbFile, resPathName, dispatcher, resFileToStore, ctx)
     }
 
     private suspend fun insertResource(
         dbFile: Path?, resPathName: String,
         dispatcher: CoroutineDispatcher,
         resFileToStore: String,
-        context: Context,
         ctx: RoutingContext
     ) {
         val sirixDBUser = SirixDBUser.create(ctx)
@@ -109,21 +109,22 @@ class JsonCreate(private val location: Path, private val createMultipleResources
             val manager = database.openResourceManager(resPathName)
 
             manager.use {
-                insertJsonSubtreeAsFirstChild(manager, resFileToStore, context)
-                serializeJson(manager, context, ctx)
+                val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, resFileToStore)
+
+                if (maxNodeKey < 5000) {
+                    serializeJson(manager, ctx)
+                }
             }
         }
     }
 
-    private suspend fun serializeJson(manager: JsonResourceManager, vertxContext: Context, routingCtx: RoutingContext) {
-        vertxContext.executeBlockingAwait { promise: Promise<Unit> ->
+    private suspend fun serializeJson(manager: JsonResourceManager, routingCtx: RoutingContext) {
+        withContext(Dispatchers.IO) {
             val out = StringWriter()
             val serializerBuilder = JsonSerializer.newBuilder(manager, out)
             val serializer = serializerBuilder.build()
 
             JsonSerializeHelper().serialize(serializer, out, routingCtx, manager, null)
-
-            promise.complete(null)
         }
     }
 
@@ -163,16 +164,14 @@ class JsonCreate(private val location: Path, private val createMultipleResources
 
     private suspend fun insertJsonSubtreeAsFirstChild(
         manager: JsonResourceManager,
-        resFileToStore: String,
-        context: Context
-    ) {
-        context.executeBlockingAwait { promise: Promise<Unit> ->
+        resFileToStore: String
+    ) : Long {
+        return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
-            wtx.use {
+            return@withContext wtx.use {
                 wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(resFileToStore))
+                return@use wtx.maxNodeKey
             }
-
-            promise.complete(null)
         }
     }
 }
