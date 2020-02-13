@@ -1,5 +1,7 @@
 package org.sirix.utils;
 
+import org.checkerframework.checker.nullness.qual.NonNull;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
@@ -14,7 +16,7 @@ import java.util.Arrays;
 public final class Calc {
 
   private static final Charset UTF8 = Charset.forName("UTF-8");
-
+  private static final int NONENULL = Integer.MAX_VALUE;
   public static byte[] fromBigDecimal(BigDecimal i) {
     BigInteger bi = i.unscaledValue();
     byte[] tmp = bi.toByteArray();
@@ -152,7 +154,7 @@ public final class Calc {
 
   public static int toInt(byte[] b, int off) {
     return ((b[off++] & 0xFF) << 24) | ((b[off++] & 0xFF) << 16) | ((b[off++] & 0xFF) << 8)
-        | b[off] & 0xFF;
+        | (b[off++] & 0xFF);
   }
 
   public static byte[] fromInt(int i) {
@@ -231,58 +233,39 @@ public final class Calc {
 
   public static int compare(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len1 = v1.length;
-        int len2 = v2.length;
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          byte b1 = v1[pos];
-          byte b2 = v2[pos];
-          if (b1 != b2) {
-            return b1 - b2;
-          }
-        }
-        return len1 - len2;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+
+    int len1 = v1.length;
+    int len2 = v2.length;
+    int len = Math.min(len1, len2);
+    int pos = -1;
+    while (++pos < len) {
+      byte b1 = v1[pos];
+      byte b2 = v2[pos];
+      if (b1 != b2) {
+        return b1 - b2;
       }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
     }
+    return len1 - len2;
+
   }
 
   public static int compare(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          byte b1 = v1[off1 + pos];
-          byte b2 = v2[off2 + pos];
-          if (b1 != b2) {
-            return b1 - b2;
-          }
-        }
-        return len1 - len2;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    int len = Math.min(len1, len2);
+    int pos = -1;
+    while (++pos < len) {
+      byte b1 = v1[off1 + pos];
+      byte b2 = v2[off2 + pos];
+      if (b1 != b2) {
+        return b1 - b2;
       }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
     }
+    return len1 - len2;
+
   }
 
   /**
@@ -300,12 +283,12 @@ public final class Calc {
     else if(v1 == null && v2 != null)
       return 1;
     else
-      return Integer.MAX_VALUE;
+      return NONENULL;
   }
 
   public final static int compareAsPrefix(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if(comparsionOfNull(v1, v2) != Integer.MAX_VALUE)
+    if(comparsionOfNull(v1, v2) != NONENULL)
       return comparsionOfNull(v1, v2);
 
     int len1 = v1.length;
@@ -323,58 +306,23 @@ public final class Calc {
 
   public static int compareU(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len1 = v1.length;
-        int len2 = v2.length;
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          int b1 = v1[pos] & 0xFF;
-          int b2 = v2[pos] & 0xFF;
-          if (b1 != b2) {
-            return b1 - b2;
-          }
-        }
-        return len1 - len2;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    return compareU(v1, 0, v1.length, v2, 0, v2.length);
   }
 
   public static int compareU(byte[] v1, int off1, int len1, byte[] v2, int off2, int len2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int len = ((len1 <= len2) ? len1 : len2);
-        int pos = -1;
-        while (++pos < len) {
-          int b1 = v1[off1 + pos] & 0xFF;
-          int b2 = v2[off2 + pos] & 0xFF;
-          if (b1 != b2) {
-            return b1 - b2;
-          }
-        }
-        return len1 - len2;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    int len = Math.min(len1, len2);
+    int pos = -1;
+    while (++pos < len) {
+      int b1 = v1[off1 + pos] & 0xFF;
+      int b2 = v2[off2 + pos] & 0xFF;
+      if (b1 != b2) {
+        return b1 - b2;
       }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
     }
+    return len1 - len2;
   }
 
   public final static int compareUAsPrefix(byte[] v1, byte[] v2) {
@@ -397,181 +345,74 @@ public final class Calc {
 
   public static int compareUIntVar(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int i1 = toUIntVar(v1);
-        int i2 = toUIntVar(v2);
-        return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    int i1 = toUIntVar(v1);
+    int i2 = toUIntVar(v2);
+    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
   }
 
   public static int compareInt(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int i1 = toInt(v1);
-        int i2 = toInt(v2);
-        return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    return compareInt(v1, 0, v2, 0);
   }
 
   public static int compareInt(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        int i1 = toInt(v1, off1);
-        int i2 = toInt(v2, off2);
-        return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    int i1 = toInt(v1, off1);
+    int i2 = toInt(v2, off2);
+    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
   }
 
   public static int compareLong(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        long i1 = toLong(v1);
-        long i2 = toLong(v2);
-        return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    return compareLong(v1, 0, v2, 0);
   }
 
   public static int compareLong(byte[] v1, int off1, byte[] v2, int off2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        long i1 = toLong(v1, off1);
-        long i2 = toLong(v2, off2);
-        return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    long i1 = toLong(v1, off1);
+    long i2 = toLong(v2, off2);
+    return (i1 < i2) ? -1 : (i1 == i2) ? 0 : 1;
   }
 
   public static int compareDouble(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        double d1 = toDouble(v1);
-        double d2 = toDouble(v2);
-        return Double.compare(d1, d2);
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    double d1 = toDouble(v1);
+    double d2 = toDouble(v2);
+    return Double.compare(d1, d2);
   }
 
   public static int compareFloat(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        float f1 = toFloat(v1);
-        float f2 = toFloat(v2);
-        return Float.compare(f1, f2);
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if(comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    float f1 = toFloat(v1);
+    float f2 = toFloat(v2);
+    return Float.compare(f1, f2);
   }
 
   public static int compareBigInteger(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        BigInteger i1 = toBigInteger(v1);
-        BigInteger i2 = toBigInteger(v2);
-        return i1.compareTo(i2);
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+   if(comparsionOfNull(v1, v2) != NONENULL)
+     return comparsionOfNull(v1, v2);
+    BigInteger i1 = toBigInteger(v1);
+    BigInteger i2 = toBigInteger(v2);
+    return i1.compareTo(i2);
   }
 
   public static int compareBigDecimal(byte[] v1, byte[] v2) {
     // a null value is interpreted as EOF (= highest possible value)
-    if (v1 != null) {
-      if (v2 != null) {
-        BigDecimal i1 = toBigDecimal(v1);
-        BigDecimal i2 = toBigDecimal(v2);
-        return i1.compareTo(i2);
-      } else {
-        // v2 is EOF and definitely greater than v1
-        return -1;
-      }
-    } else if (v2 != null) {
-      // v1 is EOF and definitely greater than v2
-      return 1;
-    } else {
-      // both values are EOF
-      return 0;
-    }
+    if (comparsionOfNull(v1, v2) != NONENULL)
+      return comparsionOfNull(v1, v2);
+    BigDecimal i1 = toBigDecimal(v1);
+    BigDecimal i2 = toBigDecimal(v2);
+    return i1.compareTo(i2);
   }
 }
