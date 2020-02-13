@@ -490,77 +490,27 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
     int suffix;
     boolean[] prefix;
 
-    if (divisionValues[division] <= maxDivisionValue[0]) {
-      prefixLength = divisionLengthArray[0];
-      prefix = bitStringAsBoolean[0];
+    prefixLength = divisionLengthArray[divisionLengthArray.length-1];
+    prefix = bitStringAsBoolean[divisionLengthArray.length-1];
+    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length-2] - 1;
 
-      // the first row can't begin with 000, when prefix is false
-      // suffix=this.divisionValues[division];
-      // because Division-value 0 is allowed
-      suffix = divisionValues[division] + 1;
-    } else if (divisionValues[division] <= maxDivisionValue[1]) {
-      prefixLength = divisionLengthArray[1];
-      prefix = bitStringAsBoolean[1];
-      suffix = divisionValues[division] - maxDivisionValue[0] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[2]) {
-      prefixLength = divisionLengthArray[2];
-      prefix = bitStringAsBoolean[2];
-      suffix = divisionValues[division] - maxDivisionValue[1] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[3]) {
-      prefixLength = divisionLengthArray[3];
-      prefix = bitStringAsBoolean[3];
-      suffix = divisionValues[division] - maxDivisionValue[2] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[4]) {
-      prefixLength = divisionLengthArray[4];
-      prefix = bitStringAsBoolean[4];
-      suffix = divisionValues[division] - maxDivisionValue[3] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[5]) {
-      prefixLength = divisionLengthArray[5];
-      prefix = bitStringAsBoolean[5];
-      suffix = divisionValues[division] - maxDivisionValue[4] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[6]) {
-      prefixLength = divisionLengthArray[6];
-      prefix = bitStringAsBoolean[6];
-      suffix = divisionValues[division] - maxDivisionValue[5] - 1;
-    } else if (divisionValues[division] <= maxDivisionValue[7]) {
-      prefixLength = divisionLengthArray[7];
-      prefix = bitStringAsBoolean[7];
-      suffix = divisionValues[division] - maxDivisionValue[6] - 1;
-    } else {
-      prefixLength = divisionLengthArray[8];
-      prefix = bitStringAsBoolean[8];
-      suffix = divisionValues[division] - maxDivisionValue[7] - 1;
+    for (int i = 0; i < divisionLengthArray.length-2; i++){
+      if (divisionValues[division] <= maxDivisionValue[i]){
+        prefixLength = divisionLengthArray[i];
+        prefix = bitStringAsBoolean[i];
+        if (i != 0){
+          suffix = divisionValues[division] - maxDivisionValue[i-1] - 1;
+        }else{
+          suffix = divisionValues[division] + 1;
+        }
+        break;
+      }
     }
 
     // set the prefixbits
     for (int i = 0; i < prefix.length; i++) {
       if (prefix[i] == true) {
-        switch (bitIndex % 8) {
-          case 0:
-            byteArray[bitIndex / 8] |= 128;
-            break;
-          case 1:
-            byteArray[bitIndex / 8] |= 64;
-            break;
-          case 2:
-            byteArray[bitIndex / 8] |= 32;
-            break;
-          case 3:
-            byteArray[bitIndex / 8] |= 16;
-            break;
-          case 4:
-            byteArray[bitIndex / 8] |= 8;
-            break;
-          case 5:
-            byteArray[bitIndex / 8] |= 4;
-            break;
-          case 6:
-            byteArray[bitIndex / 8] |= 2;
-            break;
-          case 7:
-            byteArray[bitIndex / 8] |= 1;
-            break;
-        }
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
       }
       bitIndex++;
     }
@@ -571,32 +521,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
       k = k << divisionSize - prefix.length - i;
       if (suffix >= k) {
         suffix -= k;
-        switch (bitIndex % 8) {
-          case 0:
-            byteArray[bitIndex / 8] |= 128;
-            break;
-          case 1:
-            byteArray[bitIndex / 8] |= 64;
-            break;
-          case 2:
-            byteArray[bitIndex / 8] |= 32;
-            break;
-          case 3:
-            byteArray[bitIndex / 8] |= 16;
-            break;
-          case 4:
-            byteArray[bitIndex / 8] |= 8;
-            break;
-          case 5:
-            byteArray[bitIndex / 8] |= 4;
-            break;
-          case 6:
-            byteArray[bitIndex / 8] |= 2;
-            break;
-          case 7:
-            byteArray[bitIndex / 8] |= 1;
-            break;
-        }
+        byteArray[bitIndex / 8] |= (int) Math.pow(2,7-(bitIndex % 8));
       }
       bitIndex++;
     }
