@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "nodeKey": 1,
+    "hash": 305340252195044814438348444821654358174,
+    "type": "OBJECT",
+    "descendantCount": 24,
+    "childCount": 4
+  },
+  "value": [
+    {
+      "key": "foo",
+      "metadata": {
+        "nodeKey": 2,
+        "hash": 275945794113310493487988514221149559173,
+        "type": "OBJECT_KEY",
+        "descendantCount": 4
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 3,
+          "hash": 252942794292295168092480575238678272748,
+          "type": "ARRAY",
+          "descendantCount": 3,
+          "childCount": 3
+        },
+        "value": []
+      }
+    },
+    {
+      "key": "bar",
+      "metadata": {
+        "nodeKey": 7,
+        "hash": 40001479485052608217895737715539514036,
+        "type": "OBJECT_KEY",
+        "descendantCount": 5
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 8,
+          "hash": 73751573179234467128455108885345429123,
+          "type": "OBJECT",
+          "descendantCount": 4,
+          "childCount": 2
+        },
+        "value": {}
+      }
+    },
+    {
+      "key": "baz",
+      "metadata": {
+        "nodeKey": 13,
+        "hash": 240404994135296060572081930227552565227,
+        "type": "OBJECT_KEY",
+        "descendantCount": 1
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 14,
+          "hash": 220515060786386671479307723031094151045,
+          "type": "OBJECT_STRING_VALUE"
+        },
+        "value": "hello"
+      }
+    },
+    {
+      "key": "tada",
+      "metadata": {
+        "nodeKey": 15,
+        "hash": 112720078620732034568869098912130723939,
+        "type": "OBJECT_KEY",
+        "descendantCount": 10
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 16,
+          "hash": 119799366052102468568527128715115220687,
+          "type": "ARRAY",
+          "descendantCount": 9,
+          "childCount": 5
+        },
+        "value": []
+      }
+    }
+  ]
+}

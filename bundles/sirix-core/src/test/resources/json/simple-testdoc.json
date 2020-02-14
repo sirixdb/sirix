@@ -1,0 +1,17 @@
+[
+  {
+    "head": {
+      "test": [
+        "it works, again",
+        true
+      ],
+      "superb": 100
+    }
+  },
+  {
+    "body": [
+      "this is not a drill",
+      null
+    ]
+  }
+]

@@ -17,6 +17,8 @@ import org.sirix.JsonTestHelper.PATHS;
 import org.sirix.access.trx.node.json.objectvalue.StringValue;
 import org.sirix.exception.SirixException;
 import org.sirix.service.json.serialize.JsonSerializer;
+import org.sirix.service.json.shredder.JsonShredder;
+import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.JsonDocumentCreator;
 import org.skyscreamer.jsonassert.JSONAssert;
 
@@ -93,6 +95,44 @@ public final class JsonSerializerTest {
 
       final var expected = Files.readString(JSON.resolve("document-with-metadata.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString();
+      JSONAssert.assertEquals(expected, actual, true);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndMaxLevelAndPrettyPrinting() throws IOException {
+    JsonTestHelper.createTestDocument();
+
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      assertEquals(expected, actual);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndMaxLevelSecond() throws IOException {
+    final var jsonPath = JSON.resolve("simple-testdoc.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
       JSONAssert.assertEquals(expected, actual, true);
     }
   }
