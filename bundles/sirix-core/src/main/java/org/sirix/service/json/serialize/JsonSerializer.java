@@ -138,6 +138,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
             appendObjectEnd(rtx.hasChildren());
+            appendArrayEnd(rtx.hasChildren());
 
             if (mWithMetaData) {
               appendObjectEnd(rtx.hasChildren());
