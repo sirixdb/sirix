@@ -60,9 +60,7 @@ import static org.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_S
  * <h1>JsonSerializer</h1>
  *
  * <p>
- * Most efficient way to serialize a subtree into an OutputStream. The encoding always is UTF-8.
- * Note that the OutputStream internally is wrapped by a BufferedOutputStream. There is no need to
- * buffer it again outside of this class.
+ * Serializes a subtree into the JSON-format.
  * </p>
  */
 public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx, JsonNodeTrx> {
@@ -319,16 +317,17 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     try {
       switch (rtx.getKind()) {
         case ARRAY:
-          appendArrayEnd(rtx.hasChildren());
           if (mWithMetaData) {
-            appendObjectEnd(rtx.hasChildren());
+            appendArrayEnd(true).appendObjectEnd(true);
+          } else {
+            appendArrayEnd(shouldEmitChildren(rtx.hasChildren()));
           }
           break;
         case OBJECT:
           if (mWithMetaData) {
-            appendArrayEnd(rtx.hasChildren()).appendObjectEnd(rtx.hasChildren());
+            appendArrayEnd(true).appendObjectEnd(true);
           } else {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(shouldEmitChildren(rtx.hasChildren()));
           }
 
           if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {

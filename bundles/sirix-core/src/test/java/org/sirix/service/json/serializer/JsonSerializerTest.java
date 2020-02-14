@@ -138,6 +138,28 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentWithMetadataAndMaxLevelSecondAndPrettyPrinting() throws IOException {
+    final var jsonPath = JSON.resolve("simple-testdoc.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(3).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      System.out.println(actual);
+//      JSONAssert.assertEquals(expected, actual, true);
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMaxLevel() throws IOException {
     JsonTestHelper.createTestDocument();
 
