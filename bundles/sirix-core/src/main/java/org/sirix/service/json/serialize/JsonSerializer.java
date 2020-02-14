@@ -124,23 +124,28 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitNode(final JsonNodeReadOnlyTrx rtx) {
     try {
+      final var hasChildren = rtx.hasChildren();
+
       switch (rtx.getKind()) {
         case JSON_DOCUMENT:
           break;
         case OBJECT:
           emitMetaData(rtx);
 
-          if (mWithMetaData && rtx.hasFirstChild()) {
-            appendArrayStart(rtx.hasChildren());
+          if (mWithMetaData && hasChildren) {
+            appendArrayStart(hasChildren);
           }
 
-          appendObjectStart(rtx.hasChildren());
+          appendObjectStart(hasChildren);
 
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(hasChildren);
 
             if (mWithMetaData) {
-              appendObjectEnd(rtx.hasChildren());
+              if (!hasChildren) {
+                appendArrayEnd(false);
+              }
+              appendObjectEnd(hasChildren);
             }
 
             if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey)
@@ -150,12 +155,12 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
         case ARRAY:
           emitMetaData(rtx);
 
-          appendArrayStart(rtx.hasChildren());
+          appendArrayStart(hasChildren);
           if (!rtx.hasFirstChild() || (mVisitor != null && currentLevel() + 1 >= maxLevel())) {
-            appendArrayEnd(rtx.hasChildren());
+            appendArrayEnd(hasChildren);
 
             if (mWithMetaData) {
-              appendObjectEnd(rtx.hasChildren());
+              appendObjectEnd(hasChildren);
             }
 
             if (rtx.hasRightSibling()) {
@@ -165,18 +170,18 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           break;
         case OBJECT_KEY:
           if (mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey) {
-            appendObjectStart(rtx.hasChildren());
+            appendObjectStart(hasChildren);
             mHadToAddBracket = true;
           }
 
           if (mWithMetaData) {
             if (rtx.hasLeftSibling()) {
-              appendObjectStart(rtx.hasChildren());
+              appendObjectStart(hasChildren);
             }
             appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
                     .appendObjectSeparator()
                     .appendObjectKey(quote("metadata"))
-                    .appendObjectStart(rtx.hasChildren())
+                    .appendObjectStart(hasChildren)
                     .appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()))
                     .appendObjectSeparator()
                     .appendObjectKeyValue(quote("hash"), String.valueOf(rtx.getHash()))
@@ -184,7 +189,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                     .appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()))
                     .appendObjectSeparator()
                     .appendObjectKeyValue(quote("descendantCount"), String.valueOf(rtx.getDescendantCount()))
-                    .appendObjectEnd(rtx.hasChildren())
+                    .appendObjectEnd(hasChildren)
                     .appendObjectSeparator()
                     .appendObjectKey(quote("value"));
           } else {
@@ -196,7 +201,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           appendObjectValue(false, Boolean.valueOf(rtx.getValue()).toString());
           if (mWithMetaData) {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(hasChildren);
           }
           printCommaIfNeeded(rtx);
           break;
@@ -205,7 +210,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           appendObjectValue(false, "null");
           if (mWithMetaData) {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(hasChildren);
           }
           printCommaIfNeeded(rtx);
           break;
@@ -214,7 +219,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           appendObjectValue(false, rtx.getValue());
           if (mWithMetaData) {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(hasChildren);
           }
           printCommaIfNeeded(rtx);
           break;
@@ -223,7 +228,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           emitMetaData(rtx);
           appendObjectValue(false, quote(StringValue.escape(rtx.getValue())));
           if (mWithMetaData) {
-            appendObjectEnd(rtx.hasChildren());
+            appendObjectEnd(hasChildren);
           }
           printCommaIfNeeded(rtx);
           break;
