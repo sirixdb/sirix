@@ -138,6 +138,87 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectKeyStartNodeKey() throws IOException {
+    final var jsonPath = JSON.resolve("simple-testdoc.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(3).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      JSONAssert.assertEquals(expected, actual, true);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKey() throws IOException {
+    final var jsonPath = JSON.resolve("simple-testdoc.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(4).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-object.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      System.out.println(actual);
+      JSONAssert.assertEquals(expected, actual, true);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndArrayStartNodeKey() throws IOException {
+    final var jsonPath = JSON.resolve("simple-testdoc.json");
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(6).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-array.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      JSONAssert.assertEquals(expected, actual, true);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevel() throws IOException {
+    JsonTestHelper.createTestDocument();
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final Writer writer = new StringWriter()) {
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(15).maxLevel(2).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      assertEquals(expected, actual);
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMetadataAndMaxLevelSecondAndPrettyPrinting() throws IOException {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
