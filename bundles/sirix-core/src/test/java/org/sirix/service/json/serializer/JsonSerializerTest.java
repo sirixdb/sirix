@@ -202,7 +202,7 @@ public final class JsonSerializerTest {
   }
 
   @Test
-  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevel() throws IOException {
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevelTwo() throws IOException {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
@@ -211,7 +211,24 @@ public final class JsonSerializerTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(15).maxLevel(2).prettyPrint().build();
       serializer.call();
 
-      final var expected = Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var expected = Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"), StandardCharsets.UTF_8);
+      final var actual = writer.toString();
+
+      assertEquals(expected, actual);
+    }
+  }
+
+  @Test
+  public void testJsonDocumentWithMetadataAndPrettyPrintingAndObjectStartNodeKeyAndMaxLevelThree() throws IOException {
+    JsonTestHelper.createTestDocument();
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.openResourceManager(JsonTestHelper.RESOURCE);
+        final Writer writer = new StringWriter()) {
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(15).maxLevel(3).prettyPrint().build();
+      serializer.call();
+
+      final var expected = Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
