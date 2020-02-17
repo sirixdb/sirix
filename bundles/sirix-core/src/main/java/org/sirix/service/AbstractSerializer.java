@@ -106,7 +106,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
 
     final int nrOfRevisions = mRevisions.length;
     final int length = (nrOfRevisions == 1 && mRevisions[0] < 0)
-        ? (int) mResMgr.getMostRecentRevisionNumber()
+        ? mResMgr.getMostRecentRevisionNumber()
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {

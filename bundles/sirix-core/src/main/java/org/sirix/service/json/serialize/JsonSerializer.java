@@ -172,7 +172,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
 
           if (mWithMetaData) {
-            if (rtx.hasLeftSibling()) {
+            if (rtx.hasLeftSibling() && !(mStartNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == mStartNodeKey)) {
               appendObjectStart(true);
             }
             appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
@@ -335,14 +335,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           break;
         case OBJECT_KEY:
-          if (mWithMetaData) {
+          if (mWithMetaData || (mHadToAddBracket && rtx.getNodeKey() == mStartNodeKey)) {
             appendObjectEnd(true);
           }
           if (rtx.hasRightSibling() && rtx.getNodeKey() != mStartNodeKey) {
             appendObjectSeparator();
-          }
-          if (mHadToAddBracket && rtx.getNodeKey() == mStartNodeKey) {
-            appendObjectEnd(rtx.hasChildren());
           }
           break;
         // $CASES-OMITTED$
