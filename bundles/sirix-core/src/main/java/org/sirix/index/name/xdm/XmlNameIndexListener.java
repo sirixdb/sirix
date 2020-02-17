@@ -8,11 +8,11 @@ import org.sirix.index.name.NameIndexListener;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-final class XdmNameIndexListener implements ChangeListener {
+final class XmlNameIndexListener implements ChangeListener {
 
   private final NameIndexListener mIndexListener;
 
-  XdmNameIndexListener(final NameIndexListener indexListener) {
+  XmlNameIndexListener(final NameIndexListener indexListener) {
     mIndexListener = indexListener;
   }
 

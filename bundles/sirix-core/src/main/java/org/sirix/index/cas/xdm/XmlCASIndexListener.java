@@ -7,11 +7,11 @@ import org.sirix.index.cas.CASIndexListener;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
-public final class XdmCASIndexListener implements ChangeListener {
+public final class XmlCASIndexListener implements ChangeListener {
 
   private final CASIndexListener mIndexListenerDelegate;
 
-  public XdmCASIndexListener(final CASIndexListener indexListenerDelegate) {
+  public XmlCASIndexListener(final CASIndexListener indexListenerDelegate) {
     mIndexListenerDelegate = indexListenerDelegate;
   }
 

@@ -1,6 +1,6 @@
 package org.sirix.index.cas.xdm;
 
-import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.cas.CASIndexBuilder;
@@ -13,13 +13,13 @@ import org.sirix.node.immutable.xdm.ImmutableText;
  * @author Johannes Lichtenberger
  *
  */
-final class XdmCASIndexBuilder extends AbstractXdmNodeVisitor {
+final class XmlCASIndexBuilder extends AbstractXmlNodeVisitor {
 
   private final CASIndexBuilder mIndexBuilderDelegate;
 
   private final XmlNodeReadOnlyTrx mRtx;
 
-  XdmCASIndexBuilder(final CASIndexBuilder indexBuilderDelegate, final XmlNodeReadOnlyTrx rtx) {
+  XmlCASIndexBuilder(final CASIndexBuilder indexBuilderDelegate, final XmlNodeReadOnlyTrx rtx) {
     mIndexBuilderDelegate = indexBuilderDelegate;
     mRtx = rtx;
   }

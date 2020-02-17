@@ -13,8 +13,8 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.index.IndexBuilder;
 import org.sirix.index.IndexDef;
 import org.sirix.index.Indexes;
-import org.sirix.index.cas.xdm.XdmCASIndexImpl;
-import org.sirix.index.name.xdm.XdmNameIndexImpl;
+import org.sirix.index.cas.xdm.XmlCASIndexImpl;
+import org.sirix.index.name.xdm.XmlNameIndexImpl;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.index.path.xml.XmlPCRCollector;
@@ -43,7 +43,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
    * Constructor.
    */
   public XmlIndexController() {
-    super(new Indexes(), new HashSet<>(), new XmlPathIndexImpl(), new XdmCASIndexImpl(), new XdmNameIndexImpl());
+    super(new Indexes(), new HashSet<>(), new XmlPathIndexImpl(), new XmlCASIndexImpl(), new XmlNameIndexImpl());
   }
 
   @Override
