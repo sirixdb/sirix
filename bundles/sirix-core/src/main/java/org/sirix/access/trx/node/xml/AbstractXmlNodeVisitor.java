@@ -67,7 +67,7 @@ import org.sirix.node.immutable.xdm.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractXdmNodeVisitor implements XmlNodeVisitor {
+public abstract class AbstractXmlNodeVisitor implements XmlNodeVisitor {
   @Override
   public VisitResult visit(final ImmutablePI node) {
     return VisitResultType.CONTINUE;

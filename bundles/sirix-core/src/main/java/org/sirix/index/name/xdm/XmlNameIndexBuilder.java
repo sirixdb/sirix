@@ -1,15 +1,15 @@
 package org.sirix.index.name.xdm;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.access.trx.node.xml.AbstractXdmNodeVisitor;
+import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.name.NameIndexBuilder;
 import org.sirix.node.immutable.xdm.ImmutableElement;
 
-final class XdmNameIndexBuilder extends AbstractXdmNodeVisitor {
+final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor {
   private final NameIndexBuilder mBuilder;
 
-  XdmNameIndexBuilder(final NameIndexBuilder builder) {
+  XmlNameIndexBuilder(final NameIndexBuilder builder) {
     mBuilder = builder;
   }
 

@@ -7,28 +7,28 @@ import org.sirix.index.name.NameIndexListenerFactory;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
-public final class XdmNameIndexImpl implements XdmNameIndex {
+public final class XmlNameIndexImpl implements XmlNameIndex {
 
   private final NameIndexBuilderFactory mNameIndexBuilderFactory;
 
   private final NameIndexListenerFactory mNameIndexListenerFactory;
 
-  public XdmNameIndexImpl() {
+  public XmlNameIndexImpl() {
     mNameIndexBuilderFactory = new NameIndexBuilderFactory();
     mNameIndexListenerFactory = new NameIndexListenerFactory();
   }
 
   @Override
-  public XdmNameIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlNameIndexBuilder createBuilder(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexBuilderDelegate = mNameIndexBuilderFactory.create(pageWriteTrx, indexDef);
-    return new XdmNameIndexBuilder(nameIndexBuilderDelegate);
+    return new XmlNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public XdmNameIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+  public XmlNameIndexListener createListener(final PageTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexListenerDelegate = mNameIndexListenerFactory.create(pageWriteTrx, indexDef);
-    return new XdmNameIndexListener(nameIndexListenerDelegate);
+    return new XmlNameIndexListener(nameIndexListenerDelegate);
   }
 }
