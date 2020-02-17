@@ -239,7 +239,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   }
 
   private boolean shouldEmitChildren(boolean hasChildren) {
-    return (mVisitor == null && hasChildren) || (mVisitor != null && currentLevel() + 1 < maxLevel());
+    return (mVisitor == null && hasChildren) || (mVisitor != null && hasChildren && currentLevel() + 1 < maxLevel());
   }
 
   private void emitMetaData(JsonNodeReadOnlyTrx rtx) throws IOException {
