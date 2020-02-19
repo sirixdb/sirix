@@ -29,8 +29,8 @@ import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.node.NodeKind;
-import org.sirix.node.immutable.xdm.ImmutableElement;
-import org.sirix.node.immutable.xdm.ImmutableText;
+import org.sirix.node.immutable.xml.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutableText;
 
 /**
  * Label visitor. Treats empty-elements as internal nodes.

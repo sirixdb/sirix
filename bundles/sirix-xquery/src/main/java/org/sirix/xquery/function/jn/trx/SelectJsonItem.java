@@ -11,7 +11,7 @@ import org.sirix.api.json.JsonNodeReadOnlyTrx;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.jn.JNFun;
 import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.json.JsonUtil;
+import org.sirix.xquery.json.JsonItemFactory;
 
 /**
  * <p>
@@ -47,7 +47,7 @@ public final class SelectJsonItem extends AbstractFunction {
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
     if (rtx.moveTo(nodeKey).hasMoved()) {
-      return new JsonUtil().getSequence(rtx, node.getCollection());
+      return new JsonItemFactory().getSequence(rtx, node.getCollection());
     } else {
       throw new QueryException(new QNm("Couldn't select node."));
     }

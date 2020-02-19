@@ -4,7 +4,7 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.name.NameIndexBuilder;
-import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutableElement;
 
 final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor {
   private final NameIndexBuilder mBuilder;

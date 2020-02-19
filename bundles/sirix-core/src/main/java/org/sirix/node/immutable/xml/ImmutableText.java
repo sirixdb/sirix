@@ -1,48 +1,46 @@
-package org.sirix.node.immutable.xdm;
+package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
 import java.util.Optional;
 import javax.annotation.Nullable;
-import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.PINode;
+import org.sirix.node.xml.TextNode;
 
 /**
- * Immutable processing instruction node wrapper.
+ * Immutable text node wrapper.
  *
  * @author Johannes Lichtenberger
  *
  */
-public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode, ImmutableXmlNode {
-  /** Mutable {@link PINode}. */
-  private final PINode mNode;
+public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, ImmutableXmlNode {
+  /** Mutable {@link TextNode}. */
+  private final TextNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node {@link PINode} to wrap
+   * @param node {@link TextNode} to wrap
    */
-  private ImmutablePI(final PINode node) {
+  private ImmutableText(final TextNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
-   * Get an immutable processing instruction node instance.
+   * Get an immutable text node instance.
    *
-   * @param node the mutable {@link PINode} to wrap
-   * @return immutable processing instruction node instance
+   * @param node the mutable {@link TextNode} to wrap
+   * @return immutable text node instance
    */
-  public static ImmutablePI of(final PINode node) {
-    return new ImmutablePI(node);
+  public static ImmutableText of(final TextNode node) {
+    return new ImmutableText(node);
   }
 
   @Override
@@ -51,8 +49,8 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return mNode.isSameItem(other);
+  public boolean isSameItem(final @Nullable Node pOther) {
+    return mNode.isSameItem(pOther);
   }
 
   @Override
@@ -131,28 +129,13 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   }
 
   @Override
-  public int getLocalNameKey() {
-    return mNode.getLocalNameKey();
-  }
-
-  @Override
-  public int getPrefixKey() {
-    return mNode.getPrefixKey();
-  }
-
-  @Override
-  public int getURIKey() {
-    return mNode.getURIKey();
-  }
-
-  @Override
-  public long getPathNodeKey() {
-    return mNode.getPathNodeKey();
-  }
-
-  @Override
   public byte[] getRawValue() {
     return mNode.getRawValue();
+  }
+
+  @Override
+  public String getValue() {
+    return mNode.getValue();
   }
 
   @Override
@@ -173,16 +156,6 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
   @Override
   public String toString() {
     return mNode.toString();
-  }
-
-  @Override
-  public QNm getName() {
-    return mNode.getName();
-  }
-
-  @Override
-  public String getValue() {
-    return mNode.getValue();
   }
 
   @Override

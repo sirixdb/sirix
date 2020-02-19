@@ -20,7 +20,7 @@ class History {
     ) {
         val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 
-        val database =
+        @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") val database =
             try {
                 when (databaseType) {
                     DatabaseType.JSON -> Databases.openJsonDatabase(location.resolve(databaseName))

@@ -1,4 +1,4 @@
-package org.sirix.node.immutable.xdm;
+package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
@@ -10,41 +10,79 @@ import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
-import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.settings.Constants;
+import org.sirix.node.xml.ElementNode;
 
 /**
- * Immutable attribute node wrapper.
+ * Immutable element wrapper.
  *
  * @author Johannes Lichtenberger
  *
  */
-public final class ImmutableAttributeNode implements ImmutableValueNode, ImmutableNameNode, ImmutableXmlNode {
+public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode, ImmutableXmlNode {
 
-  /** Mutable {@link AttributeNode}. */
-  private final AttributeNode mNode;
+  /** Mutable {@link ElementNode}. */
+  private final ElementNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link AttributeNode}
+   * @param node mutable {@link ElementNode}
    */
-  private ImmutableAttributeNode(final AttributeNode node) {
+  private ImmutableElement(final ElementNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
-   * Get an immutable attribute node.
+   * Get an immutable element node instance.
    *
-   * @param node the {@link AttributeNode} which should be immutable
-   * @return an immutable instance
+   * @param node the mutable {@link ElementNode} to wrap
+   * @return immutable element instance
    */
-  public static ImmutableAttributeNode of(final AttributeNode node) {
-    return new ImmutableAttributeNode(node);
+  public static ImmutableElement of(final ElementNode node) {
+    return new ImmutableElement(node);
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return mNode.hasFirstChild();
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return mNode.hasLeftSibling();
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return mNode.hasRightSibling();
+  }
+
+  @Override
+  public long getChildCount() {
+    return mNode.getChildCount();
+  }
+
+  @Override
+  public long getDescendantCount() {
+    return mNode.getDescendantCount();
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return mNode.getFirstChildKey();
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return mNode.getLeftSiblingKey();
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return mNode.getRightSiblingKey();
   }
 
   @Override
@@ -113,11 +151,6 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   }
 
   @Override
-  public byte[] getRawValue() {
-    return mNode.getRawValue();
-  }
-
-  @Override
   public Optional<SirixDeweyID> getDeweyID() {
     return mNode.getDeweyID();
   }
@@ -137,14 +170,27 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
     return mNode.toString();
   }
 
-  @Override
-  public QNm getName() {
-    return mNode.getName();
+  /**
+   * Get the namespace count.
+   *
+   * @return namespace count
+   */
+  public int getNamespaceCount() {
+    return mNode.getNamespaceCount();
+  }
+
+  /**
+   * Get the attribute count.
+   *
+   * @return attribute count
+   */
+  public int getAttributeCount() {
+    return mNode.getAttributeCount();
   }
 
   @Override
-  public String getValue() {
-    return new String(((ValueNode) mNode).getRawValue(), Constants.DEFAULT_ENCODING);
+  public QNm getName() {
+    return mNode.getName();
   }
 
   @Override

@@ -53,6 +53,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
+  /** The hash code of the node. */
   private BigInteger mHash;
 
   /**
@@ -61,7 +62,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
    * @param nodeDel {@link NodeDelegate} reference
    * @param structDel {@link StructNodeDelegate} reference
    */
-  public JsonDocumentRootNode(final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
+  public JsonDocumentRootNode(@Nonnull final NodeDelegate nodeDel, @Nonnull final StructNodeDelegate structDel) {
     mNodeDel = checkNotNull(nodeDel);
     mStructNodeDel = checkNotNull(structDel);
   }

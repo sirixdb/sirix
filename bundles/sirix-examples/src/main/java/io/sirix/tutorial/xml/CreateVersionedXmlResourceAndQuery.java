@@ -9,8 +9,8 @@ import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
-import org.sirix.node.immutable.xdm.ImmutableElement;
-import org.sirix.node.immutable.xdm.ImmutableText;
+import org.sirix.node.immutable.xml.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutableText;
 
 import io.sirix.tutorial.Constants;
 

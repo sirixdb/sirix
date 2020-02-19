@@ -37,7 +37,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /** ID sequence. */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
-  /** {@link Sirix} database. */
+  /** Sirix database. */
   private final Database<JsonResourceManager> mDatabase;
 
   /** Unique ID. */

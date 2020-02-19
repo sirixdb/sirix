@@ -109,7 +109,7 @@ class XmlUpdate(private val location: Path) {
 
                 val out = ByteArrayOutputStream()
                 val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
-                val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
+                val serializer = serializerBuilder.startNodeKey(nodeId!!).emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
                 XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
             }

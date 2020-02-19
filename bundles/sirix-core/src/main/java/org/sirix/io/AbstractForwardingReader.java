@@ -1,12 +1,12 @@
 package org.sirix.io;
 
-import javax.annotation.Nullable;
+import com.google.common.collect.ForwardingObject;
 import org.sirix.api.PageReadOnlyTrx;
-import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.interfaces.Page;
-import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nullable;
 
 /**
  * Forwards all methods to the delegate.
@@ -20,13 +20,12 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   protected AbstractForwardingReader() {}
 
   @Override
-  public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx)
-      throws SirixIOException {
+  public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
     return delegate().read(reference, pageReadTrx);
   }
 
   @Override
-  public PageReference readUberPageReference() throws SirixIOException {
+  public PageReference readUberPageReference() {
     return delegate().readUberPageReference();
   }
 

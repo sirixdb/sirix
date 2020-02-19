@@ -45,6 +45,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 import org.sirix.access.ResourceConfiguration;
+import org.sirix.access.trx.node.HashType;
 import org.sirix.api.PageReadOnlyTrx;
 import org.sirix.api.PageTrx;
 import org.sirix.exception.SirixIOException;
@@ -303,6 +304,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
         serializeDeweyRecord(nextDeweyID, out);
         id = nextDeweyID;
       }
+    }
+
+    // Write hashes.
+    if (mResourceConfig.hashType != HashType.NONE) {
+
     }
 
     final var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);

@@ -1,45 +1,50 @@
-package org.sirix.node.immutable.xdm;
+package org.sirix.node.immutable.xml;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import java.math.BigInteger;
 import java.util.Optional;
+import javax.annotation.Nullable;
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.XmlNodeVisitor;
 import org.sirix.node.NodeKind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
-import org.sirix.settings.Fixed;
+import org.sirix.node.xml.AttributeNode;
+import org.sirix.settings.Constants;
 
 /**
- * Immutable document root node wrapper.
+ * Immutable attribute node wrapper.
  *
  * @author Johannes Lichtenberger
+ *
  */
-public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlNode {
+public final class ImmutableAttributeNode implements ImmutableValueNode, ImmutableNameNode, ImmutableXmlNode {
 
-  /** Mutable {@link XmlDocumentRootNode} instance. */
-  private final XmlDocumentRootNode mNode;
+  /** Mutable {@link AttributeNode}. */
+  private final AttributeNode mNode;
 
   /**
    * Private constructor.
    *
-   * @param node mutable {@link XmlDocumentRootNode}
+   * @param node mutable {@link AttributeNode}
    */
-  private ImmutableDocumentNode(final XmlDocumentRootNode node) {
+  private ImmutableAttributeNode(final AttributeNode node) {
     mNode = checkNotNull(node);
   }
 
   /**
-   * Get an immutable document root node instance.
+   * Get an immutable attribute node.
    *
-   * @param node the mutable {@link XmlDocumentRootNode} to wrap
-   * @return immutable document root node instance
+   * @param node the {@link AttributeNode} which should be immutable
+   * @return an immutable instance
    */
-  public static ImmutableDocumentNode of(final XmlDocumentRootNode node) {
-    return new ImmutableDocumentNode(node);
+  public static ImmutableAttributeNode of(final AttributeNode node) {
+    return new ImmutableAttributeNode(node);
   }
 
   @Override
@@ -48,8 +53,8 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   }
 
   @Override
-  public boolean isSameItem(Node other) {
-    return false;
+  public boolean isSameItem(final @Nullable Node other) {
+    return mNode.isSameItem(other);
   }
 
   @Override
@@ -88,43 +93,28 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   }
 
   @Override
-  public boolean hasFirstChild() {
-    return mNode.hasFirstChild();
+  public int getLocalNameKey() {
+    return mNode.getLocalNameKey();
   }
 
   @Override
-  public boolean hasLeftSibling() {
-    return false;
+  public int getPrefixKey() {
+    return mNode.getPrefixKey();
   }
 
   @Override
-  public boolean hasRightSibling() {
-    return false;
+  public int getURIKey() {
+    return mNode.getURIKey();
   }
 
   @Override
-  public long getChildCount() {
-    return mNode.getChildCount();
+  public long getPathNodeKey() {
+    return mNode.getPathNodeKey();
   }
 
   @Override
-  public long getDescendantCount() {
-    return mNode.getDescendantCount();
-  }
-
-  @Override
-  public long getFirstChildKey() {
-    return mNode.getFirstChildKey();
-  }
-
-  @Override
-  public long getLeftSiblingKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  @Override
-  public long getRightSiblingKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  public byte[] getRawValue() {
+    return mNode.getRawValue();
   }
 
   @Override
@@ -145,6 +135,16 @@ public class ImmutableDocumentNode implements ImmutableStructNode, ImmutableXmlN
   @Override
   public String toString() {
     return mNode.toString();
+  }
+
+  @Override
+  public QNm getName() {
+    return mNode.getName();
+  }
+
+  @Override
+  public String getValue() {
+    return new String(((ValueNode) mNode).getRawValue(), Constants.DEFAULT_ENCODING);
   }
 
   @Override

@@ -29,12 +29,6 @@ import org.sirix.node.immutable.json.ImmutableObjectNullNode;
 import org.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import org.sirix.node.immutable.json.ImmutableObjectStringNode;
 import org.sirix.node.immutable.json.ImmutableStringNode;
-import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
-import org.sirix.node.immutable.xdm.ImmutableComment;
-import org.sirix.node.immutable.xdm.ImmutableElement;
-import org.sirix.node.immutable.xdm.ImmutableNamespace;
-import org.sirix.node.immutable.xdm.ImmutablePI;
-import org.sirix.node.immutable.xdm.ImmutableText;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.ValueNode;
@@ -52,13 +46,6 @@ import org.sirix.node.json.ObjectNullNode;
 import org.sirix.node.json.ObjectNumberNode;
 import org.sirix.node.json.ObjectStringNode;
 import org.sirix.node.json.StringNode;
-import org.sirix.node.xml.AttributeNode;
-import org.sirix.node.xml.CommentNode;
-import org.sirix.node.xml.ElementNode;
-import org.sirix.node.xml.NamespaceNode;
-import org.sirix.node.xml.PINode;
-import org.sirix.node.xml.TextNode;
-import org.sirix.node.xml.XmlDocumentRootNode;
 import org.sirix.page.PageKind;
 import org.sirix.settings.Constants;
 import com.google.common.base.MoreObjects;
@@ -355,7 +342,9 @@ public final class JsonNodeReadOnlyTrxImpl extends AbstractNodeReadTrx<JsonNodeR
     }
 
     if (mCurrentNode.getKind() == NodeKind.BOOLEAN_VALUE || mCurrentNode.getKind() == NodeKind.STRING_VALUE
-        || mCurrentNode.getKind() == NodeKind.NUMBER_VALUE) {
+        || mCurrentNode.getKind() == NodeKind.NUMBER_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
+        || mCurrentNode.getKind() == NodeKind.OBJECT_NULL_VALUE || mCurrentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
+        || mCurrentNode.getKind() == NodeKind.OBJECT_STRING_VALUE) {
       helper.add("Value of Node", getValue());
     }
 
