@@ -203,6 +203,9 @@ public final class DiffFactory {
     /** Determines if subtrees are skipped after detecting an insert/delete... */
     transient boolean mSkipSubtrees = false;
 
+    /** The maximum depth. */
+      transient long mOldMaxDepth;
+
     /**
      * Constructor.
      *
@@ -243,6 +246,18 @@ public final class DiffFactory {
     public Builder<R, W> oldStartKey(final @Nonnegative long oldKey) {
       checkArgument(oldKey >= 0, "oldKey must be >= 0!");
       mOldStartKey = oldKey;
+      return this;
+    }
+
+    /**
+     * Set old max depth.
+     *
+     * @param oldMaxDepth maximum depth of traversal
+     * @return this builder
+     */
+    public Builder<R, W> oldMaxDepth(final @Nonnegative long oldMaxDepth) {
+      checkArgument(oldMaxDepth > 0, "oldMaxDepth must be > 0!");
+      mOldMaxDepth = oldMaxDepth;
       return this;
     }
 

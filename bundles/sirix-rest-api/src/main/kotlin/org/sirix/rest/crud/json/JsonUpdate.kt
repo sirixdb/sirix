@@ -69,7 +69,7 @@ class JsonUpdate(private val location: Path) {
                 val manager = database.openResourceManager(resPathName)
 
                 val wtx = manager.beginNodeTrx()
-                wtx.use {
+                val (maxNodeKey, hash) = wtx.use {
                     if (nodeId != null)
                         wtx.moveTo(nodeId)
 
@@ -92,13 +92,31 @@ class JsonUpdate(private val location: Path) {
 
                     if (insertionMode != null)
                         JsonInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, jsonReader)
+
+                    if (nodeId != null)
+                        wtx.moveTo(nodeId)
+
+                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        wtx.moveToFirstChild()
+
+                    Pair(wtx.maxNodeKey, wtx.hash)
                 }
 
-                val out = StringWriter()
-                val serializerBuilder = JsonSerializer.newBuilder(manager, out)
-                val serializer = serializerBuilder.startNodeKey(nodeId!!).build()
+                if (maxNodeKey > 5000) {
+                    ctx.response().statusCode = 200
 
-                JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+                    if (manager.resourceConfig.hashType == HashType.NONE) {
+                        ctx.response().end()
+                    } else {
+                        ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                    }
+                } else {
+                    val out = StringWriter()
+                    val serializerBuilder = JsonSerializer.newBuilder(manager, out)
+                    val serializer = serializerBuilder.build()
+
+                    JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
+                }
             }
 
             promise.complete(null)

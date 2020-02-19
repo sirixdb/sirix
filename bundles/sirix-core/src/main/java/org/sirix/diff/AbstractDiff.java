@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -21,9 +21,6 @@
 
 package org.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import org.sirix.access.trx.node.HashType;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -37,31 +34,52 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 /**
  * Abstract diff class which implements common functionality.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 @Nonnull
 abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends AbstractDiffObservable {
+  extends AbstractDiffObservable {
 
-  /** Determines transaction movement. */
+  /**
+   * The old maximum depth.
+   */
+  private final long mOldMaxDepth;
+
+  /**
+   * Determines transaction movement.
+   */
   private enum Move {
-    /** To the following node (next node in the following-axis). */
+    /**
+     * To the following node (next node in the following-axis).
+     */
     FOLLOWING,
 
-    /** Next node in document order. */
+    /**
+     * Next node in document order.
+     */
     DOCUMENT_ORDER
   }
 
-  /** Determines the current revision. */
+  /**
+   * Determines the current revision.
+   */
   private enum Revision {
-    /** Old revision. */
+    /**
+     * Old revision.
+     */
     OLD,
 
-    /** New revision. */
+    /**
+     * New revision.
+     */
     NEW
   }
 
@@ -79,16 +97,24 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private DiffType mDiff;
 
-  /** Diff kind. */
+  /**
+   * Diff kind.
+   */
   private DiffOptimized mDiffKind;
 
-  /** {@link DepthCounter} instance. */
+  /**
+   * {@link DepthCounter} instance.
+   */
   private final DepthCounter mDepth;
 
-  /** Key of "root" node in new revision. */
+  /**
+   * Key of "root" node in new revision.
+   */
   private long mRootKey;
 
-  /** Root key of old revision. */
+  /**
+   * Root key of old revision.
+   */
   private final long mOldRootKey;
 
   /**
@@ -103,19 +129,29 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private final boolean mOldRtxMoved;
 
-  /** Determines if the GUI uses the algorithm or not. */
+  /**
+   * Determines if the GUI uses the algorithm or not.
+   */
   private final boolean mIsGUI;
 
-  /** Determines if it's the first diff-comparison. */
+  /**
+   * Determines if it's the first diff-comparison.
+   */
   private boolean mIsFirst;
 
-  /** Read only transaction on new revision. */
+  /**
+   * Read only transaction on new revision.
+   */
   private final R mNewRtx;
 
-  /** Read only transaction on old revision. */
+  /**
+   * Read only transaction on old revision.
+   */
   private final R mOldRtx;
 
-  /** Determines if subtrees should be skipped or not. */
+  /**
+   * Determines if subtrees should be skipped or not.
+   */
   private final boolean mSkipSubtrees;
 
   /**
@@ -127,6 +163,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   AbstractDiff(final Builder<R, W> builder) throws SirixException {
     mSkipSubtrees = builder.mSkipSubtrees;
     mDiffKind = checkNotNull(builder).mKind;
+    mOldMaxDepth = builder.mOldMaxDepth;
     synchronized (builder.mResMgr) {
       mNewRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mNewRev);
       mOldRtx = builder.mResMgr.beginNodeReadOnlyTrx(builder.mOldRev);
@@ -195,8 +232,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     // Iterate over new revision (order of operators significant -- regarding
     // the OR).
     if (mDiff != DiffType.SAMEHASH) {
-      while ((mOldRtx.getKind() != documentNode() && mDiff == DiffType.DELETED)
-          || moveCursor(mNewRtx, Revision.NEW, Move.FOLLOWING)) {
+      while ((mOldRtx.getKind() != documentNode() && mDiff == DiffType.DELETED) || moveCursor(mNewRtx, Revision.NEW,
+        Move.FOLLOWING)) {
         if (mDiff != DiffType.INSERTED) {
           moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
         }
@@ -260,7 +297,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private void fireDeletes() {
     fireDiff(DiffType.DELETED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
-        new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+      new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
 
     mIsFirst = false;
 
@@ -280,7 +317,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    */
   private void fireInserts() {
     fireDiff(DiffType.INSERTED, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
-        new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
+      new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
 
     mIsFirst = false;
 
@@ -298,10 +335,10 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   /**
    * Move cursor one node forward in pre order.
    *
-   * @param rtx the transactional cursor to use
+   * @param rtx      the transactional cursor to use
    * @param revision the {@link Revision} constant
    * @return {@code true}, if cursor moved, {@code false} otherwise, if no nodes follow in document
-   *         order
+   * order
    */
   private boolean moveCursor(final R rtx, final Revision revision, final Move move) {
     assert rtx != null;
@@ -341,7 +378,8 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   private boolean moveToNext(final R rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
-      if (rtx.getKind() != documentNode() && mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) {
+      if (rtx.getKind() != documentNode() && mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH && (
+        mOldMaxDepth == 0 || mOldMaxDepth > 0 && mDepth.getOldDepth() <= mOldMaxDepth)) {
         moved = rtx.moveToRightSibling().hasMoved();
 
         if (!moved) {
@@ -350,7 +388,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       } else {
         moved = rtx.moveToFirstChild().hasMoved();
 
-        if (moved) {
+        if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {
           switch (revision) {
             case NEW:
               mDepth.incrementNewDepth();
@@ -378,7 +416,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   /**
    * Move to next following node.
    *
-   * @param rtx the transactional cursor to use
+   * @param rtx      the transactional cursor to use
    * @param revision the {@link Revision} constant
    * @return true, if cursor moved, false otherwise
    */
@@ -386,7 +424,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     boolean moved;
     while (!rtx.hasRightSibling() && rtx.hasParent() && rtx.getNodeKey() != mRootKey) {
       moved = rtx.moveToParent().hasMoved();
-      if (moved) {
+      if (moved && rtx.getKind() != NodeKind.OBJECT_KEY) {
         switch (revision) {
           case NEW:
             mDepth.decrementNewDepth();
@@ -413,7 +451,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param newRtx read-only transaction on new revision
    * @param oldRtx read-only transaction on old revision
-   * @param depth {@link DepthCounter} container for current depths of both transaction cursors
+   * @param depth  {@link DepthCounter} container for current depths of both transaction cursors
    * @return kind of difference
    */
   DiffType diff(final R newRtx, final R oldRtx, final DepthCounter depth) {
@@ -449,7 +487,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param newRtx read-only transaction on new revision
    * @param oldRtx read-only transaction on old revision
-   * @param depth {@link DepthCounter} container for current depths of both transaction cursors
+   * @param depth  {@link DepthCounter} container for current depths of both transaction cursors
    * @return kind of difference
    */
   DiffType optimizedDiff(final R newRtx, final R oldRtx, final DepthCounter depth) {
@@ -484,7 +522,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    *
    * @param newRtx read-only transaction on new revision
    * @param oldRtx read-only transaction on old revision
-   * @param depth {@link DepthCounter} container for current depths of both transaction cursors
+   * @param depth  {@link DepthCounter} container for current depths of both transaction cursors
    * @return kind of diff
    */
   private DiffType diffAlgorithm(final R newRtx, final R oldRtx, final DepthCounter depth) {
@@ -548,15 +586,9 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param diff kind of diff
    */
   private void emitDiffs(final DiffType diff) {
-    final Revision revision = diff == DiffType.DELETED
-        ? Revision.OLD
-        : Revision.NEW;
-    final int depth = diff == DiffType.DELETED
-        ? mDepth.getOldDepth()
-        : mDepth.getNewDepth();
-    final R rtx = diff == DiffType.DELETED
-        ? mOldRtx
-        : mNewRtx;
+    final Revision revision = diff == DiffType.DELETED ? Revision.OLD : Revision.NEW;
+    final int depth = diff == DiffType.DELETED ? mDepth.getOldDepth() : mDepth.getNewDepth();
+    final R rtx = diff == DiffType.DELETED ? mOldRtx : mNewRtx;
 
     if (mSkipSubtrees) {
       final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
@@ -568,9 +600,9 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         final DiffDepth diffDepth = new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth());
         fireDiff(diff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(), diffDepth);
         emitNonStructuralDiff(mNewRtx, mOldRtx, diffDepth, diff);
-      } while (moveCursor(rtx, revision, Move.DOCUMENT_ORDER)
-          && ((diff == DiffType.INSERTED && mDepth.getNewDepth() > depth)
-              || (diff == DiffType.DELETED && mDepth.getOldDepth() > depth)));
+      } while (moveCursor(rtx, revision, Move.DOCUMENT_ORDER) && (
+        (diff == DiffType.INSERTED && mDepth.getNewDepth() > depth) || (diff == DiffType.DELETED
+          && mDepth.getOldDepth() > depth)));
     }
   }
 
@@ -598,10 +630,11 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
 
   /**
    * Emit non structural diffs, that is for XML attribute- and namespace- nodes.
+   *
    * @param newRtx transactional cursor on new revision
    * @param oldRtx transactional cursor on old revision
-   * @param depth the current depth
-   * @param diff the diff type
+   * @param depth  the current depth
+   * @param diff   the diff type
    */
   abstract void emitNonStructuralDiff(final R newRtx, final R oldRtx, final DiffDepth depth, final DiffType diff);
 
@@ -620,7 +653,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       final long oldKey = oldRtx.getNodeKey();
       boolean movedOldRtx = oldRtx.moveToRightSibling().hasMoved();
       if (movedNewRtx && movedOldRtx && newRtx.getNodeKey() == oldRtx.getNodeKey()) {
-          replaced = true;
+        replaced = true;
       } else if (!movedNewRtx && !movedOldRtx && (mDiff == DiffType.SAME || mDiff == DiffType.SAMEHASH)) {
         movedNewRtx = newRtx.moveToParent().hasMoved();
         movedOldRtx = oldRtx.moveToParent().hasMoved();
@@ -680,11 +713,12 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   /**
    * Adjust the depth.
    *
-   * @param rtx the transaction to simulate moves
+   * @param rtx          the transaction to simulate moves
    * @param startNodeKey the start node key
-   * @param revision revision to iterate over
+   * @param revision     revision to iterate over
    */
-  private void adjustDepth(final R rtx, final @Nonnegative long startNodeKey, final Revision revision) {
+  private void adjustDepth(final R rtx, final @Nonnegative
+    long startNodeKey, final Revision revision) {
     assert rtx != null;
     assert revision != null;
     final long nodeKey = rtx.getNodeKey();
@@ -729,7 +763,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
       return newRtx.getNodeKey() == oldRtx.getNodeKey();
     }
     return newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
-        && mDepth.getNewDepth() == mDepth.getOldDepth();
+      && mDepth.getNewDepth() == mDepth.getOldDepth();
   }
 
   /**
@@ -738,12 +772,13 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param newRtx read-only transaction on new revision
    * @param oldRtx read-only transaction on old revision
    * @return {@code true} if nodes are "equal" according to their names or values, depending on the type, {@code false}
-   *         otherwise
+   * otherwise
    */
   abstract boolean checkNodeNamesOrValues(R newRtx, R oldRtx);
 
   /**
    * Get the document node kind.
+   *
    * @return the document node kind
    */
   abstract NodeKind documentNode();
