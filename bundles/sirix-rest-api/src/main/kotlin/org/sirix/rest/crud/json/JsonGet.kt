@@ -135,7 +135,7 @@ class JsonGet(private val location: Path) {
     }
 
     suspend fun xquery(
-            query: String, node: Item, routingContext: RoutingContext, vertxContext: Context,
+            query: String, node: Item?, routingContext: RoutingContext, vertxContext: Context,
             user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?
     ) {
         vertxContext.executeBlockingAwait { promise: Promise<Nothing> ->
