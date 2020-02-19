@@ -13,6 +13,7 @@ import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
+import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import javax.xml.stream.XMLEventReader
 
@@ -80,7 +81,7 @@ class XmlUpdate(private val location: Path) {
                 val manager = database.openResourceManager(resPathName)
 
                 val wtx = manager.beginNodeTrx()
-                wtx.use {
+                val (maxNodeKey, hash) = wtx.use {
                     if (nodeId != null)
                         wtx.moveTo(nodeId)
 
@@ -105,13 +106,32 @@ class XmlUpdate(private val location: Path) {
                         XmlInsertionMode.getInsertionModeByName(insertionMode).insert(wtx, xmlReader)
                     else
                         wtx.replaceNode(xmlReader)
+
+                    if (nodeId != null)
+                        wtx.moveTo(nodeId)
+
+                    if (wtx.isDocumentRoot && wtx.hasFirstChild())
+                        wtx.moveToFirstChild()
+
+                    Pair(wtx.maxNodeKey, wtx.hash)
                 }
 
-                val out = ByteArrayOutputStream()
-                val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
-                val serializer = serializerBuilder.startNodeKey(nodeId!!).emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
+                if (maxNodeKey > 5000) {
+                    ctx.response().statusCode = 200
 
-                XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+                    if (manager.resourceConfig.hashType == HashType.NONE) {
+                        ctx.response().end()
+                    } else {
+                        ctx.response().putHeader(HttpHeaders.ETAG, hash.toString()).end()
+                    }
+                } else {
+                    val out = ByteArrayOutputStream()
+                    val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
+
+                    val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
+
+                    XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
+                }
             }
 
             promise.complete(null)

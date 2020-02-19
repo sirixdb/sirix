@@ -677,7 +677,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 100000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the update of a resource")
     fun testPost(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
