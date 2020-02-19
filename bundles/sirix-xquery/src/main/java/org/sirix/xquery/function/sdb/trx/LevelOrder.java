@@ -17,7 +17,7 @@ import org.sirix.xquery.StructuredDBItem;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.json.JsonDBItem;
-import org.sirix.xquery.json.JsonUtil;
+import org.sirix.xquery.json.JsonItemFactory;
 import org.sirix.xquery.node.XmlDBNode;
 import org.sirix.xquery.stream.node.SirixNodeStream;
 
@@ -37,7 +37,7 @@ public final class LevelOrder extends AbstractFunction {
   /** Get most recent revision function name. */
   public final static QNm LEVEL_ORDER = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "level-order");
 
-  private JsonUtil util;
+  private JsonItemFactory util;
 
   /**
    * Constructor.
@@ -48,10 +48,10 @@ public final class LevelOrder extends AbstractFunction {
   public LevelOrder(final QNm name, final Signature signature) {
     super(name, signature, true);
 
-    util = new JsonUtil();
+    util = new JsonItemFactory();
   }
 
-  void setJsonUtil(JsonUtil util) {
+  void setJsonUtil(JsonItemFactory util) {
     this.util = util;
   }
 

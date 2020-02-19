@@ -41,7 +41,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonObjectValueDBArray.class));
 
-  /** Sirix {@link v}. */
+  /** Sirix read-only transaction. */
   private final JsonNodeReadOnlyTrx mRtx;
 
   /** Sirix node key. */
@@ -56,7 +56,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
   /** Determines if write-transaction is present. */
   private final boolean mIsWtx;
 
-  private JsonUtil mJsonUtil;
+  private JsonItemFactory mJsonUtil;
 
   /**
    * Constructor.
@@ -72,7 +72,7 @@ public final class JsonObjectValueDBArray extends AbstractItem
 
     assert mRtx.isObject();
     mKind = NodeKind.ARRAY;
-    mJsonUtil = new JsonUtil();
+    mJsonUtil = new JsonItemFactory();
   }
 
   @Override

@@ -35,6 +35,7 @@ class Delete(private val location: Path) {
 
             val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
 
+            @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA")
             when (databaseType) {
                 DatabaseType.JSON -> JsonDelete(location).handle(ctx)
                 DatabaseType.XML -> XmlDelete(location).handle(ctx)

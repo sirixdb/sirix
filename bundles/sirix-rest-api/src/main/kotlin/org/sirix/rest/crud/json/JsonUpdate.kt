@@ -96,7 +96,7 @@ class JsonUpdate(private val location: Path) {
 
                 val out = StringWriter()
                 val serializerBuilder = JsonSerializer.newBuilder(manager, out)
-                val serializer = serializerBuilder.build()
+                val serializer = serializerBuilder.startNodeKey(nodeId!!).build()
 
                 JsonSerializeHelper().serialize(serializer, out, ctx, manager, nodeId)
             }

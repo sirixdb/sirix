@@ -32,7 +32,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.NullNode;
-import org.sirix.node.immutable.xdm.ImmutableDocumentNode;
+import org.sirix.node.immutable.xml.ImmutableDocumentNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;

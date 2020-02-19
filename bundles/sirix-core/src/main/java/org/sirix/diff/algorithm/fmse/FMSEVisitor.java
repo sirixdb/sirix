@@ -27,10 +27,10 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.NodeKind;
-import org.sirix.node.immutable.xdm.ImmutableComment;
-import org.sirix.node.immutable.xdm.ImmutableElement;
-import org.sirix.node.immutable.xdm.ImmutablePI;
-import org.sirix.node.immutable.xdm.ImmutableText;
+import org.sirix.node.immutable.xml.ImmutableComment;
+import org.sirix.node.immutable.xml.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutablePI;
+import org.sirix.node.immutable.xml.ImmutableText;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**

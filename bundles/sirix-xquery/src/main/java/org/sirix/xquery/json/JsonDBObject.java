@@ -57,7 +57,7 @@ public final class JsonDBObject extends AbstractItem
   /** Determines if write-transaction is present. */
   private final boolean mIsWtx;
 
-  private JsonUtil mJsonUtil;
+  private JsonItemFactory mJsonUtil;
 
 
   /**
@@ -76,7 +76,7 @@ public final class JsonDBObject extends AbstractItem
 
     mNodeKey = mRtx.getNodeKey();
     mKind = mRtx.getKind();
-    mJsonUtil = new JsonUtil();
+    mJsonUtil = new JsonItemFactory();
   }
 
   @Override
@@ -93,9 +93,9 @@ public final class JsonDBObject extends AbstractItem
 
 
   /**
-   * Create a new {@link IReadTransaction} and move to {@link mKey}.
+   * Move the transaction to {@code nodeKey}.
    *
-   * @return new read transaction instance which is moved to {@link mKey}
+   * @return new read transaction instance which is moved to {@code nodeKey}
    */
   private final void moveRtx() {
     mRtx.moveTo(mNodeKey);

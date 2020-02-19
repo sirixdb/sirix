@@ -50,7 +50,7 @@ public final class JsonDBArraySlice extends AbstractItem
   /** Determines if write-transaction is present. */
   private final boolean mIsWtx;
 
-  private final JsonUtil mJsonUtil;
+  private final JsonItemFactory mJsonUtil;
 
   private final int mFromIndex;
 
@@ -78,7 +78,7 @@ public final class JsonDBArraySlice extends AbstractItem
 
     mNodeKey = mRtx.getNodeKey();
 
-    mJsonUtil = new JsonUtil();
+    mJsonUtil = new JsonItemFactory();
 
     if ((fromIndex < 0) || (fromIndex > toIndex) || (fromIndex >= mRtx.getChildCount())) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array start index: %s", fromIndex);

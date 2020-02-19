@@ -4,8 +4,8 @@ import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
 import org.sirix.index.cas.CASIndexBuilder;
-import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
-import org.sirix.node.immutable.xdm.ImmutableText;
+import org.sirix.node.immutable.xml.ImmutableAttributeNode;
+import org.sirix.node.immutable.xml.ImmutableText;
 
 /**
  * Builds a content-and-structure (CAS) index.

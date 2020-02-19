@@ -22,6 +22,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.stream.Collectors
 
+@Suppress("RedundantLambdaArrow")
 class Get(private val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext

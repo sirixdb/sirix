@@ -25,7 +25,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.NodeKind;
 import org.sirix.node.immutable.json.ImmutableArrayNode;
 import org.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;

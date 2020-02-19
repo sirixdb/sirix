@@ -3,8 +3,8 @@ package org.sirix.index.path.xml;
 import org.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.index.path.PathIndexBuilder;
-import org.sirix.node.immutable.xdm.ImmutableAttributeNode;
-import org.sirix.node.immutable.xdm.ImmutableElement;
+import org.sirix.node.immutable.xml.ImmutableAttributeNode;
+import org.sirix.node.immutable.xml.ImmutableElement;
 
 public final class XmlPathIndexBuilder extends AbstractXmlNodeVisitor {
 

@@ -8,13 +8,14 @@ import org.brackit.xquery.atomic.Flt;
 import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.Int64;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.xdm.Item;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.api.json.JsonNodeReadOnlyTrx;
 
-public final class JsonUtil {
-  public JsonUtil() {}
+public final class JsonItemFactory {
+  public JsonItemFactory() {}
 
-  public Sequence getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+  public Item getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     switch (rtx.getKind()) {
       case ARRAY:
         return new JsonDBArray(rtx, collection);
