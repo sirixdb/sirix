@@ -49,7 +49,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
    */
   @Override
   public String generateDiff(JsonResourceManager resourceManager, int oldRevisionNumber, int newRevisionNumber) {
-    return generateDiff(resourceManager, oldRevisionNumber, newRevisionNumber, 0);
+    return generateDiff(resourceManager, oldRevisionNumber, newRevisionNumber, 0, 0);
   }
 
   /**
@@ -58,33 +58,40 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
    * @param resourceManager   the resource manager to use
    * @param oldRevisionNumber the revision number of the older revision
    * @param newRevisionNumber the revision number of the newer revision
+   * @param startNodeKey      the start node key
+   * @param maxDepth          the maximum depth
    * @return a JSON-String describing the differences encountered between the two revisions
    */
   @Override
   public String generateDiff(JsonResourceManager resourceManager, int oldRevisionNumber, int newRevisionNumber,
-      long startNodeKey) {
+      long startNodeKey, long maxDepth) {
     diffs.clear();
 
     final var databaseName = resourceManager.getDatabase().getName();
     final var resourceName = resourceManager.getResourceConfig().getName();
 
-    DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(resourceManager, newRevisionNumber, oldRevisionNumber,
-                                                         resourceManager.getResourceConfig().hashType == HashType.NONE
-                                                             ? DiffFactory.DiffOptimized.NO
-                                                             : DiffFactory.DiffOptimized.HASHED,
-                                                         ImmutableSet.of(this)).skipSubtrees(true).newStartKey(startNodeKey).oldStartKey(startNodeKey));
+    DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(resourceManager,
+        newRevisionNumber,
+        oldRevisionNumber,
+        resourceManager.getResourceConfig().hashType == HashType.NONE
+            ? DiffFactory.DiffOptimized.NO
+            : DiffFactory.DiffOptimized.HASHED,
+        ImmutableSet.of(this)).skipSubtrees(true)
+                              .newStartKey(startNodeKey)
+                              .oldStartKey(startNodeKey)
+                              .oldMaxDepth(maxDepth));
 
     final var json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
 
-    if (diffs.size() == 1 && (diffs.get(0).getDiff() == DiffFactory.DiffType.SAMEHASH || diffs.get(0).getDiff()
-        == DiffFactory.DiffType.SAME)) {
+    if (diffs.size() == 1 && (diffs.get(0).getDiff() == DiffFactory.DiffType.SAMEHASH
+        || diffs.get(0).getDiff() == DiffFactory.DiffType.SAME)) {
       return json.toString();
     }
 
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
     try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
-        final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
+         final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
 
       final Iterator<DiffTuple> iter = diffs.iterator();
       while (iter.hasNext()) {
@@ -122,7 +129,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
             jsonInsertDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
             jsonInsertDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
             jsonInsertDiff.addProperty("insertPositionNodeKey",
-                                       newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
+                newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
             jsonInsertDiff.addProperty("insertPosition", insertPosition);
 
             addTypeAndDataProperties(newRevisionNumber, resourceManager, newRtx, jsonInsertDiff);
@@ -160,19 +167,18 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
             if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
               jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
             } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
-              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
+              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
                 jsonUpdateDiff.addProperty("type", "boolean");
                 jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
               } else if (newRtx.getKind() == NodeKind.STRING_VALUE
-                         || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+                  || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
                 jsonUpdateDiff.addProperty("type", "string");
                 jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE
-                         || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
                 jsonUpdateDiff.addProperty("type", "null");
                 jsonUpdateDiff.add("value", null);
-              } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
+                  || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
                 jsonUpdateDiff.addProperty("type", "number");
                 jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
               }
@@ -214,8 +220,9 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   private void serialize(int newRevision, JsonResourceManager resourceManager, JsonNodeReadOnlyTrx newRtx,
       JsonObject jsonReplaceDiff) {
     try (final var writer = new StringWriter()) {
-      final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(
-          newRtx.getNodeKey()).build();
+      final var serializer = JsonSerializer.newBuilder(resourceManager, writer, newRevision)
+                                           .startNodeKey(newRtx.getNodeKey())
+                                           .build();
       serializer.call();
       jsonReplaceDiff.addProperty("data", writer.toString());
     } catch (final IOException e) {
@@ -236,8 +243,11 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   }
 
   @Override
-  public void diffListener(@Nonnull final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
-      @Nonnull final DiffDepth depth) {
+  public void diffListener(
+      @Nonnull
+      final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
+      @Nonnull
+      final DiffDepth depth) {
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 

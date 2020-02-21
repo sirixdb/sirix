@@ -2,10 +2,15 @@ package org.sirix.rest.crud.json
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
+import io.vertx.core.file.OpenOptions
+import io.vertx.core.file.impl.FileResolver
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
-import io.vertx.kotlin.core.file.readFileAwait
+import io.vertx.kotlin.core.file.deleteAwait
+import io.vertx.kotlin.core.file.openAwait
+import io.vertx.kotlin.core.http.pipeToAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -19,20 +24,12 @@ import org.sirix.rest.crud.SirixDBUser
 import org.sirix.service.json.serialize.JsonSerializer
 import org.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
 class JsonCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
-
-        if (createMultipleResources) {
-            createMultipleResources(databaseName, ctx)
-            ctx.response().setStatusCode(201).end()
-            return ctx.currentRoute()
-        }
-
         val resource = ctx.pathParam("resource")
 
         if (resource == null) {
@@ -43,13 +40,17 @@ class JsonCreate(private val location: Path, private val createMultipleResources
             return ctx.currentRoute()
         }
 
-        val resToStore = ctx.bodyAsString
-
-        if (databaseName == null || resToStore == null || resToStore.isBlank()) {
+        if (databaseName == null) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
         }
 
-        shredder(databaseName, resource, resToStore, ctx)
+        if (createMultipleResources) {
+            createMultipleResources(databaseName, ctx)
+            ctx.response().setStatusCode(201).end()
+            return ctx.currentRoute()
+        }
+
+        shredder(databaseName, resource, ctx)
 
         return ctx.currentRoute()
     }
@@ -64,6 +65,8 @@ class JsonCreate(private val location: Path, private val createMultipleResources
         val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
         database.use {
+            BodyHandler.create().handle(ctx)
+            val fileResolver = FileResolver()
             ctx.fileUploads().forEach { fileUpload ->
                 val fileName = fileUpload.fileName()
                 val resConfig = ResourceConfiguration.Builder(fileName).build()
@@ -73,48 +76,57 @@ class JsonCreate(private val location: Path, private val createMultipleResources
                 val manager = database.openResourceManager(fileName)
 
                 manager.use {
-                    val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
-                    insertJsonSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8))
+                    insertJsonSubtreeAsFirstChild(manager, fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath())
                 }
             }
         }
     }
 
     private suspend fun shredder(
-        databaseName: String, resPathName: String = databaseName, resFileToStore: String,
-        ctx: RoutingContext
+            databaseName: String, resPathName: String = databaseName,
+            ctx: RoutingContext
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
+        ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
+        ctx.request().resume()
 
-        insertResource(dbFile, resPathName, dispatcher, resFileToStore, ctx)
+        insertResource(dbFile, resPathName, dispatcher, ctx)
     }
 
     private suspend fun insertResource(
-        dbFile: Path?, resPathName: String,
-        dispatcher: CoroutineDispatcher,
-        resFileToStore: String,
-        ctx: RoutingContext
+            dbFile: Path?, resPathName: String,
+            dispatcher: CoroutineDispatcher,
+            ctx: RoutingContext
     ) {
-        val sirixDBUser = SirixDBUser.create(ctx)
-        val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
+        ctx.request().pause()
+        val file = ctx.vertx().fileSystem().openAwait("temp.json", OpenOptions())
+        ctx.request().resume()
+        ctx.request().pipeToAwait(file)
 
-        database.use {
-            val resConfig = ResourceConfiguration.Builder(resPathName).build()
+        withContext(Dispatchers.IO) {
+            val sirixDBUser = SirixDBUser.create(ctx)
+            val database = Databases.openJsonDatabase(dbFile, sirixDBUser)
 
-            createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+            database.use {
+                val fileResolver = FileResolver()
+                val resConfig = ResourceConfiguration.Builder(resPathName).build()
+                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+                val manager = database.openResourceManager(resPathName)
 
-            val manager = database.openResourceManager(resPathName)
+                manager.use {
+                    val pathToFile = fileResolver.resolveFile("temp.json").toPath()
+                    val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-            manager.use {
-                val maxNodeKey = insertJsonSubtreeAsFirstChild(manager, resFileToStore)
+                    ctx.vertx().fileSystem().deleteAwait("temp.json")
 
-                if (maxNodeKey < 5000) {
-                    serializeJson(manager, ctx)
-                } else {
-                    ctx.response().setStatusCode(200).end()
+                    if (maxNodeKey < 5000) {
+                        serializeJson(manager, ctx)
+                    } else {
+                        ctx.response().setStatusCode(200).end()
+                    }
                 }
             }
         }
@@ -131,8 +143,8 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun createDatabaseIfNotExists(
-        dbFile: Path,
-        context: Context
+            dbFile: Path,
+            context: Context
     ): DatabaseConfiguration? {
         return context.executeBlockingAwait { promise: Promise<DatabaseConfiguration> ->
             val dbExists = Files.exists(dbFile)
@@ -152,9 +164,9 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun createOrRemoveAndCreateResource(
-        database: Database<JsonResourceManager>,
-        resConfig: ResourceConfiguration?,
-        resPathName: String, dispatcher: CoroutineDispatcher
+            database: Database<JsonResourceManager>,
+            resConfig: ResourceConfiguration?,
+            resPathName: String, dispatcher: CoroutineDispatcher
     ) {
         withContext(dispatcher) {
             if (!database.createResource(resConfig)) {
@@ -165,13 +177,13 @@ class JsonCreate(private val location: Path, private val createMultipleResources
     }
 
     private suspend fun insertJsonSubtreeAsFirstChild(
-        manager: JsonResourceManager,
-        resFileToStore: String
-    ) : Long {
+            manager: JsonResourceManager,
+            resFileToStore: Path
+    ): Long {
         return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
             return@withContext wtx.use {
-                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(resFileToStore))
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(resFileToStore))
                 return@use wtx.maxNodeKey
             }
         }

@@ -19,7 +19,6 @@ import org.sirix.service.json.serialize.StringValue
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.stream.Collectors
 
 @Suppress("RedundantLambdaArrow")
@@ -80,11 +79,17 @@ class Get(private val location: Path) {
             }
         } else if (databaseName != null && resourceName == null) {
             val buffer = StringBuilder()
-            buffer.append("{\"resources\":[")
+            buffer.append("{")
+            emitResourcesOfDatabase(buffer, location.resolve(databaseName), ctx)
+            buffer.append("}")
 
-            emitResourcesOfDatabase(buffer, Paths.get(databaseName), ctx)
+            val content = buffer.toString()
 
-            buffer.append("]}")
+            ctx.response().setStatusCode(200)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+                    .write(content)
+                    .end()
         } else {
             with(acceptHeader) {
                 @Suppress("IMPLICIT_CAST_TO_ANY")
@@ -119,6 +124,7 @@ class Get(private val location: Path) {
 
                     val withResources = ctx.queryParam("withResources")
                     if (withResources.isNotEmpty() && withResources[0]!!.toBoolean()) {
+                        buffer.append(",")
                         emitResourcesOfDatabase(buffer, databaseName, ctx)
                     }
                     buffer.append("}")
@@ -145,8 +151,6 @@ class Get(private val location: Path) {
             databaseName: Path,
             ctx: RoutingContext
     ) {
-        buffer.append(",")
-
         try {
             val database = Databases.openJsonDatabase(location.resolve(databaseName))
 
