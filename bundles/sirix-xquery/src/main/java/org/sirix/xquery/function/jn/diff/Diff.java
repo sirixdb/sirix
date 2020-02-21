@@ -75,7 +75,7 @@ public final class Diff extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 4) {
+    if (args.length < 4 || args.length > 7) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 

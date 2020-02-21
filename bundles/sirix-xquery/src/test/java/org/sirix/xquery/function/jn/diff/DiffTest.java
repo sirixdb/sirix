@@ -2,7 +2,6 @@ package org.sirix.xquery.function.jn.diff;
 
 import org.brackit.xquery.XQuery;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.JsonTestHelper;
@@ -17,10 +16,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static org.junit.Assert.assertEquals;
 
 public final class DiffTest {
 
-  private static final String FIRST_DIFF = "{\"database\":\"json-path1\",\"resource\":\"shredded\",\"old-revision\":1,\"new-revision\":3,\"diffs\":[{\"insert\":{\"oldNodeKey\":2,\"newNodeKey\":26,\"insertPositionNodeKey\":1,\"insertPosition\":\"asFirstChild\",\"type\":\"jsonFragment\",\"data\":\"{\\\"tadaaa\\\":\\\"todooo\\\"}\"}},{\"insert\":{\"oldNodeKey\":5,\"newNodeKey\":31,\"insertPositionNodeKey\":4,\"insertPosition\":\"asRightSibling\",\"type\":\"boolean\",\"data\":false}},{\"replace\":{\"oldNodeKey\":5,\"newNodeKey\":28,\"type\":\"jsonFragment\",\"data\":\"{\\\"test\\\":1}\"}},{\"update\":{\"nodeKey\":6,\"type\":\"number\",\"value\":1.2}},{\"delete\":9},{\"delete\":13},{\"update\":{\"nodeKey\":15,\"name\":\"tadaa\"}},{\"update\":{\"nodeKey\":22,\"type\":\"boolean\",\"value\":true}}]}";
+  private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
   @Before
   public void setUp() {
@@ -80,8 +84,20 @@ public final class DiffTest {
       try (final var out = new ByteArrayOutputStream()) {
         new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
         final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        System.out.println(content);
-        Assert.assertEquals(FIRST_DIFF, content);
+        assertEquals(Files.readString(JSON.resolve("diff.json"), StandardCharsets.UTF_8), content);
+      }
+
+      queryBuilder.setLength(0);
+      queryBuilder.append("jn:diff('");
+      queryBuilder.append(databaseName);
+      queryBuilder.append("','");
+      queryBuilder.append(resourceName);
+      queryBuilder.append("',1,3,3,0)");
+
+      try (final var out = new ByteArrayOutputStream()) {
+        new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
+        final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        assertEquals(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8), content);
       }
     }
   }
