@@ -371,15 +371,14 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
         default:
       }
     }
-
     return moved;
   }
 
   private boolean moveToNext(final R rtx, final Revision revision) {
     boolean moved = false;
     if (rtx.hasFirstChild()) {
-      if (rtx.getKind() != documentNode() && mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH && (
-        mOldMaxDepth == 0 || mOldMaxDepth > 0 && mDepth.getOldDepth() <= mOldMaxDepth)) {
+      if (rtx.getKind() != documentNode() && ((mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) || (
+        mOldMaxDepth > 0 && rtx.getKind() != NodeKind.OBJECT_KEY && mDepth.getOldDepth() + 1 >= mOldMaxDepth))) {
         moved = rtx.moveToRightSibling().hasMoved();
 
         if (!moved) {
