@@ -15,6 +15,7 @@ import io.vertx.kotlin.ext.auth.isAuthorizedAwait
  */
 class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
     suspend fun handle(ctx: RoutingContext): Route {
+        ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
 
         val tokenToAuthenticate = json {
@@ -41,6 +42,7 @@ class Auth(private val keycloak: OAuth2Auth, private val role: AuthRole) {
 
         ctx.put("user", user)
 
+        ctx.request().resume()
         return ctx.currentRoute()
     }
 }

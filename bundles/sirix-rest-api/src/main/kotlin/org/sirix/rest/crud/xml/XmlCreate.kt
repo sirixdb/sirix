@@ -2,10 +2,16 @@ package org.sirix.rest.crud.xml
 
 import io.vertx.core.Context
 import io.vertx.core.Promise
+import io.vertx.core.file.OpenOptions
+import io.vertx.core.file.impl.FileResolver
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.BodyHandler
 import io.vertx.kotlin.core.executeBlockingAwait
+import io.vertx.kotlin.core.file.deleteAwait
+import io.vertx.kotlin.core.file.openAwait
 import io.vertx.kotlin.core.file.readFileAwait
+import io.vertx.kotlin.core.http.pipeToAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +27,7 @@ import org.sirix.service.json.shredder.JsonShredder
 import org.sirix.service.xml.serialize.XmlSerializer
 import org.sirix.service.xml.shredder.XmlShredder
 import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -28,13 +35,6 @@ import java.nio.file.Path
 class XmlCreate(private val location: Path, private val createMultipleResources: Boolean = false) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
-
-        if (createMultipleResources) {
-            createMultipleResources(databaseName, ctx)
-            ctx.response().setStatusCode(201).end()
-            return ctx.currentRoute()
-        }
-
         val resource = ctx.pathParam("resource")
 
         if (resource == null) {
@@ -45,13 +45,17 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
             return ctx.currentRoute()
         }
 
-        val resToStore = ctx.bodyAsString
-
-        if (databaseName == null || resToStore == null || resToStore.isBlank()) {
+        if (databaseName == null) {
             ctx.fail(IllegalArgumentException("Database name and resource data to store not given."))
         }
 
-        shredder(databaseName, resource, resToStore, ctx)
+        if (createMultipleResources) {
+            createMultipleResources(databaseName, ctx)
+            ctx.response().setStatusCode(201).end()
+            return ctx.currentRoute()
+        }
+
+        shredder(databaseName, resource, ctx)
 
         return ctx.currentRoute()
     }
@@ -63,10 +67,11 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
         createDatabaseIfNotExists(dbFile, context)
 
         val sirixDBUser = SirixDBUser.create(ctx)
-
         val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
         database.use {
+            BodyHandler.create().handle(ctx)
+            val fileResolver = FileResolver()
             ctx.fileUploads().forEach { fileUpload ->
                 val fileName = fileUpload.fileName()
                 val resConfig = ResourceConfiguration.Builder(fileName).build()
@@ -76,48 +81,57 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
                 val manager = database.openResourceManager(fileName)
 
                 manager.use {
-                    val buffer = ctx.vertx().fileSystem().readFileAwait(fileUpload.uploadedFileName())
-                    insertXmlSubtreeAsFirstChild(manager, buffer.toString(StandardCharsets.UTF_8))
+                    insertXmlSubtreeAsFirstChild(manager, fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath())
                 }
             }
         }
     }
 
     private suspend fun shredder(
-        databaseName: String, resPathName: String = databaseName, resFileToStore: String,
+        databaseName: String, resPathName: String = databaseName,
         ctx: RoutingContext
     ) {
         val dbFile = location.resolve(databaseName)
         val context = ctx.vertx().orCreateContext
         val dispatcher = ctx.vertx().dispatcher()
+        ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
+        ctx.request().resume()
 
-        insertResource(dbFile, resPathName, dispatcher, resFileToStore, ctx)
+        insertResource(dbFile, resPathName, dispatcher, ctx)
     }
 
     private suspend fun insertResource(
-        dbFile: Path?, resPathName: String,
-        dispatcher: CoroutineDispatcher,
-        resFileToStore: String,
-        ctx: RoutingContext
+            dbFile: Path?, resPathName: String,
+            dispatcher: CoroutineDispatcher,
+            ctx: RoutingContext
     ) {
-        val sirixDBUser = SirixDBUser.create(ctx)
-        val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
+        ctx.request().pause()
+        val file = ctx.vertx().fileSystem().openAwait("temp.json", OpenOptions())
+        ctx.request().resume()
+        ctx.request().pipeToAwait(file)
 
-        database.use {
-            val resConfig = ResourceConfiguration.Builder(resPathName).build()
+        withContext(Dispatchers.IO) {
+            val sirixDBUser = SirixDBUser.create(ctx)
+            val database = Databases.openXmlDatabase(dbFile, sirixDBUser)
 
-            createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+            database.use {
+                val fileResolver = FileResolver()
+                val resConfig = ResourceConfiguration.Builder(resPathName).build()
+                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+                val manager = database.openResourceManager(resPathName)
 
-            val manager = database.openResourceManager(resPathName)
+                manager.use {
+                    val pathToFile = fileResolver.resolveFile("temp.json").toPath()
+                    val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath())
 
-            manager.use {
-                val maxNodeKey = insertXmlSubtreeAsFirstChild(manager, resFileToStore)
+                    ctx.vertx().fileSystem().deleteAwait("temp.json")
 
-                if (maxNodeKey < 5000) {
-                    serializeXml(manager, ctx)
-                } else {
-                    ctx.response().setStatusCode(200).end()
+                    if (maxNodeKey < 5000) {
+                        serializeXml(manager, ctx)
+                    } else {
+                        ctx.response().setStatusCode(200).end()
+                    }
                 }
             }
         }
@@ -172,13 +186,16 @@ class XmlCreate(private val location: Path, private val createMultipleResources:
 
     private suspend fun insertXmlSubtreeAsFirstChild(
             manager: XmlResourceManager,
-            resFileToStore: String
+            resFileToStore: Path
     ) : Long {
         return withContext(Dispatchers.IO) {
             val wtx = manager.beginNodeTrx()
             return@withContext wtx.use {
-                wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(resFileToStore))
-                return@use wtx.maxNodeKey
+                val inputStream = FileInputStream(resFileToStore.toFile())
+                return@use inputStream.use {
+                    wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(inputStream))
+                    return@use wtx.maxNodeKey
+                }
             }
         }
     }
