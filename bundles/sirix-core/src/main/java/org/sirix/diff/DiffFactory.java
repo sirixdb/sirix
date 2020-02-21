@@ -256,7 +256,7 @@ public final class DiffFactory {
      * @return this builder
      */
     public Builder<R, W> oldMaxDepth(final @Nonnegative long oldMaxDepth) {
-      checkArgument(oldMaxDepth > 0, "oldMaxDepth must be > 0!");
+      checkArgument(oldMaxDepth >= 0, "oldMaxDepth must be >= 0!");
       mOldMaxDepth = oldMaxDepth;
       return this;
     }
