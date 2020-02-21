@@ -99,6 +99,20 @@ public final class DiffTest {
         final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
         assertEquals(Files.readString(JSON.resolve("diff-with-startnodekey.json"), StandardCharsets.UTF_8), content);
       }
+
+      queryBuilder.setLength(0);
+      queryBuilder.append("jn:diff('");
+      queryBuilder.append(databaseName);
+      queryBuilder.append("','");
+      queryBuilder.append(resourceName);
+      queryBuilder.append("',1,3,0,2)");
+
+      try (final var out = new ByteArrayOutputStream()) {
+        new XQuery(chain, queryBuilder.toString()).serialize(ctx, new PrintStream(out));
+        final var content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        System.out.println(content);
+        assertEquals(Files.readString(JSON.resolve("diff-with-maxlevel.json"), StandardCharsets.UTF_8), content);
+      }
     }
   }
 }
