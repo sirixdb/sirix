@@ -49,13 +49,13 @@ import org.sirix.xquery.json.JsonDBCollection;
  * </p>
  *
  * <pre>
- * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int) as xs:string</code>
+ * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int, $startNodeKey as xs:int?, $maxLevel as xs:int?) as xs:string</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(description = "Diffing of two versions of a resource.", parameters = {
-    "$coll, $res, $rev1, $rev2" })
+    "$coll, $res, $rev1, $rev2, $startNodeKey, $maxLevel" })
 public final class Diff extends AbstractFunction {
 
   /**
@@ -86,12 +86,14 @@ public final class Diff extends AbstractFunction {
     }
 
     final var expResName = ((Str) args[1]).stringValue();
-    final var oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, false);
-    final var newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, false);
+    final var oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, true);
+    final var newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, true);
+    final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
+    final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var doc = col.getDocument(expResName);
 
     final JsonDiff jsonDiff = new BasicJsonDiff();
 
-    return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision));
+    return new Str(jsonDiff.generateDiff(doc.getResourceManager(), oldRevision, newRevision, startNodeKey, maxLevel));
   }
 }
