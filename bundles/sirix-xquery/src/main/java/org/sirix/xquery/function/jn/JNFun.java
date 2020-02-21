@@ -179,5 +179,9 @@ public final class JNFun {
     // diff
     Functions.predefine(new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
                                                      SequenceType.INTEGER, SequenceType.INTEGER)));
+    Functions.predefine(new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
+        SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
+    Functions.predefine(new Diff(DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
+        SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
   }
 }
